@@ -168,3 +168,47 @@ export function waveSyncTime(node) {
   const t = node?.__waveSyncTime;
   return typeof t === 'number' && Number.isFinite(t) ? t : 0;
 }
+
+/** Default numeric resolution for a Wave param: plain numbers only, `def` for anything else. */
+export const WAVE_PARAM_DEFAULTS = {
+  frequency: 1, amplitude: 1, offset: 0, phase: 0, pulseWidth: 0.5,
+};
+
+function plainNumber(node, name, def) {
+  const raw = node?.params?.[name];
+  const value = typeof raw === 'number' ? raw : parseFloat(raw);
+  return Number.isFinite(value) ? value : def;
+}
+
+/**
+ * This Wave's value RIGHT NOW, straight from the clock.
+ *
+ * The point of this over reading node.__preview is cadence: the preview pass is throttled to
+ * ~10fps, so anything resolving a `=node_<wave>` reference through it moves in visible steps and —
+ * where a cached render is keyed off that value (FragmentTextureRenderer's render hash, which
+ * decides whether the texture bridged into a compute node is re-rendered) — updates only as often
+ * as the preview does. A wave is pure maths on the clock, so it can always be evaluated exactly,
+ * and it should be.
+ *
+ * `resolveParam(node, name, default)` lets a caller that can evaluate `=expr` params (the parameter
+ * panel, the CPU signal evaluators) pass its own resolver; the default reads plain numbers and
+ * falls back to the parameter's default for anything else.
+ *
+ * @param {object} node - a Wave node
+ * @param {number} time - current animation time in seconds (the same clock as g.time)
+ * @param {(node: object, name: string, def: number) => number} [resolveParam]
+ * @returns {number}
+ */
+export function evaluateWaveNode(node, time, resolveParam = plainNumber) {
+  return evaluateWave({
+    shape: node?.params?.shape,
+    time,
+    syncTime: waveSyncTime(node),
+    frequency: resolveParam(node, 'frequency', WAVE_PARAM_DEFAULTS.frequency),
+    phase: resolveParam(node, 'phase', WAVE_PARAM_DEFAULTS.phase),
+    amplitude: resolveParam(node, 'amplitude', WAVE_PARAM_DEFAULTS.amplitude),
+    offset: resolveParam(node, 'offset', WAVE_PARAM_DEFAULTS.offset),
+    pulseWidth: resolveParam(node, 'pulseWidth', WAVE_PARAM_DEFAULTS.pulseWidth),
+    unipolar: isWaveUnipolar(node),
+  });
+}
