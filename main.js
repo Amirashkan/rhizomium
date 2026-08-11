@@ -11,6 +11,7 @@ import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
 import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
+import { StatusBar } from './src/ui/StatusBar.js';
 import { TauriSecondMonitorViewer } from "./src/ui/TauriSecondMonitorViewer.js";
 import { isViteBuild } from "./src/utils/isViteBuild.js";
 import { isTauri } from "./src/utils/isTauri.js";
@@ -140,6 +141,7 @@ let welcomeWindow = null;
 let undoManager = null;
 let parameterEventSystem = null;
 let floatingPreview = null;
+let statusBar = null;
 let secondMonitorViewer = null;
 let previewExportSettingsWindow = null;
 let preferencesWindow = null;
@@ -553,6 +555,12 @@ async function initialize() {
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
+
+    // Canvas status bar — zoom, GPU state, cursor position, the wire-colour
+    // legend and the transport readout. Reads live state; owns none.
+    statusBar = new StatusBar(editor);
+    statusBar.mount();
+    window.statusBar = statusBar;
 
     // Initialize Preview/Export Settings Window BEFORE setupUIEventHandlers
     // so that handlers can find it

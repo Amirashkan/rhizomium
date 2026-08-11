@@ -1520,7 +1520,7 @@ case 'flip2d':
     input.title = `Bound to ${sourceLabel}. Type an expression of "bound" (the driven value) to transform it; leave empty to use it directly.`;
     input.style.cssText = `
       width: 100%;
-      min-height: 28px;
+      min-height: 30px;
       max-height: 200px;
       padding: 6px 8px;
       background: ${SURFACE.well};
@@ -1532,7 +1532,7 @@ case 'flip2d':
       line-height: 1.4;
       box-sizing: border-box;
       resize: vertical;
-      overflow-y: auto;
+      overflow-y: hidden;
     `;
 
     const resultDisplay = document.createElement('div');

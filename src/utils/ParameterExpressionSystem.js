@@ -924,23 +924,24 @@ isIncomplete(value) {
 
     input.style.cssText = `
       width: 100%;
-      min-height: 28px;
+      min-height: 30px;
       max-height: 200px;
-      padding: 6px;
-      background: #333;
-      color: #fff;
-      border: 1px solid #555;
-      border-radius: 4px;
-      font-size: 11px;
+      padding: 7px 9px;
+      background: ${SURFACE.well};
+      color: ${TEXT.primary};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 8px;
+      font-size: 12px;
       line-height: 1.4;
       box-sizing: border-box;
       resize: vertical;
-      overflow-y: auto;
+      overflow-y: hidden;
     `;
 
-    input.style.fontFamily = this.expressionSystem.isExpression(currentValue)
-      ? 'monospace'
-      : 'inherit';
+    // Numbers and expressions alike are mono: a parameter field holds a value
+    // you read digit by digit, and switching faces as you type "=" made the
+    // field jump.
+    input.style.fontFamily = FONT_MONO;
 
     input.placeholder =
       param.type === 'float'
@@ -960,23 +961,50 @@ isIncomplete(value) {
     display.className = 'expression-result';
     display.style.cssText = `
       font-size: 10px;
-      color: #888;
-      margin-top: 2px;
-      font-style: italic;
+      color: ${TEXT.tertiary};
+      font-family: ${FONT_MONO};
+      margin-top: 3px;
       min-height: 12px;
       padding-left: 2px;
     `;
     return display;
   }
 
+  /**
+   * Size a parameter field to its content.
+   *
+   * The box is border-box but scrollHeight excludes the border, so adding the
+   * border back is not cosmetic: without it every field lands one pixel short
+   * of its own single line and grows a permanent scrollbar. Measuring with
+   * overflow hidden also keeps a scrollbar that is already showing from
+   * inflating the measurement and latching itself in place.
+   */
   _autoResizeTextArea(input) {
     if (!input) return;
 
-    input.style.height = 'auto';
-    const minHeight = 28;
+    // A detached element has no scrollHeight, and createInput sizes the field
+    // before the panel appends it — measuring there always returned 0 and left
+    // every field at its minimum, one line short of its own content. Re-measure
+    // once it is actually in the document.
+    if (!input.isConnected) {
+      requestAnimationFrame(() => this._autoResizeTextArea(input));
+      return;
+    }
+
+    const minHeight = 30;
     const maxHeight = 200;
-    const newHeight = Math.min(maxHeight, Math.max(minHeight, input.scrollHeight || minHeight));
-    input.style.height = `${newHeight}px`;
+
+    input.style.overflowY = 'hidden';
+    input.style.height = 'auto';
+
+    const cs = getComputedStyle(input);
+    const border =
+      (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+    const content = (input.scrollHeight || minHeight) + border;
+
+    input.style.height = `${Math.min(maxHeight, Math.max(minHeight, content))}px`;
+    // Only a field clamped at the cap has anything left to scroll to.
+    input.style.overflowY = content > maxHeight ? 'auto' : 'hidden';
   }
 
   _ensureTabState(node, paramName, initialValue = '') {

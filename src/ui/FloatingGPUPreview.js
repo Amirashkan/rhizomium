@@ -711,6 +711,11 @@ async show() {
   hide() {
     if (!this.isVisible || !this.container) return;
 
+    // Closing straight out of fullscreen has to put the app chrome back —
+    // otherwise the panel goes away and takes the menu bar with it, leaving no
+    // way to reach anything.
+    if (this.isFullscreen) this._exitFullscreenChrome();
+
     this.fpsCounter.stop();
     
     // Stop independent preview render loop
@@ -861,6 +866,21 @@ async show() {
 
     const toggle = this.container?.querySelector(".btn-controls-toggle");
     if (toggle) toggle.style.display = active ? "flex" : "none";
+  }
+
+  /**
+   * Undo the fullscreen presentation: put the app chrome back and drop the
+   * corner-cluster mode. Safe to call when not in fullscreen.
+   *
+   * Split out of toggleFullscreen so closing the panel mid-fullscreen restores
+   * the same things exiting normally would.
+   */
+  _exitFullscreenChrome() {
+    this._setFullscreenControlsActive(false);
+    for (const [el, display] of this.originalFullscreenStyles?.chromeDisplay || []) {
+      el.style.display = display;
+    }
+    this.isFullscreen = false;
   }
 
   async toggleFullscreen() {

@@ -48,23 +48,6 @@ select optgroup {
   font-family: var(--rz-font-ui);
 }
 
-/* Brand cluster at the far left of the menu bar, separated from the menus by a
-   hairline. Purely a mark — nothing here is clickable. */
-.menu-brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding-right: 14px;
-  margin-right: 6px;
-  border-right: 1px solid var(--rz-line);
-  color: var(--rz-text);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-  user-select: none;
-  pointer-events: none;
-}
-
 .menu-section {
   position: relative;
   display: inline-block;
@@ -601,7 +584,8 @@ body {
    design gives its add-node button. */
 .floating-toggle-btn {
   position: fixed;
-  bottom: 20px;
+  /* Clear of the 38px canvas status bar (src/ui/StatusBar.js). */
+  bottom: 58px;
   right: 20px;
   width: 48px;
   height: 48px;
@@ -632,12 +616,12 @@ body {
 /* Code console — a floating window: title bar, content region, hairlines. */
 #code-console {
   position: fixed;
-  bottom: 80px;
+  bottom: 118px;
   right: 20px;
   width: 500px;
   max-width: calc(100vw - 40px);
   height: 400px;
-  max-height: calc(100vh - 120px);
+  max-height: calc(100vh - 158px);
   display: flex;
   flex-direction: column;
   background: var(--rz-surface);

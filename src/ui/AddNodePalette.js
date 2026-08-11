@@ -235,8 +235,10 @@ export class AddNodePalette {
     card.className = "rz-palette";
     card.style.left = `${left}px`;
     card.style.top = `${top}px`;
-    // Clicks inside the card must not reach the backdrop behind it.
+    // Clicks inside the card must not reach the backdrop behind it, nor the
+    // document-level "click outside closes the menu" check in EventHandler.
     card.addEventListener("pointerdown", (e) => e.stopPropagation());
+    card.addEventListener("click", (e) => e.stopPropagation());
 
     card.appendChild(this._buildHeader());
 
@@ -387,6 +389,7 @@ export class AddNodePalette {
     for (const row of rows) {
       const el = document.createElement("div");
       el.className = "rz-palette-cat";
+      el.dataset.cat = row.cat ?? "";
       const on = this.activeCategory === row.cat;
       if (on) el.classList.add("is-active");
       el.style.setProperty("--cat", row.color);
@@ -407,11 +410,20 @@ export class AddNodePalette {
         // overriding it, so clear it and let the rail speak.
         this.query = "";
         if (this.input) this.input.value = "";
-        this._renderRail();
+        this._syncRailSelection();
         this._renderResults();
         this.input?.focus();
       });
       this.railEl.appendChild(el);
+    }
+  }
+
+  /** Move the rail's selection without rebuilding its rows. */
+  _syncRailSelection() {
+    const rows = this.railEl?.children;
+    if (!rows) return;
+    for (const row of rows) {
+      row.classList.toggle("is-active", row.dataset.cat === (this.activeCategory ?? ""));
     }
   }
 
@@ -544,7 +556,7 @@ export class AddNodePalette {
         this.query = "";
         if (this.input) this.input.value = "";
         this.highlightIndex = 0;
-        this._renderRail();
+        this._syncRailSelection();
         this._renderResults();
         this.railEl?.querySelector(".is-active")?.scrollIntoView({ block: "nearest" });
         return;
@@ -660,11 +672,11 @@ export class AddNodePalette {
         font-family: var(--rz-font-ui);
       }
 
+      /* A transparent click-catcher, not a scrim: you are choosing what to add
+         to the graph, so the graph has to stay readable behind the palette. */
       .rz-palette-backdrop {
         position: absolute;
         inset: 0;
-        background: rgba(8, 6, 5, 0.5);
-        backdrop-filter: blur(3px);
       }
 
       .rz-palette-marker {
