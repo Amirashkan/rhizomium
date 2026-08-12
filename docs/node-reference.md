@@ -886,12 +886,33 @@ Generates a rectangular shape.
 - **Parameters**:
   - `Center X` (float, default: 0.5) - Rectangle center X
   - `Center Y` (float, default: 0.5) - Rectangle center Y
-  - `Width` (float, default: 0.5) - Rectangle width
-  - `Height` (float, default: 0.5) - Rectangle height
-  - `Roundness` (float, default: 0.0) - Corner rounding amount
+  - `Width` (float, default: 0.5) - Rectangle width, in the unit `Size Mode` selects
+  - `Height` (float, default: 0.5) - Rectangle height, as a fraction of the frame's height
+  - `Size Mode` (select, default: `Proportional`) - What `Width` is a fraction of
+  - `Roundness` (float, default: 0.0) - Corner rounding, as a fraction of the shortest half-extent
   - `Smoothness` (float, default: 0.01) - Edge softness
   - `Invert` (bool, default: false) - Invert inside/outside
 - **Description**: Creates a rectangular shape with optional rounded corners and smooth edges.
+
+**Size Mode** decides what `Width` is measured against, because the two useful answers
+cannot both be true at once:
+
+| Mode | `Width` is | `Width` = `Height` = 0.5 on a 16:9 output |
+| --- | --- | --- |
+| `Proportional` (default) | a fraction of the frame's **height**, like `Height` | a true **square**, 28% of the width × 50% of the height |
+| `Frame` | a fraction of the frame's **width** | half the width × half the height, so a 16:9 rectangle |
+
+`Proportional` is the default because it makes the two numbers describe the shape:
+`Width : Height` is exactly the ratio you see, so `0.5 × 0.5` is a square at **every render
+resolution and every aspect ratio**. The units match Circle's and Polygon's `Radius` too — a
+`Proportional` rectangle of width and height `2r` circumscribes a circle of radius `r`.
+
+Switch to `Frame` to lay a shape out against the composition instead: `1.0 × 1.0` fills it at
+any aspect ratio. The trade-off is that the shape then inherits the composition's proportions,
+so equal values are never square on a non-square output.
+
+Neither mode caps the extents, so a rectangle may be larger than the frame. In `Proportional`
+mode, give `Width` the frame's aspect ratio (1.78 on 16:9) to span it edge to edge.
 
 #### Polygon
 

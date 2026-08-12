@@ -642,13 +642,32 @@ Outputs:
 Parameters:
   - centerX (float): Center X position [default: 0.5]
   - centerY (float): Center Y position [default: 0.5]
-  - width (float): Rectangle width [default: 0.5]
-  - height (float): Rectangle height [default: 0.5]
-  - roundness (float): Corner rounding [default: 0.0]
+  - width (float): Rectangle width, in the unit sizeMode selects [default: 0.5]
+  - height (float): Rectangle height, as a fraction of the frame's height [default: 0.5]
+  - sizeMode (select): What width is a fraction of - Proportional or Frame [default: Proportional]
+  - roundness (float): Corner rounding, as a fraction of the shortest half-extent [default: 0.0]
   - smoothness (float): Edge smoothness [default: 0.01]
   - invert (bool): Invert the shape [default: false]
 
 Usage: Creates rectangular shapes. Set roundness > 0 for rounded corners.
+
+sizeMode decides what width is measured against, because the two useful answers cannot both
+be true at once:
+
+  Proportional     width is measured against the frame's HEIGHT, exactly as height is, so
+  (default)        width : height is the shape's real on-screen ratio. 0.5 x 0.5 is a SQUARE
+                   at every render resolution and every aspect ratio - the shape you type is
+                   the shape you get. These are the same y-units Circle and Polygon measure
+                   their radius in, so a Proportional rectangle of width and height 2r exactly
+                   circumscribes a Circle of radius r. To span a wide frame edge to edge, give
+                   width the frame's aspect ratio (1.78 on 16:9).
+
+  Frame            width is a fraction of the frame's WIDTH, height a fraction of its HEIGHT,
+                   so 1.0 x 1.0 fills the composition at any aspect ratio. The cost is that the
+                   shape then carries the composition's proportions: on a 16:9 output
+                   width = height = 0.5 draws a 16:9 rectangle, never a square.
+
+Neither mode caps the extents, so a rectangle may be larger than the frame.
 
 --------------------------------------------------------------------------------
 Polygon

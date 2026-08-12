@@ -618,10 +618,36 @@ case 'rectangle':
       name: 'height',
       type: 'float',
       displayName: 'Height',
-      default: 0.3,
+      // Matches the node definition. It read 0.3 here, so the panel described a shape the
+      // node never creates.
+      default: 0.5,
       min: 0.01,
       max: 2.0,
       description: 'Rectangle height'
+    },
+    {
+      // What Width and Height are fractions OF. Without this control the choice is
+      // unreachable, since this hand-written list shadows the node's own params.
+      name: 'sizeMode',
+      type: 'select',
+      displayName: 'Size Mode',
+      options: ['Proportional', 'Frame'],
+      default: 'Proportional',
+      description:
+        'Proportional: Width and Height share one unit, so Width : Height is the shape’s real ' +
+        'ratio — 0.5 × 0.5 is a square at any render resolution. Frame: they are fractions of ' +
+        'the frame’s width and height, so 1 × 1 fills the composition, but the shape then takes ' +
+        'the composition’s ratio.'
+    },
+    {
+      // Implemented in the shape function; it just had no control here.
+      name: 'roundness',
+      type: 'float',
+      displayName: 'Roundness',
+      default: 0.0,
+      min: 0.0,
+      max: 1.0,
+      description: 'Corner rounding, as a fraction of the shortest half-extent'
     },
     {
       name: 'centerX',

@@ -40,6 +40,17 @@ export const PatternNodes = {
       { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
       { name: "width", type: "float", default: 0.5, label: "Width" },
       { name: "height", type: "float", default: 0.5, label: "Height" },
+      {
+        name: "sizeMode",
+        type: "select",
+        options: ["Proportional", "Frame"],
+        default: "Proportional",
+        label: "Size Mode",
+        description:
+          "Proportional: Width and Height share one unit, so Width : Height is the shape's real " +
+          "ratio and 0.5 x 0.5 is a square at any resolution. Frame: they are fractions of the " +
+          "frame's width and height, so 1 x 1 fills the composition but the shape takes its ratio.",
+      },
       { name: "roundness", type: "float", default: 0.0, label: "Roundness" },
       { name: "smoothness", type: "float", default: 0.01, label: "Smoothness" },
       { name: "invert", type: "bool", default: false, label: "Invert" },

@@ -1617,8 +1617,20 @@ setValue(node, paramName, value) {
     // evaluated readout updates while the render stays frozen on the previous value. Plain
     // numeric writes still skip the rebuild: those ARE uniforms, read live every frame, and
     // recompiling on each one would stall MIDI/OSC and slider drags.
+    // A discrete control - a `select` enum or a `bool` flag - is BAKED into the generated WGSL
+    // by the compilers rather than delivered as a uniform: a Rectangle's `sizeMode` decides
+    // which half-extent is carried into aspect space, a Flip2D's `flipX` becomes a literal
+    // -1.0, a Color Mix's `mode` picks the blend expression. Uniforms are floats; there is no
+    // way to hand the shader a string. So without a rebuild the old code keeps running and the
+    // control is simply dead - the panel shows the new value and nothing on screen moves.
+    // These are clicked, never dragged, so recompiling on them costs nothing on the hot path
+    // that the numeric skip below exists to protect.
+    const paramType = NodeDefs?.[node.kind]?.params?.find((p) => p.name === paramName)?.type;
+    const isBakedControl = paramType === 'select' || paramType === 'bool' || paramType === 'boolean';
+
     const changesShaderCode =
-      this.expressionSystem.isExpression(value) || this.expressionSystem.isExpression(oldValue);
+      this.expressionSystem.isExpression(value) || this.expressionSystem.isExpression(oldValue)
+      || isBakedControl;
 
     if (isComputeNode || changesShaderCode) {
       // Trigger a full shader recompile so the new parameter takes effect.
