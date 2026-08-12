@@ -448,21 +448,36 @@ select optgroup {
 
 /* The status readout sits where the design's "Shader compiled · 60 fps" group
    does: a live-state dot plus a short line, muted until it has news. */
+/* The app's status message, at the right end of the menu bar. It grows into
+   the empty space beside the menus and is bounded so a long message ellipsizes
+   rather than pushing the menu buttons.
+
+   A block, not a flex row: text-overflow does not apply to a flex container's
+   anonymous text item, so as inline-flex a long message clipped mid-word with no
+   ellipsis. The state dot is an inline-block instead of a flex child. */
 .menu-status {
   margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 42vw;
   padding: 0 16px;
+  line-height: 40px;
   color: var(--rz-text-3);
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .menu-status::before {
   content: "";
+  display: inline-block;
   width: 7px;
   height: 7px;
+  margin-right: 7px;
+  vertical-align: 1px;
   border-radius: 50%;
   background: currentColor;
   box-shadow: 0 0 8px currentColor;

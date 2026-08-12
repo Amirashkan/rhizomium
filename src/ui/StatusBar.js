@@ -60,7 +60,7 @@ export class StatusBar {
         <span class="rz-sb-item" title="Zoom level"><span class="rz-sb-zoom">100%</span></span>
         <span class="rz-sb-sep">|</span>
         <button type="button" class="rz-sb-btn rz-sb-render">
-          <span class="rz-sb-dot rz-sb-gpu-dot"></span><span class="rz-sb-render-label">WebGPU</span>
+          <span class="rz-sb-dot rz-sb-gpu-dot"></span><span class="rz-sb-render-label">Live</span>
         </button>
         <span class="rz-sb-sep">|</span>
         <span class="rz-sb-item rz-sb-cursor" title="Cursor position in graph space">x 0  y 0</span>
@@ -92,6 +92,7 @@ export class StatusBar {
           <span class="rz-sb-time">0:00 / 0:00</span>
         </span>
         <span class="rz-sb-sep">|</span>
+        <span class="rz-sb-fps-slot"></span>
       </div>
     `;
 
@@ -107,11 +108,13 @@ export class StatusBar {
     this.selectionEl = el.querySelector(".rz-sb-selection");
     this.timeEl = el.querySelector(".rz-sb-time");
     this.transportEl = el.querySelector(".rz-sb-transport");
+    // Filled by FpsMeter, which owns its own sampling — the bar only lends it
+    // a place to stand.
+    this.fpsSlot = el.querySelector(".rz-sb-fps-slot");
 
     this._paintLegendSwatches(el.querySelector(".rz-sb-legend-swatches"));
     this.renderBtn.addEventListener("click", () => this._toggleRender());
 
-    this._adoptStatusMessage(el.querySelector('.rz-sb-right'));
     this._bindCursor();
     this.update();
     this._timer = setInterval(() => this.update(), SAMPLE_MS);
@@ -127,28 +130,6 @@ export class StatusBar {
     }
     this.el?.remove();
     this.el = null;
-  }
-
-  /**
-   * Move the app's status message down here from the menu bar.
-   *
-   * It keeps its id and its classes, so every existing writer
-   * (`getElementById("status")` in main.js, SaveLoadManager, StatusManager)
-   * keeps working untouched — this only changes where the message appears.
-   */
-  _adoptStatusMessage(el) {
-    let status = document.getElementById("status");
-    if (!status) {
-      status = document.createElement("span");
-      status.id = "status";
-      status.className = "menu-status";
-      status.textContent = "Idle";
-    }
-    // Deliberately no extra class: main.js's updateStatus assigns className
-    // outright (`menu-status <type>`), so anything added here would be wiped on
-    // the next message. The placement rule below targets the id instead.
-    el.appendChild(status);
-    this.statusEl = status;
   }
 
   /** The legend button wears the four colours it explains. */
@@ -233,13 +214,6 @@ export class StatusBar {
       if (selected) this.selectionEl.textContent = `${selected} selected`;
     }
 
-    // A long message is ellipsized to protect the layout, so keep the whole
-    // thing reachable on hover. Writers set textContent only, so this is the
-    // one place that can mirror it.
-    if (this.statusEl && this.statusEl.title !== this.statusEl.textContent) {
-      this.statusEl.title = this.statusEl.textContent;
-    }
-
     const timeline = window.timelineManager;
     if (this.timeEl && timeline?.getCurrentTime) {
       const now = timeline.getCurrentTime() || 0;
@@ -262,13 +236,16 @@ export class StatusBar {
     }
 
     if (this.renderLabelEl) {
+      // The label names the STATE the button is reporting, not the technology
+      // behind it — "WebGPU" told you nothing about what clicking would do.
+      // Which backend is in use belongs in the tooltip.
       this.renderLabelEl.textContent = off
         ? "Renders off"
         : online
-          ? "WebGPU"
+          ? "Live"
           : navigator.gpu
-            ? "GPU starting…"
-            : "No WebGPU";
+            ? "Starting…"
+            : "No GPU";
     }
 
     if (this.renderBtn) {
@@ -276,7 +253,11 @@ export class StatusBar {
       this.renderBtn.disabled = !window.renderLoop;
       this.renderBtn.title = off
         ? "Rendering is stopped — click to resume"
-        : "Stop rendering (the graph stays editable)";
+        : online
+          ? "Rendering live on WebGPU — click to stop (the graph stays editable)"
+          : navigator.gpu
+            ? "Waiting for the GPU device"
+            : "WebGPU is unavailable in this browser";
     }
   }
 
@@ -521,40 +502,17 @@ export class StatusBar {
         color: var(--rz-text-2);
       }
 
-      /* The app's status message, moved down from the menu bar. It keeps its own
-         id/classes so every existing writer still finds it; only the placement
-         belongs to this bar. */
-      .rz-statusbar #status {
-        margin-left: 0;
-        padding: 3px 10px;
-        font-family: var(--rz-font-mono);
-        font-size: 11px;
-        font-weight: 400;
-        /* A message can be any length, so it gets a slot of its own rather than
-           a share of the row: a fixed box that ellipsizes. Sized to the
-           viewport, never to the text — the point is that the transport readout
-           beside it does not move every time the app says something. */
-        flex: 0 0 auto;
-        width: clamp(150px, 21vw, 320px);
-        min-width: 0;
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
-      }
-
-      /* The menu-bar rule makes #status an inline-flex row, and text-overflow
-         does not apply to a flex container's anonymous text item — the message
-         clipped mid-word with no ellipsis. As a block it truncates properly;
-         the state dot becomes an inline-block instead of a flex child. */
-      .rz-statusbar #status {
-        display: block;
-        line-height: 16px;
-      }
-
-      .rz-statusbar #status::before {
-        display: inline-block;
-        margin-right: 7px;
-        vertical-align: 1px;
+      /* The status message is NOT laid out here — see src/ui/StatusToast.js.
+         A message of unpredictable length in a fixed row can only be a box too
+         wide for its usual content or one that shoves its neighbours; it floats
+         above the bar instead. */
+      /* The frame-rate readout lives here (src/ui/FpsMeter.js). The status
+         message does not: it stays at the right of the menu bar, where it has
+         empty space to grow into and nothing to its right to displace. */
+      .rz-sb-fps-slot {
+        display: flex;
+        align-items: center;
+        pointer-events: auto;
       }
     `;
     document.head.appendChild(style);

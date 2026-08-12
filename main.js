@@ -12,6 +12,7 @@ import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js"
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
 import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
 import { StatusBar } from './src/ui/StatusBar.js';
+import { FpsMeter } from './src/ui/FpsMeter.js';
 import { TauriSecondMonitorViewer } from "./src/ui/TauriSecondMonitorViewer.js";
 import { isViteBuild } from "./src/utils/isViteBuild.js";
 import { isTauri } from "./src/utils/isTauri.js";
@@ -142,6 +143,7 @@ let undoManager = null;
 let parameterEventSystem = null;
 let floatingPreview = null;
 let statusBar = null;
+let fpsMeter = null;
 let secondMonitorViewer = null;
 let previewExportSettingsWindow = null;
 let preferencesWindow = null;
@@ -561,6 +563,12 @@ async function initialize() {
     statusBar = new StatusBar(editor);
     statusBar.mount();
     window.statusBar = statusBar;
+
+    // Frame rate sits with the canvas readouts at the bottom; the status
+    // message keeps its place at the right of the menu bar.
+    fpsMeter = new FpsMeter(statusBar.fpsSlot);
+    fpsMeter.mount();
+    window.fpsMeter = fpsMeter;
 
     // Initialize Preview/Export Settings Window BEFORE setupUIEventHandlers
     // so that handlers can find it

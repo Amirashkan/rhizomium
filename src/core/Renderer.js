@@ -47,6 +47,12 @@ const VALUE_TAG_INT_DIGITS = 3;
 // Gap between an output pin's name and the value tag to its right, on the same socket row.
 const OUT_NAME_GAP = 6;
 
+// Clearance between the right edge of a value tag and its port's CENTRE. The tag
+// is a filled box now, not bare text, and the port draws a halo out to roughly
+// radius + 2 — at the old 6px the two shapes touched, and the halo sat on top of
+// the tag's corner. This is the port's full drawn radius plus breathing room.
+const OUT_TAG_GAP = 13;
+
 // Widest a node's title is allowed to push the node box. A renamed node grows to fit its title, but
 // only this far — past it the title is drawn ellipsized instead, so one long name can't inflate a
 // node until it covers its neighbours.
@@ -1336,7 +1342,8 @@ export class Renderer {
     // Place the value tag just INSIDE the node, ending a few px left of the output pin. Previously
     // it floated outside the right edge, where it overlapped the outgoing wire and ran off the node;
     // inside-and-right-aligned keeps each value visually attached to its pin and clear of the wire.
-    const boxX = pinPos.x - 6 - textWidth;
+    const tagRight = pinPos.x - OUT_TAG_GAP;
+    const boxX = tagRight - textWidth;
 
     // The tag is a field well, tinted by the pin's data type at low alpha — the same "type badge"
     // treatment the chrome uses (14%-alpha background, full-strength text).
@@ -1353,7 +1360,7 @@ export class Renderer {
     const textColor = this._getWireColor(pinType);
     ctx.fillStyle = textColor;
     ctx.textAlign = "right";
-    ctx.fillText(labelText, pinPos.x - 10, pinPos.y + 2);
+    ctx.fillText(labelText, tagRight - 4, pinPos.y + 2);
     ctx.restore();
 
     return textWidth;
@@ -1378,7 +1385,9 @@ export class Renderer {
     ctx.fillStyle = TEXT.secondary;
     ctx.font = this._cachedFonts.pinLabel;
     ctx.textAlign = "right";
-    const rightX = tagW ? pinPos.x - 6 - tagW - OUT_NAME_GAP : pinPos.x - 10;
+    const rightX = tagW
+      ? pinPos.x - OUT_TAG_GAP - tagW - OUT_NAME_GAP
+      : pinPos.x - OUT_TAG_GAP;
     ctx.fillText(name, rightX, pinPos.y + 2);
     ctx.restore();
   }
@@ -1568,7 +1577,8 @@ export class Renderer {
       if (name) outNameW = Math.max(outNameW, ctx.measureText(name).width);
     }
     const outW = outNameW + (outNameW && tagW ? OUT_NAME_GAP : 0) + tagW;
-    const rowW = EDGE_INSET + 10 + inLabelW + (inLabelW && outW ? 12 : 0) + outW + 14 + EDGE_INSET;
+    const rowW =
+      EDGE_INSET + 10 + inLabelW + (inLabelW && outW ? 12 : 0) + outW + OUT_TAG_GAP + EDGE_INSET;
 
     const previewMinW = hasPreview ? 180 : 0;
 
