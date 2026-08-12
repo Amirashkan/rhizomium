@@ -3,6 +3,7 @@
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import {
   buildScalarRefMapping,
   resolveScalarRef,
@@ -355,8 +356,11 @@ getParam(node, paramName, defaultValue) {
     if (scalarMapping === null) {
       return this._defaultLiteral(defaultValue);
     }
+    // An identifier naming another parameter of this node binds to that parameter (see
+    // utils/paramReferences.js); node references keep precedence over parameter names.
+    const paramRefs = compilerParamRefMapping(this, node, rawValue, paramName);
     try {
-      const result = unifiedExpressionSystem.generateShader(rawValue, scalarMapping, this.graph);
+      const result = unifiedExpressionSystem.generateShader(rawValue, { ...paramRefs, ...scalarMapping }, this.graph);
       return result === '0.0' ? this._defaultLiteral(defaultValue) : result;
     } catch {
       return this._defaultLiteral(defaultValue);

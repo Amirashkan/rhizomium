@@ -6,6 +6,7 @@ import { MessagePriority } from '../core/AsyncQueueManager.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../core/audioAnalysisPins.js';
+import { buildParamScope, referencesParams } from './paramReferences.js';
 import { evaluateWaveNode } from '../core/waveform.js';
 
 export class ParameterExpressionSystem {
@@ -257,8 +258,12 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
       // Skip caching for expressions that change every frame: time/audio, AND any node reference —
       // the referenced node's value (e.g. an Audio Analysis level) isn't captured by the cache key,
       // so caching a =node_X reference would freeze the readout at its first value.
+      // A reference to a sibling parameter is uncached for the same reason: the source parameter's
+      // value isn't part of the cache key, so a cached binding would freeze at its first value
+      // (and the source may itself be driven by time or audio).
       const isTimeDep = cleanExpression.includes('time') || cleanExpression.includes('audioEnvelope')
-        || cleanExpression.includes('frame') || /\bnode_\d/.test(cleanExpression);
+        || cleanExpression.includes('frame') || /\bnode_\d/.test(cleanExpression)
+        || referencesParams(node, cleanExpression);
 
       // Check cache first (only for non-time-dependent expressions)
       if (!isTimeDep) {
@@ -472,17 +477,17 @@ buildEvaluationContext(context, node) {
     ...context
   };
 
-  // Add node parameters as variables
-  if (node?.params) {
-    Object.entries(node.params).forEach(([key, value]) => {
-      if (!this.isExpression(value)) {
-        evalContext[key] = this.parseValue(value);
-      }
-    });
-  }
-
   // Add node output values from the graph
   this._addNodeOutputReferences(evalContext, node);
+
+  // Add this node's own parameters as variables, so an expression can bind to a sibling
+  // parameter (Scale Y = "=scaleX"). A sibling that is itself an expression is evaluated
+  // recursively, with reference cycles resolving to nothing rather than looping. Added after the
+  // node references so a nested parameter expression can read them, and so a parameter can never
+  // shadow a node_<id> name.
+  if (node?.params) {
+    Object.assign(evalContext, buildParamScope(node, { baseContext: evalContext }));
+  }
 
   return evalContext;
 }
@@ -1240,6 +1245,7 @@ isIncomplete(value) {
     let startValue = 0;
     let startY = 0;
     let dragStartValue = null;
+    let lastReadoutRefresh = 0;
     const resultDisplay = entry?.resultDisplay;
 
     input.addEventListener('mousedown', (e) => {
@@ -1301,6 +1307,16 @@ isIncomplete(value) {
             if (window.editor?.draw) {
               window.editor.draw();
             }
+          }
+
+          // Keep the readouts of parameters bound to this one (Scale Y = "=scaleX") tracking the
+          // drag. They read node.params, which the line above just wrote, but nothing else fires an
+          // event until mouseup — so without this they sit at the pre-drag value. Text-only work on
+          // a handful of fields, throttled to ~15fps so the drag itself stays at 60.
+          const nowMs = performance.now();
+          if (nowMs - lastReadoutRefresh > 66) {
+            lastReadoutRefresh = nowMs;
+            this.refreshNodeExpressionDisplays(node.id, param.name);
           }
 
           // PERFORMANCE FIX: Don't mark canvas dirty during parameter drag
@@ -1410,6 +1426,24 @@ isIncomplete(value) {
     }
   }
 
+  /**
+   * Refresh the evaluated readout of every expression field on a node.
+   *
+   * A parameter drag writes node.params (and the GPU uniform) directly on every mouse-move and only
+   * commits on release, so a field bound to another parameter of the same node (Scale Y = "=scaleX")
+   * gets no event of its own and its green readout sits at the pre-drag value while the render moves.
+   */
+  refreshNodeExpressionDisplays(nodeId, skipParam = null) {
+    this.activeInputs.forEach((entry) => {
+      const { input, resultDisplay, param, node, valueManager } = entry;
+      if (!input || !resultDisplay || String(node?.id) !== String(nodeId)) return;
+      if (skipParam !== null && param?.name === skipParam) return;
+      if (!this.expressionSystem.isExpression(input.value)) return;
+      if (document.activeElement === input) return; // don't fight the user mid-edit
+      this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+    });
+  }
+
   // Update all active inputs when dependencies change
   updateDependentInputs(_nodeId, _paramName) {
     this.activeInputs.forEach((inputData, _key) => {
@@ -1451,7 +1485,11 @@ isIncomplete(value) {
 
   _performPendingMidiUpdates() {
     // Process all pending MIDI value updates
-    for (const [key, { newValue }] of this.pendingMidiUpdates.entries()) {
+    for (const [key, { nodeId, paramName, newValue }] of this.pendingMidiUpdates.entries()) {
+      // A parameter bound to this one (=scaleX) reads node.params, which the MIDI write already
+      // updated, but has no input event of its own — refresh those readouts alongside this field.
+      this.refreshNodeExpressionDisplays(nodeId, paramName);
+
       const inputData = this.activeInputs.get(key);
       if (!inputData) continue; // Input not currently visible
 

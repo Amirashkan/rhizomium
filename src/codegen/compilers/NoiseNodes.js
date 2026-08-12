@@ -1,6 +1,7 @@
 // src/codegen/compilers/NoiseNodes.js - FIXED & OPTIMIZED VERSION
 
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 
 export class NoiseNodes {
   constructor() {
@@ -130,12 +131,15 @@ export class NoiseNodes {
   
   getParam(node, paramName, defaultValue) {
     const rawValue = node.params?.[paramName] ?? defaultValue;
+    // An identifier naming another parameter of this node binds to that parameter (see
+    // utils/paramReferences.js); without it the shader generator zeroes the whole expression.
+    const paramRefs = compilerParamRefMapping(this, node, rawValue, paramName);
 
     // USE UNIFIED AST SYSTEM for dynamic expressions
     // This ensures shader code matches CPU evaluation exactly
     if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
       try {
-        return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
+        return unifiedExpressionSystem.generateShader(rawValue, paramRefs, this.graph);
       } catch {
 
         return String(defaultValue);
@@ -145,7 +149,7 @@ export class NoiseNodes {
     // Handle regular expressions starting with =
     if (typeof rawValue === 'string' && rawValue.trim().startsWith('=')) {
       try {
-        return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
+        return unifiedExpressionSystem.generateShader(rawValue, paramRefs, this.graph);
       } catch {
 
         const numericValue = parseFloat(rawValue.substring(1));
