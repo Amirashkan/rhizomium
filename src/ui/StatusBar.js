@@ -2,13 +2,16 @@
 //
 // The canvas status bar: a translucent strip along the bottom of the graph that
 // answers the questions you'd otherwise have to go looking for — how far am I
-// zoomed, where is my cursor in graph space, is the GPU actually up, what do the
-// wire colours mean, and where is the timeline.
+// zoomed, where is my cursor in graph space, is the GPU actually running, what
+// do the wire colours mean, and what did the app just say.
 //
-// It reads live state and never owns any. Everything here is a view onto
-// something else (the viewport, the GPU renderer, the timeline), so nothing in
-// the app has to push updates into it; it samples on a slow timer and on the
-// events that actually move a value.
+// It reads live state and owns almost none. Everything here is a view onto
+// something else (the viewport, the render loop, the graph, the timeline), so
+// nothing in the app has to push updates into it; it samples on a slow timer and
+// on the events that actually move a value.
+//
+// The one control it owns is the render toggle, which stops and starts the
+// render loop — see _toggleRender.
 
 import { TYPE_COLORS } from "../core/theme.js";
 
@@ -20,21 +23,25 @@ const SAMPLE_MS = 250;
 // The legend, in the order a signal usually travels: a coordinate becomes a
 // value, values become colour, colour lands in a texture.
 const TYPE_LEGEND = [
-  { label: "vec", color: TYPE_COLORS.vec2 },
-  { label: "float", color: TYPE_COLORS.f32 },
-  { label: "color", color: TYPE_COLORS.vec4 },
-  { label: "tex", color: TYPE_COLORS.texture },
+  { label: "vec", color: TYPE_COLORS.vec2, note: "vec2 / vec3 — coordinates and directions" },
+  { label: "float", color: TYPE_COLORS.f32, note: "f32 / int — a single number" },
+  { label: "color", color: TYPE_COLORS.vec4, note: "vec4 — colour with alpha" },
+  { label: "tex", color: TYPE_COLORS.texture, note: "texture — an image from a compute pass" },
 ];
 
 export class StatusBar {
   /**
-   * @param {object} editor  the Editor — read for viewport and canvas only.
+   * @param {object} editor  the Editor — read for viewport, canvas and graph.
    */
   constructor(editor) {
     this.editor = editor;
     this.el = null;
     this._timer = null;
-    this._cursor = { x: 0, y: 0 };
+    // Whether the user has switched rendering off from here. Kept separately
+    // from the loop's own running flag: the loop also stops for its own reasons
+    // (no GPU yet, a settings restart), and those must not read as "the user
+    // turned this off".
+    this.rendersDisabled = false;
   }
 
   mount() {
@@ -45,45 +52,56 @@ export class StatusBar {
     el.id = "canvas-status-bar";
     el.className = "rz-statusbar";
     el.innerHTML = `
-      <span class="rz-sb-item" title="Zoom level"
-        ><span class="rz-sb-zoom">100%</span></span
-      >
+      <span class="rz-sb-item" title="Zoom level"><span class="rz-sb-zoom">100%</span></span>
       <span class="rz-sb-sep">|</span>
-      <span class="rz-sb-item" title="GPU backend">
-        <span class="rz-sb-dot rz-sb-gpu-dot"></span><span class="rz-sb-gpu">WebGPU</span>
-      </span>
+      <button type="button" class="rz-sb-btn rz-sb-render">
+        <span class="rz-sb-dot rz-sb-gpu-dot"></span><span class="rz-sb-render-label">WebGPU</span>
+      </button>
       <span class="rz-sb-sep">|</span>
       <span class="rz-sb-item rz-sb-cursor" title="Cursor position in graph space">x 0  y 0</span>
-      <span class="rz-sb-item rz-sb-nodes" title="Nodes · connections">0 nodes</span>
+      <span class="rz-sb-item rz-sb-nodes" title="Nodes and wires in the graph">0 nodes</span>
+      <span class="rz-sb-item rz-sb-selection" hidden>0 selected</span>
       <span class="rz-sb-spacer"></span>
-      <span class="rz-sb-legend-label">TYPES</span>
-      ${TYPE_LEGEND.map(
-        (t) =>
-          `<span class="rz-sb-item"><span class="rz-sb-dot" style="background:${t.color}"></span>${t.label}</span>`,
-      ).join("")}
+      <span class="rz-sb-legend-wrap">
+        <button type="button" class="rz-sb-btn rz-sb-legend-btn" aria-describedby="rz-sb-legend-tip">
+          <span class="rz-sb-dot rz-sb-legend-swatches"></span>TYPES
+        </button>
+        <span class="rz-sb-tooltip" id="rz-sb-legend-tip" role="tooltip">
+          <span class="rz-sb-tip-title">Wire colours</span>
+          ${TYPE_LEGEND.map(
+            (t) => `<span class="rz-sb-tip-row">
+              <span class="rz-sb-dot" style="background:${t.color}"></span>
+              <b>${t.label}</b><span>${t.note}</span>
+            </span>`,
+          ).join("")}
+        </span>
+      </span>
       <span class="rz-sb-spacer"></span>
       <span class="rz-sb-item rz-sb-transport" title="Timeline position">
         <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
         <span class="rz-sb-time">0:00 / 0:00</span>
       </span>
       <span class="rz-sb-sep">|</span>
-      <span class="rz-sb-item rz-sb-fps" title="Frames per second">— fps</span>
     `;
 
     document.body.appendChild(el);
     this.el = el;
 
     this.zoomEl = el.querySelector(".rz-sb-zoom");
-    this.gpuEl = el.querySelector(".rz-sb-gpu");
+    this.renderBtn = el.querySelector(".rz-sb-render");
+    this.renderLabelEl = el.querySelector(".rz-sb-render-label");
     this.gpuDotEl = el.querySelector(".rz-sb-gpu-dot");
     this.cursorEl = el.querySelector(".rz-sb-cursor");
     this.nodesEl = el.querySelector(".rz-sb-nodes");
+    this.selectionEl = el.querySelector(".rz-sb-selection");
     this.timeEl = el.querySelector(".rz-sb-time");
     this.transportEl = el.querySelector(".rz-sb-transport");
-    this.fpsEl = el.querySelector(".rz-sb-fps");
 
+    this._paintLegendSwatches(el.querySelector(".rz-sb-legend-swatches"));
+    this.renderBtn.addEventListener("click", () => this._toggleRender());
+
+    this._adoptStatusMessage(el);
     this._bindCursor();
-    this._startFpsSampler();
     this.update();
     this._timer = setInterval(() => this.update(), SAMPLE_MS);
     return el;
@@ -92,14 +110,69 @@ export class StatusBar {
   destroy() {
     clearInterval(this._timer);
     this._timer = null;
-    if (this._fpsRaf) cancelAnimationFrame(this._fpsRaf);
-    this._fpsRaf = null;
     if (this._onPointerMove && this.editor?.canvas) {
       this.editor.canvas.removeEventListener("pointermove", this._onPointerMove);
       this._onPointerMove = null;
     }
     this.el?.remove();
     this.el = null;
+  }
+
+  /**
+   * Move the app's status message down here from the menu bar.
+   *
+   * It keeps its id and its classes, so every existing writer
+   * (`getElementById("status")` in main.js, SaveLoadManager, StatusManager)
+   * keeps working untouched — this only changes where the message appears.
+   */
+  _adoptStatusMessage(el) {
+    let status = document.getElementById("status");
+    if (!status) {
+      status = document.createElement("span");
+      status.id = "status";
+      status.className = "menu-status";
+      status.textContent = "Idle";
+    }
+    // Deliberately no extra class: main.js's updateStatus assigns className
+    // outright (`menu-status <type>`), so anything added here would be wiped on
+    // the next message. The placement rule below targets the id instead.
+    el.appendChild(status);
+  }
+
+  /** The legend button wears the four colours it explains. */
+  _paintLegendSwatches(dot) {
+    if (!dot) return;
+    const stops = TYPE_LEGEND.map((t, i) => {
+      const from = (i / TYPE_LEGEND.length) * 100;
+      const to = ((i + 1) / TYPE_LEGEND.length) * 100;
+      return `${t.color} ${from}% ${to}%`;
+    }).join(", ");
+    dot.style.background = `conic-gradient(from 180deg, ${stops})`;
+  }
+
+  /**
+   * Stop or restart the render loop.
+   *
+   * Stopping the loop is the honest way to "disable all renders": no frames are
+   * produced at all, so the GPU work, the preview panels and the node
+   * thumbnails all go quiet together rather than each being muted separately.
+   * The graph stays fully editable — the canvas is drawn by the 2D renderer,
+   * which is not on this loop.
+   */
+  _toggleRender() {
+    const loop = window.renderLoop;
+    if (!loop) return;
+
+    this.rendersDisabled = !this.rendersDisabled;
+    if (this.rendersDisabled) {
+      loop.stop();
+    } else {
+      loop.start();
+      // One frame immediately, so switching back doesn't wait for whatever
+      // would otherwise have triggered the next render.
+      loop.renderNow?.({ advance: false });
+    }
+    this.update();
   }
 
   /**
@@ -117,7 +190,6 @@ export class StatusBar {
         e.clientY - rect.top,
       );
       if (!pos) return;
-      this._cursor = pos;
       if (this.cursorEl) {
         this.cursorEl.textContent = `x ${Math.round(pos.x)}  y ${Math.round(pos.y)}`;
       }
@@ -133,26 +205,20 @@ export class StatusBar {
       this.zoomEl.textContent = `${Math.round(scale * 100)}%`;
     }
 
-    // "Online" means a device was actually acquired, not merely that the
-    // browser advertises the API — a lost device has to read as offline.
-    const online = !!window.gpuRenderer?.device;
-    if (this.gpuDotEl) {
-      this.gpuDotEl.classList.toggle("is-online", online);
-      this.gpuDotEl.classList.toggle("is-offline", !online);
-    }
-    if (this.gpuEl) {
-      this.gpuEl.textContent = online
-        ? "WebGPU"
-        : navigator.gpu
-          ? "GPU starting…"
-          : "No WebGPU";
-    }
+    this._updateRenderState();
 
     const graph = this.editor?.graph;
     if (this.nodesEl && graph) {
       const n = graph.nodes?.length || 0;
       const c = graph.connections?.length || 0;
       this.nodesEl.textContent = `${n} node${n === 1 ? "" : "s"} · ${c} wire${c === 1 ? "" : "s"}`;
+    }
+
+    // Selection only takes room on the bar when there is one.
+    if (this.selectionEl) {
+      const selected = graph?.selection?.size || 0;
+      this.selectionEl.hidden = selected === 0;
+      if (selected) this.selectionEl.textContent = `${selected} selected`;
     }
 
     const timeline = window.timelineManager;
@@ -162,37 +228,37 @@ export class StatusBar {
       this.timeEl.textContent = `${this._clock(now)} / ${this._clock(total)}`;
       this.transportEl?.classList.toggle("is-playing", !!timeline.isPlaying?.());
     }
-
-    if (this.fpsEl) {
-      this.fpsEl.textContent = this._fps > 0 ? `${Math.round(this._fps)} fps` : "— fps";
-    }
   }
 
-  /**
-   * Measure the page's own frame rate.
-   *
-   * The preview panel has an FPS counter, but it only runs while that panel is
-   * open — the bar has to show a number whether or not the preview is up, so it
-   * counts its own frames. One rAF per frame doing nothing but incrementing a
-   * counter is not something the render loop will notice.
-   */
-  _startFpsSampler() {
-    this._fps = 0;
-    let frames = 0;
-    let last = performance.now();
-    const tick = (now) => {
-      frames++;
-      const elapsed = now - last;
-      if (elapsed >= 500) {
-        // Smoothed a little, so the readout doesn't flicker between two values.
-        const sample = (frames * 1000) / elapsed;
-        this._fps = this._fps ? this._fps * 0.6 + sample * 0.4 : sample;
-        frames = 0;
-        last = now;
-      }
-      this._fpsRaf = requestAnimationFrame(tick);
-    };
-    this._fpsRaf = requestAnimationFrame(tick);
+  _updateRenderState() {
+    // "Online" means a device was actually acquired, not merely that the
+    // browser advertises the API — a lost device has to read as offline.
+    const online = !!window.gpuRenderer?.device;
+    const off = this.rendersDisabled;
+
+    if (this.gpuDotEl) {
+      this.gpuDotEl.classList.toggle("is-online", online && !off);
+      this.gpuDotEl.classList.toggle("is-offline", !online && !off);
+      this.gpuDotEl.classList.toggle("is-paused", off);
+    }
+
+    if (this.renderLabelEl) {
+      this.renderLabelEl.textContent = off
+        ? "Renders off"
+        : online
+          ? "WebGPU"
+          : navigator.gpu
+            ? "GPU starting…"
+            : "No WebGPU";
+    }
+
+    if (this.renderBtn) {
+      this.renderBtn.classList.toggle("is-off", off);
+      this.renderBtn.disabled = !window.renderLoop;
+      this.renderBtn.title = off
+        ? "Rendering is stopped — click to resume"
+        : "Stop rendering (the graph stays editable)";
+    }
   }
 
   _clock(seconds) {
@@ -216,7 +282,7 @@ export class StatusBar {
         z-index: 120;
         display: flex;
         align-items: center;
-        gap: 14px;
+        gap: 12px;
         padding: 0 16px;
         background: rgba(16, 13, 11, 0.78);
         backdrop-filter: blur(12px);
@@ -230,12 +296,53 @@ export class StatusBar {
 
       /* Only the readouts that mean something on hover take the pointer, so the
          bar never steals a drag that belongs to the canvas. */
+      .rz-statusbar .rz-sb-item,
+      .rz-statusbar .rz-sb-btn,
+      .rz-statusbar .rz-sb-legend-wrap,
+      .rz-statusbar #status {
+        pointer-events: auto;
+      }
+
       .rz-statusbar .rz-sb-item {
         display: flex;
         align-items: center;
         gap: 6px;
         white-space: nowrap;
-        pointer-events: auto;
+      }
+
+      .rz-sb-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 8px;
+        border-radius: var(--rz-r-pill);
+        border: 1px solid transparent;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+      }
+
+      .rz-sb-btn:hover:not(:disabled) {
+        background: var(--rz-fill-soft);
+        border-color: var(--rz-line);
+        color: var(--rz-text-2);
+      }
+
+      .rz-sb-btn:disabled {
+        cursor: default;
+        opacity: 0.5;
+      }
+
+      /* Rendering stopped is a state you must not be able to miss — it is the
+         one thing on this bar that can make the app look broken. */
+      .rz-sb-render.is-off,
+      .rz-sb-render.is-off:hover {
+        background: var(--rz-warn-soft);
+        border-color: rgba(245, 165, 36, 0.35);
+        color: var(--rz-warn);
       }
 
       .rz-sb-sep {
@@ -264,10 +371,72 @@ export class StatusBar {
         box-shadow: 0 0 7px var(--rz-error);
       }
 
-      .rz-sb-legend-label {
+      .rz-sb-gpu-dot.is-paused {
+        background: var(--rz-warn);
+        box-shadow: none;
+      }
+
+      .rz-sb-legend-swatches {
+        width: 9px;
+        height: 9px;
+      }
+
+      .rz-sb-legend-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+
+      /* Built rather than borrowed from title=: a native tooltip waits a second,
+         can't carry the swatches, and would explain colour without showing it. */
+      .rz-sb-tooltip {
+        position: absolute;
+        bottom: calc(100% + 10px);
+        left: 50%;
+        transform: translateX(-50%) translateY(4px);
+        min-width: 260px;
+        padding: 10px 12px;
+        border-radius: var(--rz-r-card);
+        background: rgba(22, 18, 15, 0.96);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--rz-line-strong);
+        box-shadow: var(--rz-shadow-pop);
+        display: grid;
+        gap: 6px;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+        pointer-events: none;
+      }
+
+      .rz-sb-legend-wrap:hover .rz-sb-tooltip,
+      .rz-sb-legend-btn:focus-visible + .rz-sb-tooltip {
+        opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(0);
+      }
+
+      .rz-sb-tip-title {
         font-family: var(--rz-font-ui);
-        letter-spacing: 0.6px;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
         color: var(--rz-text-faint);
+      }
+
+      .rz-sb-tip-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: var(--rz-text-3);
+      }
+
+      .rz-sb-tip-row b {
+        font-weight: 500;
+        color: var(--rz-text-2);
+        min-width: 34px;
       }
 
       .rz-sb-cursor,
@@ -275,18 +444,34 @@ export class StatusBar {
         font-variant-numeric: tabular-nums;
       }
 
+      /* Selection is the one readout that appears and disappears, so it gets the
+         accent — it is news when it is there. */
+      .rz-sb-selection {
+        color: var(--rz-accent);
+      }
+
       .rz-sb-transport svg {
         fill: var(--rz-text-faint);
       }
 
-      /* The play glyph is the one thing here that goes accent, and only while
-         the timeline is actually running. */
       .rz-sb-transport.is-playing svg {
         fill: var(--rz-accent);
       }
 
       .rz-sb-transport.is-playing .rz-sb-time {
         color: var(--rz-text-2);
+      }
+
+      /* The app's status message, moved down from the menu bar. It keeps its own
+         id/classes so every existing writer still finds it; only the placement
+         belongs to this bar. */
+      .rz-statusbar #status {
+        margin-left: 0;
+        padding: 3px 10px;
+        min-width: 108px;
+        font-family: var(--rz-font-mono);
+        font-size: 11px;
+        font-weight: 400;
       }
     `;
     document.head.appendChild(style);

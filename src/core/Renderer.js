@@ -1166,10 +1166,12 @@ export class Renderer {
     if (!editor || !editor.isPreviewEnabled) return 0;
 
     const ctx = this.ctx;
-    const pinDef = NodeDefs[node.kind]?.pinsOut?.[pinIndex];
-    const pinType = pinDef?.type || "•";
+    const pinType = this._outputPinType(node, pinIndex);
+    const scalarPin = this._isScalarPinType(pinType);
 
-    let labelText = pinType;
+    // The resting label is the pin's type — what the pin carries, when there is
+    // no single number to show for it.
+    let labelText = pinType === "default" ? "•" : pinType === "texture" ? "tex" : pinType;
     // True once labelText holds a live numeric value (scalar/vector) that can change frame-to-frame.
     // Those are the tags that must reserve a STABLE width (see the width-measure block below); static
     // tags like the pin type, Resolution, or an expression reserve their real width instead.
@@ -1248,7 +1250,13 @@ export class Renderer {
       }
     }
 
-    // Format the preview value
+    // Format the preview value. A scalar pin shows its live number; anything
+    // else keeps its type label, because `previewValue` for an image-producing
+    // node is not a value the pin actually carries.
+    if (!labelResolved && !scalarPin && typeof previewValue === 'number') {
+      previewValue = undefined;
+    }
+
     if (!labelResolved && previewValue !== undefined && previewValue !== null) {
       if (typeof previewValue === 'number') {
         // Single number output
@@ -1298,9 +1306,10 @@ export class Renderer {
       } else if (node.kind === "Expr" && node.expr) {
         labelText =
           node.expr.length > 8 ? node.expr.substring(0, 8) + "..." : node.expr;
-      } else if (pinDef?.label) {
-        labelText = pinDef.label;
       }
+      // Otherwise the tag keeps the pin's TYPE. It used to fall back to the
+      // pin's label, which the row already prints to the left of the tag —
+      // "Color  Color ●" instead of "Color  vec4 ●".
     }
 
     // Two widths, on purpose:
@@ -1430,6 +1439,37 @@ export class Renderer {
   // from the node's dynamic-input spec — see data/nodeInputs.js.
   _inputLabel(node, i) {
     return getInputLabel(node, i);
+  }
+
+  /**
+   * An output pin's declared type, normalised across the two shapes a pinsOut
+   * entry takes: a plain string name ("Texture") or `{ label, type }`.
+   *
+   * A string entry names the pin but declares no type; those are the texture
+   * pins on the Compute nodes, so they resolve to "texture" rather than to
+   * nothing — which is what lets the value tag tell a texture apart from a
+   * number (see _isScalarPinType).
+   */
+  _outputPinType(node, i) {
+    const entry = NodeDefs[node.kind]?.pinsOut?.[i];
+    if (!entry) return "default";
+    if (typeof entry === "string") {
+      return /tex/i.test(entry) ? "texture" : "default";
+    }
+    return entry.type || "default";
+  }
+
+  /**
+   * Whether a pin carries a single number — the only kind of output a live
+   * numeric value tag can honestly describe.
+   *
+   * Everything upstream hands the renderer a `__preview`, and for a node that
+   * produces an image that value is whatever the preview computer happened to
+   * put there (often 0). Printing it as "0.00" on a texture pin claimed the
+   * node output the number zero. Non-scalar pins show their type instead.
+   */
+  _isScalarPinType(type) {
+    return type === "f32" || type === "float" || type === "int";
   }
 
   // An input pin's declared data type, used to colour its port. Most pinsIn entries are plain label
