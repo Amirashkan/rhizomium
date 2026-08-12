@@ -27,7 +27,7 @@ const HOVER_CLASS = 'node-ref-drop-target';
 
 export const nodeReferenceDropStyles = `
 .node-ref-drop-target {
-  outline: 2px dashed #4CAF50;
+  outline: 2px dashed #c6f24e;
   outline-offset: 2px;
 }
 
@@ -36,10 +36,10 @@ export const nodeReferenceDropStyles = `
   z-index: 10001;
   pointer-events: none;
   padding: 3px 6px;
-  background: #4CAF50;
-  color: #fff;
+  background: #c6f24e;
+  color: #14110a;
   border-radius: 3px;
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: var(--rz-font-mono);
   font-size: 11px;
   white-space: nowrap;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);

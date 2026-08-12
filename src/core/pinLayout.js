@@ -72,8 +72,14 @@ export function nodeMinHeight(node, inCount, outCount, previewH, extraRows = 0) 
   return headerAndPreview + rows * ROW_H + BOTTOM_PAD;
 }
 
-/** Left inset of the title text inside the header, and the width of the control-chip strip. */
-export const TITLE_X_INSET = 10;
+/**
+ * Left inset of the title text inside the header, and the width of the control-chip strip.
+ *
+ * The header reads `● Title  #id  chips`: the inset clears the category-colour spine on the card's
+ * left edge AND the category dot that sits between it and the title, so the title starts where
+ * there is actually room for it.
+ */
+export const TITLE_X_INSET = 20;
 export const HEADER_CONTROLS_W = 65; // bypass / preview / size chips, measured from the right edge
 export const HEADER_CONTROLS_GAP = 6; // gap between that strip and whatever sits left of it
 

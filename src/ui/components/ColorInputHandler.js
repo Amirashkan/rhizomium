@@ -27,6 +27,8 @@ function toHex(color) {
   return `#${c(color[0])}${c(color[1])}${c(color[2])}`;
 }
 
+import { ACCENT, SURFACE, TEXT, FONT_MONO } from '../../core/theme.js';
+
 export class ColorInputHandler {
   constructor(undoManager) {
     this.undoManager = undoManager;
@@ -55,9 +57,9 @@ export class ColorInputHandler {
       width: 42px;
       height: 26px;
       padding: 0;
-      border: 1px solid #666;
-      border-radius: 4px;
-      background: #444;
+      border: 1px solid ${SURFACE.lineStrong};
+      border-radius: 7px;
+      background: ${SURFACE.well};
       cursor: pointer;
     `;
 
@@ -71,13 +73,15 @@ export class ColorInputHandler {
     alphaSlider.style.cssText = `
       flex: 1;
       cursor: pointer;
+      accent-color: ${ACCENT.base};
     `;
 
     const alphaLabel = document.createElement('span');
     alphaLabel.textContent = `A ${Number(current[3]).toFixed(2)}`;
     alphaLabel.style.cssText = `
       font-size: 10px;
-      color: #ccc;
+      font-family: ${FONT_MONO};
+      color: ${TEXT.secondary};
       min-width: 44px;
       text-align: right;
     `;

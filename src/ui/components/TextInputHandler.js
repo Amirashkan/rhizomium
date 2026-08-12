@@ -1,5 +1,6 @@
 // src/ui/components/TextInputHandler.js
 import { expressionSystem } from '../../utils/ParameterExpressionSystem.js';
+import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, withAlpha } from '../../core/theme.js';
 
 export class TextInputHandler {
   constructor(undoManager = null) {
@@ -62,10 +63,10 @@ _isValidExpression(value) {
     if (param.type !== 'float' && param.type !== 'int') return;
 
     if (isInvalid) {
-      input.style.borderColor = '#f44336';
+      input.style.borderColor = SEMANTIC.error;
       input.title = 'Incomplete number — finish typing a valid value';
     } else if (!input.classList.contains('has-expression')) {
-      input.style.borderColor = '#555';
+      input.style.borderColor = SURFACE.line;
     }
   }
 
@@ -115,15 +116,15 @@ _isValidExpression(value) {
     }
     input.style.cssText = `
       flex: 1;
-      padding: 6px 8px;
+      padding: 7px 9px;
       margin: 2px 0;
-      background: #333;
-      color: #fff;
-      border: 1px solid #555;
-      border-radius: 4px;
-      font-size: 11px;
+      background: ${SURFACE.well};
+      color: ${TEXT.primary};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 8px;
+      font-size: 12px;
       box-sizing: border-box;
-      font-family: 'Consolas', 'Monaco', monospace;
+      font-family: ${FONT_MONO};
     `;
 
     this._setCurrentValue(input, param, node, valueManager);
@@ -164,8 +165,9 @@ _isValidExpression(value) {
     try {
       const hasConnectedInput = valueManager.hasConnectedInput(node, param.name);
       if (hasConnectedInput) {
-        input.style.backgroundColor = "#2a4a2a";
-        input.style.borderColor = "#4a6a4a";
+        // Driven by a wire: quiet, with the accent on its edge.
+        input.style.backgroundColor = SURFACE.well;
+        input.style.borderColor = withAlpha(ACCENT.base, 0.3);
         input.title = "Connected to input - value reflects connected node";
         input.disabled = true;
       }
@@ -289,15 +291,15 @@ input.addEventListener("input", (e) => {
     try {
       if (this.expressionSystem.isExpression(value)) {
         input.classList.add('has-expression');
-        input.style.backgroundColor = '#2a2a3e';
-        input.style.borderColor = '#4CAF50';
-        input.style.color = '#a8e6cf';
+        input.style.backgroundColor = SURFACE.well;
+        input.style.borderColor = SEMANTIC.audio;
+        input.style.color = '#c9b9f7';
         input.style.fontWeight = 'normal';
       } else {
         input.classList.remove('has-expression');
-        input.style.backgroundColor = '#333';
-        input.style.borderColor = '#555';
-        input.style.color = '#fff';
+        input.style.backgroundColor = SURFACE.well;
+        input.style.borderColor = SURFACE.line;
+        input.style.color = TEXT.primary;
         input.style.fontWeight = 'normal';
       }
     } catch {
@@ -311,10 +313,10 @@ input.addEventListener("input", (e) => {
         const validation = this.expressionSystem.validateExpression(value, {}, node);
         
         if (validation.valid) {
-          input.style.borderColor = '#4CAF50';
+          input.style.borderColor = SEMANTIC.audio;
           input.title = `Expression result: ${validation.result}`;
         } else {
-          input.style.borderColor = '#f44336';
+          input.style.borderColor = SEMANTIC.error;
           input.title = `Expression error: ${validation.error}`;
         }
       } else {
@@ -341,14 +343,15 @@ input.addEventListener("input", (e) => {
     helperBtn.type = "button";
     helperBtn.title = "Toggle expression mode";
     helperBtn.style.cssText = `
-      background: #4CAF50;
-      border: none;
-      color: white;
+      background: ${withAlpha(SEMANTIC.audio, 0.14)};
+      border: 1px solid ${withAlpha(SEMANTIC.audio, 0.3)};
+      color: ${SEMANTIC.audio};
       padding: 4px 6px;
-      border-radius: 3px;
+      border-radius: 6px;
       cursor: pointer;
+      font-family: ${FONT_MONO};
       font-size: 10px;
-      font-weight: bold;
+      font-weight: 600;
       min-width: 20px;
       height: 24px;
       flex-shrink: 0;
@@ -385,10 +388,10 @@ input.addEventListener("input", (e) => {
 
   _updateHelperButtonState(helperBtn, value) {
     if (this.expressionSystem.isExpression(value)) {
-      helperBtn.style.background = '#45a049';
+      helperBtn.style.background = withAlpha(SEMANTIC.audio, 0.28);
       helperBtn.title = "Remove expression mode";
     } else {
-      helperBtn.style.background = '#4CAF50';
+      helperBtn.style.background = withAlpha(SEMANTIC.audio, 0.14);
       helperBtn.title = "Enable expression mode";
     }
   }
@@ -428,10 +431,10 @@ input.addEventListener("input", (e) => {
         
         if (validation.valid) {
           resultDiv.textContent = `→ ${validation.result}`;
-          resultDiv.style.color = '#4CAF50';
+          resultDiv.style.color = TEXT.tertiary;
         } else {
           resultDiv.textContent = `Error: ${validation.error}`;
-          resultDiv.style.color = '#f44336';
+          resultDiv.style.color = SEMANTIC.error;
         }
       } else {
         resultDiv.textContent = '';

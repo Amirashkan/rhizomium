@@ -1,20 +1,21 @@
+/* Texture / file parameter widgets. Tokens from tokens.css — see that file. */
+
 .param-file-input {
   margin: 4px 0;
 }
 
 .current-file {
   font-size: 10px;
-  color: #aaa;
+  color: var(--rz-text-3);
   margin-bottom: 4px;
-  font-style: italic;
 }
 
 .file-drop-zone {
-  border: 2px dashed #666;
-  border-radius: 4px;
+  border: 1px dashed var(--rz-line-strong);
+  border-radius: var(--rz-r-row);
   padding: 20px;
   text-align: center;
-  color: #aaa;
+  color: var(--rz-text-3);
   font-size: 10px;
   margin: 4px 0;
   cursor: pointer;
@@ -24,26 +25,31 @@
 }
 
 .file-drop-zone:hover {
-  border-color: #888;
-  background-color: rgba(255, 255, 255, 0.05);
+  border-color: var(--rz-text-faint);
+  background-color: var(--rz-fill-soft);
 }
 
+/* A file hovering over the zone is the one moment it goes accent — it is about
+   to accept something. */
 .file-drop-zone.drag-over {
-  border-color: #4a90e2;
-  background-color: rgba(74, 144, 226, 0.1);
+  border-color: var(--rz-accent);
+  background-color: var(--rz-accent-08);
 }
 
 .param-select {
   width: 100%;
-  padding: 4px;
+  padding: 7px 9px;
   margin: 4px 0;
-  background: #333;
-  color: #fff;
-  border: 1px solid #555;
-  border-radius: 3px;
+  background: var(--rz-well);
+  color: var(--rz-text);
+  border: 1px solid var(--rz-line);
+  border-radius: var(--rz-r-field);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
 }
 
 .param-select:focus {
-  border-color: #4a90e2;
+  border-color: var(--rz-accent-30);
+  box-shadow: 0 0 0 3px var(--rz-accent-10);
   outline: none;
 }

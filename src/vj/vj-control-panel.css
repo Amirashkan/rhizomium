@@ -6,14 +6,13 @@
   bottom: 16px;
   width: 420px;
   max-height: calc(100vh - 32px);
-  background: rgba(28, 28, 30, 0.95);
-  backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: linear-gradient(var(--rz-panel-top), var(--rz-panel-bottom));
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-window);
+  box-shadow: var(--rz-shadow-window);
+  font-family: var(--rz-font-ui);
   font-size: 13px;
-  color: #ffffff;
+  color: var(--rz-text);
   /* Above the floating GPU preview (1000), which is created after this panel and
      therefore won the tie at the same z-index - it covered the VJ header and
      swallowed the mousedown, so the panel could not be dragged where the two
@@ -30,8 +29,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(58, 58, 62, 0.3);
+  border-bottom: 1px solid rgba(255, 244, 230, 0.1);
+  background: rgba(26, 22, 17, 0.3);
   cursor: grab;
   user-select: none;
 }
@@ -50,10 +49,10 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 244, 230, 0.1);
   border: none;
   border-radius: 6px;
-  color: #ffffff;
+  color: var(--rz-text);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
@@ -61,7 +60,7 @@
 }
 
 .vj-close-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 244, 230, 0.2);
 }
 
 /* Tab Navigation */
@@ -69,17 +68,17 @@
   display: flex;
   gap: 4px;
   padding: 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 244, 230, 0.1);
   background: rgba(0, 0, 0, 0.2);
 }
 
 .vj-tab-btn {
   flex: 1;
   padding: 8px 12px;
-  background: rgba(58, 58, 62, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(26, 22, 17, 0.4);
+  border: 1px solid rgba(255, 244, 230, 0.05);
   border-radius: 6px;
-  color: #ffffff;
+  color: var(--rz-text);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -87,14 +86,14 @@
 }
 
 .vj-tab-btn:hover {
-  background: rgba(74, 74, 78, 0.6);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(42, 36, 29, 0.6);
+  border-color: rgba(255, 244, 230, 0.1);
 }
 
 .vj-tab-btn.active {
-  background: rgba(0, 122, 255, 0.8);
-  border-color: rgba(0, 122, 255, 1);
-  color: #ffffff;
+  background: rgba(198, 242, 78, 0.8);
+  border-color: rgba(198, 242, 78, 1);
+  color: var(--rz-text);
 }
 
 /* Content Area */
@@ -121,8 +120,8 @@
   flex: 1 1 calc(50% - 4px);
   min-width: 180px;
   padding: 12px;
-  background: rgba(58, 58, 62, 0.5);
-  border: 2px solid rgba(255, 255, 255, 0.1);
+  background: rgba(26, 22, 17, 0.5);
+  border: 2px solid rgba(255, 244, 230, 0.1);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -130,15 +129,15 @@
 }
 
 .vj-scene-card:hover {
-  background: rgba(74, 74, 78, 0.7);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(42, 36, 29, 0.7);
+  border-color: rgba(255, 244, 230, 0.2);
   transform: translateY(-2px);
 }
 
 .vj-scene-card.active {
-  background: rgba(0, 122, 255, 0.3);
-  border-color: rgba(0, 122, 255, 1);
-  box-shadow: 0 0 12px rgba(0, 122, 255, 0.4);
+  background: rgba(198, 242, 78, 0.3);
+  border-color: rgba(198, 242, 78, 1);
+  box-shadow: 0 0 12px rgba(198, 242, 78, 0.4);
 }
 
 .vj-scene-name {
@@ -152,7 +151,7 @@
 
 .vj-scene-info {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 244, 230, 0.6);
   margin-bottom: 8px;
 }
 
@@ -163,9 +162,9 @@
   margin-top: 6px;
   padding: 4px 6px;
   background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 244, 230, 0.08);
   border-radius: 6px;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 244, 230, 0.85);
   font-family: inherit;
   font-size: 11px;
   line-height: 1.35;
@@ -173,12 +172,12 @@
 }
 
 .vj-scene-notes::placeholder {
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 244, 230, 0.3);
 }
 
 .vj-scene-notes:focus {
   outline: none;
-  border-color: rgba(0, 122, 255, 0.8);
+  border-color: rgba(198, 242, 78, 0.8);
   background: rgba(0, 0, 0, 0.4);
 }
 
@@ -197,16 +196,16 @@
 
 .vj-preset-card {
   padding: 12px;
-  background: rgba(58, 58, 62, 0.5);
-  border: 2px solid rgba(255, 255, 255, 0.1);
+  background: rgba(26, 22, 17, 0.5);
+  border: 2px solid rgba(255, 244, 230, 0.1);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .vj-preset-card:hover {
-  background: rgba(74, 74, 78, 0.7);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(42, 36, 29, 0.7);
+  border-color: rgba(255, 244, 230, 0.2);
   transform: translateY(-2px);
 }
 
@@ -236,7 +235,7 @@
   gap: 6px;
   align-items: center;
   padding: 8px;
-  background: rgba(58, 58, 62, 0.3);
+  background: rgba(26, 22, 17, 0.3);
   border-radius: 8px;
 }
 
@@ -253,27 +252,27 @@
   align-items: center;
   gap: 8px;
   padding: 10px;
-  background: rgba(58, 58, 62, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(26, 22, 17, 0.4);
+  border: 1px solid rgba(255, 244, 230, 0.1);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .vj-playlist-item:hover {
-  background: rgba(74, 74, 78, 0.6);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(42, 36, 29, 0.6);
+  border-color: rgba(255, 244, 230, 0.2);
 }
 
 .vj-playlist-item.current {
-  background: rgba(0, 122, 255, 0.3);
-  border-color: rgba(0, 122, 255, 1);
+  background: rgba(198, 242, 78, 0.3);
+  border-color: rgba(198, 242, 78, 1);
 }
 
 .vj-playlist-number {
   font-size: 13px;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 244, 230, 0.5);
   min-width: 24px;
 }
 
@@ -295,7 +294,7 @@
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 244, 230, 0.5);
   margin-top: 4px;
 }
 
@@ -303,10 +302,10 @@
 .vj-input-tiny,
 .vj-select-tiny {
   padding: 2px 4px;
-  background: rgba(58, 58, 62, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(26, 22, 17, 0.5);
+  border: 1px solid rgba(255, 244, 230, 0.1);
   border-radius: 4px;
-  color: #ffffff;
+  color: var(--rz-text);
   font-size: 11px;
   font-family: inherit;
 }
@@ -323,7 +322,7 @@
 .vj-input-tiny:focus,
 .vj-select-tiny:focus {
   outline: none;
-  border-color: rgba(0, 122, 255, 0.8);
+  border-color: rgba(198, 242, 78, 0.8);
 }
 
 .vj-playlist-actions {
@@ -346,7 +345,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 244, 230, 0.7);
 }
 
 .vj-control-row {
@@ -364,7 +363,7 @@
 .vj-control-group-inline label {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 244, 230, 0.8);
   min-width: 60px;
 }
 
@@ -372,43 +371,43 @@
 .vj-input {
   width: 100%;
   padding: 8px 10px;
-  background: rgba(58, 58, 62, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(26, 22, 17, 0.5);
+  border: 1px solid rgba(255, 244, 230, 0.1);
   border-radius: 6px;
-  color: #ffffff;
+  color: var(--rz-text);
   font-size: 13px;
   font-family: inherit;
 }
 
 .vj-input:focus {
   outline: none;
-  border-color: rgba(0, 122, 255, 0.8);
-  background: rgba(58, 58, 62, 0.7);
+  border-color: rgba(198, 242, 78, 0.8);
+  background: rgba(26, 22, 17, 0.7);
 }
 
 .vj-input-small {
   width: 70px;
   padding: 6px 8px;
-  background: rgba(58, 58, 62, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(26, 22, 17, 0.5);
+  border: 1px solid rgba(255, 244, 230, 0.1);
   border-radius: 6px;
-  color: #ffffff;
+  color: var(--rz-text);
   font-size: 12px;
   font-family: inherit;
 }
 
 .vj-input-small:focus {
   outline: none;
-  border-color: rgba(0, 122, 255, 0.8);
+  border-color: rgba(198, 242, 78, 0.8);
 }
 
 .vj-select {
   flex: 1;
   padding: 6px 8px;
-  background: rgba(58, 58, 62, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(26, 22, 17, 0.5);
+  border: 1px solid rgba(255, 244, 230, 0.1);
   border-radius: 6px;
-  color: #ffffff;
+  color: var(--rz-text);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
@@ -416,13 +415,13 @@
 
 .vj-select:focus {
   outline: none;
-  border-color: rgba(0, 122, 255, 0.8);
+  border-color: rgba(198, 242, 78, 0.8);
 }
 
 .vj-slider {
   flex: 1;
   height: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 244, 230, 0.1);
   border-radius: 3px;
   outline: none;
   -webkit-appearance: none;
@@ -434,7 +433,7 @@
   appearance: none;
   width: 16px;
   height: 16px;
-  background: #ffffff;
+  background: var(--rz-text);
   border-radius: 50%;
   cursor: pointer;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
@@ -443,7 +442,7 @@
 .vj-slider::-moz-range-thumb {
   width: 16px;
   height: 16px;
-  background: #ffffff;
+  background: var(--rz-text);
   border-radius: 50%;
   cursor: pointer;
   border: none;
@@ -454,17 +453,17 @@
   min-width: 50px;
   font-size: 12px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 244, 230, 0.9);
   text-align: right;
 }
 
 /* Buttons */
 .vj-btn {
   padding: 8px 14px;
-  background: rgba(58, 58, 62, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(26, 22, 17, 0.6);
+  border: 1px solid rgba(255, 244, 230, 0.08);
   border-radius: 6px;
-  color: #ffffff;
+  color: var(--rz-text);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -473,8 +472,8 @@
 }
 
 .vj-btn:hover {
-  background: rgba(74, 74, 78, 0.8);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(42, 36, 29, 0.8);
+  border-color: rgba(255, 244, 230, 0.15);
 }
 
 .vj-btn:active {
@@ -494,8 +493,8 @@
 .vj-btn:disabled:hover {
   opacity: 0.4;
   cursor: default;
-  background: rgba(58, 58, 62, 0.4);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(26, 22, 17, 0.4);
+  border-color: rgba(255, 244, 230, 0.08);
   transform: none;
 }
 
@@ -511,13 +510,13 @@
 }
 
 .vj-btn-danger {
-  background: rgba(255, 59, 48, 0.3);
-  border-color: rgba(255, 59, 48, 0.5);
+  background: rgba(248, 97, 90, 0.3);
+  border-color: rgba(248, 97, 90, 0.5);
 }
 
 .vj-btn-danger:hover {
-  background: rgba(255, 59, 48, 0.5);
-  border-color: rgba(255, 59, 48, 0.8);
+  background: rgba(248, 97, 90, 0.5);
+  border-color: rgba(248, 97, 90, 0.8);
 }
 
 .vj-button-group {
@@ -529,7 +528,7 @@
 /* Footer */
 .vj-footer {
   padding: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(255, 244, 230, 0.1);
   background: rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
@@ -540,9 +539,9 @@
 .vj-beat-indicator {
   padding: 6px 12px;
   background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 244, 230, 0.1);
   border-radius: 6px;
-  font-family: monospace;
+  font-family: var(--rz-font-mono);
   font-size: 14px;
   font-weight: 700;
   text-align: center;
@@ -554,7 +553,7 @@
 .vj-empty-message {
   padding: 32px 16px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 244, 230, 0.4);
   font-size: 12px;
   font-style: italic;
 }
@@ -573,13 +572,13 @@
 
 .vj-content-area::-webkit-scrollbar-thumb,
 .vj-playlist-items::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 244, 230, 0.2);
   border-radius: 4px;
 }
 
 .vj-content-area::-webkit-scrollbar-thumb:hover,
 .vj-playlist-items::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 244, 230, 0.3);
 }
 
 /* Responsive adjustments */

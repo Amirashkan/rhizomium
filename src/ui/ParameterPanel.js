@@ -17,13 +17,23 @@ import { nodeReferenceDropStyles } from './NodeReferenceDrop.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { nodeDisplayName } from '../core/nodeName.js';
 import { describeExternalControls } from '../parameters/ExternalParameterControl.js';
+import {
+  ACCENT,
+  SEMANTIC,
+  SURFACE,
+  TEXT,
+  FONT_MONO,
+  FONT_UI,
+  categoryColor,
+  withAlpha,
+} from '../core/theme.js';
 
 // Colours for parameters driven from outside the graph. Deliberately away from
 // the greens/oranges the in-graph binding UI already owns, so "a controller is
 // moving this" never reads as "another node is driving this".
 const EXTERNAL_CONTROL_COLORS = {
-  midi: '#b388ff',
-  osc: '#4dd0e1',
+  midi: SEMANTIC.audio,
+  osc: SEMANTIC.info,
 };
 
 const EXTERNAL_CONTROL_ICONS = {
@@ -130,14 +140,14 @@ export class ParameterPanel {
       min-width: 220px;
       min-height: 220px;
       max-height: calc(100vh - 20px);
-      background: #2b2b2b;
-      border: 1px solid #555;
-      border-radius: 8px;
-      padding: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      font-family: Arial, sans-serif;
+      background: linear-gradient(${SURFACE.panelTop}, ${SURFACE.panelBottom});
+      border: 1px solid ${SURFACE.lineStrong};
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 24px 60px -12px rgba(0,0,0,0.75), 0 4px 16px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,244,230,0.06);
+      font-family: ${FONT_UI};
       font-size: 12px;
-      color: #fff;
+      color: ${TEXT.primary};
       z-index: 1000;
       display: flex;
       flex-direction: column;
@@ -1088,19 +1098,70 @@ case 'flip2d':
       }
     });
 
+    // Panel header, in the order the eye needs it: what this surface is, which node it is pointed
+    // at, and which family that node belongs to.
+    //
+    // The node's name is its kind's label until the artist renames it. Renaming a node is how a
+    // patch full of Remaps becomes readable, so the panel has to answer "which one is this?" with
+    // the same title the node draws on the canvas.
+    const cat = NodeDefs[node.kind]?.cat || '';
+    const swatch = categoryColor(cat);
+
     const title = document.createElement('div');
     title.className = 'panel-title';
-    // The node's name, which is its kind's label until the artist renames it. Renaming a node is
-    // how a patch full of Remaps becomes readable, so the panel has to answer "which one is this?"
-    // with the same title the node draws on the canvas.
-    title.textContent = `${nodeDisplayName(node)} Parameters`;
     title.style.cssText = `
-      font-weight: bold;
       margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid #555;
-      color: #4CAF50;
+      padding-bottom: 11px;
+      border-bottom: 1px solid ${SURFACE.line};
     `;
+
+    const eyebrow = document.createElement('div');
+    eyebrow.style.cssText = `
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 10px; font-weight: 600; letter-spacing: 1.4px; color: ${TEXT.faint};
+    `;
+    const eyebrowLabel = document.createElement('span');
+    eyebrowLabel.textContent = 'PARAMETERS';
+    const eyebrowId = document.createElement('span');
+    eyebrowId.style.cssText = `font-family: ${FONT_MONO}; letter-spacing: 0;`;
+    eyebrowId.textContent = `#${node.id}`;
+    eyebrow.appendChild(eyebrowLabel);
+    eyebrow.appendChild(eyebrowId);
+
+    const identity = document.createElement('div');
+    identity.style.cssText = 'display: flex; align-items: center; gap: 9px; margin-top: 11px;';
+
+    // The category swatch is the same identity colour as the node's spine on the canvas — the one
+    // thread that ties the panel to the card it is editing.
+    const dot = document.createElement('span');
+    dot.style.cssText = `
+      width: 10px; height: 10px; border-radius: 3px; flex: none;
+      background: ${swatch}; box-shadow: 0 0 10px ${withAlpha(swatch, 0.6)};
+    `;
+
+    const name = document.createElement('span');
+    name.style.cssText = `
+      flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: ${TEXT.primary};
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    `;
+    name.textContent = nodeDisplayName(node);
+
+    identity.appendChild(dot);
+    identity.appendChild(name);
+
+    if (cat) {
+      const pill = document.createElement('span');
+      pill.style.cssText = `
+        flex: none; font-size: 10px; padding: 3px 9px; border-radius: 999px;
+        background: ${SURFACE.fillSoft}; color: ${TEXT.secondary};
+        border: 1px solid ${SURFACE.line};
+      `;
+      pill.textContent = cat;
+      identity.appendChild(pill);
+    }
+
+    title.appendChild(eyebrow);
+    title.appendChild(identity);
 
     this.panelContent.innerHTML = '';
     this.panelContent.appendChild(title);
@@ -1170,11 +1231,12 @@ case 'flip2d':
       user-select: none;
       padding: 6px 4px;
       margin-bottom: 6px;
-      border-bottom: 1px solid #444;
-      color: #9e9e9e;
-      font-size: 11px;
+      border-bottom: 1px solid ${SURFACE.line};
+      color: ${TEXT.faint};
+      font-size: 10px;
+      font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 1.4px;
     `;
     const caret = document.createElement('span');
     setIcon(caret, collapsed ? 'chevron-right' : 'chevron-down', { size: 12 });
@@ -1362,16 +1424,18 @@ case 'flip2d':
       ? EXTERNAL_CONTROL_COLORS[externalControls[0].type]
       : null;
 
-    // In-graph bindings keep their existing orange — that relationship is
-    // editable from this panel, so it stays the louder of the two.
-    const accentColor = bindingInfo.isBound ? '#ff9800' : (externalColor || '#4CAF50');
+    // In-graph bindings keep their existing amber — that relationship is
+    // editable from this panel, so it stays the louder of the two. An ordinary
+    // parameter's edge is the accent, matching the selection on the canvas.
+    const accentColor = bindingInfo.isBound ? SEMANTIC.warn : (externalColor || ACCENT.base);
 
     paramContainer.style.cssText = `
-      margin-bottom: 12px;
-      padding: 8px;
-      background: ${bindingInfo.isBound ? '#2a2a4a' : '#333'};
-      border-radius: 4px;
-      border-left: 3px solid ${active ? accentColor : '#555'};
+      margin-bottom: 10px;
+      padding: 9px 10px;
+      background: ${bindingInfo.isBound ? withAlpha(SEMANTIC.warn, 0.07) : SURFACE.fillSoft};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 10px;
+      border-left: 3px solid ${active ? accentColor : SURFACE.lineStrong};
       position: relative;
       opacity: ${active ? '1' : '0.45'};
     `;
@@ -1404,8 +1468,9 @@ case 'flip2d':
     label.className = 'parameter-label';
     label.textContent = param.displayName || param.name;
     label.style.cssText = `
-      font-weight: bold;
-      color: ${bindingInfo.isBound || externalColor ? accentColor : '#ccc'};
+      font-size: 12.5px;
+      font-weight: 500;
+      color: ${bindingInfo.isBound || externalColor ? accentColor : TEXT.secondary};
     `;
 
     if (param.description) {
@@ -1504,8 +1569,9 @@ case 'flip2d':
       rangeInfo.textContent = `Range: ${param.min ?? '−∞'} to ${param.max ?? '∞'}`;
       rangeInfo.style.cssText = `
         font-size: 10px;
-        color: #888;
-        margin-top: 2px;
+        color: ${TEXT.faint};
+        font-family: ${FONT_MONO};
+        margin-top: 3px;
       `;
       paramContainer.appendChild(rangeInfo);
     }
@@ -1542,28 +1608,28 @@ case 'flip2d':
     input.title = `Bound to ${sourceLabel}. Type an expression of "bound" (the driven value) to transform it; leave empty to use it directly.`;
     input.style.cssText = `
       width: 100%;
-      min-height: 28px;
+      min-height: 30px;
       max-height: 200px;
-      padding: 6px;
-      background: #2a2a3e;
-      color: #a8e6cf;
-      border: 1px solid #ff9800;
-      border-radius: 4px;
+      padding: 6px 8px;
+      background: ${SURFACE.well};
+      color: #c9b9f7;
+      border: 1px solid ${withAlpha(SEMANTIC.warn, 0.45)};
+      border-radius: 8px;
       font-size: 11px;
-      font-family: monospace;
+      font-family: ${FONT_MONO};
       line-height: 1.4;
       box-sizing: border-box;
       resize: vertical;
-      overflow-y: auto;
+      overflow-y: hidden;
     `;
 
     const resultDisplay = document.createElement('div');
     resultDisplay.className = 'expression-result';
     resultDisplay.style.cssText = `
       font-size: 10px;
-      color: #4CAF50;
-      margin-top: 2px;
-      font-style: italic;
+      color: ${TEXT.tertiary};
+      margin-top: 3px;
+      font-family: ${FONT_MONO};
       min-height: 12px;
       padding-left: 2px;
     `;
@@ -1628,11 +1694,12 @@ case 'flip2d':
     const paramContainer = document.createElement('div');
     paramContainer.className = 'parameter-container';
     paramContainer.style.cssText = `
-      margin-bottom: 12px;
-      padding: 8px;
-      background: #333;
-      border-radius: 4px;
-      border-left: 3px solid #4CAF50;
+      margin-bottom: 10px;
+      padding: 9px 10px;
+      background: ${SURFACE.fillSoft};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 10px;
+      border-left: 3px solid ${ACCENT.base};
     `;
 
     const button = document.createElement('button');
@@ -1642,15 +1709,16 @@ case 'flip2d':
     button.style.cssText = `
       width: 100%;
       padding: 8px;
-      background: #444;
-      color: #fff;
-      border: 1px solid #666;
-      border-radius: 4px;
+      background: ${SURFACE.fillSoft};
+      color: ${TEXT.secondary};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 8px;
+      font-family: ${FONT_UI};
       font-size: 12px;
       cursor: pointer;
     `;
-    button.addEventListener('mouseenter', () => { button.style.background = '#555'; });
-    button.addEventListener('mouseleave', () => { button.style.background = '#444'; });
+    button.addEventListener('mouseenter', () => { button.style.background = SURFACE.hover; });
+    button.addEventListener('mouseleave', () => { button.style.background = SURFACE.fillSoft; });
 
     button.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1699,10 +1767,10 @@ case 'flip2d':
     copyBtn.style.cssText = `
       width: 18px;
       height: 18px;
-      background: #2196F3;
-      border: none;
-      border-radius: 3px;
-      color: white;
+      background: ${SURFACE.fillSoft};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 5px;
+      color: ${TEXT.secondary};
       cursor: pointer;
       font-size: 10px;
       display: flex;
@@ -1735,10 +1803,10 @@ case 'flip2d':
     pasteBtn.style.cssText = `
       width: 18px;
       height: 18px;
-      background: #4CAF50;
-      border: none;
-      border-radius: 3px;
-      color: white;
+      background: ${SURFACE.fillSoft};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 5px;
+      color: ${TEXT.secondary};
       cursor: pointer;
       font-size: 10px;
       display: flex;
@@ -1765,10 +1833,10 @@ case 'flip2d':
       unbindBtn.style.cssText = `
         width: 18px;
         height: 18px;
-        background: #f44336;
-        border: none;
-        border-radius: 3px;
-        color: white;
+        background: ${withAlpha(SEMANTIC.error, 0.14)};
+        border: 1px solid ${withAlpha(SEMANTIC.error, 0.35)};
+        border-radius: 5px;
+        color: ${SEMANTIC.error};
         cursor: pointer;
         font-size: 10px;
         display: flex;
@@ -1804,10 +1872,10 @@ case 'flip2d':
     keyframeBtn.style.cssText = `
       width: 18px;
       height: 18px;
-      background: ${hasKeyframes ? '#4a90e2' : '#666'};
-      border: none;
-      border-radius: 3px;
-      color: white;
+      background: ${hasKeyframes ? withAlpha(ACCENT.base, 0.16) : SURFACE.fillSoft};
+      border: 1px solid ${hasKeyframes ? withAlpha(ACCENT.base, 0.35) : SURFACE.line};
+      border-radius: 5px;
+      color: ${hasKeyframes ? ACCENT.base : TEXT.tertiary};
       cursor: pointer;
       font-size: 10px;
       display: flex;
@@ -1817,11 +1885,11 @@ case 'flip2d':
     `;
 
     keyframeBtn.addEventListener('mouseenter', () => {
-      keyframeBtn.style.background = hasKeyframes ? '#5aa0f2' : '#777';
+      keyframeBtn.style.background = hasKeyframes ? withAlpha(ACCENT.base, 0.26) : SURFACE.hover;
     });
 
     keyframeBtn.addEventListener('mouseleave', () => {
-      keyframeBtn.style.background = hasKeyframes ? '#4a90e2' : '#666';
+      keyframeBtn.style.background = hasKeyframes ? withAlpha(ACCENT.base, 0.16) : SURFACE.fillSoft;
     });
 
     keyframeBtn.addEventListener('click', (e) => {
@@ -1865,11 +1933,11 @@ case 'flip2d':
     const status = document.createElement('div');
     status.className = 'binding-status';
     status.style.cssText = `
-      font-size: 9px;
-      margin-bottom: 4px;
-      padding: 2px 4px;
-      border-radius: 2px;
-      background: rgba(0,0,0,0.2);
+      font-size: 9.5px;
+      margin-bottom: 5px;
+      padding: 4px 6px;
+      border-radius: 6px;
+      background: ${SURFACE.well};
     `;
 
     if (bindingInfo.isBound) {
@@ -1881,8 +1949,8 @@ case 'flip2d':
 
       const boundLine = document.createElement('div');
       boundLine.innerHTML = `
-        <span style="color: #ff9800;">${iconMarkup('link', { size: 12 })} Bound to:</span>
-        <span style="color: #fff; text-decoration: underline dotted;">${sourceLabel}</span>
+        <span style="color: ${SEMANTIC.warn};">${iconMarkup('link', { size: 12 })} Bound to:</span>
+        <span style="color: ${TEXT.primary}; text-decoration: underline dotted;">${sourceLabel}</span>
       `;
       if (sourceNode) {
         boundLine.style.cursor = 'pointer';
@@ -1901,8 +1969,8 @@ case 'flip2d':
       
       const targetInfo = document.createElement('div');
       targetInfo.innerHTML = `
-        <span style="color: #4CAF50;">${iconMarkup('wire', { size: 12 })} Controls:</span> 
-        <span style="color: #fff;">${targetsText}</span>
+        <span style="color: ${ACCENT.base};">${iconMarkup('wire', { size: 12 })} Controls:</span> 
+        <span style="color: ${TEXT.primary};">${targetsText}</span>
       `;
       
       if (bindingInfo.isBound) {
@@ -1923,7 +1991,7 @@ case 'flip2d':
    * the range or the mapping itself can actually be changed.
    */
   createExternalControlBadge(control) {
-    const color = EXTERNAL_CONTROL_COLORS[control.type] || '#999';
+    const color = EXTERNAL_CONTROL_COLORS[control.type] || TEXT.tertiary;
 
     const badge = document.createElement('span');
     badge.className = `external-control-badge external-control-badge--${control.type}`;
@@ -1935,11 +2003,11 @@ case 'flip2d':
       font-weight: bold;
       letter-spacing: 0.4px;
       line-height: 1;
-      padding: 2px 4px;
-      border: 1px solid ${color};
-      border-radius: 3px;
+      padding: 2px 7px;
+      border: 1px solid ${withAlpha(color, 0.35)};
+      border-radius: 999px;
       color: ${color};
-      background: rgba(0,0,0,0.25);
+      background: ${withAlpha(color, 0.14)};
       cursor: pointer;
       opacity: ${control.enabled ? '1' : '0.45'};
     `;
@@ -1962,23 +2030,23 @@ case 'flip2d':
     const status = document.createElement('div');
     status.className = 'external-control-status';
     status.style.cssText = `
-      font-size: 9px;
-      margin-bottom: 4px;
-      padding: 2px 4px;
-      border-radius: 2px;
-      background: rgba(0,0,0,0.2);
+      font-size: 9.5px;
+      margin-bottom: 5px;
+      padding: 4px 6px;
+      border-radius: 6px;
+      background: ${SURFACE.well};
     `;
 
     controls.forEach((control) => {
-      const color = EXTERNAL_CONTROL_COLORS[control.type] || '#999';
+      const color = EXTERNAL_CONTROL_COLORS[control.type] || TEXT.tertiary;
       const icon = EXTERNAL_CONTROL_ICONS[control.type] || 'wire';
 
       const line = document.createElement('div');
       line.style.cssText = `opacity: ${control.enabled ? '1' : '0.5'};`;
       line.innerHTML = `
         <span style="color: ${color};">${iconMarkup(icon, { size: 12 })} ${control.label}:</span>
-        <span style="color: #fff;">${this.escapeHtml(control.source)}</span>
-        ${control.enabled ? '' : '<span style="color: #888;">(disabled)</span>'}
+        <span style="color: ${TEXT.primary};">${this.escapeHtml(control.source)}</span>
+        ${control.enabled ? '' : '<span style="color: ${TEXT.faint};">(disabled)</span>'}
       `;
       status.appendChild(line);
     });
@@ -2081,12 +2149,12 @@ case 'flip2d':
       left: ${rect.left + rect.width / 2}px;
       top: ${rect.bottom + 6}px;
       transform: translateX(-50%);
-      background: #4CAF50;
-      color: #fff;
-      padding: 3px 8px;
-      border-radius: 4px;
+      background: ${ACCENT.base};
+      color: ${ACCENT.ink};
+      padding: 3px 9px;
+      border-radius: 999px;
       font-size: 11px;
-      font-weight: bold;
+      font-weight: 600;
       white-space: nowrap;
       pointer-events: none;
       z-index: 100000;
@@ -2108,10 +2176,10 @@ case 'flip2d':
     toast.textContent = message;
     
     const colors = {
-      success: '#4CAF50',
-      warning: '#ff9800',
-      error: '#f44336',
-      info: '#2196F3'
+      success: ACCENT.base,
+      warning: SEMANTIC.warn,
+      error: SEMANTIC.error,
+      info: SEMANTIC.info
     };
     
     toast.style.cssText = `
@@ -2198,11 +2266,12 @@ getInputHandler(param) {
     
     input.style.cssText = `
       width: 100%;
-      padding: 6px;
-      background: #444;
-      color: #fff;
-      border: 1px solid #666;
-      border-radius: 4px;
+      padding: 7px 9px;
+      background: ${SURFACE.well};
+      color: ${TEXT.primary};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 8px;
+      font-family: ${FONT_MONO};
       font-size: 11px;
     `;
 
@@ -2220,22 +2289,25 @@ getInputHandler(param) {
     helpSection.style.cssText = `
       margin-top: 16px;
       padding: 12px;
-      background: #1a1a2e;
-      border-radius: 4px;
-      border: 1px solid #4CAF50;
+      background: ${SURFACE.well};
+      border-radius: 10px;
+      border: 1px solid ${SURFACE.line};
     `;
 
     const helpTitle = document.createElement('div');
     helpTitle.textContent = 'Expression Help';
     helpTitle.style.cssText = `
-      font-weight: bold;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
       margin-bottom: 8px;
-      color: #4CAF50;
+      color: ${TEXT.faint};
     `;
 
     const helpContent = document.createElement('div');
     helpContent.innerHTML = `
-      <div style="font-size: 10px; line-height: 1.4; color: #ccc;">
+      <div style="font-size: 10px; line-height: 1.5; color: ${TEXT.secondary};">
         <strong>Expression Syntax:</strong><br>
         • Start with <code>=</code> to create expressions<br>
         • Use <code>sin(x)</code>, <code>cos(x)</code>, <code>sqrt(x)</code>, etc.<br>
@@ -2494,10 +2566,12 @@ updateDependentExpressions(_node) {
         
         if (validation.valid) {
           display.textContent = `→ ${validation.result}`;
-          display.style.color = '#4CAF50';
+          // A live value is not a success message — only the error state gets a
+          // colour, so a working expression stays quiet.
+          display.style.color = TEXT.tertiary;
         } else {
           display.textContent = `Error: ${validation.error}`;
-          display.style.color = '#f44336';
+          display.style.color = SEMANTIC.error;
         }
       }
     });

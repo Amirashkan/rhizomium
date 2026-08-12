@@ -1,5 +1,6 @@
 // src/ui/WelcomeWindow.js
 import { makeDraggable } from './utils/draggable.js';
+import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
 
 export class WelcomeWindow {
   constructor(options = {}) {
@@ -224,20 +225,27 @@ export class WelcomeWindow {
     const styles = document.createElement("style");
     styles.id = "welcome-window-styles";
     styles.textContent = `
+      /* The launch stage: a soft aurora over the app ground with the dot grid
+         from the canvas, so opening the app already looks like the app. */
       .welcome-overlay {
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(0, 0, 0, 0.85);
-        backdrop-filter: blur(8px);
+        background:
+          radial-gradient(50% 60% at 22% 20%, rgba(167,139,250,0.24), transparent 55%),
+          radial-gradient(50% 60% at 82% 78%, rgba(207,100,153,0.20), transparent 55%),
+          radial-gradient(46% 56% at 60% 30%, rgba(198,242,78,0.08), transparent 55%),
+          radial-gradient(rgba(255,240,220,0.05) 1px, transparent 1px) 0 0/22px 22px,
+          rgba(10, 8, 7, 0.92);
         z-index: 10000;
         display: flex;
         align-items: center;
         justify-content: center;
         opacity: 0;
         transition: opacity 0.2s ease;
+        font-family: ${FONT_UI};
       }
 
       .welcome-overlay.visible {
@@ -245,15 +253,19 @@ export class WelcomeWindow {
       }
 
       .welcome-dialog {
-        background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
-        border-radius: 12px;
-        border: 1px solid #444;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        background: rgba(22, 18, 15, 0.92);
+        backdrop-filter: blur(26px) saturate(150%);
+        border-radius: 18px;
+        border: 1px solid ${SURFACE.lineStrong};
+        box-shadow: 0 40px 100px -24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,244,230,0.07);
+        color: ${TEXT.primary};
         max-width: 600px;
         width: 90%;
         max-height: 85vh;
         overflow-y: auto;
         animation: slideIn 0.3s ease;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(198,242,78,0.32) transparent;
       }
 
       @keyframes slideIn {
@@ -270,36 +282,36 @@ export class WelcomeWindow {
       .welcome-header {
         padding: 32px 32px 24px;
         text-align: center;
-        border-bottom: 1px solid #333;
+        border-bottom: 1px solid ${SURFACE.line};
       }
 
       .beta-tag {
         display: inline-block;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 11px;
-        font-weight: 600;
+        background: ${withAlpha(ACCENT.base, 0.14)};
+        border: 1px solid ${withAlpha(ACCENT.base, 0.3)};
+        color: ${ACCENT.base};
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-family: ${FONT_MONO};
+        font-size: 10px;
+        font-weight: 500;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 1px;
         margin-bottom: 12px;
       }
 
       .welcome-header h1 {
         margin: 0 0 12px 0;
-        font-size: 32px;
+        font-size: 28px;
         font-weight: 700;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        letter-spacing: 0.2px;
+        color: ${TEXT.primary};
       }
 
       .welcome-header p {
         margin: 0;
-        color: #aaa;
-        font-size: 15px;
+        color: ${TEXT.tertiary};
+        font-size: 14px;
         line-height: 1.5;
       }
 
@@ -310,76 +322,85 @@ export class WelcomeWindow {
       .welcome-actions {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 10px;
         margin-bottom: 24px;
       }
 
       .welcome-action {
-        background: #2a2a2a;
-        border: 1px solid #444;
-        border-radius: 8px;
-        color: white;
-        padding: 16px 20px;
-        font-size: 15px;
-        font-weight: 500;
+        background: ${SURFACE.fillSoft};
+        border: 1px solid ${SURFACE.line};
+        border-radius: 11px;
+        color: #ece5da;
+        padding: 13px 15px;
+        font-family: inherit;
+        font-size: 13.5px;
+        font-weight: 600;
         cursor: pointer;
         transition: all 0.2s ease;
         text-align: left;
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 3px;
       }
 
       .welcome-action:hover {
-        background: #333;
-        border-color: #667eea;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        background: ${SURFACE.hover};
+        border-color: ${withAlpha(ACCENT.base, 0.4)};
       }
 
       .welcome-action:active {
-        transform: translateY(0);
+        transform: translateY(1px);
       }
 
+      .welcome-action:focus-visible,
+      .welcome-close:focus-visible,
+      .backup-restore-btn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px ${withAlpha(ACCENT.base, 0.35)};
+      }
+
+      /* Exactly one primary action, and it is the only lime surface here. */
       .welcome-action.primary {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-color: #667eea;
+        background: radial-gradient(120% 120% at 0 0, ${ACCENT.base}, ${ACCENT.deep});
+        border-color: transparent;
+        color: ${ACCENT.ink};
+        box-shadow: 0 0 24px ${withAlpha(ACCENT.base, 0.3)};
       }
 
       .welcome-action.primary:hover {
-        background: linear-gradient(135deg, #7a8ef0 0%, #8a5bb2 100%);
-        box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+        background: radial-gradient(120% 120% at 0 0, ${ACCENT.hover}, ${ACCENT.base});
+        border-color: transparent;
       }
 
       .action-sub {
-        font-size: 13px;
-        opacity: 0.8;
+        font-size: 10.5px;
+        opacity: 0.7;
         font-weight: 400;
       }
 
       .welcome-section {
-        background: #222;
-        border: 1px solid #333;
-        border-radius: 8px;
+        background: ${SURFACE.well};
+        border: 1px solid ${SURFACE.line};
+        border-radius: 11px;
         padding: 16px;
         margin-bottom: 16px;
       }
 
       .welcome-section.subtle {
         background: transparent;
-        border: 1px dashed #333;
-        color: #888;
+        border: 1px dashed ${SURFACE.lineStrong};
+        color: ${TEXT.tertiary};
         font-size: 13px;
         text-align: center;
         padding: 20px;
       }
 
       .section-title {
-        font-size: 13px;
+        font-size: 10px;
         font-weight: 600;
-        color: #aaa;
+        color: ${TEXT.faint};
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 1.4px;
         margin-bottom: 12px;
       }
 
@@ -393,10 +414,10 @@ export class WelcomeWindow {
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 10px;
-        background: #1a1a1a;
-        border: 1px solid #333;
-        border-radius: 6px;
+        padding: 9px 10px;
+        background: ${SURFACE.fillSoft};
+        border: 1px solid ${SURFACE.line};
+        border-radius: 10px;
         margin-bottom: 8px;
       }
 
@@ -406,28 +427,31 @@ export class WelcomeWindow {
 
       .backup-title {
         flex: 1;
-        font-size: 14px;
-        color: white;
+        font-size: 13px;
+        color: ${TEXT.primary};
       }
 
       .backup-age {
-        font-size: 12px;
-        color: #888;
+        font-size: 10.5px;
+        font-family: ${FONT_MONO};
+        color: ${TEXT.tertiary};
       }
 
       .backup-restore-btn {
-        background: #667eea;
-        border: none;
-        color: white;
-        padding: 6px 12px;
-        border-radius: 4px;
-        font-size: 12px;
+        background: ${SURFACE.fillSoft};
+        border: 1px solid ${SURFACE.line};
+        color: ${TEXT.secondary};
+        padding: 5px 11px;
+        border-radius: 7px;
+        font-family: inherit;
+        font-size: 11.5px;
         cursor: pointer;
         transition: all 0.2s ease;
       }
 
       .backup-restore-btn:hover {
-        background: #7a8ef0;
+        background: ${SURFACE.hover};
+        color: #ffffff;
       }
 
       .welcome-footer {
@@ -435,71 +459,74 @@ export class WelcomeWindow {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border-top: 1px solid #333;
+        border-top: 1px solid ${SURFACE.line};
       }
 
       .welcome-pref {
         display: flex;
         align-items: center;
         gap: 8px;
-        font-size: 13px;
-        color: #aaa;
+        font-size: 11px;
+        color: ${TEXT.faint};
         cursor: pointer;
         user-select: none;
       }
 
       .welcome-pref input[type="checkbox"] {
         cursor: pointer;
-        width: 16px;
-        height: 16px;
+        width: 15px;
+        height: 15px;
+        accent-color: ${ACCENT.base};
       }
 
       .welcome-close {
-        background: #667eea;
-        border: none;
-        color: white;
-        padding: 10px 24px;
-        border-radius: 6px;
-        font-size: 14px;
+        background: ${SURFACE.fillSoft};
+        border: 1px solid ${SURFACE.line};
+        color: ${TEXT.secondary};
+        padding: 9px 20px;
+        border-radius: 8px;
+        font-family: inherit;
+        font-size: 12.5px;
         font-weight: 600;
         cursor: pointer;
         transition: all 0.2s ease;
       }
 
       .welcome-close:hover {
-        background: #7a8ef0;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        background: ${SURFACE.hover};
+        color: #ffffff;
       }
 
       .welcome-close:active {
-        transform: translateY(0);
+        transform: translateY(1px);
       }
 
       /* Tips section */
       .welcome-tips {
-        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
-        border: 1px solid rgba(102, 126, 234, 0.3);
-        border-radius: 8px;
+        background: ${SURFACE.well};
+        border: 1px solid ${SURFACE.line};
+        border-radius: 11px;
         padding: 16px;
         margin-top: 16px;
       }
 
       .welcome-tips h3 {
         margin: 0 0 12px 0;
-        font-size: 14px;
+        font-size: 10px;
         font-weight: 600;
-        color: #667eea;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
+        color: ${TEXT.faint};
       }
 
       .welcome-tips ul {
         margin: 0;
-        padding-left: 20px;
-        color: #aaa;
+        padding-left: 18px;
+        color: ${TEXT.secondary};
       }
 
       .welcome-tips li {
-        font-size: 13px;
+        font-size: 12.5px;
         line-height: 1.6;
         margin-bottom: 6px;
       }
@@ -510,20 +537,24 @@ export class WelcomeWindow {
 
       /* Scrollbar styling */
       .welcome-dialog::-webkit-scrollbar {
-        width: 8px;
+        width: 9px;
       }
 
       .welcome-dialog::-webkit-scrollbar-track {
-        background: #1a1a1a;
+        background: transparent;
+        margin: 4px 0;
       }
 
       .welcome-dialog::-webkit-scrollbar-thumb {
-        background: #444;
-        border-radius: 4px;
+        background: linear-gradient(rgba(198,242,78,0.30), rgba(198,242,78,0.18));
+        border-radius: 999px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
       }
 
       .welcome-dialog::-webkit-scrollbar-thumb:hover {
-        background: #555;
+        background: linear-gradient(rgba(198,242,78,0.5), rgba(198,242,78,0.32));
+        background-clip: padding-box;
       }
     `;
     document.head.appendChild(styles);
@@ -587,7 +618,7 @@ export class WelcomeWindow {
         <div class="welcome-content">
           <div class="welcome-actions">
             ${autosaveButton}
-            <button class="welcome-action" data-action="new">
+            <button class="welcome-action${this.state.hasAutosave ? "" : " primary"}" data-action="new">
               Start New Graph
             </button>
             <button class="welcome-action" data-action="open">
