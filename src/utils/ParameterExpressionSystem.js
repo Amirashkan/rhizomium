@@ -7,6 +7,7 @@ import { NodeDefs } from '../data/NodeDefs.js';
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../core/audioAnalysisPins.js';
 import { buildParamScope, referencesParams } from './paramReferences.js';
+import { evaluateWaveNode } from '../core/waveform.js';
 
 export class ParameterExpressionSystem {
   constructor() {
@@ -498,7 +499,9 @@ buildEvaluationContext(context, node) {
    */
   _liveInputNodeValue(node) {
     const kind = node?.kind?.toLowerCase();
-    if (kind !== 'time' && kind !== 'mouse' && kind !== 'audioanalysis') return undefined;
+    if (kind !== 'time' && kind !== 'mouse' && kind !== 'audioanalysis' && kind !== 'wave') {
+      return undefined;
+    }
 
     // Audio Analysis is driven by the live audio signal, not graph computation, and its outputs are
     // advanced every frame on the CPU by AudioAnalysisProcessor. Expose them as a per-pin array so
@@ -512,6 +515,14 @@ buildEvaluationContext(context, node) {
     const time = Number.isFinite(simTime) ? simTime : (Date.now() / 1000);
 
     if (kind === 'time') return time;
+    // A Wave is pure maths on the clock, so evaluate it exactly rather than falling through to
+    // node.__preview. That fall-through is why a `=node_<wave>` reference used to move in visible
+    // steps: __preview is refreshed by the preview pass, which is throttled to ~10fps. Worse, a
+    // cached render keyed off the evaluated value — FragmentTextureRenderer's render hash, which
+    // decides whether the texture bridged into a compute node is re-rendered — then re-fired only
+    // at that same throttled cadence, so a Wave driving a Polygon feeding a Compute Feedback
+    // updated a few times a second instead of every frame.
+    if (kind === 'wave') return evaluateWaveNode(node, time);
     // Mouse: iMouse layout xy=position (0..1), z=held, w=click. Center before any input.
     const m = (typeof window !== 'undefined' && window._mousePosition) || null;
     return m ? [m[0], m[1], m[2] || 0, m[3] || 0] : [0.5, 0.5, 0, 0];

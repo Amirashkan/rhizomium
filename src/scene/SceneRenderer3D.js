@@ -3,11 +3,28 @@
 /**
  * SceneRenderer3D - Renders a 3D scene using WebGPU
  * Integrates with Viewport3D for camera/view management
+ *
+ * Every 3D Field Visualizer node renders INDEPENDENTLY: each gets its own
+ * offscreen colour target and its own render pass, drawn through that node's
+ * own camera. That texture is the node's graph output, so two 3D nodes in one
+ * graph produce two genuinely different images instead of two copies of a
+ * shared scene. The viewport canvas simply shows whichever node currently has
+ * focus.
  */
 
 import { ShapeRenderer } from './renderers/ShapeRenderer.js';
 import { InstanceRenderer } from './renderers/InstanceRenderer.js';
 import { ShapeGeometry } from './generators/ShapeGeometry.js';
+
+/**
+ * Identify the graph node a scene-side field mapper belongs to. Field mappers
+ * are constructed with the graph node id as their name.
+ * @param {Object} fieldNode
+ * @returns {string}
+ */
+export function fieldMapperNodeId(fieldNode) {
+  return String(fieldNode?.graphNodeId ?? fieldNode?.name ?? '');
+}
 
 export class SceneRenderer3D {
   constructor(device, canvas, scene, viewport3D, computeExecutor = null) {
@@ -28,6 +45,15 @@ export class SceneRenderer3D {
     // because the renderers own their vertex/uniform buffers and all
     // queue.writeBuffer calls land before the render pass executes.
     this.fieldRenderers = new Map();
+
+    // Per-field-mapper-node colour targets, keyed by GRAPH node id. This is
+    // what makes the nodes independent: one texture each, never shared.
+    // @type {Map<string, GPUTexture>}
+    this.nodeTargets = new Map();
+
+    // Graph node id whose frame is presented on the viewport canvas. null
+    // falls back to the first 3D node in the scene.
+    this.focusedNodeId = null;
 
     this.initialized = false;
   }
@@ -93,49 +119,122 @@ export class SceneRenderer3D {
   }
 
   /**
-   * Create the offscreen render targets at the current render resolution
+   * Create the offscreen render targets at the current render resolution.
+   * The depth buffer is SHARED by every node's pass - the passes run
+   * sequentially and each clears depth on entry, so one buffer is enough -
+   * while colour targets stay strictly per node.
    */
   createDepthTexture() {
     if (this.depthTexture) {
       this.depthTexture.destroy();
     }
-    if (this.sceneTexture) {
-      // RETIRE the old scene texture instead of destroying it: the main
-      // renderer's cached bind groups (gpu-render-encoder) still reference it
-      // until the invalidation below takes effect, and submitting with a
-      // destroyed texture blanks the whole output ("Destroyed texture used
-      // in a submit"). Retired textures are destroyed a couple of seconds
-      // later in render().
-      this._retiredSceneTextures = this._retiredSceneTextures || [];
-      this._retiredSceneTextures.push({ texture: this.sceneTexture, age: 0 });
+
+    // RETIRE the old colour targets instead of destroying them: the main
+    // renderer's cached bind groups (gpu-render-encoder) still reference them
+    // until the invalidation below takes effect, and submitting with a
+    // destroyed texture blanks the whole output ("Destroyed texture used
+    // in a submit"). Retired textures are destroyed a couple of seconds
+    // later in render().
+    for (const texture of this.nodeTargets.values()) {
+      this._retireTexture(texture);
     }
+    this.nodeTargets.clear();
+    this._retireTexture(this.sceneTexture);
+    this.sceneTexture = null;
 
     const [width, height] = this._getRenderResolution();
     this._targetWidth = width;
     this._targetHeight = height;
-    const size = { width, height, depthOrArrayLayers: 1 };
 
     this.depthTexture = this.device.createTexture({
-      size,
+      size: { width, height, depthOrArrayLayers: 1 },
       format: 'depth24plus',
       usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
 
-    // Offscreen color target: the scene renders here at output resolution,
-    // gets aspect-fit blitted to the viewport canvas, and stays sampleable
-    // for the node's graph output and live thumbnail
-    this.sceneTexture = this.device.createTexture({
-      size,
-      format: this.preferredFormat || navigator.gpu.getPreferredCanvasFormat(),
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
-    });
-
     // Ask the main renderer to re-resolve external texture bindings on its
-    // next frame - it will pick the new scene texture up from the published
-    // computeTextures entry and rebuild its bind groups
+    // next frame - it will pick the new node textures up from the published
+    // computeTextures entries and rebuild its bind groups
     if (typeof window !== 'undefined' && window.textureManager) {
       window.textureManager.bindGroup = null;
     }
+  }
+
+  /**
+   * Queue a texture for delayed destruction (see createDepthTexture)
+   * @param {GPUTexture|null} texture
+   * @private
+   */
+  _retireTexture(texture) {
+    if (!texture) return;
+    this._retiredSceneTextures = this._retiredSceneTextures || [];
+    this._retiredSceneTextures.push({ texture, age: 0 });
+  }
+
+  /**
+   * Create an offscreen colour target at the current render resolution.
+   * Sampleable and copyable so it can serve as a node's graph output, its
+   * live thumbnail, and the source of the viewport blit.
+   * @returns {GPUTexture}
+   * @private
+   */
+  _createColorTarget(label) {
+    return this.device.createTexture({
+      label,
+      size: { width: this._targetWidth, height: this._targetHeight, depthOrArrayLayers: 1 },
+      format: this.preferredFormat || navigator.gpu.getPreferredCanvasFormat(),
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+    });
+  }
+
+  /**
+   * The colour target owned by one 3D node, created on first use
+   * @param {string} nodeId - Graph node id
+   * @returns {GPUTexture}
+   */
+  ensureNodeTarget(nodeId) {
+    let target = this.nodeTargets.get(nodeId);
+    if (!target) {
+      target = this._createColorTarget(`field-mapper-${nodeId}`);
+      this.nodeTargets.set(nodeId, target);
+      // A new output texture exists - make the main renderer rebuild the bind
+      // groups that will sample it
+      if (typeof window !== 'undefined' && window.textureManager) {
+        window.textureManager.bindGroup = null;
+      }
+    }
+    return target;
+  }
+
+  /**
+   * Drop colour targets for 3D nodes that left the scene
+   * @param {Array} activeNodes - Field mapper scene nodes still present
+   */
+  pruneNodeTargets(activeNodes) {
+    const activeIds = new Set((activeNodes || []).map(fieldMapperNodeId));
+    for (const [nodeId, texture] of this.nodeTargets.entries()) {
+      if (!activeIds.has(nodeId)) {
+        this._retireTexture(texture);
+        this.nodeTargets.delete(nodeId);
+      }
+    }
+  }
+
+  /**
+   * The latest rendered frame for one 3D node - its graph output
+   * @param {string} nodeId - Graph node id
+   * @returns {GPUTexture|null}
+   */
+  getNodeTexture(nodeId) {
+    return this.nodeTargets.get(String(nodeId)) || null;
+  }
+
+  /**
+   * Choose which node's frame the viewport canvas presents
+   * @param {string|null} nodeId - Graph node id, or null for "first available"
+   */
+  setFocusedNodeId(nodeId) {
+    this.focusedNodeId = nodeId === null || nodeId === undefined ? null : String(nodeId);
   }
 
   /**
@@ -191,10 +290,20 @@ export class SceneRenderer3D {
   }
 
   /**
-   * The sampleable offscreen texture holding the latest rendered frame
+   * The sampleable offscreen texture the viewport is currently presenting:
+   * the focused node's frame, else the first 3D node's, else the plain-mesh
+   * scene pass. Per-node consumers should use getNodeTexture() instead - this
+   * is "what the viewport shows".
    * @returns {GPUTexture|null}
    */
   getSceneTexture() {
+    if (this.focusedNodeId !== null) {
+      const focused = this.nodeTargets.get(this.focusedNodeId);
+      if (focused) return focused;
+    }
+    for (const texture of this.nodeTargets.values()) {
+      return texture;
+    }
     return this.sceneTexture;
   }
 
@@ -365,13 +474,14 @@ export class SceneRenderer3D {
       this._retiredSceneTextures = keep;
     }
 
-    // Update viewport, then pin the camera aspect to the OUTPUT resolution -
-    // the graph consumes this frame, so it must not distort when the panel
-    // window is resized (the blit letterboxes instead)
+    // Update the interactive viewport (it drives the FOCUSED node's camera),
+    // then pin the camera aspect to the OUTPUT resolution - the graph
+    // consumes these frames, so they must not distort when the panel window
+    // is resized (the blit letterboxes instead)
+    const aspect = this._targetWidth / this._targetHeight;
     if (this.viewport3D) {
       this.viewport3D.update();
       const camera = this.viewport3D.getCamera?.();
-      const aspect = this._targetWidth / this._targetHeight;
       if (camera && Math.abs((camera.aspect ?? 0) - aspect) > 1e-4) {
         camera.setAspect(aspect);
       }
@@ -380,55 +490,105 @@ export class SceneRenderer3D {
     // Create command encoder
     const commandEncoder = this.device.createCommandEncoder();
 
-    // Render into the offscreen scene texture (blitted to the canvas below)
-    const renderPassDescriptor = {
-      colorAttachments: [{
-        view: this.sceneTexture.createView(),
-        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-        loadOp: 'clear',
-        storeOp: 'store'
-      }],
-      depthStencilAttachment: {
-        view: this.depthTexture.createView(),
-        depthClearValue: 1.0,
-        depthLoadOp: 'clear',
-        depthStoreOp: 'store'
-      }
-    };
-
-    const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-    passEncoder.setPipeline(this.renderPipeline);
-
-    // Render mesh nodes (if any)
+    let fieldMapperNodes = [];
     try {
-      const meshNodes = this.scene.getMeshNodes();
+      fieldMapperNodes = this.scene.getComputeFieldMapperNodes() || [];
+    } catch {
+      fieldMapperNodes = [];
+    }
+    this.pruneFieldRenderers(fieldMapperNodes);
+    this.pruneNodeTargets(fieldMapperNodes);
+
+    // ONE PASS PER 3D NODE, each into that node's own colour target. Nothing
+    // is shared but the depth buffer, which every pass clears on entry - so a
+    // node's output contains its geometry and nothing else.
+    for (const fieldNode of fieldMapperNodes) {
+      const nodeId = fieldMapperNodeId(fieldNode);
+      let nodePass = null;
+      try {
+        const target = this.ensureNodeTarget(nodeId);
+        fieldNode.camera3D?.setAspect?.(aspect);
+
+        nodePass = commandEncoder.beginRenderPass({
+          label: `field-mapper-pass-${nodeId}`,
+          colorAttachments: [{
+            view: target.createView(),
+            clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            loadOp: 'clear',
+            storeOp: 'store'
+          }],
+          depthStencilAttachment: {
+            view: this.depthTexture.createView(),
+            depthClearValue: 1.0,
+            depthLoadOp: 'clear',
+            depthStoreOp: 'store'
+          }
+        });
+        this.renderFieldMapperNode(nodePass, fieldNode, time);
+      } catch {
+        // A single bad node must not cost the others their frame
+      } finally {
+        nodePass?.end();
+      }
+    }
+
+    // Plain mesh nodes (the test cube and other debug helpers) belong to no
+    // 3D node, so they get their own scene pass, and it is never published as
+    // a node's output. Skipped entirely once a 3D node exists: the canvas
+    // shows the focused node's frame then, so this pass would render into a
+    // texture nobody presents.
+    try {
+      const meshNodes = fieldMapperNodes.length === 0 ? this.scene.getMeshNodes() : null;
       if (meshNodes && meshNodes.length > 0) {
+        if (!this.sceneTexture) {
+          this.sceneTexture = this._createColorTarget('scene-meshes');
+        }
+        const meshPass = commandEncoder.beginRenderPass({
+          label: 'scene-mesh-pass',
+          colorAttachments: [{
+            view: this.sceneTexture.createView(),
+            clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            loadOp: 'clear',
+            storeOp: 'store'
+          }],
+          depthStencilAttachment: {
+            view: this.depthTexture.createView(),
+            depthClearValue: 1.0,
+            depthLoadOp: 'clear',
+            depthStoreOp: 'store'
+          }
+        });
+        meshPass.setPipeline(this.renderPipeline);
         for (const meshNode of meshNodes) {
-          this.renderMeshNode(passEncoder, meshNode, time);
+          this.renderMeshNode(meshPass, meshNode, time);
         }
+        meshPass.end();
       }
     } catch {
 
     }
 
-    // Render compute field mapper nodes (if any)
+    // Aspect-fit blit of the focused node's frame onto the viewport canvas
     try {
-      const fieldMapperNodes = this.scene.getComputeFieldMapperNodes();
-      this.pruneFieldRenderers(fieldMapperNodes);
-      if (fieldMapperNodes && fieldMapperNodes.length > 0) {
-        for (const fieldNode of fieldMapperNodes) {
-          this.renderFieldMapperNode(passEncoder, fieldNode, time);
-        }
-      }
-    } catch {
-
-    }
-
-    passEncoder.end();
-
-    // Aspect-fit blit of the finished frame onto the viewport canvas
-    try {
+      const presented = this.getSceneTexture();
       const currentTexture = this.context.getCurrentTexture();
+
+      if (!presented) {
+        // Nothing to show (no 3D node, no mesh) - clear rather than leave the
+        // last node's frame frozen on screen after it was deleted
+        const clearPass = commandEncoder.beginRenderPass({
+          colorAttachments: [{
+            view: currentTexture.createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear',
+            storeOp: 'store'
+          }]
+        });
+        clearPass.end();
+        this.device.queue.submit([commandEncoder.finish()]);
+        return;
+      }
+
       this._ensureBlitPipeline();
 
       const canvasAspect = Math.max(1, this.canvas.width) / Math.max(1, this.canvas.height);
@@ -442,7 +602,7 @@ export class SceneRenderer3D {
       const blitBindGroup = this.device.createBindGroup({
         layout: this._blitPipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: this.sceneTexture.createView() },
+          { binding: 0, resource: presented.createView() },
           { binding: 1, resource: this._blitSampler },
           { binding: 2, resource: { buffer: this._blitUniforms } }
         ]
@@ -545,8 +705,12 @@ export class SceneRenderer3D {
    */
   renderFieldMapperNode(passEncoder, fieldNode, _time) {
     const renderers = this.getFieldRenderers(fieldNode);
-    const viewMatrix = this.viewport3D.getViewMatrix();
-    const projectionMatrix = this.viewport3D.getProjectionMatrix();
+    // Each node looks through its OWN camera. The focused node's camera is
+    // the one the viewport's mouse controls drive, so orbiting moves exactly
+    // one node's view; the rest keep their framing.
+    const camera = fieldNode.camera3D || this.viewport3D;
+    const viewMatrix = camera.getViewMatrix();
+    const projectionMatrix = camera.getProjectionMatrix();
     const modelMatrix = fieldNode.getWorldMatrix();
 
     const shapeParams = fieldNode.shapeParams || {};
@@ -694,6 +858,11 @@ export class SceneRenderer3D {
       this.depthTexture.destroy();
       this.depthTexture = null;
     }
+
+    for (const texture of this.nodeTargets.values()) {
+      texture.destroy();
+    }
+    this.nodeTargets.clear();
 
     if (this.sceneTexture) {
       this.sceneTexture.destroy();
