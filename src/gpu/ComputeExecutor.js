@@ -1246,8 +1246,21 @@ export class ComputeExecutor {
     // Check if any referenced node is time-dependent
     for (const refNodeId of referencedNodeIds) {
       const refNodeData = window.computeNodeRegistry?.get(refNodeId);
-      const refNode = refNodeData?.node;
+      // computeNodeRegistry only holds COMPUTE nodes, so a reference to anything else resolved to
+      // nothing here and was judged static. That is wrong for the clock-driven Input nodes below,
+      // whose whole purpose is to be referenced from a parameter: fall back to the graph so a
+      // compute node driven by `=node_<wave>` is actually seen as animated.
+      const refNode = refNodeData?.node
+        || window.graph?.getNode?.(refNodeId)
+        || window.editor?.graph?.nodes?.find(n => String(n.id) === String(refNodeId));
       if (refNode) {
+        // Input nodes that advance from the wall clock alone, with nothing wired in — the same set
+        // Editor._hasIntrinsicTimeNodes keeps the render loop alive for. Their value moves every
+        // frame without any param edit, so a compute node referencing one must keep dispatching.
+        const CLOCK_DRIVEN_INPUT_NODES = ['Time', 'Wave', 'RandomValue'];
+        if (refNode.kind && CLOCK_DRIVEN_INPUT_NODES.includes(refNode.kind)) {
+          return true;
+        }
         // Check if referenced node has time-dependent parameters
         if (this.hasTimeDependentParameters(refNode)) {
           return true;

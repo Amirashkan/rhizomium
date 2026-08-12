@@ -63,6 +63,7 @@ describe('ShaderPreviewManager node classification', () => {
       expect(spm.isVisualNode('ConstFloat')).toBe(false); // f32, no UV input, single output
       expect(spm.isVisualNode('Time')).toBe(false);       // f32, no input
       expect(spm.isVisualNode('RandomValue')).toBe(false); // f32, no input (clock-driven scalar)
+      expect(spm.isVisualNode('Wave')).toBe(false);        // f32, no input (clock-driven scalar)
     });
 
     it('keeps CPU-driven scalar Input nodes (Trigger/Hold/Count) on the numeric path', () => {

@@ -183,8 +183,10 @@ updateTimeNodes() {
       // advanced every frame by TriggerNodeProcessor (node.__triggerPulse) and can flip without any
       // param or input edit this pass would notice. A threshold-mode Trigger is stateless and stays
       // off this list, so the common case costs nothing.
+      // Wave is clock-driven like Time and Random Value — a free-running LFO with nothing wired in —
+      // so its readout and downstream consumers belong on this list too.
       return kind === 'time' || kind === 'hold' || kind === 'count' || kind === 'randomvalue'
-        || kind === 'audioanalysis' || isTriggerChangeMode(node);
+        || kind === 'wave' || kind === 'audioanalysis' || isTriggerChangeMode(node);
     })
     .map(node => node.id);
 
@@ -475,13 +477,14 @@ updateTimeNodes() {
       }
     }
 
-    // Random Value nodes are clock-driven (their fract(sin(g.time...)) churns every frame), so a
-    // fragment node that references one via a `=node_<id>` PARAMETER expression (e.g. a Circle
-    // whose radius is `=node_<random>`) has a live GPU thumbnail that no param/input edit triggers —
-    // without this it would freeze on a single random value, defeating the node. Seed the refresh
-    // only from those expression dependents (then walk their downstream).
+    // Random Value and Wave nodes are clock-driven (Random Value's fract(sin(g.time...)) churns
+    // every frame; Wave sweeps its cycle), so a fragment node that references one via a
+    // `=node_<id>` PARAMETER expression (e.g. a Circle whose radius is `=node_<wave>`) has a live
+    // GPU thumbnail that no param/input edit triggers — without this it would freeze on a single
+    // value, defeating the node. Seed the refresh only from those expression dependents (then walk
+    // their downstream).
     //
-    // Deliberately do NOT follow plain WIRES out of the Random Value here. A wired Random Value
+    // Deliberately do NOT follow plain WIRES out of these here. A wired Random Value
     // already flows through the compiled shader to every downstream node's own render, so refreshing
     // a whole wired chain (e.g. RandomValue -> Count -> OutputFinal) would re-render+read-back every
     // visual node on it EVERY frame — that per-frame GPU work froze the editor when a Count (or any
@@ -490,7 +493,8 @@ updateTimeNodes() {
     // (see TIME_NODE_REFERENCE_NOTES.md). Only its visual consumers are re-rendered, via the
     // isVisualNode filter below.
     for (const node of this.editor.graph.nodes) {
-      if (node?.kind?.toLowerCase() !== 'randomvalue') continue;
+      const clockKind = node?.kind?.toLowerCase();
+      if (clockKind !== 'randomvalue' && clockKind !== 'wave') continue;
       const refs = exprDeps.get(String(node.id));
       if (refs) refs.forEach(depId => this._collectWithDownstream(depId, toUpdate, visited, exprDeps));
     }

@@ -15,7 +15,7 @@ information about inputs, outputs, parameters, and usage.
 2. Parameter Types
 3. Node Categories
 4. Output Nodes (1 node)
-5. Input Nodes (14 nodes)
+5. Input Nodes (15 nodes)
 6. Field Nodes (22 nodes)
 7. Math Nodes (50 nodes)
 8. Utility Nodes (13 nodes)
@@ -320,6 +320,72 @@ the [min, max] range (e.g. step through a fixed number of states). The running
 count is maintained on the CPU and streamed to the shader each frame.
 
 --------------------------------------------------------------------------------
+Wave
+--------------------------------------------------------------------------------
+Category: Input
+Description: An LFO - one float animated by a sine, triangle, square, saw or
+ramp-down wave, optionally locked to a beat
+
+Inputs:
+  - sync (f32): Pulse; each rising edge restarts the cycle. Leave it unwired to
+    free-run.
+
+Outputs:
+  - out (f32): The current value of the wave
+
+Parameters:
+  - shape (select): Waveform [options: Sine, Triangle, Square, Saw, Ramp Down,
+    default: Sine]
+  - frequency (float): Cycles per second [default: 1.0]
+  - amplitude (float): Peak value of the wave [default: 1.0]
+  - offset (float): Added to the wave, to re-centre it [default: 0.0]
+  - phase (float): Phase offset in CYCLES, not radians - 0.25 is a quarter turn
+    [default: 0.0]
+  - unipolar (bool): Output 0..1 instead of -1..1 [default: false]
+  - pulseWidth (float): Square only - fraction of the cycle spent high
+    [default: 0.5]
+  - syncThreshold (float): Level the sync input must cross to restart the cycle
+    [default: 0.5]
+
+Usage: The standard way to animate anything. Wire it into a parameter, or
+reference it from an expression (`=node_<id>`), to make that value sweep on its
+own - no Time node and no hand-written sin() needed.
+
+By default the output runs -1 to 1 and every shape is phase-aligned with the
+sine (all of them cross zero rising at the start of the cycle), so switching
+shape keeps the motion in step. Saw and Ramp Down are the exception: a ramp is
+defined by its jump, so it runs -1 to 1 (or 1 to -1) across the cycle and starts
+at its extreme.
+
+Most things a wave drives - a radius, a mix amount, a brightness - want a
+positive value, so turn on Unipolar to get 0..1. The remap happens BEFORE
+amplitude and offset, so Amplitude means the same thing in either mode.
+
+Frequency, amplitude, offset, phase and pulse width are all live uniforms: they
+can be dragged, keyframed, MIDI/OSC-bound or driven by another node's expression
+without recompiling the shader. Shape and Unipolar select which formula is
+emitted, so changing them rebuilds the shader.
+
+Two Waves at the same frequency, a quarter cycle apart (phase 0 and 0.25), give
+the sin/cos pair that drives circular motion.
+
+SYNC
+Wire a pulse into the sync pin - an Audio Analysis kickTrig, a Trigger, a Count,
+anything that crosses the threshold - and each rising edge restarts the cycle
+from Phase. That is what locks a wave to a beat: without it a 1 Hz wave and a
+120 BPM kick drift apart, with it the wave starts fresh on every hit.
+
+It restarts on the EDGE, not while the pulse is high, so a gate held open does
+not freeze the wave at its start. Between pulses it free-runs as normal, so if
+the pulses stop the wave simply keeps going from wherever it was last restarted.
+
+Detecting an edge means comparing against the previous frame, which a fragment
+shader cannot do, so this part runs on the CPU (WaveSyncProcessor) and the
+restart instant is streamed to the shader as a uniform - the same arrangement
+Hold and Count use. A Wave with nothing wired to sync compiles with no sync term
+at all, so free-running costs exactly what it did before.
+
+--------------------------------------------------------------------------------
 Random Value
 --------------------------------------------------------------------------------
 Category: Input
@@ -356,7 +422,20 @@ Outputs:
   - A (f32): Alpha channel
 
 Parameters:
-  - imageFile (file): Image file to load
+  - imageFile (file): Image or video file to load. A video (.mp4/.webm/.mov/.ogv)
+                 plays and is sampled live - the node behaves exactly like an
+                 image texture, its pixels just change every frame
+  - playing (bool): Run the video, or hold it on the current frame [default: true]
+                 Video only
+  - loop (bool): Restart when the video reaches the end [default: true] Video only
+  - playbackRate (float): Playback speed multiplier [0.0625..16, default: 1]
+                 Video only
+  - sound (bool): Unmute the video's audio track [default: false] Video only
+  - trimStart (float): Start playback this many seconds into the clip [default: 0]
+                 Video only
+  - trimEnd (float): Stop (or loop) at this many seconds in; 0 plays to the end of
+                 the clip. Inside a trim, Loop returns to trimStart, not to zero
+                 [default: 0] Video only
   - wrapU (select): U wrapping mode [options: repeat, clamp, mirror, default: repeat]
   - wrapV (select): V wrapping mode [options: repeat, clamp, mirror, default: repeat]
   - filter (select): Filtering mode [options: linear, nearest, default: linear]
@@ -563,13 +642,32 @@ Outputs:
 Parameters:
   - centerX (float): Center X position [default: 0.5]
   - centerY (float): Center Y position [default: 0.5]
-  - width (float): Rectangle width [default: 0.5]
-  - height (float): Rectangle height [default: 0.5]
-  - roundness (float): Corner rounding [default: 0.0]
+  - width (float): Rectangle width, in the unit sizeMode selects [default: 0.5]
+  - height (float): Rectangle height, as a fraction of the frame's height [default: 0.5]
+  - sizeMode (select): What width is a fraction of - Proportional or Frame [default: Proportional]
+  - roundness (float): Corner rounding, as a fraction of the shortest half-extent [default: 0.0]
   - smoothness (float): Edge smoothness [default: 0.01]
   - invert (bool): Invert the shape [default: false]
 
 Usage: Creates rectangular shapes. Set roundness > 0 for rounded corners.
+
+sizeMode decides what width is measured against, because the two useful answers cannot both
+be true at once:
+
+  Proportional     width is measured against the frame's HEIGHT, exactly as height is, so
+  (default)        width : height is the shape's real on-screen ratio. 0.5 x 0.5 is a SQUARE
+                   at every render resolution and every aspect ratio - the shape you type is
+                   the shape you get. These are the same y-units Circle and Polygon measure
+                   their radius in, so a Proportional rectangle of width and height 2r exactly
+                   circumscribes a Circle of radius r. To span a wide frame edge to edge, give
+                   width the frame's aspect ratio (1.78 on 16:9).
+
+  Frame            width is a fraction of the frame's WIDTH, height a fraction of its HEIGHT,
+                   so 1.0 x 1.0 fills the composition at any aspect ratio. The cost is that the
+                   shape then carries the composition's proportions: on a 16:9 output
+                   width = height = 0.5 draws a 16:9 rectangle, never a square.
+
+Neither mode caps the extents, so a rectangle may be larger than the frame.
 
 --------------------------------------------------------------------------------
 Polygon

@@ -3,6 +3,7 @@
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import { resolveResolution } from '../../ui/OutputFormat.js';
 import { getInputCount } from '../../data/nodeInputs.js';
 
@@ -4095,11 +4096,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Node references must be evaluated on CPU and passed as uniforms, not generated as shader code
     const isNodeReference = typeof rawValue === 'string' && /=?\s*node_\d+/.test(rawValue);
 
+    // An identifier naming another parameter of this node binds to that parameter (see
+    // utils/paramReferences.js); without it the shader generator zeroes the whole expression.
+    const paramRefs = compilerParamRefMapping(this, node, rawValue, paramName);
+
     // Handle expressions with = prefix (like "=time*2" or "=audioEnvelope")
     // BUT NOT node references - those need CPU evaluation
     if (typeof rawValue === 'string' && rawValue.startsWith('=') && !isNodeReference) {
       try {
-        return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
+        return unifiedExpressionSystem.generateShader(rawValue, paramRefs, this.graph);
       } catch {
 
         // Fall through to uniform registration below
@@ -4110,7 +4115,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // This ensures shader code matches CPU evaluation exactly
     if (typeof rawValue === 'string' && !isNodeReference && (/time|audioEnvelope/.test(rawValue))) {
       try {
-        return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
+        return unifiedExpressionSystem.generateShader(rawValue, paramRefs, this.graph);
       } catch {
 
         // Fall through to uniform registration below

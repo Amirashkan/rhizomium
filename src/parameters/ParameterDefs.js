@@ -20,7 +20,8 @@ export const ParameterTypes = {
   VEC2: 'vec2',
   VEC3: 'vec3',
   COLOR: 'color',
-  ANGLE: 'angle'
+  ANGLE: 'angle',
+  SELECT: 'select'
 };
 
 /**
@@ -318,6 +319,13 @@ export const ParameterDefinitions = {
       type: ParameterTypes.FLOAT,
       capabilities: ParameterCapabilities.ALL,
       default: 0.5
+    },
+    // Which unit Width and Height are measured in. Chosen at compile time (the shader is
+    // rebuilt when it changes), so unlike the extents themselves it cannot take an expression.
+    sizeMode: {
+      type: ParameterTypes.SELECT,
+      capabilities: ParameterCapabilities.STATIC_ONLY,
+      default: 'Proportional'
     },
     roundness: {
       type: ParameterTypes.FLOAT,

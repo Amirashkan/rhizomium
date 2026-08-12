@@ -1,4 +1,6 @@
 // src/codegen/compilers/GradientNodes.js
+import { compilerParamRefMapping } from '../../utils/paramReferences.js';
+
 export class GradientNodes {
   constructor() {
     this.uniformManager = null;
@@ -35,11 +37,14 @@ export class GradientNodes {
    */
   getShaderParam(node, name, defaultValue) {
     const value = this.getParam(node, name, defaultValue);
+    // An identifier naming another parameter of this node binds to that parameter (see
+    // utils/paramReferences.js); without it the shader generator zeroes the whole expression.
+    const paramRefs = compilerParamRefMapping(this, node, value, name);
 
     // Handle expressions with = prefix (like "=node_14" or "=audioEnvelope*5")
     if (typeof value === 'string' && value.startsWith('=')) {
       try {
-        return window.unifiedExpressionSystem.generateShader(value, {}, this.graph);
+        return window.unifiedExpressionSystem.generateShader(value, paramRefs, this.graph);
       } catch {
 
         return String(defaultValue);
@@ -49,7 +54,7 @@ export class GradientNodes {
     // Handle expressions without = prefix (like "time" or "audioEnvelope*2")
     if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
       try {
-        return window.unifiedExpressionSystem.generateShader(value, {}, this.graph);
+        return window.unifiedExpressionSystem.generateShader(value, paramRefs, this.graph);
       } catch {
 
         return String(defaultValue);

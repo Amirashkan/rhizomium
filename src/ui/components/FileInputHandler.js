@@ -1,6 +1,7 @@
 // src/ui/components/FileInputHandler.js - Updated for expression system integration
 
 import { ACCENT, SEMANTIC, SURFACE, TEXT } from '../../core/theme.js';
+import { isVideoSource } from '../../core/TextureManager.js';
 
 export class FileInputHandler {
   constructor(undoManager = null) {
@@ -11,8 +12,8 @@ export class FileInputHandler {
     this._showCurrentFile(node, div);
     
     const fileInput = this._createFileInput(param);
-    const dropZone = this._createDropZone();
-    
+    const dropZone = this._createDropZone(param);
+
     this._setupEventHandlers(fileInput, dropZone, node, param, valueManager, onChange);
     
     div.appendChild(dropZone);
@@ -47,7 +48,12 @@ export class FileInputHandler {
     return fileInput;
   }
 
-  _createDropZone() {
+  /** Does this parameter take video as well as stills? Drives both wording and what a drop accepts. */
+  _acceptsVideo(param) {
+    return (param?.accept || "image/*").includes("video");
+  }
+
+  _createDropZone(param = null) {
     const dropZone = document.createElement("div");
     dropZone.className = "file-drop-zone";
     dropZone.style.cssText = `
@@ -68,14 +74,27 @@ export class FileInputHandler {
       box-sizing: border-box;
     `;
 
-    dropZone.innerHTML = `
+    // Kept on the element so every "reset the drop zone" path below restores the same wording
+    // rather than repeating (and drifting from) it.
+    dropZone._idleContent = `
+      <div>
+        <div style="margin-bottom: 4px;">📁 Drop ${this._acceptsVideo(param) ? "image or video" : "image"} here</div>
+        <div style="font-size: 9px; opacity: 0.7;">or click to browse</div>
+      </div>
+    `;
+    dropZone.innerHTML = dropZone._idleContent;
+
+    return dropZone;
+  }
+
+  _resetDropZone(dropZone) {
+    dropZone.style.borderColor = SURFACE.lineStrong;
+    dropZone.innerHTML = dropZone._idleContent ?? `
       <div>
         <div style="margin-bottom: 4px;">📁 Drop image here</div>
         <div style="font-size: 9px; opacity: 0.7;">or click to browse</div>
       </div>
     `;
-
-    return dropZone;
   }
 
   _setupEventHandlers(fileInput, dropZone, node, param, valueManager, onChange) {
@@ -130,10 +149,11 @@ export class FileInputHandler {
       const files = e.dataTransfer.files;
       if (files.length > 0) {
         const file = files[0];
-        if (file.type.startsWith("image/")) {
+        const acceptsVideo = this._acceptsVideo(param);
+        if (file.type.startsWith("image/") || (acceptsVideo && isVideoSource(file))) {
           this._handleFileLoad(node, file, dropZone, param, valueManager, onChange);
         } else {
-          this._showErrorState(dropZone, "Please drop an image file");
+          this._showErrorState(dropZone, acceptsVideo ? "Please drop an image or video file" : "Please drop an image file");
         }
       }
     });
@@ -163,8 +183,14 @@ export class FileInputHandler {
       const oldTextureInfo = window.textureManager?.getTexture(node.id);
       const oldFileName = oldTextureInfo?.file?.name || null;
 
-      // Load the texture
-await window.textureManager.uploadTexture(node.id, file);
+      // Load the texture (a video gets a playing element; a still gets a one-shot upload)
+      const textureInfo = await window.textureManager.uploadTexture(node.id, file, node);
+
+      // The playback parameters only apply to a video, and this is what tells the panel which
+      // kind of file the node is holding. It rides along in node.params, so a saved patch
+      // reopens with the same controls live.
+      if (!node.params) node.params = {};
+      node.params.sourceType = textureInfo?.isVideo ? 'video' : 'image';
 
       // Mirror the new texture to the second-monitor window if a native-compute
       // mirror is open (no-op otherwise).
@@ -223,15 +249,7 @@ await window.textureManager.uploadTexture(node.id, file);
       dropZone.replaceChildren(label);
 
       // Reset after a moment
-      setTimeout(() => {
-        dropZone.style.borderColor = SURFACE.lineStrong;
-        dropZone.innerHTML = `
-          <div>
-            <div style="margin-bottom: 4px;">📁 Drop image here</div>
-            <div style="font-size: 9px; opacity: 0.7;">or click to browse</div>
-          </div>
-        `;
-      }, 2000);
+      setTimeout(() => this._resetDropZone(dropZone), 2000);
     }
   }
 
@@ -240,15 +258,7 @@ await window.textureManager.uploadTexture(node.id, file);
       dropZone.style.borderColor = SEMANTIC.error;
       dropZone.innerHTML = `<div style="color: ${SEMANTIC.error};">Load failed</div>`;
 
-      setTimeout(() => {
-        dropZone.style.borderColor = SURFACE.lineStrong;
-        dropZone.innerHTML = `
-          <div>
-            <div style="margin-bottom: 4px;">📁 Drop image here</div>
-            <div style="font-size: 9px; opacity: 0.7;">or click to browse</div>
-          </div>
-        `;
-      }, 3000);
+      setTimeout(() => this._resetDropZone(dropZone), 3000);
     }
   }
 

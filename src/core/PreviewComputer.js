@@ -6,6 +6,8 @@ import { NodeDefs } from '../data/NodeDefs.js';
 import { getInputCount } from '../data/nodeInputs.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from './audioAnalysisPins.js';
 import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
+import { buildParamScope } from '../utils/paramReferences.js';
+import { evaluateWave, isWaveUnipolar, waveSyncTime } from './waveform.js';
 
 export class PreviewComputer {
   constructor() {
@@ -21,6 +23,7 @@ export class PreviewComputer {
     this._cachedSortStructureHash = null; // Structure hash when sort was cached
     this._cachedSortById = null; // Map of node ID to index in cached sort
     this.expressionSystem = new UnifiedExpressionSystem(); // For CPU evaluation of expressions
+    this._paramScopeNode = null; // Node whose parameters _evaluateParam exposes to expressions
     
     // Worker support
     this.queueManager = null;
@@ -258,6 +261,9 @@ export class PreviewComputer {
         // Add other node values to context (handles split objects + numeric channel suffixes).
         this._addNodeRefsToContext(context, values);
 
+        // Add the owning node's own parameters, so a parameter can bind to a sibling.
+        Object.assign(context, buildParamScope(this._paramScopeNode, { baseContext: context }));
+
         // Remove = prefix if present
         const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
 
@@ -378,6 +384,11 @@ export class PreviewComputer {
         }
         processedCount++;
 
+        // Node whose parameters are being evaluated. _evaluateParam adds its parameters to the
+        // expression scope so one parameter can reference another on the same node (Scale Y =
+        // "=scaleX"), matching what the compiler emits for the shader.
+        this._paramScopeNode = node;
+
         let result = null;
 
         try {
@@ -441,6 +452,24 @@ export class PreviewComputer {
               break;
             }
 
+            case "Wave": {
+              // Same curve the shader gets (see core/waveform.js). The cycle origin is advanced
+              // every frame by WaveSyncProcessor — this preview pass is throttled to ~10fps and
+              // would miss the sync pulse on its own — so mirror the value it recorded.
+              result = evaluateWave({
+                shape: node.params?.shape,
+                time: this.animationTime,
+                syncTime: waveSyncTime(node),
+                frequency: this._evaluateParam(node.params?.frequency, values, 1.0),
+                phase: this._evaluateParam(node.params?.phase, values, 0.0),
+                amplitude: this._evaluateParam(node.params?.amplitude, values, 1.0),
+                offset: this._evaluateParam(node.params?.offset, values, 0.0),
+                pulseWidth: this._evaluateParam(node.params?.pulseWidth, values, 0.5),
+                unipolar: isWaveUnipolar(node),
+              });
+              break;
+            }
+
             case "RandomValue": {
               // Clock-driven pseudo-random noise in [0, 1]; mirror the shader's fract(sin(...)) hash.
               const speed = this._evaluateParam(node.params?.speed, values, 1.0);
@@ -488,6 +517,9 @@ export class PreviewComputer {
 
                     // Add other node values to context (handles split objects + numeric suffixes).
                     this._addNodeRefsToContext(context, values);
+
+                    // Add the owning node's own parameters, so a parameter can bind to a sibling.
+                    Object.assign(context, buildParamScope(node, { baseContext: context }));
 
                     // Remove = prefix if present before evaluation
                     const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;

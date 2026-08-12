@@ -3,6 +3,7 @@
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import {
   buildScalarRefMapping,
   resolveScalarRef,
@@ -10,6 +11,33 @@ import {
   suffixToComponent,
   componentCount,
 } from '../processors/scalarRef.js';
+
+/**
+ * A Rectangle's two extents need a unit, and the two useful answers disagree, so the node
+ * says which one it means:
+ *
+ *   "Proportional" (default) Both extents are measured against the frame's HEIGHT - the same
+ *                  y-units Circle and Polygon measure their radius in. Width : Height is the
+ *                  shape's true on-screen ratio, so 0.5 x 0.5 is a SQUARE at every render
+ *                  resolution and every aspect ratio. That is what a Rectangle's two numbers
+ *                  have to mean: the shape you type is the shape you get. To span a wide
+ *                  frame edge-to-edge, give Width the frame's aspect (1.78 on 16:9) - the
+ *                  half-extents have no ceiling.
+ *   "Frame"        Width is a fraction of the frame's WIDTH, Height a fraction of its HEIGHT,
+ *                  so 1.0 x 1.0 fills the composition at any ratio. The cost is that the shape
+ *                  inherits the composition's proportions - equal values draw a 16:9 rectangle
+ *                  on a 16:9 output - which is why it is no longer the default.
+ *
+ * The option list itself lives with the node definition (src/data/nodes/PatternNodes.js); all
+ * the compiler needs is to recognise the one mode that changes the generated code.
+ *
+ * Anything else - absent, empty, misspelled, a project saved before the mode existed - is
+ * Proportional, so the shape a patch was authored with is the shape it keeps.
+ */
+export function rectangleIsProportional(node) {
+  const raw = node?.params?.sizeMode ?? node?.props?.sizeMode;
+  return !(typeof raw === 'string' && raw.trim().toLowerCase() === 'frame');
+}
 
 export class FieldNodes {
   constructor() {
@@ -249,6 +277,25 @@ export class FieldNodes {
 generateRectangleFunction(node, nodeId, functionName) {
   const safeId = this.makeSafeIdentifier(nodeId);
 
+  // The two size modes disagree about exactly one thing: the unit Width is measured in.
+  // Everything downstream - rotation, roundness, smoothness - operates on the half-extents
+  // once they are in aspect space, so all of it is shared between the modes.
+  const widthUnit = rectangleIsProportional(node)
+    ? `  // "Proportional" (default): Width shares Height's unit, the frame's HEIGHT - the same
+  // y-units Circle and Polygon measure their radius in. Width : Height is therefore the shape's
+  // true on-screen ratio: 0.5 x 0.5 is a square at every resolution and every aspect ratio, and
+  // a Rectangle of width and height 2r exactly circumscribes a Circle of radius r. Nothing is
+  // scaled into x here - aspect space already measures both axes in frame-heights, which is
+  // precisely what makes the two numbers describe the shape instead of the frame.`
+    : `  // "Frame": Width is a fraction of the frame's WIDTH (Height is always a fraction of its
+  // HEIGHT), so 1.0 x 1.0 fills the composition at any ratio and 0.5 x 0.5 covers its middle
+  // quarter. The trade-off is that the shape inherits the composition's proportions - on a
+  // 16:9 output equal values draw a 16:9 rectangle, never a square - which is why this is the
+  // opt-in mode. Carrying the x half-extent into aspect space, where the frame spans
+  // [0, aspect], keeps the distance field isotropic either way - rotation stays a true
+  // rotation and 'smoothness' is the same thickness on every edge.
+  ${safeId}_half.x *= u.aspect;`;
+
   return `fn ${functionName}(uv: vec2<f32>, width: f32, height: f32, centerX: f32, centerY: f32, roundness: f32, scale: f32, rotation: f32, smoothness: f32) -> f32 {
   // Distances in aspect space
   // FIXED: Don't clamp UV - allows transformed coordinates from Transform2D nodes
@@ -260,21 +307,12 @@ generateRectangleFunction(node, nodeId, functionName) {
     centerX * u.aspect,
     centerY
   );
-  // Half-size. 'width' is a fraction of the frame's WIDTH and 'height' a fraction of its
-  // HEIGHT, so the rectangle follows the composition: 1.0 x 1.0 fills the frame at any ratio
-  // and 0.5 x 0.5 covers the middle quarter of it. That is what two independent extents named
-  // Width and Height should mean - measuring both in y-units (the earlier behaviour) made
-  // width == height always draw a SQUARE, one that shrank away from its stated width as the
-  // composition got wider. Circle and Polygon keep their radius in y-units on purpose: they
-  // have a single extent and have to stay round. The x half-extent is scaled into aspect space
-  // below, where the frame spans [0, aspect], so the distance field stays isotropic - rotation
-  // is a true rotation and 'smoothness' is the same thickness on every edge.
-  var ${safeId}_half = clamp(
-    vec2<f32>(width, height),
-    vec2<f32>(0.0),
-    vec2<f32>(1.0)
-  ) * 0.5;
-  ${safeId}_half.x *= u.aspect;
+  // Half-size. Only the floor matters here: a negative extent would turn the box inside out.
+  // There is deliberately no ceiling - a rectangle larger than the frame is a legitimate
+  // result (a mask that grows past the edge, an extent animated through the frame), and the
+  // old clamp to 1.0 silently ignored anything the panel let you type above it.
+  var ${safeId}_half = max(vec2<f32>(width, height), vec2<f32>(0.0)) * 0.5;
+${widthUnit}
   // Zoom semantics: larger 'scale' => larger rect (scale half-size)
   let ${safeId}_s = max(scale, 0.0);
   ${safeId}_half *= ${safeId}_s;
@@ -355,8 +393,11 @@ getParam(node, paramName, defaultValue) {
     if (scalarMapping === null) {
       return this._defaultLiteral(defaultValue);
     }
+    // An identifier naming another parameter of this node binds to that parameter (see
+    // utils/paramReferences.js); node references keep precedence over parameter names.
+    const paramRefs = compilerParamRefMapping(this, node, rawValue, paramName);
     try {
-      const result = unifiedExpressionSystem.generateShader(rawValue, scalarMapping, this.graph);
+      const result = unifiedExpressionSystem.generateShader(rawValue, { ...paramRefs, ...scalarMapping }, this.graph);
       return result === '0.0' ? this._defaultLiteral(defaultValue) : result;
     } catch {
       return this._defaultLiteral(defaultValue);
