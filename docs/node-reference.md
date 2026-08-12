@@ -2029,6 +2029,8 @@ Samples a 2D texture image.
   - `Loop` (bool, default: true) - *Video only.* Restart when the video reaches the end
   - `Speed` (float, default: 1.0) - *Video only.* Playback speed multiplier (0.0625–16)
   - `Sound` (bool, default: false) - *Video only.* Unmute the video's audio track
+  - `Trim Start (s)` (float, default: 0) - *Video only.* Start playback this many seconds into the clip
+  - `Trim End (s, 0 = end)` (float, default: 0) - *Video only.* Stop (or loop) at this point; 0 plays to the end of the clip
   - `Wrap U` (select: repeat/clamp/mirror, default: repeat) - Horizontal wrapping mode
   - `Wrap V` (select: repeat/clamp/mirror, default: repeat) - Vertical wrapping mode
   - `Filter` (select: linear/nearest, default: linear) - Texture filtering mode

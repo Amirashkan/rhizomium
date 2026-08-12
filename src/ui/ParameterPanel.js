@@ -749,6 +749,26 @@ case 'circlefield':
             default: false,
             activeWhen: { sourceType: 'video' },
             description: "Unmute the video's audio track"
+          },
+          {
+            name: 'trimStart',
+            type: 'float',
+            displayName: 'Trim Start (s)',
+            default: 0.0,
+            min: 0.0,
+            max: 3600.0,
+            activeWhen: { sourceType: 'video' },
+            description: 'Start playback this many seconds into the clip'
+          },
+          {
+            name: 'trimEnd',
+            type: 'float',
+            displayName: 'Trim End (s, 0 = end)',
+            default: 0.0,
+            min: 0.0,
+            max: 3600.0,
+            activeWhen: { sourceType: 'video' },
+            description: 'Stop (or loop) at this many seconds in; 0 plays to the end of the clip'
           }
         );
         break;

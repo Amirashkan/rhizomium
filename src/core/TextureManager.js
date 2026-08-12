@@ -269,8 +269,17 @@ applyVideoParams(nodeId, params = null) {
   if (!video) return;
 
   const p = params || {};
-  video.loop = toBool(p.loop, true);
   video.muted = !toBool(p.sound, false);
+
+  // Trim: play only the span between Trim Start and Trim End. Trim End 0 means "to the end of
+  // the clip", which is how a range can be expressed before the duration is known.
+  entry.loopWanted = toBool(p.loop, true);
+  entry.trimStart = Math.max(0, toNumber(p.trimStart, 0));
+  entry.trimEnd = Math.max(0, toNumber(p.trimEnd, 0));
+
+  // Looping the trimmed span means jumping back to Trim Start, not to zero, so the element's own
+  // loop is handed back to us whenever a span is in force (see _enforceTrim).
+  video.loop = entry.loopWanted && !this._trimRange(entry);
 
   const rate = toNumber(p.playbackRate, 1);
   // Out-of-range rates throw on some browsers, and a rate of 0 is expressed as "not playing".
@@ -279,11 +288,83 @@ applyVideoParams(nodeId, params = null) {
     try { video.playbackRate = safeRate; } catch { /* engine refused the rate */ }
   }
 
-  if (toBool(p.playing, true)) {
-    if (video.paused) video.play?.().catch(() => {});
-  } else if (!video.paused) {
-    video.pause?.();
+  // Play is re-applied on every recompile and preview update, not only when someone clicks it, so
+  // it has to be read as a transition rather than an order. Re-asserting it would restart a clip
+  // that had legitimately stopped - at the end of its trim span, or at the end of the file - the
+  // instant anything else in the patch changed.
+  const wantPlaying = toBool(p.playing, true);
+  const pressedPlay = wantPlaying && entry.playRequested === false;
+  entry.playRequested = wantPlaying;
+
+  if (!wantPlaying) {
+    entry.heldAtEnd = false;
+    if (!video.paused) video.pause?.();
+    return;
   }
+
+  const range = this._trimRange(entry);
+
+  if (pressedPlay) {
+    // An explicit press of Play on a clip parked at the end starts it over.
+    entry.heldAtEnd = false;
+    if (range && video.currentTime >= range.end - 0.001) this._seek(video, range.start);
+    if (video.paused) video.play?.().catch(() => {});
+    return;
+  }
+
+  // Otherwise resume only what is paused for no reason of its own - not a clip holding on the last
+  // frame of its span, and not one that has played out. Widening the span past where it stopped
+  // releases the hold, and so does clearing the trim: with no span there is no end to be held at,
+  // and a clip that genuinely ran out is caught by `ended` below instead.
+  const parked = entry.heldAtEnd && !!range && video.currentTime >= range.end - 0.001;
+  if (video.paused && !video.ended && !parked) {
+    entry.heldAtEnd = false;
+    video.play?.().catch(() => {});
+  }
+}
+
+/**
+ * The span this node plays, or null when the whole clip does.
+ * A range that makes no sense (end before start, start past the end of the clip) is treated as
+ * no trim at all - better the clip plays than that it freezes on a frame nobody chose.
+ */
+_trimRange(entry) {
+  if (!entry) return null;
+  const duration = Number.isFinite(entry.video?.duration) ? entry.video.duration : 0;
+  const start = Math.max(0, entry.trimStart || 0);
+  const declaredEnd = entry.trimEnd > 0 ? entry.trimEnd : duration;
+  const end = duration > 0 ? Math.min(declaredEnd, duration) : declaredEnd;
+  if (!(end > start)) return null;
+  if (start <= 0 && (!duration || end >= duration)) return null; // the whole clip
+  return { start, end };
+}
+
+/** Hold playback inside the trimmed span. Called once per frame, before the frame is copied. */
+_enforceTrim(entry) {
+  const range = this._trimRange(entry);
+  if (!range) return;
+
+  const video = entry.video;
+  if (video.currentTime < range.start - 0.05) {
+    this._seek(video, range.start);
+    return;
+  }
+  if (video.currentTime < range.end) return;
+
+  if (entry.loopWanted) {
+    entry.heldAtEnd = false;
+    this._seek(video, range.start);
+  } else {
+    // Hold on the last frame of the span, the way a non-looping clip holds on its final frame.
+    // The flag is what stops the next recompile from pressing Play again (see applyVideoParams).
+    entry.heldAtEnd = true;
+    if (!video.paused) video.pause?.();
+    this._seek(video, range.end);
+  }
+}
+
+_seek(video, seconds) {
+  try { video.currentTime = seconds; } catch { /* not seekable yet */ }
 }
 
 /**
@@ -300,6 +381,8 @@ updateVideoTextures() {
 
     const info = this._ensureVideoTexture(nodeId, entry);
     if (!info) continue;
+
+    this._enforceTrim(entry);
 
     // Paused, stalled, or simply not advanced yet: the texture already holds this frame, and the
     // copy is the expensive part.

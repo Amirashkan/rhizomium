@@ -123,6 +123,13 @@ for a still image):
 - **Loop** - restart when it reaches the end (on by default; off leaves the last frame on screen)
 - **Speed** - playback rate, 0.0625× to 16×
 - **Sound** - unmute the video's audio track (muted by default)
+- **Trim Start / Trim End** - play only part of the clip, in seconds. Trim End `0` means "to the
+  end of the file", so setting Trim Start alone plays from there onwards. Inside a trim, **Loop**
+  goes back to Trim Start rather than to zero; with Loop off the clip holds on the last frame of
+  the span until you toggle Play, widen the span, or clear the trim.
+
+A trimmed span nests inside everything else: **Speed** still applies, and the trim is stored with
+the patch like any other parameter.
 
 ---
 

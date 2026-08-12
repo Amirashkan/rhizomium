@@ -650,6 +650,14 @@ export class FragmentTextureRenderer {
       }
     }
 
+    // Fold in the frame every video upstream of this node is showing. A video's pixels change
+    // without any parameter changing, so the hash above is constant for a Texture 2D playing one —
+    // and a constant hash freezes the bridged texture that feeds a compute consumer (Transform GPU,
+    // Mix, the 3D visualizer, ...) on whichever frame was up when the bridge was built, until some
+    // unrelated edit forces a render. Keying on currentTime re-fires the render exactly while the
+    // video is advancing, so a paused or trimmed-to-a-hold clip still costs nothing.
+    hash += this._videoFrameHash(node);
+
     // Hash inputs (texture references)
     if (node.inputs && Array.isArray(node.inputs)) {
       const computeExecutor = window.computeExecutor;
@@ -665,6 +673,40 @@ export class FragmentTextureRenderer {
             hash += `${inputId}:fragment;`;
           }
         }
+      }
+    }
+
+    return hash;
+  }
+
+  /**
+   * The playback position of every video sampled by this node or by anything upstream of it in
+   * the fragment chain. The video may sit several nodes above the one being materialized
+   * (Texture 2D → Color Mix → a compute node), so the walk goes up through fragment inputs and
+   * stops at compute nodes, whose output is already covered by the input hash.
+   * @private
+   */
+  _videoFrameHash(node) {
+    const videos = window.textureManager?.videos;
+    if (!videos || videos.size === 0) return '';
+
+    let hash = '';
+    const seen = new Set();
+    const queue = [node];
+
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current || seen.has(current.id)) continue;
+      seen.add(current.id);
+
+      const video = videos.get(current.id)?.video;
+      if (video) hash += `${current.id}.frame:${Number(video.currentTime || 0).toFixed(4)};`;
+
+      for (const inputId of current.inputs || []) {
+        if (inputId === null || inputId === undefined || seen.has(inputId)) continue;
+        const upstream = window.graph?.getNode?.(inputId)
+          || window.editor?.graph?.nodes?.find((n) => String(n.id) === String(inputId));
+        if (upstream && !upstream.kind?.startsWith('Compute')) queue.push(upstream);
       }
     }
 

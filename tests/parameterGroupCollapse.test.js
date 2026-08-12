@@ -193,7 +193,7 @@ describe('parameters the node is not reading', () => {
 
   it('dims Texture 2D playback controls until the loaded file is a video', () => {
     render(panel, 'Texture2D', { sourceType: 'image' });
-    expect(dimmed(panel)).toEqual(['playing', 'loop', 'playbackRate', 'sound']);
+    expect(dimmed(panel)).toEqual(['playing', 'loop', 'playbackRate', 'sound', 'trimStart', 'trimEnd']);
 
     render(panel, 'Texture2D', { sourceType: 'video' });
     expect(dimmed(panel)).toEqual([]);

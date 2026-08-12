@@ -60,6 +60,26 @@ export const TextureNodes = {
         label: "Sound",
         activeWhen: { sourceType: "video" },
       },
+      // Trim: play only part of the clip. Trim End 0 means "to the end", which is how a range can
+      // be given before the file (and its duration) is known.
+      {
+        name: "trimStart",
+        type: "float",
+        default: 0.0,
+        min: 0.0,
+        max: 3600.0,
+        label: "Trim Start (s)",
+        activeWhen: { sourceType: "video" },
+      },
+      {
+        name: "trimEnd",
+        type: "float",
+        default: 0.0,
+        min: 0.0,
+        max: 3600.0,
+        label: "Trim End (s, 0 = end)",
+        activeWhen: { sourceType: "video" },
+      },
       {
         name: "wrapU",
         type: "select",
