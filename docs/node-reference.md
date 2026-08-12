@@ -2024,11 +2024,17 @@ Samples a 2D texture image.
 - **Outputs**:
   - `Color` (vec4) - Sampled color with alpha
 - **Parameters**:
-  - `Image` (file) - Image file to load
+  - `Image / Video` (file) - Image or video file to load
+  - `Play` (bool, default: true) - *Video only.* Run the video, or hold it on the current frame
+  - `Loop` (bool, default: true) - *Video only.* Restart when the video reaches the end
+  - `Speed` (float, default: 1.0) - *Video only.* Playback speed multiplier (0.0625–16)
+  - `Sound` (bool, default: false) - *Video only.* Unmute the video's audio track
+  - `Trim Start (s)` (float, default: 0) - *Video only.* Start playback this many seconds into the clip
+  - `Trim End (s, 0 = end)` (float, default: 0) - *Video only.* Stop (or loop) at this point; 0 plays to the end of the clip
   - `Wrap U` (select: repeat/clamp/mirror, default: repeat) - Horizontal wrapping mode
   - `Wrap V` (select: repeat/clamp/mirror, default: repeat) - Vertical wrapping mode
   - `Filter` (select: linear/nearest, default: linear) - Texture filtering mode
-- **Description**: Loads and samples a 2D texture image at the given UV coordinates, with configurable wrapping and filtering. Use a **Split Vec4** node to extract individual R/G/B/A channels.
+- **Description**: Loads and samples a 2D texture at the given UV coordinates, with configurable wrapping and filtering. Use a **Split Vec4** node to extract individual R/G/B/A channels. The file may be a still image or a video (`.mp4`, `.webm`, `.mov`, `.ogv`): a video plays on its own clock and its current frame is uploaded to the same texture every rendered frame, so every node downstream treats it exactly like an image. The playback parameters are dimmed until the loaded file is a video.
 
 #### Texture Cube
 Samples a cubemap texture.

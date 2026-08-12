@@ -1287,6 +1287,13 @@ export class GPURenderer {
 
     this._updateAspectUniform();
 
+    // Video textures advance on their own clock: copy each playing video's current frame into its
+    // GPU texture before anything samples it. Ahead of the no-pipeline return so a video still
+    // animates in node thumbnails while the output isn't wired up.
+    if (typeof window !== "undefined") {
+      window.textureManager?.updateVideoTextures?.();
+    }
+
     if (!this.pipeline) {
       // No main shader (e.g. the output node isn't wired up yet). Still dispatch any registered
       // compute nodes so their per-node preview thumbnails render real output instead of a
