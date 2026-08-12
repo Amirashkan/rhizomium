@@ -51,37 +51,48 @@ export class StatusBar {
     const el = document.createElement("div");
     el.id = "canvas-status-bar";
     el.className = "rz-statusbar";
+    // Three sections, each taking an equal share of the width. Readouts change
+    // length constantly — the cursor gains a digit, a status message arrives —
+    // and in one flat flex row every one of those shifted everything after it.
+    // Sections give each group its own space to move within.
     el.innerHTML = `
-      <span class="rz-sb-item" title="Zoom level"><span class="rz-sb-zoom">100%</span></span>
-      <span class="rz-sb-sep">|</span>
-      <button type="button" class="rz-sb-btn rz-sb-render">
-        <span class="rz-sb-dot rz-sb-gpu-dot"></span><span class="rz-sb-render-label">WebGPU</span>
-      </button>
-      <span class="rz-sb-sep">|</span>
-      <span class="rz-sb-item rz-sb-cursor" title="Cursor position in graph space">x 0  y 0</span>
-      <span class="rz-sb-item rz-sb-nodes" title="Nodes and wires in the graph">0 nodes</span>
-      <span class="rz-sb-item rz-sb-selection" hidden>0 selected</span>
-      <span class="rz-sb-spacer"></span>
-      <span class="rz-sb-legend-wrap">
-        <button type="button" class="rz-sb-btn rz-sb-legend-btn" aria-describedby="rz-sb-legend-tip">
-          <span class="rz-sb-dot rz-sb-legend-swatches"></span>TYPES
+      <div class="rz-sb-section rz-sb-left">
+        <span class="rz-sb-item" title="Zoom level"><span class="rz-sb-zoom">100%</span></span>
+        <span class="rz-sb-sep">|</span>
+        <button type="button" class="rz-sb-btn rz-sb-render">
+          <span class="rz-sb-dot rz-sb-gpu-dot"></span><span class="rz-sb-render-label">WebGPU</span>
         </button>
-        <span class="rz-sb-tooltip" id="rz-sb-legend-tip" role="tooltip">
-          <span class="rz-sb-tip-title">Wire colours</span>
-          ${TYPE_LEGEND.map(
-            (t) => `<span class="rz-sb-tip-row">
-              <span class="rz-sb-dot" style="background:${t.color}"></span>
-              <b>${t.label}</b><span>${t.note}</span>
-            </span>`,
-          ).join("")}
+        <span class="rz-sb-sep">|</span>
+        <span class="rz-sb-item rz-sb-cursor" title="Cursor position in graph space">x 0  y 0</span>
+      </div>
+
+      <div class="rz-sb-section rz-sb-center">
+        <span class="rz-sb-item rz-sb-nodes" title="Nodes and wires in the graph">0 nodes</span>
+        <span class="rz-sb-item rz-sb-selection" hidden>0 selected</span>
+        <span class="rz-sb-sep">|</span>
+        <span class="rz-sb-legend-wrap">
+          <button type="button" class="rz-sb-btn rz-sb-legend-btn" aria-describedby="rz-sb-legend-tip">
+            <span class="rz-sb-dot rz-sb-legend-swatches"></span>TYPES
+          </button>
+          <span class="rz-sb-tooltip" id="rz-sb-legend-tip" role="tooltip">
+            <span class="rz-sb-tip-title">Wire colours</span>
+            ${TYPE_LEGEND.map(
+              (t) => `<span class="rz-sb-tip-row">
+                <span class="rz-sb-dot" style="background:${t.color}"></span>
+                <b>${t.label}</b><span>${t.note}</span>
+              </span>`,
+            ).join("")}
+          </span>
         </span>
-      </span>
-      <span class="rz-sb-spacer"></span>
-      <span class="rz-sb-item rz-sb-transport" title="Timeline position">
-        <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-        <span class="rz-sb-time">0:00 / 0:00</span>
-      </span>
-      <span class="rz-sb-sep">|</span>
+      </div>
+
+      <div class="rz-sb-section rz-sb-right">
+        <span class="rz-sb-item rz-sb-transport" title="Timeline position">
+          <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          <span class="rz-sb-time">0:00 / 0:00</span>
+        </span>
+        <span class="rz-sb-sep">|</span>
+      </div>
     `;
 
     document.body.appendChild(el);
@@ -100,7 +111,7 @@ export class StatusBar {
     this._paintLegendSwatches(el.querySelector(".rz-sb-legend-swatches"));
     this.renderBtn.addEventListener("click", () => this._toggleRender());
 
-    this._adoptStatusMessage(el);
+    this._adoptStatusMessage(el.querySelector('.rz-sb-right'));
     this._bindCursor();
     this.update();
     this._timer = setInterval(() => this.update(), SAMPLE_MS);
@@ -137,6 +148,7 @@ export class StatusBar {
     // outright (`menu-status <type>`), so anything added here would be wiped on
     // the next message. The placement rule below targets the id instead.
     el.appendChild(status);
+    this.statusEl = status;
   }
 
   /** The legend button wears the four colours it explains. */
@@ -219,6 +231,13 @@ export class StatusBar {
       const selected = graph?.selection?.size || 0;
       this.selectionEl.hidden = selected === 0;
       if (selected) this.selectionEl.textContent = `${selected} selected`;
+    }
+
+    // A long message is ellipsized to protect the layout, so keep the whole
+    // thing reachable on hover. Writers set textContent only, so this is the
+    // one place that can mirror it.
+    if (this.statusEl && this.statusEl.title !== this.statusEl.textContent) {
+      this.statusEl.title = this.statusEl.textContent;
     }
 
     const timeline = window.timelineManager;
@@ -345,12 +364,27 @@ export class StatusBar {
         color: var(--rz-warn);
       }
 
-      .rz-sb-sep {
-        color: #4f4840;
+      /* Equal thirds. min-width:0 is what lets a section's contents shrink
+         (and the status ellipsize) instead of pushing its neighbours. */
+      .rz-sb-section {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex: 1 1 0;
+        min-width: 0;
       }
 
-      .rz-sb-spacer {
-        flex: 1;
+      .rz-sb-center {
+        justify-content: center;
+      }
+
+      .rz-sb-right {
+        justify-content: flex-end;
+      }
+
+      .rz-sb-sep {
+        color: #4f4840;
+        flex: none;
       }
 
       .rz-sb-dot {
@@ -439,15 +473,40 @@ export class StatusBar {
         min-width: 34px;
       }
 
+      /* Tabular figures plus a reserved width: a coordinate gaining a digit
+         used to nudge everything after it along the bar. */
       .rz-sb-cursor,
-      .rz-sb-zoom {
+      .rz-sb-zoom,
+      .rz-sb-time {
         font-variant-numeric: tabular-nums;
+      }
+
+      .rz-sb-zoom {
+        display: inline-block;
+        min-width: 34px;
+      }
+
+      .rz-sb-cursor {
+        min-width: 128px;
+      }
+
+      .rz-sb-nodes {
+        min-width: 116px;
+        justify-content: flex-end;
+      }
+
+      .rz-sb-selection {
+        min-width: 74px;
       }
 
       /* Selection is the one readout that appears and disappears, so it gets the
          accent — it is news when it is there. */
       .rz-sb-selection {
         color: var(--rz-accent);
+      }
+
+      .rz-sb-selection[hidden] {
+        display: none;
       }
 
       .rz-sb-transport svg {
@@ -468,10 +527,34 @@ export class StatusBar {
       .rz-statusbar #status {
         margin-left: 0;
         padding: 3px 10px;
-        min-width: 108px;
         font-family: var(--rz-font-mono);
         font-size: 11px;
         font-weight: 400;
+        /* A message can be any length, so it gets a slot of its own rather than
+           a share of the row: a fixed box that ellipsizes. Sized to the
+           viewport, never to the text — the point is that the transport readout
+           beside it does not move every time the app says something. */
+        flex: 0 0 auto;
+        width: clamp(150px, 21vw, 320px);
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+
+      /* The menu-bar rule makes #status an inline-flex row, and text-overflow
+         does not apply to a flex container's anonymous text item — the message
+         clipped mid-word with no ellipsis. As a block it truncates properly;
+         the state dot becomes an inline-block instead of a flex child. */
+      .rz-statusbar #status {
+        display: block;
+        line-height: 16px;
+      }
+
+      .rz-statusbar #status::before {
+        display: inline-block;
+        margin-right: 7px;
+        vertical-align: 1px;
       }
     `;
     document.head.appendChild(style);
