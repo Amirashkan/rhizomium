@@ -9,6 +9,7 @@
  */
 
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
+import { getPresentedFps, getPresentedFrameMs } from '../core/presentedFrameRate.js';
 
 export class ComputeProfiler {
   constructor(device) {
@@ -25,8 +26,13 @@ export class ComputeProfiler {
 
     // Performance metrics
     this.metrics = {
+      // Presented, not dispatched — see presentedFrameRate.js.
       fps: 0,
       frameTime: 0,
+      // The render loop's dispatch cadence. Related but not the same thing:
+      // on a fixed timestep this holds at the target rate while fps follows
+      // the display.
+      dispatchInterval: 0,
       totalDispatchTime: 0,
       dispatches: [],
       activeWorkgroups: 0,
@@ -143,21 +149,27 @@ export class ComputeProfiler {
       deltaTime = 1000;
     }
     
-    // Update frame timing with incremental sum update (O(1) instead of O(n))
+    // Update dispatch timing with incremental sum update (O(1) instead of O(n))
     this.frameTimes.push(deltaTime);
     this._frameTimeSum += deltaTime;
-    
+
     if (this.frameTimes.length > this.maxFrameSamples) {
-      // Remove oldest frame time from sum
+      // Remove oldest interval from sum
       const removed = this.frameTimes.shift();
       this._frameTimeSum -= removed;
     }
-    
-    // Calculate FPS from cached sum (O(1) instead of O(n) reduce)
-    const frameCount = this.frameTimes.length;
-    const avgFrameTime = frameCount > 0 ? this._frameTimeSum / frameCount : 0;
-    this.metrics.fps = avgFrameTime > 0 ? 1000 / avgFrameTime : 0;
-    this.metrics.frameTime = avgFrameTime;
+
+    // How often this profiler is being handed a frame to time. That is the
+    // render loop's dispatch cadence, which on the default fixed timestep is
+    // 60/sec no matter what the display does — so it is reported under its own
+    // name and never as FPS.
+    const sampleCount = this.frameTimes.length;
+    this.metrics.dispatchInterval = sampleCount > 0 ? this._frameTimeSum / sampleCount : 0;
+
+    // FPS and frame time mean frames the window presented. See
+    // presentedFrameRate.js for why they cannot come from the count above.
+    this.metrics.fps = getPresentedFps();
+    this.metrics.frameTime = getPresentedFrameMs();
     
     // Skip detailed profiling during interactions to reduce overhead
     if (this._isInteractionMode) {
@@ -353,8 +365,13 @@ export class ComputeProfiler {
     this._frameTimeSum = 0;
     this.currentFrameDispatches = [];
     this.metrics = {
+      // Presented, not dispatched — see presentedFrameRate.js.
       fps: 0,
       frameTime: 0,
+      // The render loop's dispatch cadence. Related but not the same thing:
+      // on a fixed timestep this holds at the target rate while fps follows
+      // the display.
+      dispatchInterval: 0,
       totalDispatchTime: 0,
       dispatches: [],
       activeWorkgroups: 0,

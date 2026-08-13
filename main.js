@@ -526,8 +526,10 @@ async function initialize() {
       setupPreviewButtons();
       floatingPreview.show();
 
-      // Drive the preview FPS counter from real GPU-frame completions so the
-      // overlay reports true throughput (and frame time), not dispatch rate.
+      // Feed the preview overlay's GPU-time figure from real frame completions.
+      // The overlay's fps comes from presentedFrameRate instead — completions
+      // measure what the GPU costs, which is a different question from how many
+      // frames the window actually shows.
       if (window.gpuRenderer) {
         window.gpuRenderer.onFramePresented = () => {
           const fc = floatingPreview?.fpsCounter;

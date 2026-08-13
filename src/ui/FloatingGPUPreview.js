@@ -6,6 +6,7 @@ import { resolveResolution } from "./OutputFormat.js";
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { PRIORITY } from '../core/UnifiedRAFManager.js';
 import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
+import { getPresentedFps } from '../core/presentedFrameRate.js';
 import { setIcon } from './iconSprite.js';
 
 // Panel chrome: the header strip plus the 1px border on each edge. The canvas
@@ -1509,9 +1510,14 @@ class FPSCounter {
     this.updateInterval = null;
     // Cache FPS overlay element to avoid DOM queries
     this.fpsOverlayElement = null;
-    // Real GPU frame time: EMA of the interval between presented frames. Using
-    // the completion interval (not submit→done) keeps it stable and equal to the
-    // true frame time even if the loop over-dispatches under load.
+    // How fast the GPU finishes a frame: EMA of the interval between completed
+    // submissions. This is a real measurement and worth showing — a heavy graph
+    // pushes it up — but it is NOT the rate you see. When the GPU keeps up it
+    // settles at whatever cadence the render loop dispatches at, which on the
+    // default fixed timestep is 60/sec regardless of the display. It used to be
+    // printed as "FPS", which is why this app claimed 60 on a 48Hz clock. The
+    // fps figure now comes from presentedFrameRate; this stands beside it,
+    // labelled as GPU time.
     this._lastFrameTime = 0;
     this._frameMsEma = 0;
   }
@@ -1565,25 +1571,20 @@ class FPSCounter {
   }
 
   _updateFPS() {
-    const now = performance.now();
-    const delta = now - this.lastTime;
+    // Frames presented, not frames dispatched. See presentedFrameRate.js.
+    this.fps = Math.round(getPresentedFps());
 
-    // Update FPS display every second
-    if (delta >= 1000) {
-      // Simple and accurate: FPS = frames rendered / time elapsed
-      this.fps = Math.round((this.frameCount * 1000) / delta);
-      this.frameCount = 0;
-      this.lastTime = now;
+    // Use cached element reference instead of DOM query
+    if (!this.fpsOverlayElement) {
+      this.fpsOverlayElement = document.querySelector(".fps-overlay");
+    }
 
-      // Use cached element reference instead of DOM query
-      if (!this.fpsOverlayElement) {
-        this.fpsOverlayElement = document.querySelector(".fps-overlay");
-      }
-      
-      if (this.fpsOverlayElement) {
-        const ms = this._frameMsEma > 0 ? `${this._frameMsEma.toFixed(1)} ms` : "-- ms";
-        this.fpsOverlayElement.textContent = `FPS: ${this.fps} · ${ms}`;
-      }
+    if (this.fpsOverlayElement) {
+      // Two numbers that answer different questions: what you are seeing, and
+      // what the GPU is costing. When they disagree — 48 fps against 16.7ms of
+      // GPU — the GPU is keeping up and something downstream of it is not.
+      const ms = this._frameMsEma > 0 ? `${this._frameMsEma.toFixed(1)} ms GPU` : "-- ms GPU";
+      this.fpsOverlayElement.textContent = `${this.fps} fps · ${ms}`;
     }
   }
   
