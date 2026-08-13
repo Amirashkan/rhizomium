@@ -458,7 +458,7 @@ fade the visuals out or run them faster and slower without touching the graph.
 
 Monitor real-time performance:
 
-**Open:** Press **Ctrl+P** or click Profiler button
+**Open:** View ▸ Compute Profiler, or press **Ctrl+Alt+P**. Hidden by default — while it is open the renderer takes a per-frame GPU timing measurement, which costs performance.
 
 **Displays:**
 - **FPS** - Frames per second (target: 60)

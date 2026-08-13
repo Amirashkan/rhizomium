@@ -94,6 +94,22 @@ If you see **404** errors in the terminal, the paths are wrong.
 
 ---
 
+## Problem: "The fps readout is lower than my monitor's refresh rate"
+
+Check the preview overlay's second figure (`48 fps · 5 ms GPU`) before anything
+else. A low `ms GPU` means the GPU is keeping up and the frames are being lost
+somewhere else — usually the browser, not this application.
+
+The usual cause on Windows is two displays running at different refresh rates,
+which can pin every Chrome window to a single lower rate. A blank web page in
+the same browser shows the same number, while native applications on that
+display are unaffected.
+
+See **[Frame Rate & Display Refresh](frame-rate.md)** for a ten-second check and
+the display settings that resolve it.
+
+---
+
 ## Quick Checklist
 
 Run through this checklist:

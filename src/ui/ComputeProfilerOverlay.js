@@ -178,8 +178,18 @@ export class ComputeProfilerOverlay {
    */
   _setupEventListeners() {
     document.addEventListener('keydown', (e) => {
-      // Ctrl+P to toggle overlay
-      if (e.ctrlKey && e.key === 'p') {
+      // Ctrl/Cmd+Alt+P toggles the overlay.
+      //
+      // Not Ctrl+P, which this used to use and which was already taken twice
+      // over: main.js binds it to the floating preview, and the browser binds
+      // it to Print. Two separate document listeners meant one keypress toggled
+      // the preview AND this panel, since preventDefault does not stop the
+      // other listener from running.
+      //
+      // e.code rather than e.key, because e.key reports 'P' when Caps Lock is
+      // on (which the old lowercase comparison missed entirely) and reports 'π'
+      // when Alt is held on macOS. e.code is the physical key either way.
+      if ((e.ctrlKey || e.metaKey) && e.altKey && e.code === 'KeyP') {
         e.preventDefault();
         this.toggle();
       }

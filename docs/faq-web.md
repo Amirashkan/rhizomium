@@ -270,6 +270,25 @@ Safe to use even with complex visuals!
 
 ## Performance
 
+### The fps readout is lower than my monitor's refresh rate
+
+First check the second number in the preview overlay — it reads
+`48 fps · 5 ms GPU`. If the `ms GPU` figure is low, your graph is not the
+problem: the GPU is finishing frames quickly and something is stopping them
+reaching the screen.
+
+The most common cause is **not Rhizomium at all**. On Windows, running two
+displays at different refresh rates can make Chrome cap every one of its windows
+to a single lower rate — a blank web page shows the same number, and native
+applications on the same display are unaffected. Rhizomium cannot raise that
+ceiling from inside a web page.
+
+**[Frame Rate & Display Refresh](frame-rate.md)** explains how to confirm this in
+about ten seconds and what display settings resolve it.
+
+If `ms GPU` is high instead (above ~16 ms), it *is* your graph — see the next
+question.
+
 ### My visuals are laggy. How do I fix it?
 
 **Quick fixes:**

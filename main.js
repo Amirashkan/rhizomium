@@ -269,7 +269,16 @@ async function initialize() {
 
         // Initialize GPU Performance Monitor
         gpuPerformanceMonitor = new GPUPerformanceMonitor({
-          autoShowOverlay: true, // Show overlay on startup
+          // Off until asked for (Ctrl+P, or the close button to dismiss it).
+          //
+          // This used to open on startup, which quietly undid the two lines
+          // above: showing the overlay is what the render loop syncs
+          // computeProfiler.setEnabled() to, so every session began with the
+          // per-frame GPU timestamp readback running. That readback is the
+          // CPU<->GPU sync the comment above warns must not run when nothing is
+          // displayed — and it was running for everyone, in front of a panel
+          // most people never asked to see.
+          autoShowOverlay: false,
           enableWarnings: true,
           fpsWarningThreshold: 30,
           frameTimeWarningThreshold: 33.33
@@ -1413,6 +1422,45 @@ function setupUIEventHandlers() {
     console.error('[main.js] VJ Control button NOT found in DOM!');
   }
 
+  // Compute profiler overlay. Ctrl+Alt+P does the same thing, but a shortcut is
+  // not a way to find a panel — and this one starts hidden, so without a menu
+  // entry it was unreachable unless you already knew it existed.
+  const profilerBtn = removeExistingHandlers("btn-toggle-profiler");
+
+  if (profilerBtn) {
+    const paintProfilerBtn = () => {
+      const on = !!profilerOverlay?.visible;
+      profilerBtn.textContent = on ? "Compute Profiler ✓" : "Compute Profiler";
+      profilerBtn.style.backgroundColor = on ? "rgba(74, 74, 78, 0.8)" : "";
+      profilerBtn.style.borderColor = on ? "rgba(102, 170, 255, 0.4)" : "";
+    };
+
+    profilerBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+
+      // The overlay is built during WebGPU init, so it does not exist if the
+      // device never came up.
+      if (!profilerOverlay) {
+        updateStatus("Profiler unavailable — no GPU device", "warning");
+        return;
+      }
+
+      profilerOverlay.toggle();
+      paintProfilerBtn();
+      updateStatus(
+        profilerOverlay.visible
+          ? "Compute profiler opened — per-frame GPU timing is on"
+          : "Compute profiler closed",
+      );
+    });
+
+    // The shortcut and the panel's own close button change it behind our back,
+    // so re-read the state each time the menu is opened rather than trusting
+    // whatever the last click left behind.
+    document.getElementById("dropdown-view")?.addEventListener("pointerenter", paintProfilerBtn);
+    paintProfilerBtn();
+  }
+
   // Second-monitor full-screen viewer (Vite/desktop build only).
   // The button and its separator ship hidden in editor/index.html and are only
   // revealed here when running the Vite build with the viewer instantiated.
@@ -2292,8 +2340,12 @@ function setupRhizomiumMenu() {
     documentationBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Open documentation
-      window.open("https://github.com/your-repo/docs", "_blank");
+      // The docsify site under /docs, which vite.config.js copies verbatim into
+      // the build — so this resolves on the dev server, the web deployment and
+      // the desktop bundle alike. It used to point at a placeholder repo URL
+      // that 404'd, which meant the Help menu never reached the documentation
+      // at all.
+      window.open("/docs/", "_blank");
       if (typeof updateStatus === "function") {
         updateStatus("Opening documentation...");
       }
@@ -2513,6 +2565,14 @@ function setupKeyboardShortcuts() {
       }
       return;
     }
+
+    // An Alt-modified combination is a different shortcut, not one of these.
+    // Without this guard every entry below also answered to Ctrl+Alt: Ctrl+Alt+S
+    // saved, Ctrl+Alt+Z undid, Ctrl+Alt+P toggled the preview. Two ways that
+    // bites — a real Ctrl+Alt shortcut elsewhere fires two actions at once, and
+    // on international Windows layouts AltGr arrives as Ctrl+Alt, so typing an
+    // AltGr character ran them.
+    if (e.altKey) return;
 
     switch (e.key.toLowerCase()) {
       case "s":
