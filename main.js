@@ -269,7 +269,16 @@ async function initialize() {
 
         // Initialize GPU Performance Monitor
         gpuPerformanceMonitor = new GPUPerformanceMonitor({
-          autoShowOverlay: true, // Show overlay on startup
+          // Off until asked for (Ctrl+P, or the close button to dismiss it).
+          //
+          // This used to open on startup, which quietly undid the two lines
+          // above: showing the overlay is what the render loop syncs
+          // computeProfiler.setEnabled() to, so every session began with the
+          // per-frame GPU timestamp readback running. That readback is the
+          // CPU<->GPU sync the comment above warns must not run when nothing is
+          // displayed — and it was running for everyone, in front of a panel
+          // most people never asked to see.
+          autoShowOverlay: false,
           enableWarnings: true,
           fpsWarningThreshold: 30,
           frameTimeWarningThreshold: 33.33
