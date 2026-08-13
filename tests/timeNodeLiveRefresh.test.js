@@ -24,14 +24,17 @@ describe('NodeValueComputer does not cache clock-driven nodes', () => {
     const computer = new NodeValueComputer(editor);
     const timeNode = { id: 't1', kind: 'Time', params: {} };
 
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000); // (1000/1000) % 1 === 0
+    // A Time node reads the clock in seconds, unwrapped — the same value the shader gets as
+    // g.time. It used to be wrapped to `(Date.now() / 1000) % 1`, a sawtooth that snapped back to
+    // 0 every second, so a reference to a Time node jumped once a second instead of ramping.
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000);
     const v1 = computer.computeNodeValue(timeNode);
-    nowSpy.mockReturnValue(1500); // (1500/1000) % 1 === 0.5
+    nowSpy.mockReturnValue(1500);
     const v2 = computer.computeNodeValue(timeNode);
     nowSpy.mockRestore();
 
-    expect(v1).toBeCloseTo(0, 5);
-    expect(v2).toBeCloseTo(0.5, 5);
+    expect(v1).toBeCloseTo(1, 5);
+    expect(v2).toBeCloseTo(1.5, 5);
     expect(v1).not.toBe(v2); // would be equal (cached) before the fix
     // A clock-driven node must never be stored in the value cache.
     expect(computer._valueCache.has('t1')).toBe(false);
