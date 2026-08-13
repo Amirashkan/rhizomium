@@ -1,5 +1,6 @@
 import { setIcon } from './iconSprite.js';
 import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
+import { getPresentedFpsCeiling } from '../core/presentedFrameRate.js';
 /**
  * ComputeProfilerOverlay - Visual overlay for displaying compute performance metrics
  *
@@ -254,7 +255,12 @@ export class ComputeProfilerOverlay {
 
     // Update existing elements (much faster than recreating)
     // FPS
-    const fpsColor = metrics.fps >= 60 ? TEXT.primary : metrics.fps >= 30 ? SEMANTIC.warn : SEMANTIC.error;
+    // Graded against the rate this window has actually managed, not a hardcoded
+    // 60: on a compositor clocked at 48 a steady 48 is healthy, and on a 75Hz
+    // panel 60 is not.
+    const ceiling = getPresentedFpsCeiling();
+    const fpsColor = metrics.fps >= ceiling * 0.85 ? TEXT.primary
+      : metrics.fps >= ceiling * 0.55 ? SEMANTIC.warn : SEMANTIC.error;
     this._metricElements.fps.valueEl.textContent = metrics.fps.toFixed(1);
     this._metricElements.fps.valueEl.style.color = fpsColor;
 

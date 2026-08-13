@@ -2,27 +2,24 @@
 //
 // Frame-rate readout for the canvas status bar.
 //
-// It counts requestAnimationFrame callbacks, which is the rate the browser
-// actually presents frames at — the same thing every other app's FPS counter
-// reports. That means it follows the display the window is on: a 60Hz panel
-// reads ~60, a 75Hz one reads ~75, and a window straddling two of them reads
-// whichever the compositor is driving. A number lower than the panel's refresh
-// is real work not finishing in time, not a fault in the counting.
+// It reads presentedFrameRate, which counts the frames the browser actually
+// puts on screen. That means it follows the display the window is on: a 60Hz
+// panel reads ~60, a 75Hz one reads ~75, and a window on a compositor clocked
+// at 48 reads 48 no matter how fast the app is dispatching underneath.
 //
 // Deliberately not the render loop's own frame count: that loop can be paused,
-// throttled to a fixed rate, or stopped entirely from the status bar, and this
-// has to keep telling the truth about the window in all of those cases.
+// throttled, or set to a fixed rate that has nothing to do with the display,
+// and this has to keep telling the truth about the window in all of those
+// cases.
 
-// Averaging window. Long enough that the number doesn't twitch, short enough
-// that a stall shows up while you are still looking at what caused it.
-const WINDOW_MS = 500;
+import { subscribePresentedFps, getPresentedFpsCeiling } from "../core/presentedFrameRate.js";
 
 export class FpsMeter {
   /** @param {HTMLElement} host  the slot the readout is appended to. */
   constructor(host) {
     this.host = host;
     this.el = null;
-    this._raf = null;
+    this._unsubscribe = null;
     this._fps = 0;
   }
 
@@ -43,32 +40,17 @@ export class FpsMeter {
   }
 
   destroy() {
-    if (this._raf) cancelAnimationFrame(this._raf);
-    this._raf = null;
+    this._unsubscribe?.();
+    this._unsubscribe = null;
     this.el?.remove();
     this.el = null;
   }
 
   _start() {
-    let frames = 0;
-    let last = performance.now();
-
-    const tick = (now) => {
-      frames++;
-      const elapsed = now - last;
-      if (elapsed >= WINDOW_MS) {
-        const sample = (frames * 1000) / elapsed;
-        // Light smoothing only. Heavier averaging hides exactly the dips this
-        // is here to reveal.
-        this._fps = this._fps ? this._fps * 0.5 + sample * 0.5 : sample;
-        frames = 0;
-        last = now;
-        this._paint();
-      }
-      this._raf = requestAnimationFrame(tick);
-    };
-
-    this._raf = requestAnimationFrame(tick);
+    this._unsubscribe = subscribePresentedFps((fps) => {
+      this._fps = fps;
+      this._paint();
+    });
   }
 
   _paint() {
@@ -84,17 +66,8 @@ export class FpsMeter {
     this.el.classList.toggle("is-fair", fps >= ceiling * 0.55 && fps < ceiling * 0.85);
   }
 
-  /**
-   * The best frame rate seen so far, used as the display's refresh rate.
-   *
-   * The platform exposes no refresh-rate API, so the highest rate the window has
-   * actually achieved is the closest honest stand-in. Moving the window to a
-   * slower display leaves the ceiling too high for a while, which errs toward
-   * flagging a problem rather than hiding one.
-   */
   _refreshCeiling() {
-    this._peak = Math.max(this._peak || 0, this._fps);
-    return Math.max(30, this._peak);
+    return getPresentedFpsCeiling();
   }
 
   _ensureStyles() {

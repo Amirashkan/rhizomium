@@ -1,11 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { FloatingGPUPreview } from '../src/ui/FloatingGPUPreview.js';
+import { __resetPresentedFrameRate } from '../src/core/presentedFrameRate.js';
 
-// The preview FPS overlay must reflect real GPU throughput. Its FPSCounter is
-// ticked once per GPU-presented frame (gpuRenderer.onFramePresented), not once
-// per dispatched render() — see main.js / gpuRenderer.js. These tests pin that
-// counting + frame-time behaviour via the counter on a preview instance.
-describe('FloatingGPUPreview FPS counter (GPU-completion driven)', () => {
+// The preview overlay shows two numbers that answer two different questions:
+// how many frames the window presented, and how long the GPU took over one.
+//
+// They used to be the same number, both derived from counting GPU submissions,
+// printed as "FPS". That count is capped by the GPU but otherwise follows the
+// render loop's dispatch cadence — which on the default fixed timestep is the
+// target rate, 60, whatever the display is doing. On a compositor clocked at
+// 48Hz the overlay confidently read 60. The fps figure now comes from
+// presentedFrameRate (requestAnimationFrame); the completion interval stays,
+// labelled as GPU time.
+describe('FloatingGPUPreview overlay: presented fps vs GPU time', () => {
   let canvas;
 
   beforeEach(() => {
@@ -15,9 +22,11 @@ describe('FloatingGPUPreview FPS counter (GPU-completion driven)', () => {
     window.gpuRenderer = {
       device: { queue: { onSubmittedWorkDone: vi.fn().mockResolvedValue() } },
     };
+    __resetPresentedFrameRate();
   });
 
   afterEach(() => {
+    __resetPresentedFrameRate();
     vi.restoreAllMocks();
   });
 
@@ -28,14 +37,14 @@ describe('FloatingGPUPreview FPS counter (GPU-completion driven)', () => {
     expect(fc.frameCount).toBe(0);
   });
 
-  it('counts presented frames and derives a steady frame-time EMA', () => {
+  it('derives a steady GPU frame-time EMA from completions', () => {
     const fc = new FloatingGPUPreview(canvas).fpsCounter;
 
     let t = 1000;
     vi.spyOn(performance, 'now').mockImplementation(() => t);
     fc.start();
 
-    // Five completions ~16ms apart (≈60 fps).
+    // Five completions ~16ms apart.
     for (let i = 0; i < 5; i++) { fc.frame(); t += 16; }
 
     expect(fc.frameCount).toBe(5);
@@ -44,7 +53,7 @@ describe('FloatingGPUPreview FPS counter (GPU-completion driven)', () => {
     fc.stop();
   });
 
-  it('renders honest fps + frame time into the overlay', () => {
+  it('reports presented frames, not completions, as fps', () => {
     const overlay = document.createElement('div');
     overlay.className = 'fps-overlay';
     document.body.appendChild(overlay);
@@ -55,12 +64,15 @@ describe('FloatingGPUPreview FPS counter (GPU-completion driven)', () => {
     vi.spyOn(performance, 'now').mockImplementation(() => t);
     fc.start();
 
-    // 30 completions over exactly 1000ms → 30 fps, ~33ms apart.
-    for (let i = 0; i < 30; i++) { t += 1000 / 30; fc.frame(); }
+    // 60 completions in a second — a fixed-timestep loop dispatching at its
+    // target rate while the window is presenting far fewer.
+    for (let i = 0; i < 60; i++) { t += 1000 / 60; fc.frame(); }
     fc._updateFPS();
 
-    expect(fc.fps).toBe(30);
-    expect(overlay.textContent).toMatch(/^FPS: 30 · \d+\.\d ms$/);
+    // No frames have been presented (nothing has driven rAF), so the honest
+    // answer is 0 — emphatically not the 60 the completions would have given.
+    expect(fc.fps).toBe(0);
+    expect(overlay.textContent).toMatch(/^0 fps · 16\.\d ms GPU$/);
 
     fc.stop();
     overlay.remove();
