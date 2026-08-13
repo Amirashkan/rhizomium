@@ -146,10 +146,10 @@ GPU compute effects.
 
 **Use**: Trails, distortion, mirror, and glitch effects
 
-### 9. Simulation Nodes
-Stateful GPU simulations.
+### 9. Dynamics Nodes
+Stateful systems that evolve frame to frame on the GPU.
 
-**Examples**: Compute Particles, Reaction Diffusion, Fluid Simulation, Cellular Automata, Feedback Field
+**Examples**: Compute Particles, Reaction Diffusion, Fluid Flow, Cellular Automata, Feedback Field
 
 **Use**: Particle systems and physics-based visuals
 

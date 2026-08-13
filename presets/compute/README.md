@@ -131,7 +131,7 @@ preset_name/
   "version": 1,
   "name": "Preset Display Name",
   "description": "What this preset does",
-  "category": "Generators | Effects | Simulation",
+  "category": "Generators | Effects | Dynamics",
   "tags": ["keyword1", "keyword2"],
   "author": "Creator Name",
   "presets": [

@@ -61,12 +61,12 @@ The categories that drive the radial menu come from each NodeDef's **`cat`** fie
 | Transform | 10 | `icon-transform` |
 | Vector | 7 | `icon-vector` |
 | Blend | 7 | `icon-blend` |
-| Simulation | 5 | `icon-simulation` |
+| Dynamics | 5 | `icon-dynamics` |
 | Effects | 4 | `icon-effects` |
 | Texture | 2 | `icon-texture` |
 | Output | 1 | `icon-output` |
 
-All 12 have shipped since before this spec. **`icon-simulation`, `icon-generators`,
+All 12 have shipped since before this spec. **`icon-dynamics`, `icon-generators`,
 `icon-effects` and `icon-modifiers` are live and must not be removed.**
 
 The misreading came from `NodeCategories` in `src/data/nodes/NodeTypes.js:10-22`, which
