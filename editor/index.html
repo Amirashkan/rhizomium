@@ -321,6 +321,11 @@
           <button id="btn-toggle-console">Console</button>
           <button id="btn-toggle-timeline">Timeline</button>
           <button id="btn-toggle-vj">VJ Control</button>
+          <!-- Starts hidden, and showing it switches on per-frame GPU timing
+               (see main.js, where the render loop syncs the profiler's enabled
+               flag to this panel's visibility). Without this entry Ctrl+Alt+P
+               was the only way to reach it at all. -->
+          <button id="btn-toggle-profiler" title="Compute profiler overlay (Ctrl+Alt+P) — costs performance while open">Compute Profiler</button>
           <!-- Second-monitor full-screen viewer. Hidden by default; revealed
                only in the Vite/desktop build (see main.js / isViteBuild.js). -->
           <div class="menu-separator" id="sep-second-monitor" style="display:none"></div>

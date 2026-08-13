@@ -88,7 +88,7 @@ When shortcuts list `Ctrl`, Mac users should use `Cmd` instead.
 | Shortcut | Action | Description |
 |----------|--------|-------------|
 | `Ctrl+P` | Toggle Preview | Show/hide the floating preview window |
-| `Ctrl+Alt+P` | Toggle Profiler | Show/hide the compute profiler overlay (hidden by default; showing it turns on per-frame GPU timing, which costs performance) |
+| `Ctrl+Alt+P` | Toggle Profiler | Show/hide the compute profiler overlay, also under View ▸ Compute Profiler (hidden by default; showing it turns on per-frame GPU timing, which costs performance) |
 | `Ctrl+Shift+P` | Run Performance Tests | Runs the GPU performance test suite and logs results to the console |
 | `Ctrl+Space` | Quick Node Search | Open node search (if available) |
 | `Ctrl+B` | Backups | Open backup dialog |
@@ -210,7 +210,7 @@ When parameter panel is open:
 
 | Shortcut | Action | Description |
 |----------|--------|-------------|
-| `Ctrl+P` | Toggle Profiler | Show/hide performance overlay |
+| `Ctrl+Alt+P` | Toggle Profiler | Show/hide performance overlay (also View ▸ Compute Profiler) |
 | `Ctrl+Shift+P` | Run Tests | Execute performance tests |
 | `Ctrl+Shift+R` | Reset Profiler | Clear profiler statistics |
 | `Ctrl+Shift+E` | Toggle Profiling | Enable/disable profiling |

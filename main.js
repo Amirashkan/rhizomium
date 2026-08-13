@@ -1422,6 +1422,45 @@ function setupUIEventHandlers() {
     console.error('[main.js] VJ Control button NOT found in DOM!');
   }
 
+  // Compute profiler overlay. Ctrl+Alt+P does the same thing, but a shortcut is
+  // not a way to find a panel — and this one starts hidden, so without a menu
+  // entry it was unreachable unless you already knew it existed.
+  const profilerBtn = removeExistingHandlers("btn-toggle-profiler");
+
+  if (profilerBtn) {
+    const paintProfilerBtn = () => {
+      const on = !!profilerOverlay?.visible;
+      profilerBtn.textContent = on ? "Compute Profiler ✓" : "Compute Profiler";
+      profilerBtn.style.backgroundColor = on ? "rgba(74, 74, 78, 0.8)" : "";
+      profilerBtn.style.borderColor = on ? "rgba(102, 170, 255, 0.4)" : "";
+    };
+
+    profilerBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+
+      // The overlay is built during WebGPU init, so it does not exist if the
+      // device never came up.
+      if (!profilerOverlay) {
+        updateStatus("Profiler unavailable — no GPU device", "warning");
+        return;
+      }
+
+      profilerOverlay.toggle();
+      paintProfilerBtn();
+      updateStatus(
+        profilerOverlay.visible
+          ? "Compute profiler opened — per-frame GPU timing is on"
+          : "Compute profiler closed",
+      );
+    });
+
+    // The shortcut and the panel's own close button change it behind our back,
+    // so re-read the state each time the menu is opened rather than trusting
+    // whatever the last click left behind.
+    document.getElementById("dropdown-view")?.addEventListener("pointerenter", paintProfilerBtn);
+    paintProfilerBtn();
+  }
+
   // Second-monitor full-screen viewer (Vite/desktop build only).
   // The button and its separator ship hidden in editor/index.html and are only
   // revealed here when running the Vite build with the viewer instantiated.

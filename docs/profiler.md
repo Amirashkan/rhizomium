@@ -8,14 +8,24 @@ Monitor your visual's performance in real-time! Track frame rate, GPU usage, and
 
 ### Step 1: Open the Profiler
 
-**Keyboard shortcut:** Press **Ctrl+P**
+**Menu:** View ▸ Compute Profiler
 
-There is no menu entry for it - the shortcut is the only way in.
+**Keyboard shortcut:** **Ctrl+Alt+P** (Cmd+Alt+P on Mac)
+
+It is hidden until you open it, and deliberately so: while it is on screen the
+renderer takes a GPU timing measurement every frame, which costs performance in
+its own right. Close it when you are done measuring.
+
+> Earlier versions used **Ctrl+P**. That collided with the floating preview
+> window's shortcut — one keypress toggled both panels — so the profiler moved.
+> Ctrl+P now belongs to the preview alone.
 
 ### Step 2: View Metrics
 
 The profiler overlay appears showing:
-- **FPS** - Frames per second (target: 60)
+- **FPS** - Frames per second. The target is your display's refresh rate, not a
+  fixed 60 — see [Frame Rate & Display Refresh](frame-rate.md) if this reads
+  lower than your monitor's
 - **Frame Time** - Milliseconds per frame (target: <16.67ms)
 - **Compute Time** - Time spent in compute shaders
 - **Dispatches** - Number of compute shader dispatches
@@ -121,7 +131,7 @@ The profiler automatically warns when:
 ### Toggle Display
 
 **Show/Hide:**
-- Press **Ctrl+P** to toggle overlay
+- Press **Ctrl+Alt+P** to toggle overlay, or use View ▸ Compute Profiler
 - Click **×** button to close
 - Click **+** to expand details
 
@@ -210,7 +220,7 @@ The profiler automatically warns when:
 
 ### Keyboard Shortcuts
 
-- **Ctrl+P** - Toggle profiler overlay
+- **Ctrl+Alt+P** - Toggle profiler overlay
 - **Ctrl+Shift+P** - Run performance tests
 - **Ctrl+Shift+R** - Reset profiler statistics
 - **Ctrl+Shift+E** - Enable/disable profiling
@@ -273,7 +283,9 @@ Tests verify:
 
 ### During Development
 
-1. **Keep profiler open** - Monitor performance as you build
+1. **Open it to measure, close it after** - The overlay is not free: while it is
+   open the renderer takes a GPU timing measurement every frame. Leaving it up
+   costs you some of the performance you are trying to measure
 2. **Check frequently** - Catch issues early
 3. **Test changes** - Verify optimizations work
 4. **Compare before/after** - Measure improvements
@@ -301,7 +313,7 @@ Tests verify:
 **Problem:** Overlay doesn't appear
 
 **Solutions:**
-- Press Ctrl+P to toggle
+- Press Ctrl+Alt+P to toggle, or use View ▸ Compute Profiler
 - Check if profiler is enabled
 - Verify browser supports required features
 - Try refreshing page
