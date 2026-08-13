@@ -87,8 +87,9 @@ When shortcuts list `Ctrl`, Mac users should use `Cmd` instead.
 
 | Shortcut | Action | Description |
 |----------|--------|-------------|
-| `Ctrl+P` | Toggle Profiler | Show/hide performance profiler overlay |
-| `Ctrl+Shift+P` | Preview Toggle | Alternative preview toggle (if available) |
+| `Ctrl+P` | Toggle Preview | Show/hide the floating preview window |
+| `Ctrl+Alt+P` | Toggle Profiler | Show/hide the compute profiler overlay (hidden by default; showing it turns on per-frame GPU timing, which costs performance) |
+| `Ctrl+Shift+P` | Run Performance Tests | Runs the GPU performance test suite and logs results to the console |
 | `Ctrl+Space` | Quick Node Search | Open node search (if available) |
 | `Ctrl+B` | Backups | Open backup dialog |
 | `Ctrl+V` | VJ Control | Toggle VJ Control panel |

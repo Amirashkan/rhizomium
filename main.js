@@ -2527,6 +2527,14 @@ function setupKeyboardShortcuts() {
       return;
     }
 
+    // An Alt-modified combination is a different shortcut, not one of these.
+    // Without this guard every entry below also answered to Ctrl+Alt: Ctrl+Alt+S
+    // saved, Ctrl+Alt+Z undid, Ctrl+Alt+P toggled the preview. Two ways that
+    // bites — a real Ctrl+Alt shortcut elsewhere fires two actions at once, and
+    // on international Windows layouts AltGr arrives as Ctrl+Alt, so typing an
+    // AltGr character ran them.
+    if (e.altKey) return;
+
     switch (e.key.toLowerCase()) {
       case "s":
         e.preventDefault();
