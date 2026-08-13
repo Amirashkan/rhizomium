@@ -1,6 +1,7 @@
 import { MessagePriority } from './AsyncQueueManager.js';
 import { serializeProjectFormat, applyProjectFormat } from '../ui/OutputFormat.js';
 import { BackupStore } from './BackupStore.js';
+import { createAutosaveStore, parseAutosaveEntry } from './AutosaveStore.js';
 import { migrateProjectData, SAVE_FORMAT_VERSION } from './projectMigrations.js';
 
 /**
@@ -46,9 +47,11 @@ export class SaveLoadManager {
     this.currentFileHandle = null;
     this.currentProjectName = null;
 
-    // Backups live in IndexedDB - full texture dataUrls don't fit in the
-    // ~5MB localStorage quota once a project grows
+    // Full texture dataUrls don't fit in the ~5MB localStorage quota once a
+    // project grows, so backups live in IndexedDB and the autosave snapshot
+    // goes to a file on the desktop (IndexedDB in the browser)
     this.backupStore = new BackupStore();
+    this.autosaveStore = createAutosaveStore();
     this._migrateLegacyBackups();
 
     // Worker support
@@ -1684,56 +1687,151 @@ async reinitializeWebGPU() {
   // LOCAL STORAGE OPERATIONS
   // =============================================================================
 
-  saveToLocal(key = null) {
+  /**
+   * Persists the current project as the autosave snapshot.
+   *
+   * The snapshot itself goes to the autosave store - a file on the desktop,
+   * IndexedDB in a browser. A project with an inlined texture, let alone a
+   * video, runs past the ~5MB localStorage quota, and setItem then throws
+   * QuotaExceededError on every autosave tick. localStorage keeps only a small
+   * pointer record (timestamp + node counts) so the startup recovery checks
+   * can stay synchronous.
+   *
+   * Passing an explicit key still writes a plain localStorage entry, for the
+   * small named saves that path was built for.
+   */
+  async saveToLocal(key = null) {
+    const storageKey = key || this.autosaveKey;
+    let projectData;
+
     try {
-      const projectData = this.exportProject();
-      const storageKey = key || this.autosaveKey;
-
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          data: projectData,
-          timestamp: Date.now(),
-          version: SAVE_FORMAT_VERSION,
-        }),
-      );
-
-      if (storageKey === this.autosaveKey) {
-        this._lastAutosaveHash = this._computeProjectHash(projectData);
-      }
-      this.hasUnsavedChanges = false;
-      this.updateStatus("Project saved locally");
+      projectData = this.exportProject();
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'local-storage-save',
-        key: key || this.autosaveKey
+        key: storageKey
       });
       this.updateStatus(`Local save failed: ${error.message}`, "error");
+      return false;
+    }
+
+    const timestamp = Date.now();
+    const record = {
+      data: projectData,
+      timestamp,
+      version: SAVE_FORMAT_VERSION,
+    };
+
+    let entry;
+    if (storageKey === this.autosaveKey) {
+      try {
+        await this.autosaveStore.put(record);
+        // The pointer replaces the old inline payload - which is what frees
+        // the quota for users whose storage is already full of one.
+        entry = {
+          storage: "external",
+          timestamp,
+          version: SAVE_FORMAT_VERSION,
+          nodeCount: projectData.nodes?.length || 0,
+          connectionCount: projectData.connections?.length || 0,
+        };
+      } catch (error) {
+        // Neither a file nor IndexedDB available (a locked-down browser): fall
+        // back to the inline snapshot, which still covers small enough projects.
+        window.errorHandler?.handleError(error, {
+          component: 'autosave-snapshot-write'
+        });
+        entry = record;
+      }
+    } else {
+      entry = record;
+    }
+
+    if (!this._writeLocalEntry(storageKey, entry)) {
+      // The snapshot itself was stored even when the pointer could not be
+      // written, so the project is not lost - only the startup prompt is.
+      return entry.storage === "external";
+    }
+
+    if (storageKey === this.autosaveKey) {
+      this._lastAutosaveHash = this._computeProjectHash(projectData);
+    }
+    this.hasUnsavedChanges = false;
+    this.updateStatus("Project saved locally");
+    return true;
+  }
+
+  /**
+   * Writes one localStorage entry, turning a full quota into a plain-language
+   * status instead of the raw QuotaExceededError artists used to see.
+   * Returns whether the write landed.
+   */
+  _writeLocalEntry(storageKey, entry) {
+    const serialized = JSON.stringify(entry);
+    try {
+      // Drop the old value first: a stale multi-megabyte payload under this
+      // key still counts against the quota while setItem is being applied.
+      localStorage.removeItem(storageKey);
+      localStorage.setItem(storageKey, serialized);
+      return true;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'local-storage-save',
+        key: storageKey,
+        bytes: serialized.length
+      });
+      this.updateStatus(
+        entry.storage === "external"
+          ? "Autosaved, but browser storage is full"
+          : "Local save failed: browser storage is full",
+        "error",
+      );
+      return false;
     }
   }
 
   async loadFromLocal(key = null) {
+    const storageKey = key || this.autosaveKey;
     try {
-      const storageKey = key || this.autosaveKey;
-      const stored = localStorage.getItem(storageKey);
+      const entry = parseAutosaveEntry(localStorage.getItem(storageKey));
+      let data = entry?.data || null;
+      let timestamp = entry?.timestamp ?? null;
 
-      if (!stored) {
+      // Pointer record: the snapshot lives in the autosave store.
+      if (!data && storageKey === this.autosaveKey) {
+        const record = await this.autosaveStore.get().catch(() => null);
+        if (record?.data) {
+          data = record.data;
+          timestamp = record.timestamp ?? timestamp;
+        } else {
+          // The pointer can outlive its snapshot if the file was removed or
+          // the browser dropped the database; the newest backup is the same
+          // content, one tick older.
+          const [newest] = await this.getBackups();
+          if (newest?.data) {
+            data = newest.data;
+            timestamp = newest.timestamp ?? timestamp;
+          }
+        }
+      }
+
+      if (!data) {
         this.updateStatus("No local save found", "warning");
         return false;
       }
 
-      const { data, timestamp } = JSON.parse(stored);
-      const age = Date.now() - timestamp;
-      const ageText = this.formatAge(age);
-
       await this.importProject(data);
-      this.updateStatus(`Loaded local save (${ageText} ago)`);
+      const ageText =
+        typeof timestamp === "number" ? this.formatAge(Date.now() - timestamp) : null;
+      this.updateStatus(
+        ageText ? `Loaded local save (${ageText} ago)` : "Loaded local save",
+      );
 
       return true;
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'local-storage-load',
-        key: key || this.autosaveKey
+        key: storageKey
       });
       this.updateStatus(`Local load failed: ${error.message}`, "error");
       return false;
@@ -1844,10 +1942,16 @@ async reinitializeWebGPU() {
     try {
       // Auto-save interval. hasUnsavedChanges is set via markUnsaved(),
       // called from the shader update path that every graph edit goes through.
-      setInterval(() => {
+      setInterval(async () => {
+        if (this._autosaveInFlight) return;
         if (this.hasUnsavedChanges && !this.isImporting && this.shouldAutoSave()) {
-          this.saveToLocal();
-          this.createBackup("autosave");
+          this._autosaveInFlight = true;
+          try {
+            await this.saveToLocal();
+            await this.createBackup("autosave");
+          } finally {
+            this._autosaveInFlight = false;
+          }
         }
       }, this.autosaveInterval);
     } catch (error) {
@@ -1883,6 +1987,16 @@ async reinitializeWebGPU() {
 
   setupUnloadHandler() {
     try {
+      // The snapshot write is asynchronous (IndexedDB), and a transaction
+      // started in beforeunload is not guaranteed to commit - so the real
+      // capture point is the tab going hidden, which fires well before the
+      // page is torn down (and is the only one mobile browsers reliably send).
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden" && this.hasUnsavedChanges) {
+          this.saveToLocal();
+        }
+      });
+
       window.addEventListener("beforeunload", (_e) => {
         if (this.hasUnsavedChanges) {
           this.saveToLocal();
@@ -1898,18 +2012,16 @@ async reinitializeWebGPU() {
 
   hasAutosave() {
     try {
-      const stored = localStorage.getItem(this.autosaveKey);
-      if (!stored) return false;
-      
-      const { data, timestamp } = JSON.parse(stored);
-      
+      const entry = parseAutosaveEntry(localStorage.getItem(this.autosaveKey));
+      if (!entry || typeof entry.timestamp !== "number") return false;
+
       // Check if the autosave has actual content (nodes)
-      if (!data || !data.nodes || data.nodes.length === 0) {
+      if (!entry.nodeCount) {
         return false;
       }
-      
+
       // Check if the autosave is recent enough to matter (not older than 24 hours)
-      const age = Date.now() - timestamp;
+      const age = Date.now() - entry.timestamp;
       const maxAge = 24 * 60 * 60 * 1000; // 24 hours
       if (age > maxAge) {
         return false;
@@ -1931,11 +2043,10 @@ async reinitializeWebGPU() {
 
   getAutosaveAge() {
     try {
-      const stored = localStorage.getItem(this.autosaveKey);
-      if (!stored) return null;
+      const entry = parseAutosaveEntry(localStorage.getItem(this.autosaveKey));
+      if (!entry || typeof entry.timestamp !== "number") return null;
 
-      const { timestamp } = JSON.parse(stored);
-      const age = Date.now() - timestamp;
+      const age = Date.now() - entry.timestamp;
       
       // Return null if autosave is too old to be relevant
       const maxAge = 24 * 60 * 60 * 1000; // 24 hours

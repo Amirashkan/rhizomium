@@ -51,6 +51,66 @@ fn read_project_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|err| err.to_string())
 }
 
+/// File the editor autosaves into, inside the app data directory.
+///
+/// Autosave used to live in the webview's localStorage, which caps out around
+/// 5MB - a patch with an inlined texture, let alone a video, blew past that and
+/// every autosave failed. On the desktop there is no reason to squeeze a patch
+/// into browser storage: it goes to disk like any other document.
+const AUTOSAVE_FILE: &str = "autosave.rz";
+
+fn autosave_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| format!("No app data directory: {err}"))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|err| format!("Could not create {}: {err}", dir.display()))?;
+    Ok(dir.join(AUTOSAVE_FILE))
+}
+
+/// Write the autosave snapshot.
+///
+/// Written to a temporary file and renamed into place, so a crash or a power
+/// cut partway through a multi-megabyte write leaves the previous snapshot
+/// intact instead of a half-written one.
+#[tauri::command]
+fn write_autosave(app: tauri::AppHandle, contents: String) -> Result<(), String> {
+    let path = autosave_path(&app)?;
+    let temp = path.with_extension("rz.tmp");
+
+    std::fs::write(&temp, contents.as_bytes())
+        .map_err(|err| format!("Could not write the autosave: {err}"))?;
+    std::fs::rename(&temp, &path).map_err(|err| {
+        let _ = std::fs::remove_file(&temp);
+        format!("Could not replace the autosave: {err}")
+    })
+}
+
+/// Read the autosave snapshot, or None when there is not one yet.
+#[tauri::command]
+fn read_autosave(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let path = autosave_path(&app)?;
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(format!("Could not read the autosave: {err}")),
+    }
+}
+
+/// Discard the autosave snapshot.
+#[tauri::command]
+fn clear_autosave(app: tauri::AppHandle) -> Result<(), String> {
+    let path = autosave_path(&app)?;
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("Could not clear the autosave: {err}")),
+    }
+}
+
 /// macOS delivers file-association opens as an event rather than as arguments,
 /// both on a cold launch and while the editor is already open.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -83,7 +143,13 @@ fn handle_opened(handle: &tauri::AppHandle, event: &tauri::RunEvent) {
 pub fn run() {
     let app = tauri::Builder::default()
         .manage(PendingOpen(Mutex::new(project_path_from_args())))
-        .invoke_handler(tauri::generate_handler![take_pending_open, read_project_file])
+        .invoke_handler(tauri::generate_handler![
+            take_pending_open,
+            read_project_file,
+            write_autosave,
+            read_autosave,
+            clear_autosave
+        ])
         .setup(|_app| {
             #[cfg(debug_assertions)]
             {
