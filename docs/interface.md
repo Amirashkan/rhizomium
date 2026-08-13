@@ -76,7 +76,7 @@ node categories:
 ![The radial Add Node menu](images/radial-menu.webp)
 
 The categories are **Input**, **Output**, **Math**, **Vector**, **Generators**,
-**Transform**, **Modifiers**, **Effects**, **Simulation**, **Utility**,
+**Transform**, **Modifiers**, **Effects**, **Dynamics**, **Utility**,
 **Blend** and **Texture**. Click one to fan its nodes out around the ring:
 
 ![The Transform category expanded](images/radial-menu-category.webp)

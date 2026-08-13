@@ -8,7 +8,7 @@
  * - Generators: Procedural generation (noise, gradients, patterns)
  * - Modifiers: Image processing (blur, threshold, edge detect, color adjustment, etc.)
  * - Effects: Visual effects (warp, kaleidoscope, glitch, feedback)
- * - Simulation: Physics-based systems (particles, fluids, cellular automata)
+ * - Dynamics: Stateful systems that evolve frame to frame (particles, fluids, cellular automata)
  * - Utility: Compositing and transformation helpers
  */
 export const ComputeNodes = {
@@ -47,7 +47,7 @@ export const ComputeNodes = {
 
   ComputeParticles: {
     label: "Compute Particles",
-    cat: "Simulation",
+    cat: "Dynamics",
     inputs: 2,
     pinsIn: ["Force Field", "Velocity Field"],
     pinsOut: ["Texture"],
@@ -104,7 +104,7 @@ export const ComputeNodes = {
 
   ComputeReactionDiffusion: {
     label: "Reaction Diffusion",
-    cat: "Simulation",
+    cat: "Dynamics",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture"],
@@ -122,8 +122,8 @@ export const ComputeNodes = {
   },
 
   ComputeFluidSim: {
-    label: "Fluid Simulation",
-    cat: "Simulation",
+    label: "Fluid Flow",
+    cat: "Dynamics",
     inputs: 1,
     pinsIn: ["Velocity Input"],
     pinsOut: ["Texture"],
@@ -165,7 +165,7 @@ export const ComputeNodes = {
 
   ComputeCellular: {
     label: "Cellular Automata",
-    cat: "Simulation",
+    cat: "Dynamics",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture"],
@@ -181,7 +181,7 @@ export const ComputeNodes = {
 
   ComputeFeedbackField: {
     label: "Feedback Field",
-    cat: "Simulation",
+    cat: "Dynamics",
     inputs: 2,
     // Pin 1 (Reset) is a CPU-only control pin — see ComputeFeedback above.
     pinsIn: ["Input", { label: "Reset", type: "f32", control: true }],

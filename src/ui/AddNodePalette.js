@@ -33,7 +33,7 @@ const CATEGORY_ORDER = [
   "Utility",
   "Blend",
   "Texture",
-  "Simulation",
+  "Dynamics",
   "Effects",
 ];
 

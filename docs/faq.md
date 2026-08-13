@@ -263,7 +263,7 @@ Rhizomium includes 130+ nodes across 12 categories:
 - **Transform** (10) - UV manipulation, distortion
 - **Modifiers** (11) - Color operations, image processing
 - **Effects** (4) - Feedback, warp, kaleidoscope, glitch
-- **Simulation** (5) - Particles, fluids, reaction-diffusion
+- **Dynamics** (5) - Particles, fluids, reaction-diffusion
 - **Utility** (12) - Data manipulation, logic, custom code
 - **Blend** (7) - SDF operations
 - **Texture** (2) - 2D and cubemap sampling

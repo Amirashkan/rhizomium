@@ -23,7 +23,7 @@ Compute nodes are **GPU-accelerated pre-processing nodes** that run before your 
 ### Step 1: Add a Compute Node
 
 1. Right-click on the canvas
-2. Compute nodes live in the same categories as fragment nodes — look in **Generators** (Compute Noise, Voronoi, Gradient, Pattern), **Modifiers** (Compute Blur, Edge Detect, ...), **Effects** (Compute Feedback, Warp, Kaleidoscope, Glitch), **Simulation** (Particles, Fluid, ...), and **Utility** (Mix, Transform, Channels, HSV)
+2. Compute nodes live in the same categories as fragment nodes — look in **Generators** (Compute Noise, Voronoi, Gradient, Pattern), **Modifiers** (Compute Blur, Edge Detect, ...), **Effects** (Compute Feedback, Warp, Kaleidoscope, Glitch), **Dynamics** (Particles, Fluid, ...), and **Utility** (Mix, Transform, Channels, HSV)
 3. Click to place the node on the canvas
 
 ### Step 2: Connect to Fragment Shader
@@ -72,10 +72,10 @@ For full pin and parameter listings, see the [Node Reference](node-reference.md)
 - **Kaleidoscope** - Mirror symmetry with optional animation
 - **Glitch** - RGB shift, block, scanline, pixelate, and corrupt effects
 
-**Simulation**
+**Dynamics**
 - **Compute Particles** - GPU particle system with force/velocity field inputs
 - **Reaction Diffusion** - Gray-Scott simulation with pattern presets (Coral, Spots, Stripes, ...)
-- **Fluid Simulation** - Navier-Stokes fluid dynamics
+- **Fluid Flow** - Navier-Stokes fluid dynamics
 - **Cellular Automata** - Conway Life, Seeds, Brian's Brain, Day & Night
 - **Feedback Field** - Persistent field with Flow/Reaction-Diffusion/Accumulate/Swirl modes; has a **Reset** input pin
 
@@ -161,7 +161,7 @@ Compute nodes output textures in `rgba8unorm` format:
 
 ### Feedback Loops
 
-Some compute nodes (Compute Feedback, Feedback Field, Reaction Diffusion, Fluid Simulation, Cellular Automata) keep **state between frames**:
+Some compute nodes (Compute Feedback, Feedback Field, Reaction Diffusion, Fluid Flow, Cellular Automata) keep **state between frames**:
 - Uses ping-pong buffers
 - Previous frame output becomes next frame input
 - Enables temporal effects and simulations
@@ -191,7 +191,7 @@ Limit compute nodes per graph:
 ### Expensive Operations
 
 Most expensive compute nodes:
-1. **Fluid Simulation** - Complex physics simulation
+1. **Fluid Flow** - Heaviest solver: many passes per frame
 2. **Reaction Diffusion** - Multiple passes
 3. **Compute Particles** - Many particles
 4. **Compute Blur** - Large radius blur

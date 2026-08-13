@@ -73,7 +73,7 @@ export const SEMANTIC = {
  *
  *   handoff "Pattern" → Generators  (shapes, gradients, noise sources)
  *   handoff "Color"   → Modifiers   (invert, mix, grayscale, blur…)
- *   handoff "Compute" → Simulation  (particles, fluid, reaction-diffusion)
+ *   handoff "Compute" → Dynamics    (particles, fluid, reaction-diffusion)
  *   handoff "Noise"   → Effects     (feedback, warp, kaleidoscope, glitch)
  *
  * The extra keys after them are aliases for names used in older menus and in
@@ -91,13 +91,16 @@ export const CATEGORY_COLORS = {
   Utility: "#4aa6ba",
   Blend: "#6f9cc4",
   Texture: "#c2a94f",
-  Simulation: "#c46f7d",
+  Dynamics: "#c46f7d",
   Effects: "#8f7ec9",
 
   // Aliases.
   Pattern: "#cf6499",
   Color: "#46a89b",
   Compute: "#c46f7d",
+  // "Simulation" was this family's name until it was renamed; graphs and
+  // presets saved under the old name still resolve to the same colour.
+  Simulation: "#c46f7d",
   Noise: "#8f7ec9",
   Field: "#8f7ec9",
   // Text nodes render glyphs into a texture and keep their own warm tone

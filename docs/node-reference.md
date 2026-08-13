@@ -5,7 +5,7 @@ This document provides a comprehensive reference for all available nodes in Rhiz
 Two kinds of nodes exist side by side:
 
 - **Fragment nodes** compile directly into the fragment shader (Input, Output, Math, Vector, Transform, Blend, Texture, and the fragment members of Generators/Modifiers/Utility).
-- **Compute nodes** (names starting with "Compute", plus Voronoi, Gradient, Pattern, Kaleidoscope, and the Simulation nodes) run as separate GPU compute passes before the fragment shader and output a **texture**. They are marked "(Compute)" below. See the [Compute Nodes guide](compute-nodes.md) for how they fit into a graph.
+- **Compute nodes** (names starting with "Compute", plus Voronoi, Gradient, Pattern, Kaleidoscope, and the Dynamics nodes) run as separate GPU compute passes before the fragment shader and output a **texture**. They are marked "(Compute)" below. See the [Compute Nodes guide](compute-nodes.md) for how they fit into a graph.
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@ Two kinds of nodes exist side by side:
 - [Transform Nodes](#transform-nodes)
 - [Modifier Nodes](#modifier-nodes)
 - [Effect Nodes](#effect-nodes)
-- [Simulation Nodes](#simulation-nodes)
+- [Dynamics Nodes](#dynamics-nodes)
 - [Utility Nodes](#utility-nodes)
 - [Blend Nodes](#blend-nodes)
 - [Texture Nodes](#texture-nodes)
@@ -794,7 +794,7 @@ Rearranges vector components.
 Every generator and simulation node at a glance - each one also appears in
 its own entry below:
 
-![All generator and simulation nodes rendered at their default settings: Circle, Rectangle, Polygon, Random, Value, Perlin, Simplex, FBM, Voronoi, Ridged, Warp, Worley and Cell noise, Compute Noise, Voronoi, Gradient, Pattern, Compute Particles, Reaction Diffusion, Fluid Simulation, Cellular Automata and the 3D Field Visualizer](images/node-gallery-generators.webp)
+![All generator and simulation nodes rendered at their default settings: Circle, Rectangle, Polygon, Random, Value, Perlin, Simplex, FBM, Voronoi, Ridged, Warp, Worley and Cell noise, Compute Noise, Voronoi, Gradient, Pattern, Compute Particles, Reaction Diffusion, Fluid Flow, Cellular Automata and the 3D Field Visualizer](images/node-gallery-generators.webp)
 
 Generator nodes create procedural content: gradients, shapes, and noise. The category contains both fragment nodes and compute nodes.
 
@@ -1627,16 +1627,16 @@ Digital glitch and artifact effects.
 
 ---
 
-## Simulation Nodes
+## Dynamics Nodes
 
-Simulation nodes are compute nodes that run stateful, physics-based systems on the GPU.
+Dynamics nodes are compute nodes that run stateful systems on the GPU: each frame evolves the previous one rather than being drawn from scratch.
 
 #### Compute Particles (Compute)
 
 ![A Compute Particles node rendering a sparse particle field, with Force Field and Velocity Field inputs](images/node-compute-particles.webp)
 GPU particle system with physics.
 
-- **Category**: Simulation
+- **Category**: Dynamics
 - **Inputs**:
   - `Force Field` - Optional texture providing forces
   - `Velocity Field` - Optional texture providing velocities
@@ -1663,7 +1663,7 @@ GPU particle system with physics.
 ![A Reaction Diffusion node rendering blue spots on a dark field](images/node-reaction-diffusion.webp)
 Gray-Scott reaction-diffusion simulation.
 
-- **Category**: Simulation
+- **Category**: Dynamics
 - **Inputs**: None
 - **Outputs**:
   - `Texture` - Simulation state
@@ -1677,12 +1677,12 @@ Gray-Scott reaction-diffusion simulation.
   - `resolution` (select: 256/512/1024, default: 512) - Simulation resolution
 - **Description**: Organic Turing patterns that continuously evolve. Pattern presets configure the feed/kill rates for classic morphologies.
 
-#### Fluid Simulation (Compute)
+#### Fluid Flow (Compute)
 
-![A Fluid Simulation node rendering swirling smoke, with a Velocity Input](images/node-fluid-simulation.webp)
+![A Fluid Flow node rendering swirling smoke, with a Velocity Input](images/node-fluid-simulation.webp)
 Navier-Stokes fluid dynamics (single-pass stable fluids with dye advection).
 
-- **Category**: Simulation
+- **Category**: Dynamics
 - **Inputs**:
   - `Velocity Input` - Optional texture stirring the fluid (RG channels decode to a [-1,1] force field, mid-gray = no force; its magnitude also injects dye). Leave unconnected to use three built-in orbiting emitters.
 - **Outputs**:
@@ -1704,7 +1704,7 @@ Navier-Stokes fluid dynamics (single-pass stable fluids with dye advection).
 ![A Cellular Automata node rendering a sparse live-cell field](images/node-cellular-automata.webp)
 Cellular automata simulation (Game of Life, etc.).
 
-- **Category**: Simulation
+- **Category**: Dynamics
 - **Inputs**: None
 - **Outputs**:
   - `Texture` - Automata state
@@ -1718,7 +1718,7 @@ Cellular automata simulation (Game of Life, etc.).
 #### Feedback Field (Compute)
 Persistent feedback field for flow and accumulation simulations.
 
-- **Category**: Simulation
+- **Category**: Dynamics
 - **Inputs**:
   - `Input` - Texture feeding the field
   - `Reset` (f32, control pin) - A rising edge (e.g. from a Trigger node) clears the accumulated field

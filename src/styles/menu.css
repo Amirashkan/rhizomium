@@ -107,8 +107,8 @@
 .ctx-header[data-category="Texture"]::before {
   background: var(--rz-cat-texture);
 }
-.ctx-header[data-category="Simulation"]::before {
-  background: var(--rz-cat-simulation);
+.ctx-header[data-category="Dynamics"]::before {
+  background: var(--rz-cat-dynamics);
 }
 .ctx-header[data-category="Effects"]::before {
   background: var(--rz-cat-effects);
@@ -202,8 +202,8 @@
 .ctx-item[data-category="Texture"]:hover {
   border-left-color: var(--rz-cat-texture);
 }
-.ctx-item[data-category="Simulation"]:hover {
-  border-left-color: var(--rz-cat-simulation);
+.ctx-item[data-category="Dynamics"]:hover {
+  border-left-color: var(--rz-cat-dynamics);
 }
 .ctx-item[data-category="Effects"]:hover {
   border-left-color: var(--rz-cat-effects);

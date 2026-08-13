@@ -2,7 +2,7 @@
   "version": 1,
   "name": "Reaction-Diffusion Patterns",
   "description": "Gray-Scott reaction-diffusion simulation generating organic patterns like coral, spots, stripes, and waves. A classic example of emergent complexity from simple rules.",
-  "category": "Simulation",
+  "category": "Dynamics",
   "tags": ["reaction-diffusion", "simulation", "organic", "generative", "gray-scott"],
   "author": "Rhizomium",
   "presets": [
