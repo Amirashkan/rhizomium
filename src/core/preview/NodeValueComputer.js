@@ -27,6 +27,9 @@ export class NodeValueComputer {
         kind === 'mouse' ||
         kind === 'resolution' ||
         kind === 'randomvalue' ||
+        // Wave is a free-running LFO off the same clock, so its output moves with no input or
+        // param edit to key a cache off.
+        kind === 'wave' ||
         kind === 'count' ||
         // Hold's latched value is advanced on the CPU each frame like Count's, so it changes
         // without any input/param edit the cache keys off — it must skip the cache too.

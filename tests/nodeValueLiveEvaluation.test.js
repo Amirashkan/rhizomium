@@ -140,6 +140,22 @@ describe('live node value evaluation', () => {
     expect(computer.computeNodeValue(add)).toBeCloseTo(0.3, 5);
   });
 
+  it('follows a clock-driven generator the local switch never knew about (Wave)', () => {
+    const wave = {
+      id: 17,
+      kind: 'Wave',
+      params: { shape: 'Sine', frequency: 1, phase: 0, amplitude: 1, offset: 0 },
+      inputs: [],
+    };
+    const { computer } = makeEditor([wave]);
+
+    setFrame(0.25, 1); // quarter cycle: the sine peaks
+    expect(computer.computeNodeValue(wave)).toBeCloseTo(1, 5);
+
+    setFrame(0.75, 2); // three quarters: the trough
+    expect(computer.computeNodeValue(wave)).toBeCloseTo(-1, 5);
+  });
+
   it('mirrors the CPU-advanced value of stateful nodes', () => {
     const hold = { id: 16, kind: 'Hold', params: {}, inputs: [], __holdValue: 0.75 };
     const { computer } = makeEditor([hold]);

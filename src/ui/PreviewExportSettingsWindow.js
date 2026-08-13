@@ -112,14 +112,14 @@ export class PreviewExportSettingsWindow {
 
     const title = document.createElement("div");
     title.textContent = "Preview / Export Settings";
-    title.style.cssText = "color: #fff; font-size: 14px; font-weight: 600;";
+    title.style.cssText = "color: #f3ede4; font-size: 14px; font-weight: 600;";
 
     const closeBtn = document.createElement("button");
     closeBtn.textContent = "×";
     closeBtn.style.cssText = `
       background: transparent;
       border: none;
-      color: #fff;
+      color: #f3ede4;
       cursor: pointer;
       font-size: 18px;
       padding: 4px;
@@ -207,7 +207,7 @@ export class PreviewExportSettingsWindow {
     const sectionTitle = document.createElement("div");
     sectionTitle.textContent = title;
     sectionTitle.style.cssText = `
-      color: #fff;
+      color: #f3ede4;
       font-size: 13px;
       font-weight: 600;
       margin-bottom: ${note ? "4px" : "12px"};
@@ -537,7 +537,7 @@ export class PreviewExportSettingsWindow {
       width: 100%;
       background: rgba(255, 255, 255, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.2);
-      color: #fff;
+      color: #f3ede4;
       padding: 6px 8px;
       border-radius: 4px;
       font-size: 12px;
@@ -569,7 +569,7 @@ export class PreviewExportSettingsWindow {
       padding: 6px 8px;
       background: rgba(255, 255, 255, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.2);
-      color: #fff;
+      color: #f3ede4;
       border-radius: 4px;
       font-size: 12px;
       box-sizing: border-box;
@@ -626,7 +626,7 @@ export class PreviewExportSettingsWindow {
 
     const valueEl = document.createElement("span");
     valueEl.textContent = `${value}${unit}`;
-    valueEl.style.cssText = "color: #fff; font-size: 12px; font-weight: 500;";
+    valueEl.style.cssText = "color: #f3ede4; font-size: 12px; font-weight: 500;";
 
     const slider = document.createElement("input");
     slider.type = "range";
@@ -666,7 +666,7 @@ export class PreviewExportSettingsWindow {
       align-items: center;
       gap: 8px;
       padding: 8px 0;
-      color: #e8e8e8;
+      color: #f3ede4;
       font-size: 13px;
       cursor: pointer;
       user-select: none;
@@ -679,7 +679,7 @@ export class PreviewExportSettingsWindow {
       width: 16px;
       height: 16px;
       cursor: pointer;
-      accent-color: #007aff;
+      accent-color: #c6f24e;
     `;
 
     const labelEl = document.createElement("span");
@@ -702,7 +702,7 @@ export class PreviewExportSettingsWindow {
       background: ${danger ? "rgba(255, 59, 48, 0.2)" : "rgba(255, 255, 255, 0.1)"};
       border: 1px solid ${danger ? "rgba(255, 59, 48, 0.4)" : "rgba(255, 255, 255, 0.2)"};
       border-radius: 6px;
-      color: ${danger ? "#ff6b6b" : "#fff"};
+      color: ${danger ? "#f8615a" : "#f3ede4"};
       font-size: ${danger ? "12px" : "13px"};
       font-weight: ${danger ? "600" : "500"};
       cursor: pointer;

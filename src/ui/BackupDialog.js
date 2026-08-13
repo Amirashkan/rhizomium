@@ -151,7 +151,7 @@ export class BackupDialog {
 
       .backup-header h3 {
         margin: 0;
-        color: #ffffff;
+        color: #f3ede4;
         font-size: 18px;
         font-weight: 600;
       }
@@ -159,7 +159,7 @@ export class BackupDialog {
       .backup-close-btn {
         background: none;
         border: none;
-        color: #888;
+        color: #6f6559;
         font-size: 24px;
         cursor: pointer;
         padding: 0;
@@ -174,7 +174,7 @@ export class BackupDialog {
 
       .backup-close-btn:hover {
         background: rgba(255, 255, 255, 0.1);
-        color: #ffffff;
+        color: #f3ede4;
       }
 
       .backup-actions {
@@ -189,7 +189,7 @@ export class BackupDialog {
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 6px;
         background: rgba(58, 58, 62, 0.6);
-        color: #ffffff;
+        color: #f3ede4;
         font-size: 13px;
         font-weight: 500;
         cursor: pointer;
@@ -202,23 +202,25 @@ export class BackupDialog {
       }
 
       .backup-btn-primary {
-        background: #007AFF;
-        border-color: #007AFF;
+        background: #c6f24e;
+        border-color: #c6f24e;
+        color: #14110a;
+        font-weight: 600;
       }
 
       .backup-btn-primary:hover {
-        background: #0056CC;
-        border-color: #0056CC;
+        background: #a9d63c;
+        border-color: #a9d63c;
       }
 
       .backup-btn-danger {
-        background: #FF453A;
-        border-color: #FF453A;
+        background: #f8615a;
+        border-color: #f8615a;
       }
 
       .backup-btn-danger:hover {
-        background: #CC231A;
-        border-color: #CC231A;
+        background: #d14b45;
+        border-color: #d14b45;
       }
 
       .backup-list-container {
@@ -257,13 +259,13 @@ export class BackupDialog {
       }
 
       .backup-item-title {
-        color: #ffffff;
+        color: #f3ede4;
         font-weight: 500;
         margin-bottom: 4px;
       }
 
       .backup-item-meta {
-        color: #888;
+        color: #6f6559;
         font-size: 12px;
         display: flex;
         gap: 16px;
@@ -279,7 +281,7 @@ export class BackupDialog {
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 4px;
         background: transparent;
-        color: #ffffff;
+        color: #f3ede4;
         font-size: 11px;
         cursor: pointer;
         transition: all 0.15s ease;
@@ -291,18 +293,20 @@ export class BackupDialog {
       }
 
       .backup-item-btn-primary {
-        background: #007AFF;
-        border-color: #007AFF;
+        background: #c6f24e;
+        border-color: #c6f24e;
+        color: #14110a;
+        font-weight: 600;
       }
 
       .backup-item-btn-primary:hover {
-        background: #0056CC;
-        border-color: #0056CC;
+        background: #a9d63c;
+        border-color: #a9d63c;
       }
 
       .backup-loading, .backup-empty {
         text-align: center;
-        color: #888;
+        color: #6f6559;
         padding: 40px 20px;
         font-style: italic;
       }
@@ -314,7 +318,7 @@ export class BackupDialog {
       }
 
       .backup-info {
-        color: #666;
+        color: rgba(255,244,230,0.13);
         font-size: 12px;
       }
 

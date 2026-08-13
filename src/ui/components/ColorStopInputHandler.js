@@ -1,5 +1,6 @@
 // src/ui/components/ColorStopInputHandler.js
 import { modalManager } from '../ModalManager.js';
+import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../../core/theme.js';
 
 export class ColorStopInputHandler {
   constructor(undoManager) {
@@ -23,10 +24,10 @@ export class ColorStopInputHandler {
     const widget = document.createElement('div');
     widget.className = 'color-stops-widget';
     widget.style.cssText = `
-      background: #222;
-      border: 1px solid #555;
-      border-radius: 4px;
-      padding: 8px;
+      background: ${SURFACE.well};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 10px;
+      padding: 10px;
       margin-top: 4px;
     `;
     
@@ -42,10 +43,10 @@ export class ColorStopInputHandler {
     const previewBar = document.createElement('div');
     previewBar.className = 'gradient-preview';
     previewBar.style.cssText = `
-      height: 20px;
-      border-radius: 3px;
+      height: 22px;
+      border-radius: 7px;
       background: linear-gradient(to right, ${this.generateGradientCSS(stops)});
-      border: 1px solid #666;
+      border: 1px solid ${SURFACE.lineStrong};
       cursor: crosshair;
       position: relative;
     `;
@@ -113,13 +114,14 @@ export class ColorStopInputHandler {
     addBtn.textContent = '+ Add Stop';
     addBtn.style.cssText = `
       width: 100%;
-      padding: 6px;
+      padding: 7px;
       margin-top: 8px;
-      background: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 3px;
+      background: ${withAlpha(ACCENT.base, 0.14)};
+      color: ${ACCENT.base};
+      border: 1px solid ${withAlpha(ACCENT.base, 0.3)};
+      border-radius: 8px;
       cursor: pointer;
+      font-family: ${FONT_UI};
       font-size: 11px;
       font-weight: 600;
     `;
@@ -148,8 +150,8 @@ export class ColorStopInputHandler {
       width: 12px;
       height: 12px;
       background: ${this.rgbToHex(stop.color)};
-      border: 2px solid white;
-      border-radius: 50%;
+      border: 2px solid ${TEXT.primary};
+      border-radius: 4px;
       cursor: grab;
       transform: translateX(-50%);
       box-shadow: 0 2px 4px rgba(0,0,0,0.5);
@@ -270,10 +272,10 @@ export class ColorStopInputHandler {
       gap: 6px;
       align-items: center;
       margin-bottom: 6px;
-      padding: 6px;
-      background: #2a2a2a;
-      border-radius: 3px;
-      border: 1px solid #444;
+      padding: 6px 7px;
+      background: ${SURFACE.fillSoft};
+      border-radius: 8px;
+      border: 1px solid ${SURFACE.line};
     `;
     
     // Position label
@@ -281,7 +283,7 @@ export class ColorStopInputHandler {
     posLabel.textContent = 'Pos:';
     posLabel.style.cssText = `
       font-size: 10px;
-      color: #999;
+      color: ${TEXT.tertiary};
       min-width: 28px;
     `;
     item.appendChild(posLabel);
@@ -295,11 +297,12 @@ export class ColorStopInputHandler {
     posInput.step = '0.01';
     posInput.style.cssText = `
       width: 60px;
-      padding: 4px;
-      background: #1a1a1a;
-      color: #fff;
-      border: 1px solid #555;
-      border-radius: 3px;
+      padding: 5px 6px;
+      background: ${SURFACE.well};
+      color: ${TEXT.primary};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 6px;
+      font-family: ${FONT_MONO};
       font-size: 11px;
     `;
     
@@ -324,8 +327,8 @@ export class ColorStopInputHandler {
     colorPicker.style.cssText = `
       width: 40px;
       height: 28px;
-      border: 1px solid #555;
-      border-radius: 3px;
+      border: 1px solid ${SURFACE.line};
+      border-radius: 6px;
       cursor: pointer;
       background: transparent;
     `;
@@ -365,13 +368,13 @@ export class ColorStopInputHandler {
     deleteBtn.style.cssText = `
       width: 24px;
       height: 24px;
-      background: #f44336;
-      color: white;
-      border: none;
-      border-radius: 3px;
+      background: ${withAlpha(SEMANTIC.error, 0.14)};
+      color: ${SEMANTIC.error};
+      border: 1px solid ${withAlpha(SEMANTIC.error, 0.35)};
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 16px;
-      font-weight: bold;
+      font-size: 15px;
+      font-weight: 600;
       padding: 0;
       line-height: 1;
       margin-left: auto;

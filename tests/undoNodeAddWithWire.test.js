@@ -1,6 +1,6 @@
 // Regression tests: adding a node is a single undo step, wire included.
 //
-// Bug: dragging a wire out of a pin and Tab-creating a node (RadialMenu._createNode) recorded two
+// Bug: dragging a wire out of a pin and Tab-creating a node (AddNodePalette._placeNode) recorded two
 // separate undo entries - CREATE_NODE for the node, then CREATE_CONNECTION for the wire the new
 // node was auto-connected with. The first Ctrl+Z only removed the wire and left the node behind;
 // a second Ctrl+Z was needed to remove the node itself.
@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { UndoManager } from '../src/core/UndoManager.js';
 import { ConnectionManager } from '../src/core/ConnectionManager.js';
-import { RadialMenu } from '../src/ui/RadialMenu.js';
+import { AddNodePalette } from '../src/ui/AddNodePalette.js';
 import { makeNode } from '../src/data/NodeDefs.js';
 
 describe('UndoManager transactions', () => {
@@ -95,7 +95,7 @@ describe('UndoManager transactions', () => {
   });
 });
 
-describe('RadialMenu node creation with an active wire drag', () => {
+describe('AddNodePalette node creation with an active wire drag', () => {
   let graph;
   let undoManager;
   let connections;
@@ -129,7 +129,7 @@ describe('RadialMenu node creation with an active wire drag', () => {
     source = makeNode('Time', 0, 0);
     graph.nodes.push(source);
 
-    menu = new RadialMenu(graph, () => {});
+    menu = new AddNodePalette(graph, () => {});
     menu.canvasPos = { x: 200, y: 120 };
   });
 
@@ -145,7 +145,7 @@ describe('RadialMenu node creation with an active wire drag', () => {
   it('records the node and its auto-connected wire as a single undo step', () => {
     connections.startWireDrag(source.id, 0, { x: 200, y: 120 }, false);
 
-    menu._createNode('Sin');
+    menu._placeNode('Sin');
 
     const created = graph.nodes.find(n => n.id !== source.id);
     expect(created).toBeDefined();
@@ -159,7 +159,7 @@ describe('RadialMenu node creation with an active wire drag', () => {
 
   it('removes the node and the wire with a single undo', () => {
     connections.startWireDrag(source.id, 0, { x: 200, y: 120 }, false);
-    menu._createNode('Sin');
+    menu._placeNode('Sin');
 
     expect(undoManager.undo()).toBe(true);
 
@@ -170,7 +170,7 @@ describe('RadialMenu node creation with an active wire drag', () => {
 
   it('restores the node and the wire with a single redo', () => {
     connections.startWireDrag(source.id, 0, { x: 200, y: 120 }, false);
-    menu._createNode('Sin');
+    menu._placeNode('Sin');
     undoManager.undo();
 
     expect(undoManager.redo()).toBe(true);
@@ -182,7 +182,7 @@ describe('RadialMenu node creation with an active wire drag', () => {
   });
 
   it('still records a plain node add (no wire drag) as one undo step', () => {
-    menu._createNode('Sin');
+    menu._placeNode('Sin');
 
     expect(graph.nodes).toHaveLength(2);
     expect(undoManager.undoStack).toHaveLength(1);

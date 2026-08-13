@@ -3,7 +3,7 @@
 //
 // Bug: dragging a wire out of a Texture 2D (or any Compute) node, pressing Tab and picking a 2D
 // transform wired the texture into the transform's pin 0 — "UV (opt.)" — because
-// RadialMenu._createNode hardcoded `inputPin = 0`. The Texture pin (pin 1) stayed empty, so
+// AddNodePalette._placeNode hardcoded `inputPin = 0`. The Texture pin (pin 1) stayed empty, so
 // TransformNodes.getTextureBinding() found nothing, the node stayed in UV mode, and it passed
 // downstream a "UV" that was really the sampled image. Same gesture with the wire dropped by hand
 // on the Texture pin worked, which is what made it look like the transform itself was broken.
@@ -12,7 +12,7 @@
 // input pin when it has one; everything else still lands on pin 0.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { RadialMenu } from '../src/ui/RadialMenu.js';
+import { AddNodePalette } from '../src/ui/AddNodePalette.js';
 import { ConnectionManager } from '../src/core/ConnectionManager.js';
 import { pickAutoConnectInputPin } from '../src/core/autoConnect.js';
 import { makeNode } from '../src/data/NodeDefs.js';
@@ -25,7 +25,7 @@ describe('drag + Tab connects to the input pin that fits the source', () => {
   let previousEditor;
 
   // Drop a source node into the graph and start dragging a wire out of its output pin, the state
-  // the radial menu sees when Tab is pressed mid-drag.
+  // the add-node palette sees when Tab is pressed mid-drag.
   function dragFromOutputOf(kind) {
     const source = makeNode(kind, 0, 0);
     graph.nodes.push(source);
@@ -48,7 +48,7 @@ describe('drag + Tab connects to the input pin that fits the source', () => {
     window.eventHandler = { connections };
     window.editor = {};
 
-    menu = new RadialMenu(graph, () => {});
+    menu = new AddNodePalette(graph, () => {});
     menu.canvasPos = { x: 200, y: 100 };
   });
 
@@ -61,7 +61,7 @@ describe('drag + Tab connects to the input pin that fits the source', () => {
   it('routes a Texture 2D into a Rotate 2D Texture pin, leaving UV free', () => {
     const source = dragFromOutputOf('Texture2D');
 
-    menu._createNode('Rotate2D');
+    menu._placeNode('Rotate2D');
     const transform = created();
 
     expect(graph.connections).toEqual([
@@ -75,7 +75,7 @@ describe('drag + Tab connects to the input pin that fits the source', () => {
   it('routes a Compute node into a Transform 2D Texture pin', () => {
     const source = dragFromOutputOf('ComputeNoise');
 
-    menu._createNode('Transform2D');
+    menu._placeNode('Transform2D');
     const transform = created();
 
     expect(transform.inputs[1]).toBe(source.id);
@@ -85,7 +85,7 @@ describe('drag + Tab connects to the input pin that fits the source', () => {
   it('still uses pin 0 when the source is a coordinate rather than a texture', () => {
     const source = dragFromOutputOf('ConstVec2');
 
-    menu._createNode('Rotate2D');
+    menu._placeNode('Rotate2D');
     const transform = created();
 
     expect(transform.inputs[0]).toBe(source.id);
@@ -95,7 +95,7 @@ describe('drag + Tab connects to the input pin that fits the source', () => {
   it('still uses pin 0 for targets that have no Texture pin', () => {
     const source = dragFromOutputOf('ComputeNoise');
 
-    menu._createNode('ComputeBlur'); // pinsIn: ["Input"]
+    menu._placeNode('ComputeBlur'); // pinsIn: ["Input"]
     const blur = created();
 
     expect(blur.inputs[0]).toBe(source.id);
@@ -108,7 +108,7 @@ describe('drag + Tab connects to the input pin that fits the source', () => {
     // Drag backwards out of the transform's Texture pin, then Tab-create the source for it.
     connections.startWireDrag(target.id, 1, { x: 200, y: 100 }, true);
 
-    menu._createNode('Texture2D');
+    menu._placeNode('Texture2D');
     const source = created();
 
     expect(graph.connections).toEqual([
@@ -117,7 +117,7 @@ describe('drag + Tab connects to the input pin that fits the source', () => {
   });
 
   it('creates the node without a connection when there is no wire drag', () => {
-    menu._createNode('Rotate2D');
+    menu._placeNode('Rotate2D');
 
     expect(graph.nodes).toHaveLength(1);
     expect(graph.connections).toHaveLength(0);

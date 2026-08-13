@@ -138,7 +138,7 @@ export class ErrorHandler {
         background: rgba(0, 0, 0, 0.05);
         padding: 8px;
         border-radius: 4px;
-        font-family: 'Courier New', monospace;
+        font-family: var(--rz-font-mono);
         white-space: pre-wrap;
         max-height: 80px;
         overflow-y: auto;

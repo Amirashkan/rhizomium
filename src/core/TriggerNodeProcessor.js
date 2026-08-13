@@ -2,6 +2,7 @@
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { audioAnalysisPinValue } from './audioAnalysisPins.js';
 import { isTriggerChangeMode, triggerChangePulse, TRIGGER_DEFAULT_MIN_CHANGE } from './triggerMode.js';
+import { evaluateWave, isWaveUnipolar, waveSyncTime } from './waveform.js';
 
 /**
  * Drives the Trigger node's "On value change" mode.
@@ -139,6 +140,22 @@ export class TriggerNodeProcessor {
         const s = Math.sin(ctx.time * speed * 12.9898) * 43758.5453;
         return s - Math.floor(s); // fract()
       }
+
+      case 'Wave':
+        // LFO evaluated from the clock - same curve the shader gets (see core/waveform.js), so a
+        // Wave driving this node reads the same here as on screen. waveSyncTime is the cycle
+        // origin WaveSyncProcessor advanced this frame (0 when nothing is wired to sync).
+        return evaluateWave({
+          shape: node.params?.shape,
+          time: ctx.time,
+          syncTime: waveSyncTime(node),
+          frequency: this._numericParam(node, 'frequency', 1.0, ctx),
+          phase: this._numericParam(node, 'phase', 0.0, ctx),
+          amplitude: this._numericParam(node, 'amplitude', 1.0, ctx),
+          offset: this._numericParam(node, 'offset', 0.0, ctx),
+          pulseWidth: this._numericParam(node, 'pulseWidth', 0.5, ctx),
+          unipolar: isWaveUnipolar(node),
+        });
 
       case 'Pi':
         return Math.PI;

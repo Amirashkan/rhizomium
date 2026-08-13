@@ -1,45 +1,40 @@
-/* Enhanced Context Menu Styles */
+/* Context / add-node menu.
+   Design tokens come from tokens.css — see that file for the two colour
+   systems. The category colour here is identity only: it tints a header's rule
+   and an item's hover edge, never the item's text. */
+
 .ctx-menu {
   /* Must sit above #ui-canvas (z-index 10), the toolbar (100) and the floating GPU preview
      (up to 1000). Without an explicit z-index the fixed-positioned menu paints behind the
      interaction canvas and is invisible — the right-click "does nothing" symptom. */
   z-index: 10000;
-  background: rgba(28, 28, 30, 0.95);
-  backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 8px;
-  min-width: 220px;
-  max-width: 280px;
-  max-height: 400px;
+  background: linear-gradient(var(--rz-surface-raised), #141009);
+  backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 16px;
+  padding: 9px;
+  min-width: 240px;
+  max-width: 300px;
+  max-height: 420px;
   overflow-y: auto;
   box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.5),
-    0 4px 16px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  animation: contextMenuSlideIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    0 30px 70px -14px rgba(0, 0, 0, 0.75),
+    0 6px 20px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 244, 230, 0.06);
+  animation: rzradial 0.18s cubic-bezier(0.2, 0.7, 0.3, 1);
+  font-family: var(--rz-font-ui);
 }
 
-@keyframes contextMenuSlideIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
+/* The search field is the menu's headline, not a form control tucked inside
+   it: a hairline-separated row at the top with the accent as its focus ring. */
 .ctx-search {
   width: 100%;
   padding: 10px 12px;
-  background: rgba(58, 58, 62, 0.6);
-  border: 1.5px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  color: #ffffff;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line);
+  border-radius: var(--rz-r-row);
+  color: var(--rz-text);
+  font-family: inherit;
   font-size: 14px;
   font-weight: 400;
   margin-bottom: 8px;
@@ -49,25 +44,23 @@
 
 .ctx-search:focus {
   outline: none;
-  border-color: #007aff;
-  background: rgba(58, 58, 62, 0.8);
-  box-shadow:
-    0 0 0 3px rgba(0, 122, 255, 0.15),
-    0 4px 12px rgba(0, 0, 0, 0.2);
+  border-color: var(--rz-accent-30);
+  box-shadow: 0 0 0 3px var(--rz-accent-10);
 }
 
 .ctx-search::placeholder {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--rz-text-faint);
 }
 
+/* Section eyebrow: small, wide-tracked, muted, with a category-coloured bar. */
 .ctx-header {
   font-weight: 600;
-  font-size: 12px;
-  color: #ffffff;
+  font-size: 10px;
+  color: var(--rz-text-faint);
   text-transform: uppercase;
-  letter-spacing: 0.8px;
+  letter-spacing: 1.4px;
   margin: 12px 0 6px 0;
-  padding: 6px 12px 6px 8px;
+  padding: 6px 10px 6px 8px;
   position: relative;
   display: flex;
   align-items: center;
@@ -80,26 +73,48 @@
   height: 12px;
   border-radius: 2px;
   flex-shrink: 0;
+  background: var(--rz-cat-default);
 }
 
-/* Category-specific colors for headers */
+/* Category colours — node IDENTITY. The twelve families NodeDefs uses. */
 .ctx-header[data-category="Input"]::before {
-  background: #10b981;
-}
-.ctx-header[data-category="Math"]::before {
-  background: #f59e0b;
-}
-.ctx-header[data-category="Field"]::before {
-  background: #8b5cf6;
-}
-.ctx-header[data-category="Utility"]::before {
-  background: #06b6d4;
+  background: var(--rz-cat-input);
 }
 .ctx-header[data-category="Output"]::before {
-  background: #ef4444;
+  background: var(--rz-cat-output);
 }
-.ctx-header[data-category="Misc"]::before {
-  background: #6b7280;
+.ctx-header[data-category="Math"]::before {
+  background: var(--rz-cat-math);
+}
+.ctx-header[data-category="Vector"]::before {
+  background: var(--rz-cat-vector);
+}
+.ctx-header[data-category="Generators"]::before {
+  background: var(--rz-cat-generators);
+}
+.ctx-header[data-category="Transform"]::before {
+  background: var(--rz-cat-transform);
+}
+.ctx-header[data-category="Modifiers"]::before {
+  background: var(--rz-cat-modifiers);
+}
+.ctx-header[data-category="Utility"]::before {
+  background: var(--rz-cat-utility);
+}
+.ctx-header[data-category="Blend"]::before {
+  background: var(--rz-cat-blend);
+}
+.ctx-header[data-category="Texture"]::before {
+  background: var(--rz-cat-texture);
+}
+.ctx-header[data-category="Simulation"]::before {
+  background: var(--rz-cat-simulation);
+}
+.ctx-header[data-category="Effects"]::before {
+  background: var(--rz-cat-effects);
+}
+.ctx-header[data-category="Text"]::before {
+  background: var(--rz-cat-text);
 }
 
 .ctx-header:first-child {
@@ -107,12 +122,12 @@
 }
 
 .ctx-item {
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: 8px 10px;
+  border-radius: 9px;
   cursor: pointer;
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  font-size: 14px;
-  color: #e8e8e8;
+  font-size: 13px;
+  color: #f0e9dd;
   margin: 1px 0;
   position: relative;
   display: flex;
@@ -125,72 +140,79 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 244, 230, 0.22);
   flex-shrink: 0;
   transition: all 0.15s ease;
 }
 
 .ctx-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--rz-accent-10);
   color: #ffffff;
-  transform: translateX(2px);
 }
 
 .ctx-item:hover::before {
-  background: #ffffff;
-  transform: scale(1.2);
+  background: var(--rz-accent);
+  box-shadow: 0 0 7px var(--rz-accent-30);
 }
 
 .ctx-item:active {
-  background: rgba(255, 255, 255, 0.12);
-  transform: translateX(1px);
+  background: var(--rz-accent-14);
 }
 
 /* Thin divider used to set apart destructive actions (e.g. Delete) in the node menu */
 .ctx-separator {
   height: 1px;
   margin: 6px 4px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 244, 230, 0.09);
 }
 
-/* Category-specific item colors */
+/* Hovering an item states its family on the left edge — the same spine a node
+   of that family carries on the canvas. */
+.ctx-item[data-category]:hover {
+  border-left: 2px solid var(--rz-cat-default);
+  padding-left: 8px;
+}
 .ctx-item[data-category="Input"]:hover {
-  border-left: 2px solid #10b981;
-}
-.ctx-item[data-category="Math"]:hover {
-  border-left: 2px solid #f59e0b;
-}
-.ctx-item[data-category="Field"]:hover {
-  border-left: 2px solid #8b5cf6;
-}
-.ctx-item[data-category="Utility"]:hover {
-  border-left: 2px solid #06b6d4;
+  border-left-color: var(--rz-cat-input);
 }
 .ctx-item[data-category="Output"]:hover {
-  border-left: 2px solid #ef4444;
+  border-left-color: var(--rz-cat-output);
 }
-.ctx-item[data-category="Misc"]:hover {
-  border-left: 2px solid #6b7280;
+.ctx-item[data-category="Math"]:hover {
+  border-left-color: var(--rz-cat-math);
+}
+.ctx-item[data-category="Vector"]:hover {
+  border-left-color: var(--rz-cat-vector);
+}
+.ctx-item[data-category="Generators"]:hover {
+  border-left-color: var(--rz-cat-generators);
+}
+.ctx-item[data-category="Transform"]:hover {
+  border-left-color: var(--rz-cat-transform);
+}
+.ctx-item[data-category="Modifiers"]:hover {
+  border-left-color: var(--rz-cat-modifiers);
+}
+.ctx-item[data-category="Utility"]:hover {
+  border-left-color: var(--rz-cat-utility);
+}
+.ctx-item[data-category="Blend"]:hover {
+  border-left-color: var(--rz-cat-blend);
+}
+.ctx-item[data-category="Texture"]:hover {
+  border-left-color: var(--rz-cat-texture);
+}
+.ctx-item[data-category="Simulation"]:hover {
+  border-left-color: var(--rz-cat-simulation);
+}
+.ctx-item[data-category="Effects"]:hover {
+  border-left-color: var(--rz-cat-effects);
+}
+.ctx-item[data-category="Text"]:hover {
+  border-left-color: var(--rz-cat-text);
 }
 
-/* Scrollbar styling for menus */
-.ctx-menu::-webkit-scrollbar {
-  width: 6px;
-}
-
-.ctx-menu::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 3px;
-}
-
-.ctx-menu::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-
-.ctx-menu::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
+/* Scrollbars come from tokens.css. */
 
 /* Responsive adjustments */
 @media (max-width: 480px) {

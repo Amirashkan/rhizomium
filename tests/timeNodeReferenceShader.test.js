@@ -70,3 +70,37 @@ describe('generateShader resolves Mouse node references to the GPU mouse global'
     expect(unifiedExpressionSystem.generateShader('=node_3_x', {}, graph)).toBe('g.mouse.x');
   });
 });
+
+// Same story for the Wave node (a free-running LFO): a parameter that REFERENCES one is the main
+// way it gets used, so `=node_<id>` has to resolve to the wave's GPU expression. Its params aren't
+// GPU globals in this path, so their current values are baked in — see
+// _buildInputNodeReferenceMapping.
+describe('generateShader resolves Wave node references to the wave expression', () => {
+  it('compiles a reference to the clock-driven wave', () => {
+    const graph = { nodes: [{ id: 7, kind: 'Wave', params: { shape: 'Sine', frequency: 2 } }] };
+    const shader = unifiedExpressionSystem.generateShader('=node_7', {}, graph);
+    expect(shader).toContain('g.time');
+    expect(shader).toContain('sin(');
+    expect(shader).toContain('2.0');
+    expect(shader).not.toBe('0.0');
+  });
+
+  it('bakes the selected shape, not just the sine', () => {
+    const graph = { nodes: [{ id: 7, kind: 'Wave', params: { shape: 'Square', pulseWidth: 0.25 } }] };
+    const shader = unifiedExpressionSystem.generateShader('=node_7', {}, graph);
+    expect(shader).toContain('select(');
+    expect(shader).toContain('0.25');
+  });
+
+  it('resolves a Wave reference inside a larger expression', () => {
+    const graph = { nodes: [{ id: 7, kind: 'Wave', params: {} }] };
+    const shader = unifiedExpressionSystem.generateShader('=node_7 * 0.5', {}, graph);
+    expect(shader).toContain('g.time');
+    expect(shader).toContain('* 0.5');
+  });
+
+  it('matches the kind case-insensitively', () => {
+    const graph = { nodes: [{ id: 7, kind: 'wave', params: {} }] };
+    expect(unifiedExpressionSystem.generateShader('=node_7', {}, graph)).toContain('g.time');
+  });
+});

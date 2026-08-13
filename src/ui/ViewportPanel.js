@@ -63,7 +63,7 @@ export class ViewportPanel {
     const title = document.createElement('span');
     title.textContent = '3D Viewport';
     title.style.cssText = `
-      color: #fff;
+      color: #f3ede4;
       font-size: 12px;
       font-weight: 500;
       overflow: hidden;
@@ -76,7 +76,7 @@ export class ViewportPanel {
     const headerBtnStyle = `
       background: none;
       border: none;
-      color: #999;
+      color: #8f867a;
       font-size: 16px;
       cursor: pointer;
       padding: 0;
@@ -90,8 +90,8 @@ export class ViewportPanel {
       btn.textContent = text;
       btn.title = titleText;
       btn.style.cssText = headerBtnStyle;
-      btn.onmouseenter = () => btn.style.color = '#fff';
-      btn.onmouseleave = () => btn.style.color = '#999';
+      btn.onmouseenter = () => btn.style.color = '#f3ede4';
+      btn.onmouseleave = () => btn.style.color = '#8f867a';
       return btn;
     };
 
@@ -120,7 +120,7 @@ export class ViewportPanel {
     this.canvasContainer.style.cssText = `
       flex: 1;
       position: relative;
-      background: #1a1a1f;
+      background: #0f0c0a;
       overflow: hidden;
     `;
 
@@ -160,7 +160,7 @@ export class ViewportPanel {
       background: rgba(60, 60, 70, 0.8);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 4px;
-      color: #fff;
+      color: #f3ede4;
       font-size: 11px;
       cursor: pointer;
       transition: background 0.2s;
@@ -186,7 +186,7 @@ export class ViewportPanel {
     };
 
     const labelStyle = `
-      color: #aaa;
+      color: #8f867a;
       font-size: 11px;
       align-self: center;
       user-select: none;
@@ -196,7 +196,7 @@ export class ViewportPanel {
       background: rgba(60, 60, 70, 0.8);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 4px;
-      color: #fff;
+      color: #f3ede4;
       font-size: 11px;
       cursor: pointer;
     `;

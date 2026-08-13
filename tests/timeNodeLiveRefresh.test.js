@@ -213,6 +213,33 @@ describe('updateTimeNodes refreshes intrinsic Time nodes', () => {
     expect(marked).toContain('o');
   });
 
+  // A Wave is a free-running LFO: like Time and Random Value it advances from the clock with
+  // nothing wired in and no time expression to register it in timeAnimatedNodes, so it has to be
+  // marked dirty here or its readout — and anything reading it — freezes.
+  it('marks a bare Wave node dirty even with no time-based expressions', () => {
+    const graph = {
+      nodes: [{ id: 'w', kind: 'Wave', inputs: [] }],
+      connections: [],
+    };
+
+    expect(makeHarness(graph)).toContain('w');
+  });
+
+  it('marks a node that references a Wave through a parameter expression dirty', () => {
+    const graph = {
+      nodes: [
+        { id: '1', kind: 'Wave', inputs: [] },
+        { id: '2', kind: 'Circle', inputs: [], params: { radius: '=node_1' } },
+      ],
+      connections: [], // no wire — the dependency exists only through the expression
+    };
+
+    const marked = makeHarness(graph);
+
+    expect(marked).toContain('1');
+    expect(marked).toContain('2');
+  });
+
   it('follows expression references transitively through a chain', () => {
     const graph = {
       nodes: [
