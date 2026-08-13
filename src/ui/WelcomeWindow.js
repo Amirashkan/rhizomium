@@ -1,6 +1,7 @@
 // src/ui/WelcomeWindow.js
 import { makeDraggable } from './utils/draggable.js';
 import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
+import { parseAutosaveEntry } from '../core/AutosaveStore.js';
 
 export class WelcomeWindow {
   constructor(options = {}) {
@@ -137,12 +138,7 @@ export class WelcomeWindow {
 
   collectState() {
     const autosaveEntry = this.readAutosaveEntry();
-    const hasAutosave = !!(
-      autosaveEntry &&
-      autosaveEntry.data &&
-      Array.isArray(autosaveEntry.data.nodes) &&
-      autosaveEntry.data.nodes.length > 0
-    );
+    const hasAutosave = !!(autosaveEntry && autosaveEntry.nodeCount > 0);
 
     let autosaveAgeText = null;
     if (hasAutosave && typeof autosaveEntry.timestamp === "number") {
@@ -161,15 +157,16 @@ export class WelcomeWindow {
     };
   }
 
+  /**
+   * Reads the autosave entry as { timestamp, nodeCount, data }. The snapshot
+   * itself lives in IndexedDB; localStorage only holds the pointer, so the
+   * node count comes from the entry rather than from a full project payload.
+   */
   readAutosaveEntry() {
     const key =
       this.saveLoadManager?.autosaveKey || "rhizomium.autosave.v2";
     try {
-      const stored = localStorage.getItem(key);
-      if (!stored) {
-        return null;
-      }
-      return JSON.parse(stored);
+      return parseAutosaveEntry(localStorage.getItem(key));
     } catch {
 
       return null;
