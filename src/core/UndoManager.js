@@ -2,6 +2,11 @@
 
 import { MessagePriority } from './AsyncQueueManager.js';
 
+// Returned by _undoAction/_redoAction for action types with no handler. Distinct from `false`
+// (a handler that failed): unsupported actions are dropped instead of pushed back on the stack,
+// which is what the pre-transaction code did inline.
+const UNSUPPORTED_ACTION = Symbol('unsupportedAction');
+
 export class UndoManager {
   constructor(graph, editor) {
     this.graph = graph;
@@ -10,6 +15,11 @@ export class UndoManager {
     this.redoStack = [];
     this.maxUndoSteps = 50;
     this.onChange = editor ? editor.onChange : null;
+
+    // Transaction state: while a transaction is open every recorded action is collected
+    // instead of pushed, so a compound edit (add a node + auto-wire it) undoes in one step.
+    this._transaction = null;
+    this._transactionDepth = 0;
     
     // Worker support
     this.queueManager = null;
@@ -190,15 +200,7 @@ export class UndoManager {
       action.timestamp = Date.now();
     }
 
-    this.undoStack.push(action);
-    this.redoStack = []; // Clear redo stack when new action is recorded
-
-    // Limit stack size
-    if (this.undoStack.length > this.maxUndoSteps) {
-      this.undoStack.shift();
-    }
-
-    this.updateUI();
+    this.pushAction(action);
   }
 
   // Record group deletion (multiple nodes at once)
@@ -339,7 +341,10 @@ export class UndoManager {
       inputs: node.inputs ? [...node.inputs] : [],
       parameters: node.parameters ? { ...node.parameters } : {},
       params: node.params ? { ...node.params } : {},
-      nodeIndex: this.graph.nodes.indexOf(node)
+      // Match by id, not identity: SelectionManager hands us a copy of the node carrying the
+      // connection snapshot, so indexOf() misses it and the node would come back at the end of
+      // the list (changing draw order) instead of where it was.
+      nodeIndex: this.graph.nodes.findIndex(n => n.id === node.id)
     };
 
     // Copy any other custom properties (excluding the connection snapshot)
@@ -392,15 +397,7 @@ export class UndoManager {
       }))
     };
 
-    this.undoStack.push(action);
-    this.redoStack = []; // Clear redo stack when new action is recorded
-
-    // Limit stack size
-    if (this.undoStack.length > this.maxUndoSteps) {
-      this.undoStack.shift();
-    }
-
-    this.updateUI();
+    this.pushAction(action);
   }
 
   // Record parameter changes
@@ -419,15 +416,7 @@ export class UndoManager {
       newValue: newValue
     };
 
-    this.undoStack.push(action);
-    this.redoStack = []; // Clear redo stack when new action is recorded
-
-    // Limit stack size
-    if (this.undoStack.length > this.maxUndoSteps) {
-      this.undoStack.shift();
-    }
-
-    this.updateUI();
+    this.pushAction(action);
   }
 
   // Record connection creation (for when user creates a connection)
@@ -496,16 +485,75 @@ export class UndoManager {
     this.pushAction(action);
   }
 
+  // Begin a transaction. Every action recorded until the matching commitTransaction() is
+  // folded into a single COMPOSITE entry, so one Ctrl+Z reverses the whole operation.
+  // Nested begin/commit pairs are counted, only the outermost commit pushes the entry.
+  beginTransaction(label = 'Edit') {
+    this._transactionDepth += 1;
+
+    if (this._transactionDepth === 1) {
+      this._transaction = {
+        type: 'COMPOSITE',
+        label: label,
+        timestamp: Date.now(),
+        actions: []
+      };
+    }
+
+    return this._transaction;
+  }
+
+  // Close the current transaction and push it as one undo entry.
+  // Returns the pushed action, or null when the transaction recorded nothing.
+  commitTransaction() {
+    if (!this._transaction) {
+      this._transactionDepth = 0;
+      return null;
+    }
+
+    this._transactionDepth -= 1;
+    if (this._transactionDepth > 0) {
+      return null; // Inner commit of a nested transaction
+    }
+
+    const transaction = this._transaction;
+    this._transaction = null;
+    this._transactionDepth = 0;
+
+    if (transaction.actions.length === 0) {
+      return null; // Nothing happened - don't leave an empty step in the history
+    }
+
+    // A single action needs no wrapper (keeps undo button labels meaningful)
+    const action =
+      transaction.actions.length === 1 ? transaction.actions[0] : transaction;
+
+    this.pushAction(action);
+    return action;
+  }
+
+  // Discard an open transaction without recording anything
+  abortTransaction() {
+    this._transaction = null;
+    this._transactionDepth = 0;
+  }
+
   // Push action to undo stack
   pushAction(action) {
+    // Collect into the open transaction instead of recording a separate undo step
+    if (this._transaction && action !== this._transaction) {
+      this._transaction.actions.push(action);
+      return;
+    }
+
     this.undoStack.push(action);
     this.redoStack = []; // Clear redo stack
-    
+
     // Limit history size
     if (this.undoStack.length > this.maxUndoSteps) {
       this.undoStack.shift();
     }
-    
+
     this.updateUI();
   }
 
@@ -522,10 +570,48 @@ export class UndoManager {
 
     const action = this.undoStack.pop();
 
+    const result = this._undoAction(action);
+
+    if (result === UNSUPPORTED_ACTION) {
+      return false; // Unknown action type - drop it rather than blocking the history
+    }
+
+    if (result) {
+      this.redoStack.push(action);
+      this.refreshEditor();
+      return true;
+    }
+
+    // Put action back if failed
+    this.undoStack.push(action);
+    return false;
+  }
+
+  // Reverse a single action. Returns true on success, false on failure and
+  // UNSUPPORTED_ACTION when the action type has no handler.
+  _undoAction(action) {
     try {
       let success = false;
-      
+
       switch (action.type) {
+        case 'COMPOSITE': {
+          // Reverse the sub-actions in the opposite order they were recorded, so a node
+          // and the wire it was created with disappear together on a single undo.
+          let undoneCount = 0;
+          for (let i = action.actions.length - 1; i >= 0; i--) {
+            const result = this._undoAction(action.actions[i]);
+            if (result === true) {
+              undoneCount++;
+            }
+          }
+
+          if (this.onChange) {
+            this.onChange(`Undo ${action.label || 'edit'}`);
+          }
+          success = undoneCount > 0;
+          break;
+        }
+
         case 'DELETE_CONNECTION':
           success = this.undoConnectionDeletion(action);
           break;
@@ -576,55 +662,13 @@ export class UndoManager {
             }
           });
 
-          // Restore all connections after all nodes are restored
+          // Restore all connections after all nodes are restored, applying each recorded entry
+          // from its own endpoints (see restoreRecordedConnection)
           sortedNodes.forEach(nodeData => {
-            // Restore incoming connections
-            if (nodeData.incomingConnections) {
-              nodeData.incomingConnections.forEach(conn => {
-                const targetNode = this.graph.nodes.find(n => n.id == conn.targetNodeId);
-                if (targetNode) {
-                  if (!targetNode.inputs) targetNode.inputs = [];
-                  while (targetNode.inputs.length <= conn.targetInput) {
-                    targetNode.inputs.push(null);
-                  }
-                  targetNode.inputs[conn.targetInput] = conn.sourceNodeId;
-                  
-                  // Also restore to graph.connections
-                  if (!this.graph.connections) this.graph.connections = [];
-                  this.graph.connections = this.graph.connections.filter(
-                    c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == conn.targetInput)
-                  );
-                  this.graph.connections.push({
-                    from: { nodeId: conn.sourceNodeId, pin: 0 },
-                    to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
-                  });
-                }
-              });
-            }
-
-            // Restore outgoing connections
-            if (nodeData.outgoingConnections) {
-              nodeData.outgoingConnections.forEach(conn => {
-                const restoredNode = this.graph.nodes.find(n => n.id === nodeData.id);
-                if (restoredNode) {
-                  if (!restoredNode.inputs) restoredNode.inputs = [];
-                  while (restoredNode.inputs.length <= conn.targetInput) {
-                    restoredNode.inputs.push(null);
-                  }
-                  restoredNode.inputs[conn.targetInput] = conn.sourceNodeId;
-                  
-                  // Also restore to graph.connections
-                  if (!this.graph.connections) this.graph.connections = [];
-                  this.graph.connections = this.graph.connections.filter(
-                    c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == conn.targetInput)
-                  );
-                  this.graph.connections.push({
-                    from: { nodeId: conn.sourceNodeId, pin: 0 },
-                    to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
-                  });
-                }
-              });
-            }
+            [
+              ...(nodeData.incomingConnections || []),
+              ...(nodeData.outgoingConnections || [])
+            ].forEach(conn => this.restoreRecordedConnection(conn));
           });
 
           if (this.onChange) {
@@ -790,29 +834,19 @@ export class UndoManager {
               success = true;
             } catch {
 
-              return false;
+              return UNSUPPORTED_ACTION;
             }
           } else {
 
-            return false;
+            return UNSUPPORTED_ACTION;
           }
           break;
       }
 
-      if (success) {
-        this.redoStack.push(action);
-        this.refreshEditor();
-        return true;
-      } else {
-        // Put action back if failed
-        this.undoStack.push(action);
-
-        return false;
-      }
+      return success;
 
     } catch {
 
-      this.undoStack.push(action);
       return false;
     }
   }
@@ -823,17 +857,52 @@ export class UndoManager {
     if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
       window.eventHandler._checkAndWarmupAfterInactivity();
     }
-    
+
     if (this.redoStack.length === 0) {
       return false;
     }
 
     const action = this.redoStack.pop();
 
+    const result = this._redoAction(action);
+
+    if (result === UNSUPPORTED_ACTION) {
+      return false; // Unknown action type - drop it rather than blocking the history
+    }
+
+    if (result) {
+      this.undoStack.push(action);
+      this.refreshEditor();
+      return true;
+    }
+
+    this.redoStack.push(action);
+    return false;
+  }
+
+  // Re-apply a single action. Returns true on success, false on failure and
+  // UNSUPPORTED_ACTION when the action type has no handler.
+  _redoAction(action) {
     try {
       let success = false;
-      
+
       switch (action.type) {
+        case 'COMPOSITE': {
+          // Re-apply the sub-actions in their original order (node first, then its wire)
+          let redoneCount = 0;
+          for (const subAction of action.actions) {
+            if (this._redoAction(subAction) === true) {
+              redoneCount++;
+            }
+          }
+
+          if (this.onChange) {
+            this.onChange(`Redo ${action.label || 'edit'}`);
+          }
+          success = redoneCount > 0;
+          break;
+        }
+
         case 'DELETE_CONNECTION':
           success = this.redoConnectionDeletion(action);
           break;
@@ -1039,28 +1108,19 @@ export class UndoManager {
               success = true;
             } catch {
 
-              return false;
+              return UNSUPPORTED_ACTION;
             }
           } else {
 
-            return false;
+            return UNSUPPORTED_ACTION;
           }
           break;
       }
 
-      if (success) {
-        this.undoStack.push(action);
-        this.refreshEditor();
-        return true;
-      } else {
-        this.redoStack.push(action);
-
-        return false;
-      }
+      return success;
 
     } catch {
 
-      this.redoStack.push(action);
       return false;
     }
   }
@@ -1136,61 +1196,15 @@ export class UndoManager {
         this.graph.nodes.push(restoredNode);
       }
 
-      // Restore ALL connections involving this node
-      // 1. Restore incoming connections (connections TO this node)
-      if (action.incomingConnections) {
-        action.incomingConnections.forEach(conn => {
-          const targetNode = this.graph.nodes.find(n => n.id == conn.targetNodeId);
-          if (targetNode) {
-            // Restore to node.inputs
-            if (!targetNode.inputs) targetNode.inputs = [];
-            while (targetNode.inputs.length <= conn.targetInput) {
-              targetNode.inputs.push(null);
-            }
-            targetNode.inputs[conn.targetInput] = conn.sourceNodeId;
-            
-            // Also restore to graph.connections for visual rendering
-            if (!this.graph.connections) this.graph.connections = [];
-            
-            // Remove any existing connection to this input
-            this.graph.connections = this.graph.connections.filter(
-              c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == conn.targetInput)
-            );
-            
-            // Add the connection
-            this.graph.connections.push({
-              from: { nodeId: conn.sourceNodeId, pin: 0 },
-              to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
-            });
-          }
-        });
-      }
-
-      // 2. Restore outgoing connections (connections FROM this node)
-      if (action.outgoingConnections) {
-        action.outgoingConnections.forEach(conn => {
-          // Restore to this node's inputs
-          if (!restoredNode.inputs) restoredNode.inputs = [];
-          while (restoredNode.inputs.length <= conn.targetInput) {
-            restoredNode.inputs.push(null);
-          }
-          restoredNode.inputs[conn.targetInput] = conn.sourceNodeId;
-          
-          // Also restore to graph.connections for visual rendering
-          if (!this.graph.connections) this.graph.connections = [];
-          
-          // Remove any existing connection to this input
-          this.graph.connections = this.graph.connections.filter(
-            c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == conn.targetInput)
-          );
-          
-          // Add the connection
-          this.graph.connections.push({
-            from: { nodeId: conn.sourceNodeId, pin: 0 },
-            to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
-          });
-        });
-      }
+      // Restore ALL connections involving this node - the ones into it and the ones out of it.
+      // Both lists are applied the same way, from the endpoints each entry carries: the recorded
+      // lists are not cleanly split by direction (see SelectionManager._findAllNodeConnections,
+      // which files the same wire under both headings), so assuming the restored node is the
+      // target of every "outgoing" entry wired it to itself.
+      [
+        ...(action.incomingConnections || []),
+        ...(action.outgoingConnections || [])
+      ].forEach(conn => this.restoreRecordedConnection(conn));
 
       return true;
 
@@ -1198,6 +1212,42 @@ export class UndoManager {
 
       return false;
     }
+  }
+
+  // Re-apply one recorded connection ({ sourceNodeId, targetNodeId, targetInput }) to both the
+  // target's inputs array and graph.connections. Endpoint-driven: the entry itself says which node
+  // is the source and which is the target, so it restores correctly whichever side of the wire the
+  // node being restored sits on. Both endpoints must exist, otherwise the graph would keep a wire
+  // to a node that isn't there.
+  restoreRecordedConnection(conn) {
+    if (!conn) return false;
+
+    const targetNode = this.graph.nodes.find(n => n.id == conn.targetNodeId);
+    const sourceNode = this.graph.nodes.find(n => n.id == conn.sourceNodeId);
+    if (!targetNode || !sourceNode) {
+      return false;
+    }
+
+    const pin = conn.targetInput || 0;
+
+    if (!targetNode.inputs) targetNode.inputs = [];
+    while (targetNode.inputs.length <= pin) {
+      targetNode.inputs.push(null);
+    }
+    targetNode.inputs[pin] = conn.sourceNodeId;
+
+    if (!this.graph.connections) this.graph.connections = [];
+
+    // An input takes one wire: drop whatever occupied it before re-adding
+    this.graph.connections = this.graph.connections.filter(
+      c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == pin)
+    );
+    this.graph.connections.push({
+      from: { nodeId: conn.sourceNodeId, pin: 0 },
+      to: { nodeId: conn.targetNodeId, pin: pin }
+    });
+
+    return true;
   }
 
   // Undo connection creation (delete connection)
@@ -1246,6 +1296,14 @@ export class UndoManager {
         });
       }
     });
+
+    // Drop the wires from graph.connections too, otherwise the renderer keeps drawing
+    // a wire to a node that no longer exists
+    if (this.graph.connections) {
+      this.graph.connections = this.graph.connections.filter(
+        c => !(c.from && c.from.nodeId == action.nodeId) && !(c.to && c.to.nodeId == action.nodeId)
+      );
+    }
 
     // Remove the node
     this.graph.nodes.splice(nodeIndex, 1);
@@ -1405,7 +1463,9 @@ export class UndoManager {
       undoBtn.disabled = this.undoStack.length === 0;
       const lastUndo = this.undoStack[this.undoStack.length - 1];
       if (lastUndo) {
-        let actionDesc = lastUndo.type;
+        let actionDesc = lastUndo.type === 'COMPOSITE'
+          ? (lastUndo.label || 'edit')
+          : lastUndo.type;
         if (lastUndo.type === 'PARAMETER_CHANGE') {
           actionDesc += ` (${lastUndo.parameterName})`;
         }
@@ -1419,7 +1479,9 @@ export class UndoManager {
       redoBtn.disabled = this.redoStack.length === 0;
       const lastRedo = this.redoStack[this.redoStack.length - 1];
       if (lastRedo) {
-        let actionDesc = lastRedo.type;
+        let actionDesc = lastRedo.type === 'COMPOSITE'
+          ? (lastRedo.label || 'edit')
+          : lastRedo.type;
         if (lastRedo.type === 'PARAMETER_CHANGE') {
           actionDesc += ` (${lastRedo.parameterName})`;
         }

@@ -1,6 +1,7 @@
 // src/codegen/compilers/UtilityNodes.js
 import { COLOR_FUNCTIONS_WGSL } from './ColorNodes.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import { getInputCount } from '../../data/nodeInputs.js';
 
 export class UtilityNodes {
@@ -45,11 +46,14 @@ export class UtilityNodes {
    */
   getShaderParam(node, name, defaultValue) {
     const value = this.getParam(node, name, defaultValue);
+    // An identifier naming another parameter of this node binds to that parameter (see
+    // utils/paramReferences.js); without it the shader generator zeroes the whole expression.
+    const paramRefs = compilerParamRefMapping(this, node, value, name);
 
     // Handle expressions with = prefix (like "=audioEnvelope*5")
     if (typeof value === 'string' && value.startsWith('=')) {
       try {
-        return unifiedExpressionSystem.generateShader(value, {}, this.graph);
+        return unifiedExpressionSystem.generateShader(value, paramRefs, this.graph);
       } catch {
 
         return String(defaultValue);
@@ -59,7 +63,7 @@ export class UtilityNodes {
     // Handle expressions without = prefix (like "time" or "audioEnvelope*2")
     if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
       try {
-        return unifiedExpressionSystem.generateShader(value, {}, this.graph);
+        return unifiedExpressionSystem.generateShader(value, paramRefs, this.graph);
       } catch {
 
         return String(defaultValue);

@@ -6,6 +6,7 @@
  */
 
 import { ComputeFieldMapperNode } from '../scene/nodes/ComputeFieldMapperNode.js';
+import { NodeCamera3D } from '../scene/NodeCamera3D.js';
 
 export class FieldMapperIntegration {
     constructor(device, scene, computeExecutor, sceneRenderer3D, viewportPanel) {
@@ -14,6 +15,14 @@ export class FieldMapperIntegration {
         this.computeExecutor = computeExecutor;
         this.sceneRenderer3D = sceneRenderer3D;
         this.viewportPanel = viewportPanel;
+
+        /**
+         * Graph node id the 3D viewport is currently looking at. Its camera is
+         * the one the viewport's mouse controls drive; every other 3D node
+         * keeps its own stored viewpoint.
+         * @type {string|null}
+         */
+        this.focusedNodeId = null;
 
         /**
          * Map of node ID -> ComputeFieldMapperNode instance
@@ -84,6 +93,10 @@ export class FieldMapperIntegration {
             }
         }
 
+        // Focus must always name a live node, so the viewport shows something
+        // after the node it was watching is deleted
+        this.ensureValidFocus();
+
         // Let the executor know it must run its fragment auto-bridge even when
         // no compute nodes are registered (pure fragment graph -> mapper)
         if (this.computeExecutor) {
@@ -95,7 +108,7 @@ export class FieldMapperIntegration {
         // graph update already find the mapper's output texture
         if (this.sceneRenderer3D && activeNodeIds.size > 0) {
             this.sceneRenderer3D.render();
-            this.publishOutputs(this.sceneRenderer3D.getSceneTexture?.());
+            this.publishOutputs();
         }
     }
 
@@ -129,6 +142,16 @@ export class FieldMapperIntegration {
         } else {
             // Update parameters if they changed
             this.updateFieldMapperParams(fieldMapper, node);
+
+            // A camera restored from a project load lands on the graph node
+            // after the mapper was created; adopt it once.
+            if (node.camera3D && !fieldMapper._cameraRestored) {
+                fieldMapper.camera3D?.setState(node.camera3D);
+                fieldMapper._cameraRestored = true;
+                if (nodeId === this.focusedNodeId) {
+                    this.loadFocusedCamera();
+                }
+            }
         }
 
         // The renderer pulls the live compute texture by source id each frame;
@@ -166,6 +189,20 @@ export class FieldMapperIntegration {
             fieldBounds: { min: [-1, -1, -1], max: [1, 1, 1] }
         });
 
+        // The scene node carries its graph id and its OWN camera. Both are
+        // read by SceneRenderer3D, which renders this node - and only this
+        // node - through that camera into a texture of its own.
+        //
+        // A node with no saved camera adopts the view the user is currently
+        // looking through: a new 3D node opens framed the way the viewport
+        // already is, and a project saved before cameras were per-node keeps
+        // the single viewpoint it stored.
+        fieldMapper.graphNodeId = String(node.id);
+        fieldMapper.camera3D = new NodeCamera3D(node.camera3D || this.readViewportCamera());
+        if (node.camera3D) {
+            fieldMapper._cameraRestored = true;
+        }
+
         // Initialize visualizer
         fieldMapper.initializeVisualizer(this.device);
 
@@ -173,6 +210,185 @@ export class FieldMapperIntegration {
         this.updateFieldMapperParams(fieldMapper, node);
 
         return fieldMapper;
+    }
+
+    /**
+     * The 3D node the viewport is looking at, or null when the graph has none.
+     * @returns {string|null}
+     */
+    getFocusedNodeId() {
+        return this.focusedNodeId;
+    }
+
+    /**
+     * Point the 3D viewport at one node. The outgoing node's viewpoint is
+     * captured off the interactive controller first, then the incoming node's
+     * is loaded into it, so every node keeps the framing it was left with.
+     * @param {string|null} nodeId - Graph node id
+     * @returns {boolean} Whether focus changed
+     */
+    setFocus(nodeId) {
+        const nextId = nodeId === null || nodeId === undefined ? null : String(nodeId);
+        if (nextId === this.focusedNodeId) return false;
+        if (nextId !== null && !this.fieldMappers.has(nextId)) return false;
+
+        this.captureFocusedCamera();
+        this.focusedNodeId = nextId;
+        this.loadFocusedCamera();
+
+        this.sceneRenderer3D?.setFocusedNodeId?.(nextId);
+        this.viewportPanel?.onFocusChanged?.(nextId);
+        return true;
+    }
+
+    /**
+     * Keep focus pointed at a node that actually exists
+     * @returns {string|null} The focused node id after the check
+     */
+    ensureValidFocus() {
+        if (this.focusedNodeId !== null && this.fieldMappers.has(this.focusedNodeId)) {
+            return this.focusedNodeId;
+        }
+
+        // The focused node is gone (or there never was one): fall through to
+        // the first live 3D node, or to nothing at all. Nothing is captured -
+        // there is no longer a node to capture into.
+        const first = this.fieldMappers.keys().next();
+        const nextId = first.done ? null : first.value;
+        if (nextId === this.focusedNodeId) return this.focusedNodeId;
+
+        this.focusedNodeId = nextId;
+        this.loadFocusedCamera();
+        this.sceneRenderer3D?.setFocusedNodeId?.(nextId);
+        this.viewportPanel?.onFocusChanged?.(nextId);
+        return this.focusedNodeId;
+    }
+
+    /**
+     * Copy the interactive controller's live state into the focused node's
+     * own camera (and onto the graph node, so it saves with the project).
+     * Called every frame: this is what makes an orbit drag move exactly one
+     * node's viewpoint.
+     */
+    captureFocusedCamera() {
+        const fieldMapper = this.focusedNodeId !== null ? this.fieldMappers.get(this.focusedNodeId) : null;
+        const camera3D = fieldMapper?.camera3D;
+        const state = this.readViewportCamera();
+        if (!camera3D || !state) return;
+
+        camera3D.setState(state);
+        this.persistCameraState(this.focusedNodeId, camera3D);
+    }
+
+    /**
+     * Snapshot the interactive controller's current viewpoint.
+     * @returns {Object|null} NodeCamera3D-shaped state, or null with no viewport
+     */
+    readViewportCamera() {
+        const viewport = this._viewport();
+        const controller = viewport?.cameraController;
+        if (!controller) return null;
+
+        const angles = controller.getAngles?.() || { azimuth: controller.azimuth, elevation: controller.elevation };
+        const target = controller.getTarget?.() || controller.target || { x: 0, y: 0, z: 0 };
+        const camera = viewport.getCamera?.();
+
+        return {
+            azimuth: angles.azimuth,
+            elevation: angles.elevation,
+            distance: controller.getDistance?.() ?? controller.distance,
+            target: [target.x || 0, target.y || 0, target.z || 0],
+            type: viewport.getCameraType?.() || 'perspective',
+            fov: camera?.fov,
+            orthoSize: camera?.top,
+            autoRotate: !!viewport.autoRotate,
+            autoRotateSpeed: viewport.autoRotateSpeed
+        };
+    }
+
+    /**
+     * Load the focused node's stored viewpoint into the interactive
+     * controller, so the viewport picks up exactly where that node was left.
+     */
+    loadFocusedCamera() {
+        const fieldMapper = this.focusedNodeId !== null ? this.fieldMappers.get(this.focusedNodeId) : null;
+        const camera3D = fieldMapper?.camera3D;
+        const viewport = this._viewport();
+        const controller = viewport?.cameraController;
+        if (!camera3D || !controller) return;
+
+        const state = camera3D.getState();
+        viewport.setCameraType?.(state.type);
+        const camera = viewport.getCamera?.();
+        if (state.type === 'orthographic') {
+            const aspect = camera?.aspect > 0 ? camera.aspect : 1;
+            camera?.setOrthographic?.(
+                -state.orthoSize * aspect, state.orthoSize * aspect,
+                state.orthoSize, -state.orthoSize,
+                camera.near, camera.far
+            );
+        } else if (camera?.setPerspective) {
+            camera.setPerspective(state.fov, camera.aspect, camera.near, camera.far);
+        }
+
+        controller.setTarget?.(state.target[0], state.target[1], state.target[2]);
+        controller.setDistance?.(state.distance);
+        controller.setAngles?.(state.azimuth, state.elevation);
+
+        viewport.autoRotate = state.autoRotate;
+        viewport.autoRotateSpeed = state.autoRotateSpeed;
+    }
+
+    /**
+     * The panel's saved camera block has just been applied to the interactive
+     * controller (project load restores it AFTER the graph rebuild that
+     * creates the mappers).
+     *
+     * A project saved with per-node cameras must not let that one block
+     * overwrite them, so the focused node re-asserts its own viewpoint.
+     * A project saved before cameras were per-node has nothing stored on its
+     * nodes - there the restored block IS the saved view, so every camera-less
+     * node adopts it and the old project reopens framed as it was left.
+     */
+    onViewportStateRestored() {
+        const focused = this.focusedNodeId !== null ? this.fieldMappers.get(this.focusedNodeId) : null;
+        if (focused?._cameraRestored) {
+            this.loadFocusedCamera();
+            return;
+        }
+
+        const state = this.readViewportCamera();
+        if (!state) return;
+        for (const [nodeId, fieldMapper] of this.fieldMappers.entries()) {
+            if (fieldMapper._cameraRestored || !fieldMapper.camera3D) continue;
+            fieldMapper.camera3D.setState(state);
+            this.persistCameraState(nodeId, fieldMapper.camera3D);
+        }
+    }
+
+    /**
+     * Mirror a node's camera onto the graph node so it survives save/load and
+     * travels with a copied node.
+     * @param {string} nodeId
+     * @param {NodeCamera3D} camera3D
+     */
+    persistCameraState(nodeId, camera3D) {
+        const graphNode = this._graphNodes.find(n => n && String(n.id) === String(nodeId));
+        if (graphNode && camera3D) {
+            graphNode.camera3D = camera3D.getState();
+        }
+    }
+
+    /**
+     * The interactive viewport, resolved lazily - ViewportPanel owns it and is
+     * constructed before this integration.
+     * @returns {Object|null}
+     * @private
+     */
+    _viewport() {
+        return this.viewportPanel?.viewport3D
+            || (typeof window !== 'undefined' ? window.viewport3D : null)
+            || null;
     }
 
     /**
@@ -387,12 +603,74 @@ export class FieldMapperIntegration {
             return;
         }
 
+        // Selecting a 3D node in the graph points the viewport at it, so the
+        // node you are editing is the one you are looking at
+        this.followSelection();
+
+        // The focused node's viewpoint lives on the interactive controller
+        // while it has focus; copy it back so the node renders what the
+        // viewport shows and the framing persists.
+        this.captureFocusedCamera();
+
+        const now = performance.now();
         for (const [nodeId, fieldMapper] of this.fieldMappers.entries()) {
             const graphNode = this._graphNodes.find(n => n && n.id === nodeId);
             if (graphNode) {
                 this.updateFieldMapperParams(fieldMapper, graphNode);
             }
+
+            // Unfocused nodes spin on their own clock. The focused node's
+            // spin is advanced by Viewport3D.update() and arrives through
+            // captureFocusedCamera(), so advancing it here would double it.
+            if (nodeId !== this.focusedNodeId && fieldMapper.camera3D) {
+                fieldMapper.camera3D.update(now);
+                if (fieldMapper.camera3D.autoRotate) {
+                    this.persistCameraState(nodeId, fieldMapper.camera3D);
+                }
+            }
         }
+    }
+
+    /**
+     * Follow the editor's node selection: selecting a 3D Field Visualizer
+     * points the viewport at it.
+     *
+     * Only acts when the selection CHANGES. Picking a node straight from the
+     * viewport's own selector would otherwise be undone on the next frame by
+     * whatever was still selected in the graph.
+     */
+    followSelection() {
+        const selectedId = this.selectedMapperId();
+        if (selectedId === this._lastFollowedSelectionId) return;
+
+        this._lastFollowedSelectionId = selectedId;
+        if (selectedId !== null) {
+            this.setFocus(selectedId);
+        }
+    }
+
+    /**
+     * The single 3D node the editor currently has selected, if any
+     * @returns {string|null}
+     * @private
+     */
+    selectedMapperId() {
+        const editor = typeof window !== 'undefined' ? window.editor : null;
+        if (!editor) return null;
+
+        // The parameter panel names the node being edited - the strongest
+        // "this is what I'm working on" signal the editor has
+        const edited = editor.paramPanel?.selectedNode;
+        if (edited && edited.kind === 'ComputeFieldMapper' && this.fieldMappers.has(String(edited.id))) {
+            return String(edited.id);
+        }
+
+        const ids = editor.selection?.getSelected?.();
+        if (!ids || ids.size !== 1) return null;
+        for (const id of ids) {
+            if (this.fieldMappers.has(String(id))) return String(id);
+        }
+        return null;
     }
 
     /**
@@ -439,15 +717,17 @@ export class FieldMapperIntegration {
     }
 
     /**
-     * Publish the rendered 3D view as each mapper node's graph output. With
-     * an entry in computeTextures/nodeOutputs, the whole downstream pipeline
-     * lights up for free: the node's own GPU thumbnail, downstream node
-     * previews, and fragment chains that sample compute_node_<id> (including
-     * OutputFinal).
-     * @param {GPUTexture} sceneTexture - SceneRenderer3D's offscreen frame
+     * Publish each 3D node's OWN rendered frame as that node's graph output.
+     * With an entry in computeTextures/nodeOutputs, the whole downstream
+     * pipeline lights up for free: the node's own GPU thumbnail, downstream
+     * node previews, and fragment chains that sample compute_node_<id>
+     * (including OutputFinal).
+     *
+     * Each node publishes a different texture, so two 3D nodes feeding two
+     * different chains stay two different images.
      */
-    publishOutputs(sceneTexture) {
-        if (!sceneTexture || !this.computeExecutor || this.fieldMappers.size === 0) {
+    publishOutputs() {
+        if (!this.computeExecutor || this.fieldMappers.size === 0) {
             return;
         }
 
@@ -467,18 +747,31 @@ export class FieldMapperIntegration {
         }
 
         for (const nodeId of this.fieldMappers.keys()) {
+            const texture = this.sceneRenderer3D?.getNodeTexture?.(nodeId);
+            if (!texture) continue;
+
             this.computeExecutor.externalOutputNodeIds.add(nodeId);
-            this.computeExecutor.nodeOutputs.set(nodeId, sceneTexture);
+            this.computeExecutor.nodeOutputs.set(nodeId, texture);
             const existing = this.computeExecutor.computeTextures.get(nodeId);
             if (existing) {
-                existing.texture = sceneTexture;
+                existing.texture = texture;
             } else {
                 this.computeExecutor.computeTextures.set(nodeId, {
-                    texture: sceneTexture,
+                    texture,
                     sampler: this._outputSampler
                 });
             }
         }
+    }
+
+    /**
+     * The rendered frame belonging to one 3D node - its graph output and the
+     * source of its editor thumbnail.
+     * @param {string} nodeId - Graph node id
+     * @returns {GPUTexture|null}
+     */
+    getNodeTexture(nodeId) {
+        return this.sceneRenderer3D?.getNodeTexture?.(nodeId) || null;
     }
 
     /**

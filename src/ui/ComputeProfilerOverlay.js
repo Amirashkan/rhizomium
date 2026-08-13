@@ -1,4 +1,5 @@
 import { setIcon } from './iconSprite.js';
+import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
 /**
  * ComputeProfilerOverlay - Visual overlay for displaying compute performance metrics
  *
@@ -32,19 +33,19 @@ export class ComputeProfilerOverlay {
       position: fixed;
       top: 10px;
       right: 10px;
-      background: rgba(0, 0, 0, 0.85);
-      color: #00ff00;
-      font-family: 'Courier New', monospace;
-      font-size: 12px;
-      padding: 12px;
-      border-radius: 4px;
-      border: 1px solid rgba(0, 255, 0, 0.3);
+      background: rgba(22, 18, 15, 0.94);
+      color: ${TEXT.secondary};
+      font-family: ${FONT_MONO};
+      font-size: 11px;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid ${SURFACE.lineStrong};
       z-index: 10000;
       min-width: 280px;
       max-width: 400px;
       display: none;
       user-select: none;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 244, 230, 0.06);
     `;
 
     // Header with title and controls
@@ -53,17 +54,19 @@ export class ComputeProfilerOverlay {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 8px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid ${SURFACE.line};
     `;
 
     const title = document.createElement('div');
     title.textContent = 'COMPUTE PROFILER';
     title.style.cssText = `
-      font-weight: bold;
-      font-size: 13px;
-      color: #00ff88;
+      font-family: ${FONT_UI};
+      font-weight: 600;
+      font-size: 10px;
+      letter-spacing: 1.4px;
+      color: ${TEXT.faint};
     `;
 
     const controls = document.createElement('div');
@@ -73,10 +76,10 @@ export class ComputeProfilerOverlay {
     this.expandButton = document.createElement('button');
     setIcon(this.expandButton, 'expand', { size: 12, label: 'Expand' });
     this.expandButton.style.cssText = `
-      background: rgba(0, 255, 0, 0.2);
-      color: #00ff00;
-      border: 1px solid rgba(0, 255, 0, 0.5);
-      border-radius: 3px;
+      background: ${SURFACE.fillSoft};
+      color: ${TEXT.tertiary};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 6px;
       width: 20px;
       height: 20px;
       cursor: pointer;
@@ -92,10 +95,10 @@ export class ComputeProfilerOverlay {
     const closeButton = document.createElement('button');
     setIcon(closeButton, 'close', { size: 12, label: 'Close' });
     closeButton.style.cssText = `
-      background: rgba(255, 0, 0, 0.2);
-      color: #ff4444;
-      border: 1px solid rgba(255, 0, 0, 0.5);
-      border-radius: 3px;
+      background: ${withAlpha(SEMANTIC.error, 0.14)};
+      color: ${SEMANTIC.error};
+      border: 1px solid ${withAlpha(SEMANTIC.error, 0.35)};
+      border-radius: 6px;
       width: 20px;
       height: 20px;
       cursor: pointer;
@@ -126,9 +129,9 @@ export class ComputeProfilerOverlay {
     this.detailsSection = document.createElement('div');
     this.detailsSection.style.cssText = `
       display: none;
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 1px solid rgba(0, 255, 0, 0.3);
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid ${SURFACE.line};
       max-height: 300px;
       overflow-y: auto;
     `;
@@ -136,10 +139,12 @@ export class ComputeProfilerOverlay {
     const detailsTitle = document.createElement('div');
     detailsTitle.textContent = 'DISPATCH BREAKDOWN';
     detailsTitle.style.cssText = `
-      font-weight: bold;
+      font-family: ${FONT_UI};
+      font-weight: 600;
+      letter-spacing: 1.4px;
       margin-bottom: 6px;
-      color: #00ff88;
-      font-size: 11px;
+      color: ${TEXT.faint};
+      font-size: 10px;
     `;
     this.detailsSection.appendChild(detailsTitle);
 
@@ -150,11 +155,11 @@ export class ComputeProfilerOverlay {
     // Footer with help text
     this.footer = document.createElement('div');
     this.footer.style.cssText = `
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 1px solid rgba(0, 255, 0, 0.3);
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid ${SURFACE.line};
       font-size: 10px;
-      color: rgba(0, 255, 0, 0.6);
+      color: ${TEXT.faint};
     `;
     this.footer.textContent = 'Press Ctrl+P to toggle | + for details';
 
@@ -183,11 +188,11 @@ export class ComputeProfilerOverlay {
   /**
    * Create a metric row
    */
-  _createMetricRow(label, value, color = '#00ff00') {
+  _createMetricRow(label, value, color = TEXT.primary) {
     const labelEl = document.createElement('div');
     labelEl.textContent = label + ':';
     labelEl.style.cssText = `
-      color: rgba(0, 255, 0, 0.7);
+      color: ${TEXT.tertiary};
       font-weight: normal;
     `;
 
@@ -195,7 +200,7 @@ export class ComputeProfilerOverlay {
     valueEl.textContent = value;
     valueEl.style.cssText = `
       color: ${color};
-      font-weight: bold;
+      font-weight: 500;
       text-align: right;
     `;
 
@@ -217,19 +222,19 @@ export class ComputeProfilerOverlay {
       this.metricsSection.innerHTML = '';
       
       // FPS
-      const fps = this._createMetricRow('FPS', '0.0', '#00ff00');
+      const fps = this._createMetricRow('FPS', '0.0', TEXT.primary);
       this.metricsSection.appendChild(fps.labelEl);
       this.metricsSection.appendChild(fps.valueEl);
       this._metricElements.fps = fps;
 
       // Frame time
-      const frameTime = this._createMetricRow('Frame Time', '0.00 ms', '#00ff00');
+      const frameTime = this._createMetricRow('Frame Time', '0.00 ms', TEXT.primary);
       this.metricsSection.appendChild(frameTime.labelEl);
       this.metricsSection.appendChild(frameTime.valueEl);
       this._metricElements.frameTime = frameTime;
 
       // Dispatch time
-      const dispatchTime = this._createMetricRow('Compute Time', '0.00 ms', '#00ff00');
+      const dispatchTime = this._createMetricRow('Compute Time', '0.00 ms', TEXT.primary);
       this.metricsSection.appendChild(dispatchTime.labelEl);
       this.metricsSection.appendChild(dispatchTime.valueEl);
       this._metricElements.dispatchTime = dispatchTime;
@@ -249,17 +254,17 @@ export class ComputeProfilerOverlay {
 
     // Update existing elements (much faster than recreating)
     // FPS
-    const fpsColor = metrics.fps >= 60 ? '#00ff00' : metrics.fps >= 30 ? '#ffaa00' : '#ff4444';
+    const fpsColor = metrics.fps >= 60 ? TEXT.primary : metrics.fps >= 30 ? SEMANTIC.warn : SEMANTIC.error;
     this._metricElements.fps.valueEl.textContent = metrics.fps.toFixed(1);
     this._metricElements.fps.valueEl.style.color = fpsColor;
 
     // Frame time
-    const frameTimeColor = metrics.frameTime <= 16.67 ? '#00ff00' : metrics.frameTime <= 33.33 ? '#ffaa00' : '#ff4444';
+    const frameTimeColor = metrics.frameTime <= 16.67 ? TEXT.primary : metrics.frameTime <= 33.33 ? SEMANTIC.warn : SEMANTIC.error;
     this._metricElements.frameTime.valueEl.textContent = metrics.frameTime.toFixed(2) + ' ms';
     this._metricElements.frameTime.valueEl.style.color = frameTimeColor;
 
     // Dispatch time
-    const dispatchTimeColor = metrics.totalDispatchTime <= 5 ? '#00ff00' : metrics.totalDispatchTime <= 10 ? '#ffaa00' : '#ff4444';
+    const dispatchTimeColor = metrics.totalDispatchTime <= 5 ? TEXT.primary : metrics.totalDispatchTime <= 10 ? SEMANTIC.warn : SEMANTIC.error;
     this._metricElements.dispatchTime.valueEl.textContent = metrics.totalDispatchTime.toFixed(2) + ' ms';
     this._metricElements.dispatchTime.valueEl.style.color = dispatchTimeColor;
 
@@ -271,12 +276,12 @@ export class ComputeProfilerOverlay {
 
     // Timestamp support (reuse element if exists)
     if (!this._metricElements.tsSupport) {
-      const tsSupport = this._createMetricRow('GPU Timing', 'Fallback', '#ffaa00');
+      const tsSupport = this._createMetricRow('GPU Timing', 'Fallback', SEMANTIC.warn);
       this.metricsSection.appendChild(tsSupport.labelEl);
       this.metricsSection.appendChild(tsSupport.valueEl);
       this._metricElements.tsSupport = tsSupport;
     }
-    const tsSupportColor = metrics.supportsTimestamps ? '#00ff00' : '#ffaa00';
+    const tsSupportColor = metrics.supportsTimestamps ? TEXT.primary : SEMANTIC.warn;
     this._metricElements.tsSupport.valueEl.textContent = metrics.supportsTimestamps ? 'Yes' : 'Fallback';
     this._metricElements.tsSupport.valueEl.style.color = tsSupportColor;
 
@@ -300,11 +305,11 @@ export class ComputeProfilerOverlay {
           // Create new row if it doesn't exist
           row = document.createElement('div');
           row.style.cssText = `
-            padding: 4px;
+            padding: 5px 6px;
             margin-bottom: 4px;
-            background: rgba(0, 255, 0, 0.05);
-            border-left: 2px solid rgba(0, 255, 0, 0.3);
-            padding-left: 6px;
+            border-radius: 6px;
+            background: ${SURFACE.fillSoft};
+            border-left: 2px solid ${SURFACE.lineStrong};
           `;
           this.dispatchList.appendChild(row);
         }
@@ -319,21 +324,21 @@ export class ComputeProfilerOverlay {
           : 0;
 
         row.innerHTML = `
-          <div style="color: #00ff88; font-weight: bold;">#${index + 1} ${dispatch.label}</div>
+          <div style="color: ${TEXT.primary}; font-weight: 600;">#${index + 1} ${dispatch.label}</div>
           <div style="margin-top: 2px;">
-            <span style="color: rgba(0,255,0,0.7)">Time:</span>
-            <span style="color: #00ff00">${timing.toFixed(3)} ms ${timingLabel}</span>
+            <span style="color: ${TEXT.tertiary}">Time:</span>
+            <span style="color: ${ACCENT.base}">${timing.toFixed(3)} ms ${timingLabel}</span>
           </div>
           ${dispatchSize ? `
             <div style="margin-top: 2px;">
-              <span style="color: rgba(0,255,0,0.7)">Dispatch:</span>
-              <span style="color: #00ff00">${dispatchSize.x}×${dispatchSize.y}×${dispatchSize.z}</span>
-              <span style="color: rgba(0,255,0,0.7); margin-left: 8px">Workgroup:</span>
-              <span style="color: #00ff00">${workgroupSize?.x || 0}×${workgroupSize?.y || 0}×${workgroupSize?.z || 0}</span>
+              <span style="color: ${TEXT.tertiary}">Dispatch:</span>
+              <span style="color: ${ACCENT.base}">${dispatchSize.x}×${dispatchSize.y}×${dispatchSize.z}</span>
+              <span style="color: ${TEXT.tertiary}; margin-left: 8px">Workgroup:</span>
+              <span style="color: ${ACCENT.base}">${workgroupSize?.x || 0}×${workgroupSize?.y || 0}×${workgroupSize?.z || 0}</span>
             </div>
             <div style="margin-top: 2px;">
-              <span style="color: rgba(0,255,0,0.7)">Total:</span>
-              <span style="color: #00ff00">${workgroupCount.toLocaleString()} workgroups</span>
+              <span style="color: ${TEXT.tertiary}">Total:</span>
+              <span style="color: ${ACCENT.base}">${workgroupCount.toLocaleString()} workgroups</span>
             </div>
           ` : ''}
         `;

@@ -70,7 +70,10 @@ describe('_renderOutputPinName places the name on its socket row', () => {
     expect(renderer.ctx.textAlign).toBe('right');
     // The tag box ends 6px left of the port and is tagW wide, so the name's right edge clears its
     // left edge by OUT_NAME_GAP — the name and the value never overlap.
-    expect(call.x).toBe(200 - 6 - tagW - 6);
+    // 13 is OUT_TAG_GAP: the tag's clearance from the port centre, widened from
+    // 6 once the tag became a filled box, because the port's halo was landing on
+    // the tag's corner.
+    expect(call.x).toBe(200 - 13 - tagW - 6);
     // Centred on the same row as the port.
     expect(call.y).toBe(pos.y + 2);
   });
@@ -82,7 +85,8 @@ describe('_renderOutputPinName places the name on its socket row', () => {
     renderer._renderOutputPinName({ kind: 'Split3' }, 0, { x: 200, y: 60 }, 0);
 
     expect(renderer.ctx.calls).toHaveLength(1);
-    expect(renderer.ctx.calls[0].x).toBe(190);
+    // Right-aligned at the same clearance a tag would have had (OUT_TAG_GAP).
+    expect(renderer.ctx.calls[0].x).toBe(200 - 13);
   });
 
   it('draws nothing for a pin with no name', () => {

@@ -898,8 +898,11 @@ export class EventHandler {
 
       // End wire drag - support bidirectional connections
       // Don't end wire drag if radial menu is open (user might be selecting a node to connect)
-      const isRadialMenuOpen = this.menu?.radialMenu?.isVisible;
-      if (this.connections.getDragWire() && !isRadialMenuOpen) {
+      // A wire released over empty canvas opens the add-node palette; the drag
+      // stays live until a node is picked (or the palette is dismissed, which
+      // cancels it), so don't resolve the drop while it is open.
+      const isAddMenuOpen = this.menu?.isAddMenuOpen?.();
+      if (this.connections.getDragWire() && !isAddMenuOpen) {
         const dragWire = this.connections.getDragWire();
         let target = null;
 

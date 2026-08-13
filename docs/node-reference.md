@@ -886,12 +886,33 @@ Generates a rectangular shape.
 - **Parameters**:
   - `Center X` (float, default: 0.5) - Rectangle center X
   - `Center Y` (float, default: 0.5) - Rectangle center Y
-  - `Width` (float, default: 0.5) - Rectangle width
-  - `Height` (float, default: 0.5) - Rectangle height
-  - `Roundness` (float, default: 0.0) - Corner rounding amount
+  - `Width` (float, default: 0.5) - Rectangle width, in the unit `Size Mode` selects
+  - `Height` (float, default: 0.5) - Rectangle height, as a fraction of the frame's height
+  - `Size Mode` (select, default: `Proportional`) - What `Width` is a fraction of
+  - `Roundness` (float, default: 0.0) - Corner rounding, as a fraction of the shortest half-extent
   - `Smoothness` (float, default: 0.01) - Edge softness
   - `Invert` (bool, default: false) - Invert inside/outside
 - **Description**: Creates a rectangular shape with optional rounded corners and smooth edges.
+
+**Size Mode** decides what `Width` is measured against, because the two useful answers
+cannot both be true at once:
+
+| Mode | `Width` is | `Width` = `Height` = 0.5 on a 16:9 output |
+| --- | --- | --- |
+| `Proportional` (default) | a fraction of the frame's **height**, like `Height` | a true **square**, 28% of the width × 50% of the height |
+| `Frame` | a fraction of the frame's **width** | half the width × half the height, so a 16:9 rectangle |
+
+`Proportional` is the default because it makes the two numbers describe the shape:
+`Width : Height` is exactly the ratio you see, so `0.5 × 0.5` is a square at **every render
+resolution and every aspect ratio**. The units match Circle's and Polygon's `Radius` too — a
+`Proportional` rectangle of width and height `2r` circumscribes a circle of radius `r`.
+
+Switch to `Frame` to lay a shape out against the composition instead: `1.0 × 1.0` fills it at
+any aspect ratio. The trade-off is that the shape then inherits the composition's proportions,
+so equal values are never square on a non-square output.
+
+Neither mode caps the extents, so a rectangle may be larger than the frame. In `Proportional`
+mode, give `Width` the frame's aspect ratio (1.78 on 16:9) to span it edge to edge.
 
 #### Polygon
 
@@ -1561,11 +1582,11 @@ UV distortion and displacement effects.
 - **Parameters**:
   - `mode` (select: Displace/Twist/Bulge/Pinch/Wave, default: Displace) - Warp type
   - `strength` (float, default: 0.5, range: 0-5) - Effect strength
-  - `centerX` / `centerY` (float, default: 0.5) - Effect center
-  - `radius` (float, default: 0.5, range: 0-2) - Effect radius
-  - `frequency` (float, default: 4.0, range: 0.1-20) - Wave frequency
-  - `phase` (float, default: 0.0, range: 0-360) - Wave phase
-- **Description**: Distorts a texture with several warp modes; the Warp Field input allows another texture (e.g. noise) to drive the displacement.
+  - `centerX` / `centerY` (float, default: 0.5) - Effect center — Twist, Bulge and Pinch only
+  - `radius` (float, default: 0.5, range: 0-2) - Effect radius — Twist, Bulge and Pinch only
+  - `frequency` (float, default: 4.0, range: 0.1-20) - Wave frequency — Wave only
+  - `phase` (float, default: 0.0, range: 0-360) - Wave phase — Wave only
+- **Description**: Distorts a texture with several warp modes; the Warp Field input allows another texture (e.g. noise) to drive the displacement. Displace takes its whole direction from the Warp Field, so with that pin empty it passes the input straight through and the centre and radius have nothing to act on; the other four modes are parametric and work with or without a field.
 
 #### Kaleidoscope (Compute)
 
@@ -1853,7 +1874,7 @@ Translates, rotates, and scales a texture.
   - `translateX` / `translateY` (float, default: 0.0, range: -1 to 1) - Offset
   - `rotation` (float, default: 0.0, range: -180 to 180) - Rotation in degrees
   - `scaleX` / `scaleY` (float, default: 1.0, range: 0.1-5) - Scale
-  - `pivotX` / `pivotY` (float, default: 0.5) - Transform pivot
+  - `pivotX` / `pivotY` (float, default: 0.5) - Transform pivot; the point rotation and scale turn around, so it has no effect while rotation is 0 and both scales are 1
   - `wrapMode` (select: Repeat/Clamp/Mirror, default: Repeat) - Edge behavior
 - **Description**: Applies geometric transforms directly to a compute texture — use this when there is no downstream fragment texture sampler to receive transformed UVs.
 
@@ -2024,11 +2045,17 @@ Samples a 2D texture image.
 - **Outputs**:
   - `Color` (vec4) - Sampled color with alpha
 - **Parameters**:
-  - `Image` (file) - Image file to load
+  - `Image / Video` (file) - Image or video file to load
+  - `Play` (bool, default: true) - *Video only.* Run the video, or hold it on the current frame
+  - `Loop` (bool, default: true) - *Video only.* Restart when the video reaches the end
+  - `Speed` (float, default: 1.0) - *Video only.* Playback speed multiplier (0.0625–16)
+  - `Sound` (bool, default: false) - *Video only.* Unmute the video's audio track
+  - `Trim Start (s)` (float, default: 0) - *Video only.* Start playback this many seconds into the clip
+  - `Trim End (s, 0 = end)` (float, default: 0) - *Video only.* Stop (or loop) at this point; 0 plays to the end of the clip
   - `Wrap U` (select: repeat/clamp/mirror, default: repeat) - Horizontal wrapping mode
   - `Wrap V` (select: repeat/clamp/mirror, default: repeat) - Vertical wrapping mode
   - `Filter` (select: linear/nearest, default: linear) - Texture filtering mode
-- **Description**: Loads and samples a 2D texture image at the given UV coordinates, with configurable wrapping and filtering. Use a **Split Vec4** node to extract individual R/G/B/A channels.
+- **Description**: Loads and samples a 2D texture at the given UV coordinates, with configurable wrapping and filtering. Use a **Split Vec4** node to extract individual R/G/B/A channels. The file may be a still image or a video (`.mp4`, `.webm`, `.mov`, `.ogv`): a video plays on its own clock and its current frame is uploaded to the same texture every rendered frame, so every node downstream treats it exactly like an image. The playback parameters are dimmed until the loaded file is a video.
 
 #### Texture Cube
 Samples a cubemap texture.

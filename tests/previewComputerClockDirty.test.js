@@ -91,6 +91,8 @@ describe('PreviewComputer clock-driven dirty propagation', () => {
     expect(computer._isClockDrivenNode({ kind: 'ConstFloat', params: { value: '=audioEnvelopeBass * 2' } })).toBe(true);
     expect(computer._isClockDrivenNode({ kind: 'Time', params: {} })).toBe(true);
     expect(computer._isClockDrivenNode({ kind: 'RandomValue', params: { speed: 1 } })).toBe(true);
+    // Wave is a free-running LFO — none of its params name `time`, so only the kind check finds it.
+    expect(computer._isClockDrivenNode({ kind: 'Wave', params: { frequency: 1, amplitude: 1 } })).toBe(true);
 
     // Static values stay static.
     expect(computer._isClockDrivenNode({ kind: 'ConstFloat', params: { value: 0.25 } })).toBe(false);
@@ -137,6 +139,21 @@ describe('PreviewComputer clock-driven dirty propagation', () => {
     expect(dirtyAt(graph, 1.0).size).toBe(0);
     // ...and resumes dirtying as soon as it moves again.
     expect(dirtyAt(graph, 1.016).has('4')).toBe(true);
+  });
+
+  it('re-dirties a Wave LFO and its downstream Remap as the clock advances', () => {
+    const graph = {
+      nodes: [
+        { id: '4', kind: 'Wave', inputs: [], params: { shape: 'Sine', frequency: 1, amplitude: 1 } },
+        { id: '5', kind: 'Remap', inputs: ['4'], params: { inMin: -1, inMax: 1, outMin: -0.5, outMax: 0.5 } },
+      ],
+      connections: [],
+    };
+    prime(graph, 1.0);
+
+    const dirty = dirtyAt(graph, 1.016);
+    expect(dirty.has('4')).toBe(true);
+    expect(dirty.has('5')).toBe(true);
   });
 
   it('reaches a dependent that consumes the chain through a parameter expression', () => {

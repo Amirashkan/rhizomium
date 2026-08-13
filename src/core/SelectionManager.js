@@ -1,6 +1,7 @@
 // src/core/SelectionManager.js - Updated with permanent undo integration and error handling
-import { NodeDefs, makeNode, updateNodeIdCounter } from "../data/NodeDefs.js";
-import { getInputCount, setInputCount } from "../data/nodeInputs.js";
+import { NodeDefs, updateNodeIdCounter } from "../data/NodeDefs.js";
+import { getInputCount } from "../data/nodeInputs.js";
+import { cloneNode, cloneConnections } from "./cloneGraph.js";
 
 export class SelectionManager {
   constructor(graph, onChange) {
@@ -58,46 +59,12 @@ export class SelectionManager {
   }
 
   /**
-   * Properly clone a node with all its parameters
+   * Properly clone a node with all its parameters. Shared with the menu duplicate path — see
+   * cloneGraph.js for what a copy has to carry.
    */
   cloneNodeProperly(sourceNode, offsetX = 20, offsetY = 20) {
     try {
-      // Create a new node of the same kind using makeNode for proper initialization
-      const newNode = makeNode(
-        sourceNode.kind,
-        (Number.isFinite(sourceNode.x) ? sourceNode.x : 0) + offsetX,
-        (Number.isFinite(sourceNode.y) ? sourceNode.y : 0) + offsetY
-      );
-
-      // Deep copy params to avoid shared references
-      if (sourceNode.params) {
-        newNode.params = JSON.parse(JSON.stringify(sourceNode.params));
-      }
-
-      // Copy special properties
-      if (sourceNode.value !== undefined) {
-        newNode.value = sourceNode.value;
-      }
-      if (sourceNode.expr !== undefined) {
-        newNode.expr = sourceNode.expr;
-      }
-      if (sourceNode.props) {
-        newNode.props = JSON.parse(JSON.stringify(sourceNode.props));
-      }
-
-      // Expanded input pins are part of the node's shape, so a copy has to carry them — otherwise
-      // duplicating a 5-input Mix silently produces a 2-input one and drops the extra wires.
-      if (sourceNode.inputCount !== undefined) {
-        setInputCount(newNode, sourceNode.inputCount);
-      }
-
-      // Same for a custom title: duplicating "bloom mask" and getting an anonymous "Remap" back
-      // loses what the artist wrote. The copies stay distinguishable by the #id beside the name.
-      if (sourceNode.name) {
-        newNode.name = sourceNode.name;
-      }
-
-      return newNode;
+      return cloneNode(sourceNode, offsetX, offsetY);
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'node-cloning',
@@ -513,6 +480,12 @@ endDrag() {
   }
 
 deleteSelected() {
+  // Deleting a node also re-wires its neighbours around the gap (_autoReconnectWires), and that
+  // bypass wire is recorded too. Both go in one transaction, otherwise the first Ctrl+Z only
+  // removes the bypass wire and a second one is needed to bring the node back.
+  const undoManager = this.undoManager || window.undoManager;
+  undoManager?.beginTransaction?.('delete nodes');
+
   try {
     const ids = new Set(this.graph.selection);
     if (ids.size === 0) return;
@@ -575,10 +548,12 @@ deleteSelected() {
 
     if (this.onChange) this.onChange();
   } catch (error) {
-    window.errorHandler?.handleError(error, { 
+    window.errorHandler?.handleError(error, {
       component: 'node-deletion',
       selectedCount: this.graph.selection?.size || 0
     });
+  } finally {
+    undoManager?.commitTransaction?.();
   }
 }
 
@@ -918,18 +893,9 @@ deleteSelected() {
       // Add clones to graph
       this.graph.nodes.push(...clones);
 
-      // Clone connections between selected nodes
-      const newConns = [];
-      for (const c of this.graph.connections) {
-        const fromNew = mapOldToNew.get(c.from.nodeId);
-        const toNew = mapOldToNew.get(c.to.nodeId);
-        if (fromNew && toNew) {
-          newConns.push({
-            from: { nodeId: fromNew, pin: c.from.pin },
-            to: { nodeId: toNew, pin: c.to.pin },
-          });
-        }
-      }
+      // Clone connections between selected nodes. cloneConnections also mirrors each wire into the
+      // clones' `inputs`, without which the copies compile as disconnected.
+      const newConns = cloneConnections(this.graph.connections, mapOldToNew, clones);
 
       this.graph.connections.push(...newConns);
       this.graph.selection = new Set(clones.map((n) => n.id));
@@ -1046,18 +1012,8 @@ deleteSelected() {
       // Add clones to graph
       this.graph.nodes.push(...clones);
 
-      // Clone connections from clipboard
-      const newConns = [];
-      for (const c of this.clipboard.connections) {
-        const fromNew = mapOldToNew.get(c.from.nodeId);
-        const toNew = mapOldToNew.get(c.to.nodeId);
-        if (fromNew && toNew) {
-          newConns.push({
-            from: { nodeId: fromNew, pin: c.from.pin },
-            to: { nodeId: toNew, pin: c.to.pin },
-          });
-        }
-      }
+      // Clone connections from clipboard, mirroring each wire into the pasted nodes' `inputs`.
+      const newConns = cloneConnections(this.clipboard.connections, mapOldToNew, clones);
 
       this.graph.connections.push(...newConns);
       this.graph.selection = new Set(clones.map((n) => n.id));

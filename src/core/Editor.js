@@ -1163,7 +1163,9 @@ connectGPURenderer(renderFunction) {
       // their own), so without counting it here the loop stops redrawing when the graph is otherwise
       // static and the node's value only refreshes when something else forces a redraw (e.g. editing
       // a parameter) — exactly the "only updates when I change a parameter" freeze.
-      return kind === 'time' || kind === 'randomvalue' || kind === 'audioanalysis';
+      // Wave is a free-running LFO: it advances from the clock alone with nothing wired in, so it
+      // has to keep the loop alive for the same reason Time does.
+      return kind === 'time' || kind === 'randomvalue' || kind === 'wave' || kind === 'audioanalysis';
     });
   }
 

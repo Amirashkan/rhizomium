@@ -3,6 +3,8 @@
  * Replaces browser-native alert(), confirm(), and prompt() with custom UI
  */
 
+import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
+
 export class ModalManager {
   constructor() {
     this.modals = [];
@@ -16,20 +18,24 @@ export class ModalManager {
     const styles = document.createElement('style');
     styles.id = 'modal-manager-styles';
     styles.textContent = `
+      /* Shared dialog + toast chrome. Every confirm, prompt, progress bar and
+         notification in the app is built from these classes, so this is the one
+         place their surface is defined — see src/styles/tokens.css. */
       .modal-overlay {
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(0, 0, 0, 0.7);
-        backdrop-filter: blur(4px);
+        background: rgba(8, 6, 5, 0.5);
+        backdrop-filter: blur(3px);
         display: flex;
         align-items: center;
         justify-content: center;
         opacity: 0;
         transition: opacity 0.2s ease;
         pointer-events: auto;
+        font-family: ${FONT_UI};
       }
 
       .modal-overlay.visible {
@@ -37,76 +43,78 @@ export class ModalManager {
       }
 
       .modal-dialog {
-        background: rgba(28, 28, 30, 0.98);
-        backdrop-filter: blur(20px) saturate(180%);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 12px;
+        background: rgba(22, 18, 15, 0.96);
+        backdrop-filter: blur(26px) saturate(150%);
+        border: 1px solid ${SURFACE.lineStrong};
+        border-radius: 18px;
         width: 90%;
         max-width: 480px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-        transform: scale(0.9) translateY(-20px);
+        color: ${TEXT.primary};
+        box-shadow: 0 40px 100px -24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,244,230,0.07);
+        transform: scale(0.94);
         opacity: 0;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: all 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
       }
 
       .modal-overlay.visible .modal-dialog {
-        transform: scale(1) translateY(0);
+        transform: scale(1);
         opacity: 1;
       }
 
       .modal-header {
-        padding: 20px 24px 16px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 20px 24px 14px;
+        border-bottom: 1px solid ${SURFACE.line};
       }
 
       .modal-title {
         margin: 0;
-        color: #ffffff;
-        font-size: 18px;
+        color: ${TEXT.primary};
+        font-size: 17px;
         font-weight: 600;
       }
 
       .modal-body {
-        padding: 20px 24px;
-        color: rgba(255, 255, 255, 0.9);
-        font-size: 14px;
+        padding: 18px 24px;
+        color: ${TEXT.secondary};
+        font-size: 13.5px;
         line-height: 1.6;
       }
 
       .modal-input {
         width: 100%;
         margin-top: 12px;
-        padding: 10px 12px;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 6px;
-        color: #fff;
-        font-size: 14px;
-        font-family: inherit;
+        padding: 9px 11px;
+        background: ${SURFACE.well};
+        border: 1px solid ${SURFACE.line};
+        border-radius: 8px;
+        color: ${TEXT.primary};
+        font-size: 13px;
+        font-family: ${FONT_MONO};
         box-sizing: border-box;
       }
 
       .modal-input:focus {
         outline: none;
-        border-color: #007AFF;
-        background: rgba(255, 255, 255, 0.08);
+        border-color: ${withAlpha(ACCENT.base, 0.3)};
+        box-shadow: 0 0 0 3px ${withAlpha(ACCENT.base, 0.1)};
       }
 
       .modal-footer {
-        padding: 16px 24px 20px;
+        padding: 14px 24px 20px;
         display: flex;
-        gap: 12px;
+        gap: 8px;
         justify-content: flex-end;
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        border-top: 1px solid ${SURFACE.line};
       }
 
       .modal-button {
-        padding: 10px 20px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 6px;
-        background: rgba(58, 58, 62, 0.6);
-        color: #ffffff;
-        font-size: 14px;
+        padding: 9px 18px;
+        border: 1px solid ${SURFACE.line};
+        border-radius: 8px;
+        background: ${SURFACE.fillSoft};
+        color: ${TEXT.secondary};
+        font-family: inherit;
+        font-size: 12.5px;
         font-weight: 500;
         cursor: pointer;
         transition: all 0.15s ease;
@@ -114,54 +122,60 @@ export class ModalManager {
       }
 
       .modal-button:hover {
-        background: rgba(74, 74, 78, 0.8);
-        border-color: rgba(255, 255, 255, 0.3);
-        transform: translateY(-1px);
+        background: ${SURFACE.hover};
+        color: #ffffff;
       }
 
       .modal-button:active {
-        transform: translateY(0);
+        transform: translateY(1px);
       }
 
+      /* One primary and, at most, one destructive action per dialog. */
       .modal-button.primary {
-        background: #007AFF;
-        border-color: #007AFF;
+        background: ${ACCENT.base};
+        border-color: ${ACCENT.base};
+        color: ${ACCENT.ink};
+        font-weight: 600;
       }
 
       .modal-button.primary:hover {
-        background: #0056CC;
-        border-color: #0056CC;
+        background: ${ACCENT.hover};
+        border-color: ${ACCENT.hover};
+        color: ${ACCENT.ink};
       }
 
       .modal-button.danger {
-        background: #FF453A;
-        border-color: #FF453A;
+        background: ${withAlpha(SEMANTIC.error, 0.14)};
+        border-color: ${withAlpha(SEMANTIC.error, 0.4)};
+        color: ${SEMANTIC.error};
       }
 
       .modal-button.danger:hover {
-        background: #CC231A;
-        border-color: #CC231A;
+        background: ${withAlpha(SEMANTIC.error, 0.24)};
+        border-color: ${SEMANTIC.error};
+        color: ${SEMANTIC.error};
       }
 
       /* Toast notification styles */
       .toast-container {
         position: fixed;
-        top: 20px;
+        top: 52px;
         right: 20px;
         z-index: 20000;
         pointer-events: none;
+        font-family: ${FONT_UI};
       }
 
       .toast {
-        background: rgba(28, 28, 30, 0.98);
+        background: rgba(22, 18, 15, 0.96);
         backdrop-filter: blur(20px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
-        padding: 16px 20px;
-        margin-bottom: 12px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-        color: #fff;
-        font-size: 14px;
+        border: 1px solid ${SURFACE.lineStrong};
+        border-radius: 12px;
+        padding: 13px 16px;
+        margin-bottom: 10px;
+        box-shadow: 0 20px 48px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,244,230,0.06);
+        color: ${TEXT.primary};
+        font-size: 13px;
         pointer-events: auto;
         transform: translateX(400px);
         opacity: 0;
@@ -175,75 +189,78 @@ export class ModalManager {
       }
 
       .toast.success {
-        border-left: 3px solid #34C759;
+        border-left: 3px solid ${SEMANTIC.success};
       }
 
       .toast.error {
-        border-left: 3px solid #FF453A;
+        border-left: 3px solid ${SEMANTIC.error};
       }
 
       .toast.info {
-        border-left: 3px solid #007AFF;
+        border-left: 3px solid ${ACCENT.base};
       }
 
       .toast.warning {
-        border-left: 3px solid #FF9F0A;
+        border-left: 3px solid ${SEMANTIC.warn};
       }
 
       .toast-title {
         font-weight: 600;
-        margin-bottom: 4px;
+        margin-bottom: 3px;
       }
 
       .toast-message {
-        font-size: 13px;
-        opacity: 0.9;
+        font-size: 12.5px;
+        color: ${TEXT.secondary};
       }
 
       /* Progress bar modal styles */
       .progress-modal {
-        background: rgba(28, 28, 30, 0.98);
-        backdrop-filter: blur(20px) saturate(180%);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 12px;
+        background: rgba(22, 18, 15, 0.96);
+        backdrop-filter: blur(26px) saturate(150%);
+        border: 1px solid ${SURFACE.lineStrong};
+        border-radius: 18px;
         padding: 24px;
         min-width: 400px;
         max-width: 500px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+        color: ${TEXT.primary};
+        font-family: ${FONT_UI};
+        box-shadow: 0 40px 100px -24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,244,230,0.07);
       }
 
       .progress-title {
-        color: #ffffff;
-        font-size: 18px;
+        color: ${TEXT.primary};
+        font-size: 17px;
         font-weight: 600;
         margin: 0 0 8px 0;
       }
 
       .progress-message {
-        color: rgba(255, 255, 255, 0.8);
-        font-size: 14px;
+        color: ${TEXT.secondary};
+        font-size: 13.5px;
         margin: 0 0 20px 0;
       }
 
       .progress-bar-container {
         width: 100%;
         height: 8px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 4px;
+        background: ${SURFACE.well};
+        border: 1px solid ${SURFACE.line};
+        border-radius: 999px;
         overflow: hidden;
         margin-bottom: 12px;
       }
 
       .progress-bar-fill {
         height: 100%;
-        background: linear-gradient(90deg, #007AFF, #0056CC);
-        border-radius: 4px;
+        background: linear-gradient(90deg, ${ACCENT.deep}, ${ACCENT.base});
+        border-radius: 999px;
         transition: width 0.3s ease;
         width: 0%;
       }
 
       .progress-bar-fill.indeterminate {
-        background: linear-gradient(90deg, #007AFF, #0056CC, #007AFF);
+        background: linear-gradient(90deg, ${ACCENT.deep}, ${ACCENT.base}, ${ACCENT.deep});
         background-size: 200% 100%;
         animation: progress-shimmer 1.5s ease-in-out infinite;
         width: 100%;
@@ -255,17 +272,18 @@ export class ModalManager {
       }
 
       .progress-percentage {
-        color: rgba(255, 255, 255, 0.6);
-        font-size: 12px;
+        color: ${TEXT.tertiary};
+        font-family: ${FONT_MONO};
+        font-size: 11px;
         text-align: right;
         margin-top: 4px;
       }
 
       .progress-details {
-        color: rgba(255, 255, 255, 0.5);
-        font-size: 12px;
+        color: ${TEXT.faint};
+        font-size: 11px;
         margin-top: 8px;
-        font-family: monospace;
+        font-family: ${FONT_MONO};
       }
     `;
     document.head.appendChild(styles);

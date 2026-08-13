@@ -1,3 +1,5 @@
+import { ACCENT, TEXT } from '../../core/theme.js';
+
 export class BooleanInputHandler {
   constructor(undoManager) {
     this.undoManager = undoManager;
@@ -20,9 +22,10 @@ export class BooleanInputHandler {
     checkbox.className = 'param-input';
     checkbox.setAttribute('data-param', param.name);
     checkbox.style.cssText = `
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
       cursor: pointer;
+      accent-color: ${ACCENT.base};
     `;
     
     checkbox.addEventListener('change', (e) => {
@@ -48,8 +51,8 @@ export class BooleanInputHandler {
     const checkboxLabel = document.createElement('label');
     checkboxLabel.textContent = value ? 'Enabled' : 'Disabled';
     checkboxLabel.style.cssText = `
-      font-size: 11px;
-      color: #ccc;
+      font-size: 11.5px;
+      color: ${TEXT.secondary};
       cursor: pointer;
     `;
     

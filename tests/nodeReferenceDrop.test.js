@@ -48,16 +48,17 @@ describe('insertNodeReference', () => {
     expect(insertNodeReference(input, 'node_7')).toBe('=node_7');
   });
 
-  it('appends to an existing expression instead of replacing it', () => {
-    const input = makeParamField({ value: '=sin(time) * ', rect: { left: 0, top: 0, width: 100, height: 20 } });
-    expect(insertNodeReference(input, 'node_7')).toBe('=sin(time) * node_7');
+  it('replaces an existing expression rather than appending to it', () => {
+    const input = makeParamField({ value: '=sin(time) * 2', rect: { left: 0, top: 0, width: 100, height: 20 } });
+    expect(insertNodeReference(input, 'node_7')).toBe('=node_7');
+    expect(input.value).toBe('=node_7');
   });
 
-  it('splices into an existing expression at the caret when the field is focused', () => {
-    const input = makeParamField({ value: '=1 +  * 2', rect: { left: 0, top: 0, width: 100, height: 20 } });
+  it('replaces the whole expression even when the field is focused with a caret in it', () => {
+    const input = makeParamField({ value: '=1 + 2 * 2', rect: { left: 0, top: 0, width: 100, height: 20 } });
     input.focus();
-    input.setSelectionRange(5, 5); // between "+ " and " * 2"
-    expect(insertNodeReference(input, 'node_7')).toBe('=1 + node_7 * 2');
+    input.setSelectionRange(5, 5);
+    expect(insertNodeReference(input, 'node_7')).toBe('=node_7');
   });
 
   it('focuses the field before writing, so the handler keeps the old value as its commit baseline', () => {

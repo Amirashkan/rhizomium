@@ -413,11 +413,13 @@ export const ComputeNodes = {
     params: [
       { name: 'mode', type: 'select', options: ['Displace', 'Twist', 'Bulge', 'Pinch', 'Wave'], default: 'Displace' },
       { name: 'strength', type: 'float', default: 0.5, min: 0.0, max: 5.0 },
-      { name: 'centerX', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
-      { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
-      { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0 },
-      { name: 'frequency', type: 'float', default: 4.0, min: 0.1, max: 20.0 },
-      { name: 'phase', type: 'float', default: 0.0, min: 0.0, max: 360.0 }
+      // Displace takes its whole direction from the Warp Field and Wave is a global sine, so
+      // neither reads the centre or radius; only the three radial modes do.
+      { name: 'centerX', type: 'float', default: 0.5, min: 0.0, max: 1.0, activeWhen: { mode: ['Twist', 'Bulge', 'Pinch'] } },
+      { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0, activeWhen: { mode: ['Twist', 'Bulge', 'Pinch'] } },
+      { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0, activeWhen: { mode: ['Twist', 'Bulge', 'Pinch'] } },
+      { name: 'frequency', type: 'float', default: 4.0, min: 0.1, max: 20.0, activeWhen: { mode: 'Wave' } },
+      { name: 'phase', type: 'float', default: 0.0, min: 0.0, max: 360.0, activeWhen: { mode: 'Wave' } }
     ],
     description: "UV distortion and displacement effects",
     workgroupSize: [8, 8, 1]
@@ -486,14 +488,16 @@ export const ComputeNodes = {
     pinsIn: ["Input"],
     pinsOut: ["Texture"],
     params: [
-      { name: 'translateX', type: 'float', default: 0.0, min: -1.0, max: 1.0 },
-      { name: 'translateY', type: 'float', default: 0.0, min: -1.0, max: 1.0 },
-      { name: 'rotation', type: 'float', default: 0.0, min: -180.0, max: 180.0 },
-      { name: 'scaleX', type: 'float', default: 1.0, min: 0.1, max: 5.0 },
-      { name: 'scaleY', type: 'float', default: 1.0, min: 0.1, max: 5.0 },
-      { name: 'pivotX', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
-      { name: 'pivotY', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
-      { name: 'wrapMode', type: 'select', options: ['Repeat', 'Clamp', 'Mirror'], default: 'Repeat' }
+      { name: 'translateX', type: 'float', default: 0.0, min: -1.0, max: 1.0, label: 'Translate X' },
+      { name: 'translateY', type: 'float', default: 0.0, min: -1.0, max: 1.0, label: 'Translate Y' },
+      { name: 'rotation', type: 'float', default: 0.0, min: -180.0, max: 180.0, label: 'Rotation' },
+      { name: 'scaleX', type: 'float', default: 1.0, min: 0.1, max: 5.0, label: 'Scale X' },
+      { name: 'scaleY', type: 'float', default: 1.0, min: 0.1, max: 5.0, label: 'Scale Y' },
+      // The pivot is the point rotation and scaling turn around, so it cancels out exactly while
+      // there is neither: dimmed rather than left looking broken.
+      { name: 'pivotX', type: 'float', default: 0.5, min: 0.0, max: 1.0, label: 'Pivot X', activeUnless: { rotation: 0, scaleX: 1, scaleY: 1 } },
+      { name: 'pivotY', type: 'float', default: 0.5, min: 0.0, max: 1.0, label: 'Pivot Y', activeUnless: { rotation: 0, scaleX: 1, scaleY: 1 } },
+      { name: 'wrapMode', type: 'select', options: ['Repeat', 'Clamp', 'Mirror'], default: 'Repeat', label: 'Wrap Mode' }
     ],
     description: "Translate, rotate, and scale textures",
     workgroupSize: [8, 8, 1]

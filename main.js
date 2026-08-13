@@ -11,6 +11,8 @@ import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
 import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
+import { StatusBar } from './src/ui/StatusBar.js';
+import { FpsMeter } from './src/ui/FpsMeter.js';
 import { TauriSecondMonitorViewer } from "./src/ui/TauriSecondMonitorViewer.js";
 import { isViteBuild } from "./src/utils/isViteBuild.js";
 import { isTauri } from "./src/utils/isTauri.js";
@@ -56,6 +58,7 @@ import { TriggerNodeProcessor } from "./src/core/TriggerNodeProcessor.js";
 import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
+import { WaveSyncProcessor } from "./src/core/WaveSyncProcessor.js";
 import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
 import { TextNodeProcessor } from "./src/core/TextNodeProcessor.js";
 import { setupTauriFileAssociation } from "./src/core/tauriFileOpen.js";
@@ -85,6 +88,8 @@ const countNodeProcessor = new CountNodeProcessor();
 window.countNodeProcessor = countNodeProcessor;
 // Watches the Feedback nodes' Reset pin and clears feedback on a rising edge. See FeedbackResetProcessor.
 const feedbackResetProcessor = new FeedbackResetProcessor();
+// Restarts a Wave node's cycle when its sync pin sees a rising edge. See WaveSyncProcessor.
+const waveSyncProcessor = new WaveSyncProcessor();
 // Runs precise audio kick/onset detection each frame for Audio Analysis nodes. See AudioAnalysisProcessor.
 const audioKickProcessor = new AudioAnalysisProcessor();
 // Re-rasterises Text nodes whose string or layout reads a live expression. See TextNodeProcessor.
@@ -140,6 +145,8 @@ let welcomeWindow = null;
 let undoManager = null;
 let parameterEventSystem = null;
 let floatingPreview = null;
+let statusBar = null;
+let fpsMeter = null;
 let secondMonitorViewer = null;
 let previewExportSettingsWindow = null;
 let preferencesWindow = null;
@@ -553,6 +560,18 @@ async function initialize() {
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
+
+    // Canvas status bar — zoom, GPU state, cursor position, the wire-colour
+    // legend and the transport readout. Reads live state; owns none.
+    statusBar = new StatusBar(editor);
+    statusBar.mount();
+    window.statusBar = statusBar;
+
+    // Frame rate sits with the canvas readouts at the bottom; the status
+    // message keeps its place at the right of the menu bar.
+    fpsMeter = new FpsMeter(statusBar.fpsSlot);
+    fpsMeter.mount();
+    window.fpsMeter = fpsMeter;
 
     // Initialize Preview/Export Settings Window BEFORE setupUIEventHandlers
     // so that handlers can find it
@@ -3330,13 +3349,16 @@ function updateStatus(message, type = "info") {
   const statusEl = document.getElementById("status");
   if (statusEl) {
     statusEl.textContent = message;
-    statusEl.className = type;
+    // Keep the layout class: it is what pushes the readout to the right of the
+    // menu bar and draws its live-state dot. Assigning `type` alone dropped it,
+    // leaving the status stranded next to the Help menu.
+    statusEl.className = type ? `menu-status ${type}` : "menu-status";
 
     if (type !== "error") {
       setTimeout(() => {
         if (statusEl.textContent === message) {
           statusEl.textContent = "Idle";
-          statusEl.className = "";
+          statusEl.className = "menu-status";
         }
       }, 3000);
     }
@@ -3431,6 +3453,14 @@ function handleRenderFrame(frameState) {
         time: frameState.simTime,
         uniformManager: window.nodeCompiler.uniformManager,
       });
+      // Then restart any Wave whose sync pin rose this frame, before the consumers below: a synced
+      // Wave's cycle origin is CPU-only state (node.__waveSyncTime), and Hold / Count / the Feedback
+      // reset pin can all read a Wave, so it has to be this frame's origin not last frame's. It
+      // runs after the Trigger pass for the same reason — a Trigger is a natural sync source.
+      waveSyncProcessor.update(window.editor.graph, {
+        time: frameState.simTime,
+        uniformManager: window.nodeCompiler.uniformManager,
+      });
       holdNodeProcessor.update(window.editor.graph, {
         time: frameState.simTime,
         uniformManager: window.nodeCompiler.uniformManager,
@@ -3504,26 +3534,28 @@ function handleRenderFrame(frameState) {
     }
     sceneRenderer3D.render(frameState.simTime);
 
-    // Publish the rendered frame as each mapper node's output texture so
-    // downstream nodes and the main canvas can consume the 3D view
+    // Publish each 3D node's OWN rendered frame as its output texture so
+    // downstream nodes and the main canvas consume that node's view alone
     if (hasFieldMappers) {
-      fieldMapperIntegration.publishOutputs(sceneRenderer3D.getSceneTexture?.());
+      fieldMapperIntegration.publishOutputs();
     }
 
-    // Mirror the rendered frame into the 3D node's editor thumbnail so it
-    // stays live. Throttled: a readback 4x/sec is imperceptible on the tiny
+    // Mirror each node's own frame into its editor thumbnail so it stays
+    // live. Throttled: a readback 4x/sec is imperceptible on the tiny
     // thumbnail but keeps GPU->CPU traffic negligible.
     const now = performance.now();
     if (now - (window.__fieldMapperThumbAt || 0) > 250) {
       window.__fieldMapperThumbAt = now;
       const previewManager = window.editor?.shaderPreviewManager;
       if (previewManager && graph?.nodes) {
-        // Pass a getter so the queue always downscales the CURRENT scene
-        // texture, not one destroyed by a resolution change while queued
-        const getSceneTexture = () => sceneRenderer3D?.getSceneTexture?.() ?? null;
         for (const node of graph.nodes) {
           if (node && node.kind === 'ComputeFieldMapper') {
-            previewManager.updateNodeThumbnailFromTexture(node, getSceneTexture);
+            // Pass a getter so the queue always downscales the CURRENT
+            // texture, not one retired by a resolution change while queued
+            previewManager.updateNodeThumbnailFromTexture(
+              node,
+              () => sceneRenderer3D?.getNodeTexture?.(node.id) ?? null
+            );
           }
         }
       }

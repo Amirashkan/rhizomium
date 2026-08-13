@@ -3,6 +3,24 @@ import { serializeProjectFormat, applyProjectFormat } from '../ui/OutputFormat.j
 import { BackupStore } from './BackupStore.js';
 import { migrateProjectData, SAVE_FORMAT_VERSION } from './projectMigrations.js';
 
+/**
+ * Decode a base64 data: URL into a Blob. Done by hand rather than with fetch() because the only
+ * caller is restoring a patch's inlined media, and a decode should not look like a network
+ * request to anything watching (CSP, service workers, or a reader of this code).
+ */
+export function dataUrlToBlob(dataUrl) {
+  const comma = dataUrl.indexOf(',');
+  if (comma < 0) throw new Error('Malformed data: URL');
+  const header = dataUrl.slice(5, comma); // between "data:" and the comma
+  if (!header.includes(';base64')) throw new Error('Only base64 data: URLs are supported');
+  const mime = header.split(';')[0] || 'application/octet-stream';
+
+  const binary = atob(dataUrl.slice(comma + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
 export class SaveLoadManager {
   constructor(editor, graph, updateCallback) {
     this.editor = editor;
@@ -161,10 +179,11 @@ async restoreTextures(textureData) {
   const restorePromises = [];
 
   for (const [nodeId, texInfo] of Object.entries(textureData)) {
-    if (texInfo.dataUrl) {
-      const promise = this.loadTextureFromDataUrl(nodeId, texInfo.dataUrl, texInfo.filename);
-      restorePromises.push(promise);
-    }
+    if (!texInfo.dataUrl) continue; // e.g. a video too large to inline - the node keeps its name
+    const promise = texInfo.isVideo || /^data:video\//i.test(String(texInfo.dataUrl).trim())
+      ? this.loadVideoFromDataUrl(nodeId, texInfo.dataUrl, texInfo.filename)
+      : this.loadTextureFromDataUrl(nodeId, texInfo.dataUrl, texInfo.filename);
+    restorePromises.push(promise);
   }
 
   if (restorePromises.length > 0) {
@@ -191,6 +210,31 @@ async restoreTextures(textureData) {
  * inlined payload that makes a patch self-contained is always a data: URL, so
  * anything else is refused rather than fetched.
  */
+/**
+ * Restore a video texture from a patch.
+ *
+ * Same rule as the image path and for the same reason: only an inline data: URL is accepted, so
+ * opening someone else's patch never fires a request at a URL its author chose. The decoded bytes
+ * are handed back to TextureManager as a File, which puts the node through the normal upload path.
+ */
+async loadVideoFromDataUrl(nodeId, dataUrl, filename) {
+  if (typeof dataUrl !== 'string' || !/^data:video\//i.test(dataUrl.trim())) {
+    throw new Error('Video source must be an inline data: video URL');
+  }
+  if (!this.textureManager) return;
+
+  const blob = dataUrlToBlob(dataUrl);
+  const file = typeof File === 'function'
+    ? new File([blob], filename || 'video', { type: blob.type })
+    : Object.assign(blob, { name: filename || 'video' });
+
+  // Pass the data URL straight back through so the restored node can be saved again without
+  // re-encoding the same bytes.
+  await this.textureManager.uploadVideo(nodeId, file, { dataUrl });
+
+  window.secondMonitorViewer?.onTextureChanged?.(nodeId);
+}
+
 async loadTextureFromDataUrl(nodeId, dataUrl, filename) {
   return new Promise((resolve, reject) => {
     if (typeof dataUrl !== 'string' || !/^data:image\//i.test(dataUrl.trim())) {
@@ -403,6 +447,7 @@ collectTextureData() {
           dataUrl: textureInfo.dataUrl,
           width: textureInfo.width,
           height: textureInfo.height,
+          isVideo: !!textureInfo.isVideo,
         };
       }
     }
@@ -1929,6 +1974,7 @@ async reinitializeWebGPU() {
             dataUrl: textureInfo.dataUrl,
             width: textureInfo.width,
             height: textureInfo.height,
+            isVideo: !!textureInfo.isVideo,
           };
         }
       }
@@ -2427,13 +2473,16 @@ importConnections(connectionData) {
       const statusEl = document.getElementById("status");
       if (statusEl) {
         statusEl.textContent = message;
-        statusEl.className = type;
+        // Keep the layout class: it is what pushes the readout to the right of
+        // the menu bar and draws its live-state dot. Assigning `type` alone
+        // dropped it, leaving the status stranded next to the Help menu.
+        statusEl.className = type ? `menu-status ${type}` : "menu-status";
 
         // Clear status after 3 seconds
         setTimeout(() => {
           if (statusEl.textContent === message) {
             statusEl.textContent = "Idle";
-            statusEl.className = "";
+            statusEl.className = "menu-status";
           }
         }, 3000);
       }

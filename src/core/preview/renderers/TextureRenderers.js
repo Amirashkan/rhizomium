@@ -160,6 +160,13 @@ export class TextureRenderers {
     // Check if texture is loaded
     const textureInfo = window.textureManager?.getTexture(node.id);
 
+    // A video is already decoded and in memory: draw the frame it is showing right now, so the
+    // thumbnail moves with the node instead of freezing on whatever loaded first.
+    if (textureInfo?.video) {
+      this._renderVideoFrame(ctx, node, textureInfo.video, { size, scale, rotation, offsetX, offsetY });
+      return;
+    }
+
     if (textureInfo && textureInfo.file) {
       // Try to create image from file
       const img = new Image();
@@ -227,6 +234,51 @@ export class TextureRenderers {
       }
     }
 
+  }
+
+  /**
+   * Draw the video element's current frame into the thumbnail, with the same transform the still
+   * path applies. Drawing an element that has no frame yet throws in some engines, so a video that
+   * has not reached HAVE_CURRENT_DATA gets the loading plate instead.
+   */
+  _renderVideoFrame(ctx, node, video, { size, scale, rotation, offsetX, offsetY }) {
+    ctx.clearRect(0, 0, size, size);
+
+    if ((video.readyState ?? 0) < 2) {
+      ctx.fillStyle = "#555";
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = "#4a90e2";
+      ctx.font = "bold 10px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("Loading...", size / 2, size / 2);
+      return;
+    }
+
+    try {
+      ctx.save();
+      ctx.translate(size / 2, size / 2);
+      ctx.rotate(rotation);
+      ctx.scale(scale, scale);
+      ctx.translate(-size / 2 + offsetX, -size / 2 + offsetY);
+      ctx.drawImage(video, 0, 0, size, size);
+      ctx.restore();
+    } catch {
+      this.renderTextureError(ctx, "Video Error");
+      return;
+    }
+
+    // Badge, so a still frame of a video is not mistaken for a still image.
+    ctx.fillStyle = "rgba(74, 144, 226, 0.9)";
+    ctx.fillRect(0, 0, 22, 10);
+    ctx.fillStyle = "white";
+    ctx.font = "bold 8px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText(video.paused ? "❚❚" : "▶", 2, 8);
+    ctx.fillText("VID", 9, 8);
+
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   renderTextureError(ctx, errorText) {
