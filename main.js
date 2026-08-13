@@ -2292,8 +2292,12 @@ function setupRhizomiumMenu() {
     documentationBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Open documentation
-      window.open("https://github.com/your-repo/docs", "_blank");
+      // The docsify site under /docs, which vite.config.js copies verbatim into
+      // the build — so this resolves on the dev server, the web deployment and
+      // the desktop bundle alike. It used to point at a placeholder repo URL
+      // that 404'd, which meant the Help menu never reached the documentation
+      // at all.
+      window.open("/docs/", "_blank");
       if (typeof updateStatus === "function") {
         updateStatus("Opening documentation...");
       }
