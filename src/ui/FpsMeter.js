@@ -29,7 +29,15 @@ export class FpsMeter {
 
     const el = document.createElement("span");
     el.className = "rz-fps";
-    el.title = "Frames per second (display refresh rate)";
+    // The readout is where someone first notices a number they did not expect,
+    // so the explanation belongs here rather than only in the docs.
+    el.title =
+      "Frames this window is presenting per second.\n\n" +
+      "Follows your display, so it reads whatever your monitor refreshes at " +
+      "(60, 120, 144…). If it sits below that while the preview's GPU time " +
+      "stays low, the frames are being lost outside this app — running two " +
+      "displays at different refresh rates can cap every browser window.\n\n" +
+      "See docs/frame-rate.md";
     el.innerHTML = `<span class="rz-fps-value">—</span><span class="rz-fps-unit">fps</span>`;
     this.host.appendChild(el);
 

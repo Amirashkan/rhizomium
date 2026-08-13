@@ -21,12 +21,14 @@
 * Reference
   * [Complete Node Reference](node-reference.md)
   * [Keyboard Shortcuts](shortcuts.md)
+  * [Frame Rate & Display Refresh](frame-rate.md)
   * [FAQ](faq-web.md)
 
 * Advanced Topics
   * [Shader Compilation](shader-compilation.md)
   * [Performance Tips](performance.md)
   * [Performance Profiler](profiler.md)
+  * [Frame Rate & Display Refresh](frame-rate.md)
   * [Frame Timing Monitoring](frame-timing-monitoring.md)
   * [Camera Controls](camera-controls.md)
 

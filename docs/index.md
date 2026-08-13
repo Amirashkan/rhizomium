@@ -50,7 +50,7 @@ npm run dev
 
 ### Performance
 - **WebGPU powered** - Modern GPU acceleration
-- **60 FPS target** - Smooth real-time rendering
+- **Runs at your display's refresh rate** - 60, 120, 144Hz — see **[Frame Rate & Display Refresh](frame-rate.md)**
 - **[Performance Tools](profiler.md)** - Built-in profiler and monitoring
 - **Optimization guides** - Tips for best performance
 
@@ -82,6 +82,7 @@ npm run dev
 
 ### Reference
 - **[Keyboard Shortcuts](shortcuts.md)** - All shortcuts
+- **[Frame Rate & Display Refresh](frame-rate.md)** - What the fps readout means, and why a second monitor can cap it
 - **[FAQ](faq-web.md)** - Common questions
 - **[Troubleshooting](troubleshooting.md)** - Solutions to problems
 
@@ -103,3 +104,4 @@ npm run dev
 **Performance:**
 - [Performance Tips](performance.md) - Optimization guide
 - [Performance Profiler](profiler.md) - Monitoring tools
+- [Frame Rate & Display Refresh](frame-rate.md) - **Seeing fewer fps than your monitor's refresh rate? Start here.**

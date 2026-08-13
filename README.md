@@ -103,6 +103,7 @@ the desktop path additionally checks for the Tauri globals (`src/utils/isTauri.j
 
 ## 📖 Documentation
 
+- **[docs/frame-rate.md](docs/frame-rate.md)** - **Frame rate & display refresh — read this if the fps readout is lower than your monitor's refresh rate**
 - **[QUICKSTART.md](QUICKSTART.md)** - Get started in 3 steps
 - **[RHIZOMIUM_VIEWER_SETUP.md](RHIZOMIUM_VIEWER_SETUP.md)** - External viewer setup
 - **[DEPLOYMENT_NOTES.md](DEPLOYMENT_NOTES.md)** - Cloud vs local deployment
