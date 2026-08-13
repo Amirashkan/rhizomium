@@ -455,14 +455,21 @@ select optgroup {
    A block, not a flex row: text-overflow does not apply to a flex container's
    anonymous text item, so as inline-flex a long message clipped mid-word with no
    ellipsis. The state dot is an inline-block instead of a flex child. */
+/* The tinted pill (#status.info and friends) is drawn on this element, so its
+   box has to be the size of the text — not the height of the bar. Filling the
+   line box with line-height:40px made the pill 40px of text plus padding and
+   border, taller than the 40px bar it sits in, so the wash spilled past the
+   bar's bottom edge. The bar centres its items, so a text-sized line box lands
+   in the middle on its own. */
 .menu-status {
   margin-left: auto;
   display: block;
   flex: 0 1 auto;
+  box-sizing: border-box;
   min-width: 0;
   max-width: 42vw;
   padding: 0 16px;
-  line-height: 40px;
+  line-height: 20px;
   color: var(--rz-text-3);
   font-size: 12px;
   font-weight: 500;
