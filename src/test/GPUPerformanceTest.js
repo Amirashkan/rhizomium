@@ -7,6 +7,8 @@
  * 3. GPU crash/stall prevention during scene graph updates
  */
 
+import { ComputeFieldMapperNode } from '../scene/nodes/ComputeFieldMapperNode.js';
+
 export class GPUPerformanceTest {
   constructor(device) {
     this.device = device;
@@ -95,24 +97,9 @@ export class GPUPerformanceTest {
    * Test 2: Verify field data to 3D position mapping
    */
   async testFieldToWorldMapping() {
-    // Create test mapper node
-    let ComputeFieldMapperNode = window.ComputeFieldMapperNode;
-    
-    if (!ComputeFieldMapperNode) {
-      // Try to import dynamically
-      try {
-        const module = await import('../scene/nodes/ComputeFieldMapperNode.js');
-        ComputeFieldMapperNode = module.ComputeFieldMapperNode;
-      } catch (err) {
-        this.testResults.mappingTest = {
-          success: false,
-          error: 'Failed to load ComputeFieldMapperNode: ' + err.message
-        };
-        return this.testResults.mappingTest;
-      }
-    }
-
-    this._runMappingTest(ComputeFieldMapperNode);
+    // Create test mapper node. A global override wins so a test page can swap
+    // in an instrumented class; otherwise use the bundled one.
+    this._runMappingTest(window.ComputeFieldMapperNode || ComputeFieldMapperNode);
     return this.testResults.mappingTest;
   }
 
