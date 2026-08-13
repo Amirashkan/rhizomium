@@ -58,6 +58,17 @@ const OUT_TAG_GAP = 13;
 // node until it covers its neighbours.
 const MAX_TITLE_W = 220;
 
+// Type sizes for the node card, in WORLD units — the same space node.x/y/w/h live in, so they scale
+// with the canvas like the grid, the wires and the preview bands do.
+//
+// These used to counter-scale with the zoom (`12 / scale`, floored) to hold a constant on-screen
+// size. That coupled a node's SIZE to the zoom: _minNodeWidth measures its labels with these fonts,
+// so zooming out grew every node box and zooming back in shrank it, and the boxes visibly jumped
+// mid-gesture as the value-tag reservation re-measured. A node's size is a function of its content,
+// not of where the viewport happens to be.
+const NODE_TITLE_PX = 12;
+const NODE_META_PX = 9;
+
 // Wire weight. Wires are the one thing on the canvas that must stay readable at every zoom level,
 // so they are drawn a touch heavier than the hairlines around them.
 const WIRE_WIDTH = 2.5;
@@ -66,7 +77,7 @@ export class Renderer {
   constructor(ctx, viewport, schedulerConfig = null) {
     this.ctx = ctx;
     this.viewport = viewport;
-    
+
     // Initialize redraw scheduler
     this.scheduler = new RedrawScheduler(schedulerConfig);
     this.scheduler.setRedrawCallback((triggerType, options) => {
@@ -80,7 +91,7 @@ export class Renderer {
     // This avoids recreating canvases every frame, which is expensive
     // Format: Map<nodeId, { canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, imageDataHash: string }>
     this._tempCanvasCache = new Map();
-    
+
     // PERFORMANCE: Grid rendering optimization
     // Offscreen canvas for grid rendering
     this._gridCanvas = null;
@@ -89,24 +100,23 @@ export class Renderer {
     this._lastGridOffsetX = null;
     this._lastGridOffsetY = null;
     this._skipGridRendering = false; // Skip grid during fast panning
-    
+
     // PERFORMANCE: Cache node pin positions during panning
     // Format: Map<nodeId, { inputPins: Array, outputPins: Array, version: number }>
     this._nodePinCache = new Map();
     this._nodePinCacheVersion = 0;
-    
+
     // PERFORMANCE: Cache gradients to avoid recreating them every frame
     this._gradientCache = new Map(); // Cache key: "x_y_w_h" -> CanvasGradient
     this._lastGradientCacheClear = 0;
-    
+
     // PERFORMANCE: Cache font strings to avoid string concatenation
     this._cachedFonts = {
       nodeLabel: null,
       nodeId: null,
-      pinLabel: null,
-      lastScale: null
+      pinLabel: null
     };
-    
+
     // PERFORMANCE: Cache wire colors to avoid repeated NodeDefs lookups
     this._wireColorCache = new Map();
 
@@ -125,7 +135,7 @@ export class Renderer {
     if (renderState.editor) {
       window.editor = renderState.editor; // Make editor accessible
     }
-    
+
     // PERFORMANCE: Clear caches at start of each frame
     // This ensures we recalculate when node positions change, but cache within the same frame
     this._nodePinCache.clear();
@@ -133,15 +143,15 @@ export class Renderer {
     if (this._wireColorCache) {
       this._wireColorCache.clear();
     }
-    
+
     // PERFORMANCE: Clear node pin cache when panning stops
-    const isPanning = this.viewport.isPanning && typeof this.viewport.isPanning === 'function' 
-      ? this.viewport.isPanning() 
+    const isPanning = this.viewport.isPanning && typeof this.viewport.isPanning === 'function'
+      ? this.viewport.isPanning()
       : (this.viewport._isPanning || false);
     if (!isPanning && this._nodePinCache.size > 0) {
       this._clearNodePinCache();
     }
-    
+
     // Handle precise invalidation regions
     const preciseDirtyRegions = renderState.preciseDirtyRegions;
     const needsFullRedraw = renderState.needsFullRedraw;
@@ -183,13 +193,13 @@ export class Renderer {
     // Store interaction state for optimizations that don't affect visual appearance
     const isInteracting = renderState.isInteracting || false;
     this._isInteracting = isInteracting;
-    
+
     // Save context and apply viewport transform FIRST
     // Grid must be drawn in world space (after transform) so it moves correctly with pan
     ctx.save();
     ctx.translate(this.viewport.offsetX, this.viewport.offsetY);
     ctx.scale(this.viewport.scale, this.viewport.scale);
-    
+
     // Render grid background in world space (moves with viewport).
     // On a partial redraw only the dirty regions were cleared, so clip the grid to
     // those regions before repainting it. Otherwise the semi-transparent grid lines
@@ -254,13 +264,13 @@ export class Renderer {
     }
 
     ctx.restore();
-    
+
     // PERFORMANCE: Mark viewport as clean after rendering
     // This allows transform cache to be used within the same frame
     if (this.viewport.markViewportClean && typeof this.viewport.markViewportClean === 'function') {
       this.viewport.markViewportClean();
     }
-    
+
     probe.end(probeToken);
     window.previewPerfMonitor?.endSection(perfToken, {
       canvasNodeCount: graph?.nodes?.length || 0,
@@ -285,7 +295,7 @@ export class Renderer {
     const scale = this.viewport.scale || 1;
     const width = ctx.canvas.width / scale;
     const height = ctx.canvas.height / scale;
-    
+
     // PERFORMANCE: Skip grid rendering during fast panning
     const isFastPanning = this.viewport.isFastPanning && typeof this.viewport.isFastPanning === 'function'
       ? this.viewport.isFastPanning()
@@ -299,10 +309,10 @@ export class Renderer {
     // Grid spacing in world space (gridSize is already in world units)
     // The grid tile is rendered in screen space, so spacing needs to account for scale
  // Screen pixels per grid unit
-    
+
     // Cache key based on grid size and scale (scale affects visual appearance)
     const cacheKey = `${gridSize}_${scale.toFixed(2)}`;
-    const needsRegenerate = !this._gridCanvas || 
+    const needsRegenerate = !this._gridCanvas ||
                            this._gridCacheKey !== cacheKey;
 
     if (needsRegenerate) {
@@ -320,20 +330,20 @@ export class Renderer {
       const tileSizeWorld = this._gridTileSizeWorld;
       const canvasWidth = ctx.canvas.width;
       const canvasHeight = ctx.canvas.height;
-      
+
       // Calculate visible world bounds from screen bounds
       // After viewport transform, screen coordinates map to world coordinates
       const worldLeft = -this.viewport.offsetX / scale;
       const worldTop = -this.viewport.offsetY / scale;
       const worldRight = (canvasWidth - this.viewport.offsetX) / scale;
       const worldBottom = (canvasHeight - this.viewport.offsetY) / scale;
-      
+
       // Calculate which tiles are visible in world space
       const startTileX = Math.floor(worldLeft / tileSizeWorld) - 1;
       const endTileX = Math.ceil(worldRight / tileSizeWorld) + 1;
       const startTileY = Math.floor(worldTop / tileSizeWorld) - 1;
       const endTileY = Math.ceil(worldBottom / tileSizeWorld) + 1;
-      
+
       // Draw grid tiles - grid is fixed in world space at origin (0,0)
       // Tiles are positioned at integer multiples of tileSizeWorld
       for (let ty = startTileY; ty <= endTileY; ty++) {
@@ -346,7 +356,7 @@ export class Renderer {
       }
     }
   }
-  
+
   /**
    * Regenerate the grid on an offscreen canvas
    * This is only called when scale or grid size changes
@@ -356,22 +366,22 @@ export class Renderer {
     // Grid spacing in screen pixels (for offscreen canvas rendering)
     const minorSpacing = gridSize * scale;
     const majorSpacing = minorSpacing * 5;
-    
+
     // Create or resize offscreen canvas
     // Use a tile size that's a multiple of major spacing for efficient repetition
     // Make it large enough to cover most viewports but not too large
     // Tile size is in screen pixels
     const tileSizePixels = Math.max(Math.ceil(majorSpacing) * 10, 500);
-    
-    if (!this._gridCanvas || 
-        this._gridCanvas.width !== tileSizePixels || 
+
+    if (!this._gridCanvas ||
+        this._gridCanvas.width !== tileSizePixels ||
         this._gridCanvas.height !== tileSizePixels) {
       this._gridCanvas = document.createElement('canvas');
       this._gridCanvas.width = tileSizePixels;
       this._gridCanvas.height = tileSizePixels;
       this._gridCtx = this._gridCanvas.getContext('2d');
     }
-    
+
     const gridCtx = this._gridCtx;
     gridCtx.clearRect(0, 0, tileSizePixels, tileSizePixels);
 
@@ -586,6 +596,19 @@ export class Renderer {
     ctx.restore();
   }
 
+  // The node card's font strings, built once. Titles are the UI face at 600; ids, pin labels and
+  // value tags are mono — the same split the chrome uses (see src/styles/tokens.css), so a value
+  // reads the same on the canvas as it does in the parameter panel.
+  //
+  // Nothing here reads the viewport: these sizes are world units, so a node measures the same at
+  // every zoom (see NODE_TITLE_PX).
+  _ensureFonts() {
+    if (this._cachedFonts.nodeLabel) return;
+    this._cachedFonts.nodeLabel = `600 ${NODE_TITLE_PX}px ${FONT_UI}`;
+    this._cachedFonts.nodeId = `${NODE_META_PX}px ${FONT_MONO}`;
+    this._cachedFonts.pinLabel = `${NODE_META_PX}px ${FONT_MONO}`;
+  }
+
   _renderNodes(nodes, selection) {
     // PERFORMANCE: Always enable viewport culling - it's a real optimization, not a visual change
     // Only skips nodes that are completely off-screen, improving performance significantly
@@ -607,18 +630,9 @@ export class Renderer {
       maxY: maxY + padding
     };
 
-    // PERFORMANCE: Pre-calculate font strings once for all nodes
-    const currentScale = this.viewport.scale;
-    if (this._cachedFonts.lastScale !== currentScale) {
-      // Titles are the UI face at 600; ids, pin labels and value tags are mono — the same split the
-      // chrome uses (see src/styles/tokens.css), so a value reads the same on the canvas as it does
-      // in the parameter panel.
-      this._cachedFonts.nodeLabel = `600 ${Math.max(10, 12 / currentScale)}px ${FONT_UI}`;
-      this._cachedFonts.nodeId = `${Math.max(8, 9 / currentScale)}px ${FONT_MONO}`;
-      this._cachedFonts.pinLabel = `${Math.max(8, 9 / currentScale)}px ${FONT_MONO}`;
-      this._cachedFonts.lastScale = currentScale;
-    }
-    
+    this._ensureFonts();
+
+
     let drawnCount = 0;
     for (const node of nodes) {
       // PERFORMANCE: Skip nodes that are completely off-screen
@@ -749,16 +763,12 @@ export class Renderer {
     const titleX = node.x + TITLE_X_INSET;
     const titleMaxW = Math.max(0, idRight - idW - 8 - titleX);
     const title = nodeDisplayName(node);
-    // PERFORMANCE: the fitted title only changes when the name, the header room or the zoom does,
-    // so it is cached on the node — otherwise _fitText re-measures every node on every frame.
-    if (
-      node.__fitTitleFor !== title ||
-      node.__fitTitleMaxW !== titleMaxW ||
-      node.__fitTitleScale !== this._cachedFonts.lastScale
-    ) {
+    // PERFORMANCE: the fitted title only changes when the name or the header room does, so it is
+    // cached on the node — otherwise _fitText re-measures every node on every frame. The zoom is no
+    // longer part of the key: the title font is fixed in world units, so the fit is zoom-invariant.
+    if (node.__fitTitleFor !== title || node.__fitTitleMaxW !== titleMaxW) {
       node.__fitTitleFor = title;
       node.__fitTitleMaxW = titleMaxW;
-      node.__fitTitleScale = this._cachedFonts.lastScale;
       node.__fitTitle = this._fitText(title, titleMaxW);
     }
     ctx.fillText(node.__fitTitle, titleX, node.y + 18);
@@ -992,13 +1002,13 @@ export class Renderer {
     // Check if node outputs a scalar value (f32 type)
     const nodeDef = NodeDefs[node.kind];
     const outputType = nodeDef?.pinsOut?.[0]?.type;
-    
+
     // Only show numeric overlay for scalar (f32) outputs
     if (outputType !== 'f32') return;
-    
+
     // Check if node outputs a scalar value (number, not array/vector)
     const previewValue = node.__preview;
-    
+
     // Only show numeric overlay for scalar outputs
     if (previewValue === undefined || previewValue === null) return;
     if (Array.isArray(previewValue)) return; // Skip vectors/arrays
@@ -1554,9 +1564,9 @@ export class Renderer {
     // Header: title + gap + #id + gap + the fixed control-chip cluster (~65px from the right edge).
     // The title's contribution is capped at MAX_TITLE_W: a node grows to fit the name the artist
     // gave it, but a very long name is ellipsized by _fitText instead of widening the box forever.
-    ctx.font = this._cachedFonts.nodeLabel || "600 13px sans-serif";
+    ctx.font = this._cachedFonts.nodeLabel || `600 ${NODE_TITLE_PX}px ${FONT_UI}`;
     const titleW = Math.min(ctx.measureText(nodeDisplayName(node)).width, MAX_TITLE_W);
-    ctx.font = this._cachedFonts.nodeId || "10px monospace";
+    ctx.font = this._cachedFonts.nodeId || `${NODE_META_PX}px ${FONT_MONO}`;
     const idW = ctx.measureText(`#${node.id}`).width;
     const headerW =
       TITLE_X_INSET + titleW + 8 + idW + 8 + HEADER_CONTROLS_W + HEADER_CONTROLS_GAP;
@@ -1565,7 +1575,7 @@ export class Renderer {
     // value tag (inside, left of its port). Inputs and outputs can share a row, so reserve room for
     // all three. The name is static per node kind — unlike the value tag it never changes with a live
     // value, so measuring it here can't make a node drift wider while you work.
-    ctx.font = this._cachedFonts.pinLabel || "10px sans-serif";
+    ctx.font = this._cachedFonts.pinLabel || `${NODE_META_PX}px ${FONT_MONO}`;
     let inLabelW = 0;
     for (let i = 0; i < inCount; i++) {
       const lbl = this._inputLabel(node, i);
@@ -1608,7 +1618,7 @@ export class Renderer {
 
     return { inputPins: inputs, outputPins: outputs };
   }
-  
+
   /**
    * Clear node pin position cache
    * Called when panning stops or nodes move
@@ -1661,7 +1671,7 @@ export class Renderer {
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.fill();
   }
-  
+
   /**
    * Request a redraw with throttling/debouncing
    * @param {string} triggerType - Type of trigger (e.g., 'mouse-move', 'pan', 'parameter-change')
@@ -1675,10 +1685,10 @@ export class Renderer {
     if (options.callback) {
       const originalCallback = this._redrawCallback;
       this._redrawCallback = options.callback;
-      
+
       // Request redraw through scheduler
       this.scheduler.requestRedraw(triggerType, options);
-      
+
       // Restore original callback
       this._redrawCallback = originalCallback;
     } else {
@@ -1686,7 +1696,7 @@ export class Renderer {
       this.scheduler.requestRedraw(triggerType, options);
     }
   }
-  
+
   /**
    * Set the callback function to execute when redraw is approved
    * @param {function} callback - Function(triggerType, options) to call
@@ -1694,7 +1704,7 @@ export class Renderer {
   setRedrawCallback(callback) {
     this._redrawCallback = callback;
   }
-  
+
   /**
    * Get the redraw scheduler instance (for configuration)
    * @returns {RedrawScheduler}
@@ -1702,7 +1712,7 @@ export class Renderer {
   getScheduler() {
     return this.scheduler;
   }
-  
+
   /**
    * Update scheduler configuration
    * @param {object} config - New configuration
@@ -1710,7 +1720,7 @@ export class Renderer {
   updateSchedulerConfig(config) {
     this.scheduler.updateConfig(config);
   }
-  
+
   /**
    * Cleanup - destroy scheduler
    */
