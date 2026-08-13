@@ -1,7 +1,7 @@
 import { MessagePriority } from './AsyncQueueManager.js';
 import { serializeProjectFormat, applyProjectFormat } from '../ui/OutputFormat.js';
 import { BackupStore } from './BackupStore.js';
-import { AutosaveStore, parseAutosaveEntry } from './AutosaveStore.js';
+import { createAutosaveStore, parseAutosaveEntry } from './AutosaveStore.js';
 import { migrateProjectData, SAVE_FORMAT_VERSION } from './projectMigrations.js';
 
 /**
@@ -47,10 +47,11 @@ export class SaveLoadManager {
     this.currentFileHandle = null;
     this.currentProjectName = null;
 
-    // Backups and the autosave snapshot live in IndexedDB - full texture
-    // dataUrls don't fit in the ~5MB localStorage quota once a project grows
+    // Full texture dataUrls don't fit in the ~5MB localStorage quota once a
+    // project grows, so backups live in IndexedDB and the autosave snapshot
+    // goes to a file on the desktop (IndexedDB in the browser)
     this.backupStore = new BackupStore();
-    this.autosaveStore = new AutosaveStore();
+    this.autosaveStore = createAutosaveStore();
     this._migrateLegacyBackups();
 
     // Worker support
@@ -1689,8 +1690,9 @@ async reinitializeWebGPU() {
   /**
    * Persists the current project as the autosave snapshot.
    *
-   * The snapshot itself goes to IndexedDB - a project with an inlined texture
-   * or two runs past the ~5MB localStorage quota, and setItem then throws
+   * The snapshot itself goes to the autosave store - a file on the desktop,
+   * IndexedDB in a browser. A project with an inlined texture, let alone a
+   * video, runs past the ~5MB localStorage quota, and setItem then throws
    * QuotaExceededError on every autosave tick. localStorage keeps only a small
    * pointer record (timestamp + node counts) so the startup recovery checks
    * can stay synchronous.
@@ -1715,9 +1717,7 @@ async reinitializeWebGPU() {
 
     const timestamp = Date.now();
     const record = {
-      // JSON round-trip so IndexedDB's structured clone never sees a value
-      // JSON would have dropped (canvases, functions, ...)
-      data: JSON.parse(JSON.stringify(projectData)),
+      data: projectData,
       timestamp,
       version: SAVE_FORMAT_VERSION,
     };
@@ -1729,17 +1729,17 @@ async reinitializeWebGPU() {
         // The pointer replaces the old inline payload - which is what frees
         // the quota for users whose storage is already full of one.
         entry = {
-          storage: "indexeddb",
+          storage: "external",
           timestamp,
           version: SAVE_FORMAT_VERSION,
           nodeCount: projectData.nodes?.length || 0,
           connectionCount: projectData.connections?.length || 0,
         };
       } catch (error) {
-        // No IndexedDB (private windows, locked-down browsers): fall back to
-        // the inline snapshot, which still covers projects small enough to fit.
+        // Neither a file nor IndexedDB available (a locked-down browser): fall
+        // back to the inline snapshot, which still covers small enough projects.
         window.errorHandler?.handleError(error, {
-          component: 'autosave-indexeddb-write'
+          component: 'autosave-snapshot-write'
         });
         entry = record;
       }
@@ -1748,9 +1748,9 @@ async reinitializeWebGPU() {
     }
 
     if (!this._writeLocalEntry(storageKey, entry)) {
-      // The snapshot is in IndexedDB even when the pointer could not be
+      // The snapshot itself was stored even when the pointer could not be
       // written, so the project is not lost - only the startup prompt is.
-      return entry.storage === "indexeddb";
+      return entry.storage === "external";
     }
 
     if (storageKey === this.autosaveKey) {
@@ -1781,7 +1781,7 @@ async reinitializeWebGPU() {
         bytes: serialized.length
       });
       this.updateStatus(
-        entry.storage === "indexeddb"
+        entry.storage === "external"
           ? "Autosaved, but browser storage is full"
           : "Local save failed: browser storage is full",
         "error",
@@ -1797,15 +1797,16 @@ async reinitializeWebGPU() {
       let data = entry?.data || null;
       let timestamp = entry?.timestamp ?? null;
 
-      // Pointer record: the snapshot lives in IndexedDB.
+      // Pointer record: the snapshot lives in the autosave store.
       if (!data && storageKey === this.autosaveKey) {
         const record = await this.autosaveStore.get().catch(() => null);
         if (record?.data) {
           data = record.data;
           timestamp = record.timestamp ?? timestamp;
         } else {
-          // The pointer can outlive its snapshot if the browser dropped the
-          // database; the newest backup is the same content, one tick older.
+          // The pointer can outlive its snapshot if the file was removed or
+          // the browser dropped the database; the newest backup is the same
+          // content, one tick older.
           const [newest] = await this.getBackups();
           if (newest?.data) {
             data = newest.data;

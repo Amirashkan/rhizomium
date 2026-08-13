@@ -1,20 +1,27 @@
-// IndexedDB-backed storage for the autosave snapshot.
+// Storage for the autosave snapshot.
 //
 // The autosave used to be a single localStorage key holding the whole project
-// as JSON. Once a patch inlines a texture or two that payload passes the ~5MB
-// quota and every setItem throws QuotaExceededError - so autosave silently
-// stopped working exactly on the projects that most needed it. The snapshot
-// now lives in IndexedDB (no practical size limit); localStorage keeps only a
-// tiny pointer record so the startup checks can stay synchronous.
+// as JSON. Once a patch inlines a texture - let alone a video - that payload
+// passes the ~5MB quota and every setItem throws QuotaExceededError, so
+// autosave silently stopped working exactly on the projects that most needed
+// it. The snapshot now goes:
+//
+//   - on desktop (Tauri): to a real file in the app data directory, which is
+//     the only place a video patch comfortably fits;
+//   - in a browser: to IndexedDB, which has no practical size limit.
+//
+// Either way localStorage keeps only a tiny pointer record (timestamp and node
+// counts) so the startup recovery checks can stay synchronous.
 
 import { AUTOSAVE_STORE, openRhizomiumDB, runTransaction } from "./rhizomiumDB.js";
+import { isTauri } from "../utils/isTauri.js";
 
 const RECORD_ID = "current";
 
 /**
  * Normalizes the localStorage autosave entry into { timestamp, nodeCount, data }.
- * Handles both the current pointer record (metadata only, snapshot in IndexedDB)
- * and the legacy record that inlined the whole project.
+ * Handles both the current pointer record (metadata only, snapshot stored
+ * elsewhere) and the legacy record that inlined the whole project.
  */
 export function parseAutosaveEntry(stored) {
   if (!stored) return null;
@@ -45,11 +52,14 @@ export function parseAutosaveEntry(stored) {
   };
 }
 
-export class AutosaveStore {
+export class IndexedDBAutosaveStore {
   /** Stores the snapshot, replacing any previous one. */
   async put(record) {
+    // JSON round-trip so the structured clone never sees a value JSON would
+    // have dropped (canvases, functions, ...)
+    const clone = JSON.parse(JSON.stringify(record));
     await runTransaction(AUTOSAVE_STORE, "readwrite", (store) =>
-      store.put({ ...record, id: RECORD_ID }),
+      store.put({ ...clone, id: RECORD_ID }),
     );
   }
 
@@ -69,4 +79,83 @@ export class AutosaveStore {
   async clear() {
     await runTransaction(AUTOSAVE_STORE, "readwrite", (store) => store.clear());
   }
+}
+
+/**
+ * Desktop autosave: one file in the app data directory, written through the
+ * Rust side (src-tauri/src/lib.rs). No browser storage is involved, so patch
+ * size stops being a question - a patch with an inlined video is just a big
+ * file, which is what it always was on disk.
+ *
+ * '@tauri-apps/api' is imported dynamically because it is a bare specifier the
+ * un-bundled web deployments cannot resolve; the same pattern as
+ * core/tauriFileOpen.js.
+ */
+export class TauriAutosaveStore {
+  async _invoke(command, args) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke(command, args);
+  }
+
+  async put(record) {
+    await this._invoke("write_autosave", { contents: JSON.stringify(record) });
+  }
+
+  async get() {
+    const contents = await this._invoke("read_autosave");
+    if (!contents) return null;
+    return JSON.parse(contents);
+  }
+
+  async clear() {
+    await this._invoke("clear_autosave");
+  }
+}
+
+/**
+ * Desktop store that falls back to IndexedDB if the Rust side does not answer -
+ * an older binary running a newer frontend has no write_autosave command, and
+ * losing autosave entirely over that would be worse than a browser-storage
+ * snapshot.
+ */
+export class FallbackAutosaveStore {
+  constructor(primary, fallback) {
+    this.primary = primary;
+    this.fallback = fallback;
+    this._usingFallback = false;
+  }
+
+  async _run(method, ...args) {
+    if (!this._usingFallback) {
+      try {
+        return await this.primary[method](...args);
+      } catch (error) {
+        this._usingFallback = true;
+        window.errorHandler?.handleError(error, {
+          component: "autosave-desktop-store",
+          method,
+        });
+      }
+    }
+    return this.fallback[method](...args);
+  }
+
+  put(record) {
+    return this._run("put", record);
+  }
+
+  get() {
+    return this._run("get");
+  }
+
+  clear() {
+    return this._run("clear");
+  }
+}
+
+/** Picks the snapshot store for the environment the editor is running in. */
+export function createAutosaveStore() {
+  const indexedDbStore = new IndexedDBAutosaveStore();
+  if (!isTauri()) return indexedDbStore;
+  return new FallbackAutosaveStore(new TauriAutosaveStore(), indexedDbStore);
 }
