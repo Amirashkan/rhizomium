@@ -222,6 +222,12 @@ export class FragmentTextureRenderer {
       // renders a frozen value even though its CPU readout tracks the latch.
       this._syncHoldUniforms(uniformManager);
 
+      // Same for a Count: its running counter is CPU-side state advanced every frame by
+      // CountNodeProcessor into the MAIN renderer's uniform manager. Without this the preview's own
+      // `<id>.count` uniform sits at 0 forever, so a Switch cycling clips on `=node_<count>` shows
+      // only its first input here — including in the texture bridged to a 3D Field Visualizer.
+      this._syncCountUniforms(uniformManager);
+
       // Same for a Trigger in "On value change" mode: its pulse is CPU-side state advanced every
       // frame by TriggerNodeProcessor into the MAIN renderer's uniform manager, so without this the
       // preview's own `<id>.pulse` uniform would sit at its compile-time default and any node
@@ -607,6 +613,13 @@ export class FragmentTextureRenderer {
       // them in — a radius driven by `=node_<id>_0` (level) must change the hash when the level
       // moves, not only when a drum envelope does — or a non-forced render path (e.g. a
       // compute-bridged texture) freezes on a stale frame.
+      // Same story for a Count node: the running counter lives on the CPU (node.__countValue) and
+      // is invisible to this node's own params, so a Switch selecting on `=node_<count>` would keep
+      // a stale frame on every non-forced render path (a bridged texture feeding a compute node,
+      // a thumbnail) even after the counter — and with it the chosen input — moved on.
+      if (refNode?.kind === 'Count' && typeof refNode.__countValue === 'number') {
+        hash += `${refId}.count:${refNode.__countValue};`;
+      }
       if (refNode?.kind === 'AudioAnalysis') {
         const live = audioAnalysisPinValues(refNode);
         for (const name of AUDIO_ANALYSIS_PINS) hash += `${refId}.${name}:${live[name]};`;
@@ -1124,6 +1137,34 @@ export class FragmentTextureRenderer {
       const held = node?.__holdValue;
       if (typeof held === 'number' && isFinite(held)) {
         values.set(key, held);
+      }
+    }
+  }
+
+  /**
+   * Overwrite each `<id>.count` entry in a (detached) uniform snapshot with the live counter from
+   * its Count node (node.__countValue, advanced every frame by CountNodeProcessor). A Count has no
+   * `count` PARAMETER at all — the uniform is registered with the compile-time default 0 and only
+   * ever written by the processor into the MAIN uniform manager — so without this the counter reads
+   * 0 forever in every subgraph render: a Switch whose `select` is `=node_<count>` stays pinned to
+   * its first input in the node thumbnail AND in the texture bridged to a 3D Field Visualizer,
+   * while the main output cycles correctly. Map.set on an existing key preserves insertion order,
+   * so the Float32Array _updateUniforms builds from uniformValues.values() still matches the
+   * compiled ParamUniforms struct layout.
+   * @private
+   */
+  _syncCountUniforms(uniformManager) {
+    const values = uniformManager?.uniformValues;
+    if (!values || values.size === 0) return;
+    for (const key of values.keys()) {
+      if (!key.endsWith('.count')) continue;
+      const nodeId = key.slice(0, -'.count'.length);
+      const node = window.graph?.getNode?.(nodeId)
+        || window.editor?.graph?.nodes?.find(n => String(n.id) === nodeId);
+      if (node?.kind !== 'Count') continue;
+      const count = node.__countValue;
+      if (typeof count === 'number' && isFinite(count)) {
+        values.set(key, count);
       }
     }
   }
