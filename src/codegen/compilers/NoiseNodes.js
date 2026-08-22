@@ -2,6 +2,7 @@
 
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 import { compilerParamRefMapping } from '../../utils/paramReferences.js';
+import { resolveDiscreteParam } from '../../utils/discreteParams.js';
 
 export class NoiseNodes {
   constructor() {
@@ -131,6 +132,14 @@ export class NoiseNodes {
   
   getParam(node, paramName, defaultValue) {
     const rawValue = node.params?.[paramName] ?? defaultValue;
+
+    // A `select`/`boolean` control is baked into the generated code rather than delivered as a
+    // uniform, so an expression in one is evaluated on the CPU and collapsed to a concrete option
+    // here. Returns rawValue unchanged for every other parameter, leaving numeric expressions to
+    // the shader generation below.
+    const discrete = resolveDiscreteParam(node, paramName, rawValue, defaultValue);
+    if (discrete !== rawValue) return discrete;
+
     // An identifier naming another parameter of this node binds to that parameter (see
     // utils/paramReferences.js); without it the shader generator zeroes the whole expression.
     const paramRefs = compilerParamRefMapping(this, node, rawValue, paramName);

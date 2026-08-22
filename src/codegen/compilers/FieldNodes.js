@@ -4,6 +4,7 @@
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 import { compilerParamRefMapping } from '../../utils/paramReferences.js';
+import { resolveDiscreteParam } from '../../utils/discreteParams.js';
 import {
   buildScalarRefMapping,
   resolveScalarRef,
@@ -35,7 +36,11 @@ import {
  * Proportional, so the shape a patch was authored with is the shape it keeps.
  */
 export function rectangleIsProportional(node) {
-  const raw = node?.params?.sizeMode ?? node?.props?.sizeMode;
+  const stored = node?.params?.sizeMode ?? node?.props?.sizeMode;
+  // The mode can hold an expression ("=node_4 > 0.5"), which resolves to one of the option names
+  // before the comparison — a raw "=..." string matches neither mode and would silently pin the
+  // node to Proportional. Plain values pass through untouched.
+  const raw = resolveDiscreteParam(node, 'sizeMode', stored);
   return !(typeof raw === 'string' && raw.trim().toLowerCase() === 'frame');
 }
 
@@ -377,6 +382,13 @@ clearFunctionCache() {
 
 getParam(node, paramName, defaultValue) {
   const rawValue = node.params?.[paramName] ?? defaultValue;
+
+  // A `select`/`boolean` control is baked into the generated code rather than delivered as a
+  // uniform, so an expression in one is evaluated on the CPU and collapsed to a concrete option
+  // here. Returns rawValue unchanged for every other parameter, leaving the scalar-expression
+  // path below to handle numeric fields.
+  const discrete = resolveDiscreteParam(node, paramName, rawValue, defaultValue);
+  if (discrete !== rawValue) return discrete;
 
   // Handle expressions: with = prefix (like "=node_14" or "=time*2") or bare
   // dynamic expressions referencing time/audio.

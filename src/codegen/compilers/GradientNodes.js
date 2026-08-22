@@ -1,5 +1,6 @@
 // src/codegen/compilers/GradientNodes.js
 import { compilerParamRefMapping } from '../../utils/paramReferences.js';
+import { resolveDiscreteParam } from '../../utils/discreteParams.js';
 
 export class GradientNodes {
   constructor() {
@@ -26,7 +27,11 @@ export class GradientNodes {
    * Get parameter value with default fallback
    */
   getParam(node, name, defaultValue) {
-    const value = node.params?.[name] ?? defaultValue;
+    const raw = node.params?.[name] ?? defaultValue;
+    // A `select`/`boolean` control is baked into the generated code, so an expression in one has
+    // to resolve to a concrete option before any caller branches on it. Numeric expressions are
+    // left as "=..." text for getShaderParam to compile.
+    const value = resolveDiscreteParam(node, name, raw, defaultValue);
     if (typeof value === 'boolean') return value;
     return value;
   }

@@ -1,19 +1,51 @@
 // src/ui/components/SelectInputHandler.js - Updated for expression system integration
 
 import { SURFACE, TEXT, FONT_UI } from '../../core/theme.js';
+import {
+  appendEnterExpressionToggle,
+  isExpressionParam,
+  renderExpressionMode,
+} from './discreteExpressionField.js';
 
 export class SelectInputHandler {
   constructor(undoManager = null) {
     this.undoManager = undoManager;
+    this.expressionSupport = null;
+  }
+
+  /**
+   * Give the dropdown an fx mode. Supplied by ParameterPanel after construction (the expression
+   * text handler it needs does not exist yet when the handlers are built).
+   */
+  setExpressionSupport(support) {
+    this.expressionSupport = support;
   }
 
   create(param, node, div, label, valueManager, onChange) {
+    // A parameter holding an expression is edited as text: a dropdown can only show one of its
+    // own options, so it would silently drop "=node_4 > 0.5" the moment the panel re-rendered.
+    if (this.expressionSupport && isExpressionParam(node, param)) {
+      renderExpressionMode({
+        param, node, div, label, valueManager,
+        onChange, support: this.expressionSupport, isBoolean: false,
+      });
+      return div;
+    }
+
     const select = this._createSelectElement(param);
     this._populateOptions(select, param);
     this._setCurrentValue(select, param, node, valueManager);
     this._setupEventHandlers(select, param, node, valueManager, onChange);
-    
+
     div.appendChild(select);
+
+    if (this.expressionSupport) {
+      appendEnterExpressionToggle({
+        param, node, div, valueManager,
+        onChange, support: this.expressionSupport, isBoolean: false,
+      });
+    }
+
     return div;
   }
 
@@ -75,11 +107,14 @@ export class SelectInputHandler {
         currentValue = node.params?.[param.name] ?? param.default;
       }
 
-      // Ensure the value exists in options
+      // Ensure the value exists in options. Compared as strings: an option list of numbers
+      // ('256'/'512'/'1024') comes back from the value manager as a NUMBER, which matches no
+      // option element and used to bounce the dropdown back to its default.
       if (currentValue !== undefined && currentValue !== null) {
-        const optionExists = Array.from(select.options).some(option => option.value === currentValue);
+        const wanted = String(currentValue);
+        const optionExists = Array.from(select.options).some(option => option.value === wanted);
         if (optionExists) {
-          select.value = currentValue;
+          select.value = wanted;
         } else {
 
           if (param.default !== undefined) {

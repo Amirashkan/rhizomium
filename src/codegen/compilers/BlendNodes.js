@@ -2,6 +2,7 @@
 // NEW FILE - Compiler for blend operations
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
+import { resolveDiscreteParam } from '../../utils/discreteParams.js';
 
 export class BlendNodes {
   constructor() {
@@ -53,6 +54,12 @@ export class BlendNodes {
 
   getParam(node, paramName, defaultValue) {
     const rawValue = node.params?.[paramName] ?? defaultValue;
+
+    // A `select`/`boolean` control is baked into the generated code rather than delivered as a
+    // uniform, so an expression in one is evaluated on the CPU and collapsed to a concrete option
+    // here. Returns rawValue unchanged for every other parameter.
+    const discrete = resolveDiscreteParam(node, paramName, rawValue, defaultValue);
+    if (discrete !== rawValue) return discrete;
 
     // Check for time-based or audio expressions
     if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {

@@ -22,6 +22,10 @@ import { PreviewComputer } from "./PreviewComputer.js";
 import { releaseTextTexture } from "./TextRasterizer.js";
 import { hasClockExpressionParam } from "./clockExpression.js";
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
+import {
+  discreteExpressionSignature,
+  hasDiscreteExpressionParams,
+} from '../utils/discreteParams.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu } from '../ui/ParameterBindingMenu.js';
 import { ShaderPreviewManager } from '../preview/ShaderPreviewManager.js';
@@ -793,9 +797,63 @@ connectGPURenderer(renderFunction) {
       
       // Clear cache to force re-evaluation with new time
       this.expressionSystem.clearCache();
-      
+
+      this.syncDiscreteExpressionParams();
+
     } catch {
 
+    }
+  }
+
+  /**
+   * Keep expression-driven dropdowns and toggles in step with their driver.
+   *
+   * A numeric expression rides into the shader as generated code or a live uniform, so it moves on
+   * its own. A `select`/`boolean` control cannot: the compilers bake it into the WGSL, so the only
+   * way an audio- or clock-driven one takes effect is a rebuild. Rebuilding every frame is out of
+   * the question — but the RESOLVED value is discrete, so it flips rarely even when its driver is
+   * continuous. Poll the resolved value a few times a second and rebuild only on a flip; a gate
+   * like "=audioEnvelope > 0.3" then costs a recompile per crossing, not per frame.
+   */
+  syncDiscreteExpressionParams() {
+    const nodes = this.graph?.nodes;
+    if (!Array.isArray(nodes) || nodes.length === 0) return;
+
+    const now = getTimestamp();
+    if (this._discreteExpressionCheckedAt && now - this._discreteExpressionCheckedAt < 100) {
+      return;
+    }
+    this._discreteExpressionCheckedAt = now;
+
+    if (!this._discreteExpressionSignatures) {
+      this._discreteExpressionSignatures = new Map();
+    }
+
+    const live = new Set();
+    let flipped = null;
+
+    for (const node of nodes) {
+      if (!hasDiscreteExpressionParams(node)) continue;
+      live.add(node.id);
+
+      const signature = discreteExpressionSignature(node);
+      const previous = this._discreteExpressionSignatures.get(node.id);
+      this._discreteExpressionSignatures.set(node.id, signature);
+
+      // A node seen for the first time is not a flip: its current signature is already what the
+      // last compile baked in (or what the next one will), so rebuilding here would fire a
+      // recompile every time a patch loads.
+      if (previous !== undefined && previous !== signature) {
+        flipped = node;
+      }
+    }
+
+    for (const id of this._discreteExpressionSignatures.keys()) {
+      if (!live.has(id)) this._discreteExpressionSignatures.delete(id);
+    }
+
+    if (flipped && typeof this.onChange === 'function') {
+      this.onChange(`Discrete expression change: ${flipped.kind}`);
     }
   }
 

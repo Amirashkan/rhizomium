@@ -103,6 +103,22 @@ export class ParameterPanel {
       this.wgslCodeInputHandler = null;
     }
     
+    // A dropdown or a true/false toggle can also hold an expression. The widget itself has no room
+    // for one, so both handlers borrow the expression textarea and ask for a re-render when the
+    // user switches modes (the parameter's whole control changes shape, not just its value).
+    const expressionSupport = {
+      expressionHandler: this.textInputHandler,
+      requestRerender: (node) => {
+        // The node is passed explicitly: the panel can be rendering a node it was handed directly
+        // (a preview pane, a test harness) without that node being the current selection, and the
+        // fx switch has to redraw whichever node it was clicked on.
+        const target = node || this.selectedNode;
+        if (target) this.renderParameters(target);
+      },
+    };
+    this.selectInputHandler.setExpressionSupport(expressionSupport);
+    this.booleanInputHandler.setExpressionSupport(expressionSupport);
+
     // Input handlers mapping
     this.inputHandlers = {
       text: this.textInputHandler,
