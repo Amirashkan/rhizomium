@@ -256,6 +256,33 @@ function handleModelError(error, res, config) {
   }
 
   const status = error?.status;
+
+  // A 400 from the model API is never the artist's doing, and it is not
+  // something retrying fixes. The two cases below read very differently to
+  // whoever has to act on them, so they are separated here rather than both
+  // landing in the generic 500 — which is where they used to land, and which
+  // told an operator with an unpaid bill exactly as much as a random failure.
+  if (status === 400) {
+    if (isBillingProblem(error)) {
+      console.error(
+        'Anthropic refused the call for billing reasons — the deployment needs credit:',
+        modelErrorMessage(error)
+      );
+      return res.status(503).json({
+        error: 'AI features are unavailable on this deployment right now. An operator needs to look at it.',
+        code: 'not_configured',
+      });
+    }
+
+    // Our own request was malformed: a schema this backend built, not anything
+    // the artist typed. Loud in the log, honest to the caller.
+    console.error(`${config.label}: the model rejected our request:`, modelErrorMessage(error));
+    return res.status(502).json({
+      error: 'The AI service rejected this request. That is a problem with the editor, not with what you asked for.',
+      code: 'bad_model_request',
+    });
+  }
+
   if (status === 429) {
     res.setHeader('Retry-After', error?.headers?.['retry-after'] || '30');
     return res.status(503).json({
@@ -282,6 +309,27 @@ function handleModelError(error, res, config) {
     error: 'The AI request failed. Try again.',
     code: 'request_failed',
   });
+}
+
+/**
+ * The model API's own message, dug out of whichever shape the SDK used.
+ *
+ * `error.message` carries the whole JSON body as text, and the parsed body
+ * hangs off `error.error`. Read both — which one is populated depends on the
+ * SDK version, and neither is guaranteed.
+ */
+function modelErrorMessage(error) {
+  return error?.error?.error?.message || error?.message || 'no message';
+}
+
+/**
+ * Whether a 400 is the account being out of credit rather than a bad request.
+ *
+ * Matched on the message because the API returns both as
+ * `invalid_request_error`, with no field that separates them.
+ */
+function isBillingProblem(error) {
+  return /credit balance|plans & billing|billing/i.test(modelErrorMessage(error));
 }
 
 /** Vercel parses JSON bodies, but be explicit — a string body is still valid JSON. */
