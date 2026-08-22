@@ -20,6 +20,32 @@ import {
   getParamDef,
 } from '../../utils/discreteParams.js';
 
+/** True for the declared type of a true/false control, whose readout reads Enabled/Disabled. */
+export function isBooleanParamType(type) {
+  return type === 'bool' || type === 'boolean';
+}
+
+/**
+ * The readout under a discrete expression field: which OPTION the expression resolves to, or the
+ * evaluation error. Returns null when the field does not hold an expression.
+ *
+ * Shared with ParameterPanel.refreshParameterDisplays, which repaints every `.expression-result`
+ * in the panel whenever a value moves — without this it would overwrite the resolved option with
+ * the bare number the expression evaluated to ("→ 0" in place of "→ Proportional").
+ */
+export function discreteReadout(node, paramName, text, isBoolean) {
+  if (!isExpressionValue(text)) return null;
+
+  const validation = expressionSystem.validateExpression(text, {}, node);
+  if (!validation.valid) return { text: `Error: ${validation.error}`, error: true };
+
+  const resolved = resolveDiscreteParam(node, paramName, text);
+  return {
+    text: `→ ${isBoolean ? (resolved ? 'Enabled' : 'Disabled') : resolved}`,
+    error: false,
+  };
+}
+
 /** The raw stored value — NOT the evaluated one; expression mode is decided by the text. */
 export function rawParamValue(node, param) {
   return node?.params?.[param.name] ?? param.default;
@@ -108,20 +134,9 @@ export function renderExpressionMode({ param, node, div, label, valueManager, on
 
   const refresh = () => {
     const text = input ? input.value.trim() : rawParamValue(node, param);
-    if (!isExpressionValue(text)) {
-      readout.textContent = '';
-      readout.style.color = TEXT.tertiary;
-      return;
-    }
-    const validation = expressionSystem.validateExpression(text, {}, node);
-    if (!validation.valid) {
-      readout.textContent = `Error: ${validation.error}`;
-      readout.style.color = SEMANTIC.error;
-      return;
-    }
-    const resolved = resolveDiscreteParam(node, param.name, text);
-    readout.textContent = `→ ${isBoolean ? (resolved ? 'Enabled' : 'Disabled') : resolved}`;
-    readout.style.color = TEXT.tertiary;
+    const verdict = discreteReadout(node, param.name, text, isBoolean);
+    readout.textContent = verdict?.text ?? '';
+    readout.style.color = verdict?.error ? SEMANTIC.error : TEXT.tertiary;
   };
 
   if (input) {

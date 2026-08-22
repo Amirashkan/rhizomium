@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { SelectInputHandler } from '../src/ui/components/SelectInputHandler.js';
 import { BooleanInputHandler } from '../src/ui/components/BooleanInputHandler.js';
 import { ExpressionTextInputHandler, expressionSystem } from '../src/utils/ParameterExpressionSystem.js';
+import { discreteReadout, isBooleanParamType } from '../src/ui/components/discreteExpressionField.js';
 
 // A dropdown can only show one of its own options and a checkbox can only show on/off, so neither
 // widget can hold "=audioEnvelope > 0.3" — re-rendering the panel would quietly overwrite it with
@@ -94,6 +95,33 @@ describe('discrete parameters with an fx switch', () => {
 
     expect(div.querySelector('input[type="checkbox"]')).toBeNull();
     expect(div.querySelector('.discrete-expression-result')?.textContent).toBe('→ Enabled');
+  });
+
+  it('a panel-wide readout refresh keeps naming the option, not the number behind it', () => {
+    // ParameterPanel.refreshParameterDisplays repaints every .expression-result whenever a value
+    // moves. It must not overwrite "→ Frame" with the bare "→ 1" the expression evaluates to.
+    const handler = new SelectInputHandler();
+    handler.setExpressionSupport(support);
+    const param = { name: 'sizeMode', type: 'select', options: ['Proportional', 'Frame'], default: 'Proportional' };
+    const node = { id: '1', kind: 'Rectangle', params: { sizeMode: '=1' } };
+
+    handler.create(param, node, div, null, valueManager, () => {});
+    const display = div.querySelector('.discrete-expression-result');
+    const input = div.querySelector('textarea.param-input');
+
+    const verdict = discreteReadout(node, input.dataset.param, input.value,
+      isBooleanParamType(input.dataset.paramType));
+    display.textContent = verdict.text;
+
+    expect(display.textContent).toBe('→ Frame');
+  });
+
+  it('reads out the option a half-typed expression falls back to', () => {
+    // The readout's job is to say what the shader will actually bake. An expression that cannot
+    // resolve bakes the default option, so that is what it names — not a number or the raw text.
+    const node = { id: '1', kind: 'Rectangle', params: {} };
+    expect(discreteReadout(node, 'sizeMode', '=sin(', false).text).toBe('→ Proportional');
+    expect(discreteReadout(node, 'sizeMode', 'Frame', false)).toBeNull(); // not an expression
   });
 
   it('a widget with no expression support attached is unchanged', () => {

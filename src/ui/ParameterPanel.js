@@ -10,6 +10,7 @@ import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ColorStopInputHandler } from './components/ColorStopInputHandler.js';
 import { ColorInputHandler } from './components/ColorInputHandler.js';
 import { BooleanInputHandler } from './components/BooleanInputHandler.js';
+import { discreteReadout, isBooleanParamType } from './components/discreteExpressionField.js';
 import { GLSLCodeInputHandler } from './components/GLSLCodeInputHandler.js';
 import { WGSLCodeInputHandler } from './components/WGSLCodeInputHandler.js';
 import { GraphProcessor } from '../codegen/processors/GraphProcessor.js';
@@ -2574,12 +2575,29 @@ updateDependentExpressions(_node) {
       const container = display.closest('.parameter-container');
       const input = container?.querySelector('.param-input');
       if (input && this.expressionSystem.isExpression(input.value)) {
+        // A dropdown or toggle in fx mode reads out the OPTION its expression lands on, not the
+        // number behind it — repainting it here with the evaluated result would replace
+        // "→ Proportional" with "→ 0" every time any value in the panel moved.
+        if (display.classList.contains('discrete-expression-result')) {
+          const verdict = discreteReadout(
+            this.selectedNode,
+            input.dataset.param,
+            input.value,
+            isBooleanParamType(input.dataset.paramType),
+          );
+          if (verdict) {
+            display.textContent = verdict.text;
+            display.style.color = verdict.error ? SEMANTIC.error : TEXT.tertiary;
+          }
+          return;
+        }
+
         const validation = this.expressionSystem.validateExpression(
-          input.value, 
-          {}, 
+          input.value,
+          {},
           this.selectedNode
         );
-        
+
         if (validation.valid) {
           display.textContent = `→ ${validation.result}`;
           // A live value is not a success message — only the error state gets a

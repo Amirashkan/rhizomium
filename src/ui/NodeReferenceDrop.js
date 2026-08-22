@@ -19,9 +19,20 @@
 // rects stay accurate for the life of the gesture.
 
 // Parameter types whose value is a scalar/expression a node reference can stand in for.
-// Colors, files, selects, booleans and code blocks are not expression-evaluated, so they
-// are never drop targets.
+// Colors, files and code blocks are not expression-evaluated, so they are never drop targets.
+//
+// A dropdown or a true/false toggle is not a target as a WIDGET — there is nowhere in a <select>
+// or a checkbox to put "=node_5". Switched into fx mode it is an ordinary expression textarea and
+// takes a drop like any other: the check below matches those by their expression-capable class
+// rather than by declared type, so the gesture follows the field the user is actually looking at.
 const REFERENCEABLE_PARAM_TYPES = new Set(['float', 'int', 'expression', 'string', 'text']);
+
+const EXPRESSION_FIELD_CLASS = 'expression-capable';
+
+function acceptsNodeReference(el) {
+  return REFERENCEABLE_PARAM_TYPES.has(el.dataset.paramType)
+    || el.classList.contains(EXPRESSION_FIELD_CLASS);
+}
 
 const HOVER_CLASS = 'node-ref-drop-target';
 
@@ -199,8 +210,7 @@ export class NodeReferenceDrop {
     for (const el of document.querySelectorAll('.param-input[data-param]')) {
       if (el.disabled) continue;
 
-      const type = el.dataset.paramType;
-      if (!REFERENCEABLE_PARAM_TYPES.has(type)) continue;
+      if (!acceptsNodeReference(el)) continue;
 
       // A parameter referencing its own node is a cycle the expression system cannot resolve,
       // so those fields are not offered as targets.
