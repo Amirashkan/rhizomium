@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   resolveDiscreteParam,
   resolveDiscreteParams,
-  discreteExpressionSignature,
-  hasDiscreteExpressionParams,
+  discreteResolutionSignature,
+  hasDrivenDiscreteParams,
 } from '../src/utils/discreteParams.js';
 import { rectangleIsProportional } from '../src/codegen/compilers/FieldNodes.js';
 import { TransformNodes } from '../src/codegen/compilers/TransformNodes.js';
@@ -62,6 +62,42 @@ describe('resolveDiscreteParam', () => {
   });
 });
 
+describe('a discrete parameter under MIDI/OSC', () => {
+  // MIDI and OSC write a raw NUMBER straight into node.params. A number is not an option name, so
+  // without resolution a knob on a Mix node's blend mode stored 0.53 and every option lookup read
+  // it as the first mode — the picture snapping back to "Mix" the next time anything rebuilt.
+  it('reads a number as an option index', () => {
+    const node = { id: '1', kind: 'ComputeMix', params: {} };
+    expect(resolveDiscreteParam(node, 'mode', 0)).toBe('Mix');
+    expect(resolveDiscreteParam(node, 'mode', 3)).toBe('Screen');
+    expect(resolveDiscreteParam(node, 'mode', 2.6)).toBe('Screen'); // a knob lands between stops
+    expect(resolveDiscreteParam(node, 'mode', 8)).toBe('Darken');
+  });
+
+  it('leaves an out-of-range number alone, so an old save keeps the shape it was authored with', () => {
+    // Rectangle.sizeMode postdates some projects; a stray 42 in a saved patch is not an index.
+    const node = { id: '1', kind: 'Rectangle', params: {} };
+    expect(resolveDiscreteParam(node, 'sizeMode', 42)).toBe(42);
+    expect(resolveDiscreteParam(node, 'sizeMode', 'nonsense')).toBe('nonsense');
+    expect(resolveDiscreteParam(node, 'sizeMode', '')).toBe('');
+  });
+
+  it('switches a toggle at the middle of a fader travel, not the instant it leaves zero', () => {
+    const node = { id: '2', kind: 'Flip2D', params: {} };
+    expect(resolveDiscreteParam(node, 'flipX', 0.2)).toBe(false);
+    expect(resolveDiscreteParam(node, 'flipX', 0.5)).toBe(true);
+    expect(resolveDiscreteParam(node, 'flipX', 1)).toBe(true);
+    // A real boolean is the value itself — nothing to resolve.
+    expect(resolveDiscreteParam(node, 'flipX', true)).toBe(true);
+  });
+
+  it('is picked up by the rebuild poll, since nothing else recompiles for it', () => {
+    const node = { id: '3', kind: 'ComputeMix', params: { mode: 3, amount: 0.5 } };
+    expect(hasDrivenDiscreteParams(node)).toBe(true);
+    expect(discreteResolutionSignature(node)).toBe('mode=Screen;');
+  });
+});
+
 describe('compilers read the resolved option', () => {
   it('Rectangle sizeMode honours an expression', () => {
     expect(rectangleIsProportional({ id: '1', kind: 'Rectangle', params: { sizeMode: '=1' } })).toBe(false);
@@ -87,19 +123,19 @@ describe('compilers read the resolved option', () => {
   });
 });
 
-describe('discreteExpressionSignature', () => {
+describe('discreteResolutionSignature', () => {
   it('only reports parameters that are BOTH discrete and expression-driven', () => {
     const node = {
       id: '4',
       kind: 'Rectangle',
       params: { width: '=audioEnvelope', sizeMode: '=1', roundness: 0.2, invert: true },
     };
-    expect(hasDiscreteExpressionParams(node)).toBe(true);
-    expect(discreteExpressionSignature(node)).toBe('sizeMode=Frame;');
+    expect(hasDrivenDiscreteParams(node)).toBe(true);
+    expect(discreteResolutionSignature(node)).toBe('sizeMode=Frame;');
 
     const plain = { id: '5', kind: 'Rectangle', params: { width: '=audioEnvelope', sizeMode: 'Frame' } };
-    expect(hasDiscreteExpressionParams(plain)).toBe(false);
-    expect(discreteExpressionSignature(plain)).toBe('');
+    expect(hasDrivenDiscreteParams(plain)).toBe(false);
+    expect(discreteResolutionSignature(plain)).toBe('');
   });
 });
 
@@ -125,7 +161,7 @@ describe('resolveDiscreteParams (compute uniform packing)', () => {
   });
 });
 
-describe('Editor.syncDiscreteExpressionParams', () => {
+describe('Editor.syncDrivenDiscreteParams', () => {
   // Poll-and-rebuild is what makes a live driver (audio, the clock) able to move a baked control
   // at all. It must fire ONLY on a flip: a rebuild per frame would stall the render loop, and a
   // rebuild on first sight would fire on every patch load.
@@ -156,8 +192,8 @@ describe('Editor.syncDiscreteExpressionParams', () => {
   });
 
   function poll() {
-    editor._discreteExpressionCheckedAt = null; // skip the 100ms throttle
-    editor.syncDiscreteExpressionParams();
+    editor._discreteCheckedAt = null; // skip the 100ms throttle
+    editor.syncDrivenDiscreteParams();
   }
 
   it('does not rebuild on first sight or while the resolved option holds', () => {

@@ -3,6 +3,7 @@
 import { oscArgToNumber } from './OSCDecoder.js';
 import {
   applyControlValue,
+  discreteControlRange,
   mapNormalizedValue,
   refreshEditorForControlChange,
   writeParameterUniform,
@@ -76,6 +77,8 @@ export class OSCParameterBinding {
     if (!node) return false;
 
     const paramDef = this.getParameterDefinition(node, paramName);
+    // A dropdown or toggle is addressed by option index and declares no min/max of its own.
+    const discreteRange = discreteControlRange(node, paramName);
 
     // One parameter follows one source; rebinding replaces the old one.
     this.removeBindingForParameter(nodeId, paramName);
@@ -85,8 +88,8 @@ export class OSCParameterBinding {
       argIndex,
       nodeId,
       paramName,
-      min: options.min !== undefined ? options.min : (paramDef?.min ?? 0),
-      max: options.max !== undefined ? options.max : (paramDef?.max ?? 1),
+      min: options.min !== undefined ? options.min : (discreteRange?.min ?? paramDef?.min ?? 0),
+      max: options.max !== undefined ? options.max : (discreteRange?.max ?? paramDef?.max ?? 1),
       // Most OSC controllers send 0-1; anything else is declared per binding.
       inputMin: options.inputMin !== undefined ? options.inputMin : 0,
       inputMax: options.inputMax !== undefined ? options.inputMax : 1,

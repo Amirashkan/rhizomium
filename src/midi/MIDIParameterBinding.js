@@ -2,6 +2,7 @@
 
 import {
   applyControlValue,
+  discreteControlRange,
   mapNormalizedValue,
   refreshEditorForControlChange,
   writeParameterUniform,
@@ -60,6 +61,7 @@ export class MIDIParameterBinding {
 
     // Get parameter definition to determine range
     const paramDef = this.getParameterDefinition(node, paramName);
+    const discreteRange = discreteControlRange(node, paramName);
 
     // Remove existing binding for this parameter
     this.removeBindingForParameter(nodeId, paramName);
@@ -71,8 +73,10 @@ export class MIDIParameterBinding {
       cc,
       nodeId,
       paramName,
-      min: options.min !== undefined ? options.min : (paramDef?.min || 0),
-      max: options.max !== undefined ? options.max : (paramDef?.max || 1),
+      // A dropdown or toggle is addressed by option index, and its definition carries no min/max —
+      // without this the whole knob sweep lands on the first two of nine blend modes.
+      min: options.min !== undefined ? options.min : (discreteRange?.min ?? paramDef?.min ?? 0),
+      max: options.max !== undefined ? options.max : (discreteRange?.max ?? paramDef?.max ?? 1),
       curve: options.curve || 'linear', // linear, exponential, logarithmic
       inverted: options.inverted || false,
       enabled: true

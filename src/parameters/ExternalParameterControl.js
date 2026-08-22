@@ -13,6 +13,28 @@
  */
 
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
+import { discreteParamKind, getParamDef, optionValues } from '../utils/discreteParams.js';
+
+/**
+ * The range a new binding should span when the parameter itself does not name one.
+ *
+ * A dropdown has no min/max in its definition, so both controllers used to fall back to 0..1 —
+ * which maps a whole knob sweep onto the first two of nine blend modes. A discrete parameter is
+ * addressed by option INDEX, so its natural range is 0..n-1 (0..1 for a toggle, which then
+ * switches at the middle of the fader's travel).
+ *
+ * @returns {{min: number, max: number}|null} null when the parameter is not discrete.
+ */
+export function discreteControlRange(node, paramName) {
+  // A node kind that is not in NodeDefs (a test double, a node built at runtime) yields no
+  // definition, so this returns null and the caller keeps its existing min/max fallback.
+  const def = getParamDef(node, paramName);
+  const kind = discreteParamKind(def);
+  if (!kind) return null;
+  if (kind === 'boolean') return { min: 0, max: 1 };
+
+  return { min: 0, max: Math.max(1, optionValues(def).length - 1) };
+}
 
 /**
  * Map a normalised 0-1 reading onto a parameter's range.

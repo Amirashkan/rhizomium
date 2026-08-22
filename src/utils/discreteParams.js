@@ -9,16 +9,20 @@
 // aspect space, a Flip2D's `flipX` becomes a literal -1.0, a Threshold's `mode` picks an index —
 // and there is no way to hand a shader a string. So an expression in one of these fields has to be
 // evaluated on the CPU and collapsed to a concrete option BEFORE the branch is taken. That is what
-// this module does, and it is why an expression-driven discrete control costs a recompile whenever
-// its resolved value flips (Editor watches for exactly that; see _refreshDiscreteExpressionParams).
+// this module does, and it is why a driven discrete control costs a recompile whenever its resolved
+// value flips (Editor watches for exactly that; see syncDrivenDiscreteParams).
 //
-// The evaluated result is coerced by parameter type:
-//   boolean  non-zero / "true" -> true, 0 / "" / "false" -> false
+// The same applies to a discrete parameter under MIDI or OSC: those write a raw NUMBER straight
+// into node.params, and a number is not an option name either — a knob on a Mix node's blend mode
+// stored 0.53, which every option lookup read as the first mode.
+//
+// The value is coerced by parameter type:
+//   boolean  >= 0.5 / "true" -> true, below / "" / "false" -> false
 //   select   a string matching an option wins; otherwise a number picks an option by VALUE first
 //            ("=512" on ['256','512','1024'] selects '512') and by INDEX second ("=1" selects the
-//            second option). Anything unresolvable falls back to the caller's default, never to the
-//            raw "=..." text — a compiler comparing that string against option names would silently
-//            take the wrong branch.
+//            second option, and a knob mapped 0..n-1 sweeps the list). Anything unresolvable falls
+//            back to the parameter's default, never to the raw text — a compiler comparing that
+//            against option names would silently take the wrong branch.
 
 import { NodeDefs } from '../data/NodeDefs.js';
 import { expressionSystem } from './ParameterExpressionSystem.js';
@@ -60,9 +64,14 @@ export function optionValues(def) {
     .map((v) => String(v));
 }
 
+/**
+ * A number reads as ON at or above 0.5 rather than at anything non-zero. A comparison yields 1/0
+ * either way, but the halfway point is what a fader wants: a MIDI knob mapped to a toggle should
+ * switch at the middle of its travel, not the instant it leaves the bottom.
+ */
 export function coerceBoolean(result, fallback = false) {
   if (typeof result === 'boolean') return result;
-  if (typeof result === 'number') return Number.isFinite(result) && result !== 0;
+  if (typeof result === 'number') return Number.isFinite(result) && result >= 0.5;
   if (typeof result === 'string') {
     const t = result.trim().toLowerCase();
     if (t === 'true') return true;
@@ -70,7 +79,7 @@ export function coerceBoolean(result, fallback = false) {
     const n = Number(t);
     // A leftover identifier ("node_5 > 1" from a failed evaluation) is not an answer — keep the
     // parameter on its previous/default setting rather than reading it as truthy.
-    return Number.isFinite(n) ? n !== 0 : Boolean(fallback);
+    return Number.isFinite(n) ? n >= 0.5 : Boolean(fallback);
   }
   return Boolean(fallback);
 }
@@ -111,11 +120,46 @@ export function coerceOption(result, values, fallback) {
  * expression must still reach getShaderParam() as its original "=..." text.
  */
 export function resolveDiscreteParam(node, name, rawValue, defaultValue = undefined) {
-  if (!isExpressionValue(rawValue)) return rawValue;
-
   const def = getParamDef(node, name);
   const kind = discreteParamKind(def);
   if (!kind) return rawValue;
+
+  const values = kind === 'select' ? optionValues(def) : [];
+
+  // A value that is already an option (or a real boolean) is the answer — no work, and a legacy
+  // spelling the consumers handle themselves (a lower-cased mode name) is left exactly as stored.
+  if (!isExpressionValue(rawValue)) {
+    if (kind === 'boolean') {
+      if (typeof rawValue === 'boolean' || rawValue === undefined || rawValue === null) {
+        return rawValue;
+      }
+    } else if (values.includes(String(rawValue))) {
+      return rawValue;
+    }
+
+    // Anything else numeric is a LIVE EXTERNAL DRIVER: MIDI and OSC write a raw number straight
+    // into node.params, so without this a knob on a Mix node's blend mode stores 0.53 — a name no
+    // option list contains, which every option lookup silently reads as the first mode.
+    const numeric = typeof rawValue === 'number'
+      ? rawValue
+      : (typeof rawValue === 'string' && rawValue.trim() !== '' && Number.isFinite(Number(rawValue))
+        ? Number(rawValue)
+        : null);
+    if (numeric === null || !Number.isFinite(numeric)) return rawValue;
+
+    if (kind === 'boolean') return coerceBoolean(numeric, false);
+
+    // A number that names no option is only read as an INDEX while it is in range. An expression
+    // clamps (the user wrote it for this field, so the nearest option is what they meant), but a
+    // stray stored number is more likely junk from an older save — and quietly turning that into
+    // the last option would change the shape a patch was authored with. Out of range, the value
+    // is left alone for the consumer's own default to catch.
+    const byValue = values.find((v) => Number(v) === numeric);
+    if (byValue !== undefined) return byValue;
+    const index = Math.round(numeric);
+    if (index < 0 || index > values.length - 1) return rawValue;
+    return values[index];
+  }
 
   let result;
   try {
@@ -129,61 +173,64 @@ export function resolveDiscreteParam(node, name, rawValue, defaultValue = undefi
     return coerceBoolean(result, coerceBoolean(fallback));
   }
 
-  const values = optionValues(def);
   const fallback = defaultValue !== undefined ? String(defaultValue) : def?.default ?? values[0];
   return coerceOption(result, values, fallback);
 }
 
 /**
- * A node's params with every expression-driven discrete parameter replaced by the option it
- * resolves to. Returns the SAME object when there is nothing to resolve, so the common case costs
- * one scan and no allocation — this runs per compute node per frame on the uniform-packing path.
+ * True when a discrete parameter's stored value is not itself a usable option — an expression, or
+ * the raw number a MIDI/OSC binding writes — so something has to resolve it before use.
+ */
+export function needsDiscreteResolution(node, name, value) {
+  if (!discreteParamKind(getParamDef(node, name))) return false;
+  return resolveDiscreteParam(node, name, value) !== value;
+}
+
+/**
+ * A node's params with every driven discrete parameter replaced by the option it resolves to.
+ * Returns the SAME object when there is nothing to resolve, so the common case costs one scan and
+ * no allocation — this runs per compute node per frame on the uniform-packing path.
  *
  * Used where a consumer reads params by name and branches on them (computeUniformLayout maps
- * `quality === 'Low'` to an index, `colorize` to 1.0/0.0): handed raw "=..." text, the first
- * silently takes the default branch and the second is truthy no matter what it evaluates to.
+ * `quality === 'Low'` to an index, `colorize` to 1.0/0.0): handed raw "=..." text or a MIDI
+ * number, the first silently takes the default branch and the second is truthy no matter what.
  */
 export function resolveDiscreteParams(node) {
   const params = node?.params;
-  if (!params || !hasDiscreteExpressionParams(node)) return params;
+  if (!params || !hasDrivenDiscreteParams(node)) return params;
 
   const resolved = { ...params };
   for (const [name, value] of Object.entries(params)) {
-    if (!isExpressionValue(value)) continue;
-    if (!discreteParamKind(getParamDef(node, name))) continue;
+    if (!needsDiscreteResolution(node, name, value)) continue;
     resolved[name] = resolveDiscreteParam(node, name, value);
   }
   return resolved;
 }
 
 /**
- * The resolved value of every expression-driven discrete parameter on a node, as a
- * "name=value" signature — or '' when the node has none.
+ * The resolved value of every driven discrete parameter on a node, as a "name=value" signature —
+ * or '' when the node has none.
  *
- * A discrete control is BAKED into the generated WGSL, so a live driver (audio, the clock, another
- * node) cannot move it the way it moves a uniform: the shader has to be rebuilt. Rebuilding every
+ * A discrete control is BAKED into the generated WGSL, so a live driver (audio, the clock, a MIDI
+ * knob) cannot move it the way it moves a uniform: the shader has to be rebuilt. Rebuilding every
  * frame is out of the question, but the resolved value is discrete and so changes rarely — Editor
  * polls this signature and rebuilds only on a flip.
  */
-export function discreteExpressionSignature(node) {
+export function discreteResolutionSignature(node) {
   const params = node?.params;
   if (!params) return '';
 
   let signature = '';
   for (const [name, value] of Object.entries(params)) {
-    if (!isExpressionValue(value)) continue;
-    const def = getParamDef(node, name);
-    if (!discreteParamKind(def)) continue;
+    if (!needsDiscreteResolution(node, name, value)) continue;
     signature += `${name}=${resolveDiscreteParam(node, name, value)};`;
   }
   return signature;
 }
 
-/** True when any parameter on the node is a discrete control driven by an expression. */
-export function hasDiscreteExpressionParams(node) {
+/** True when any parameter on the node is a discrete control something else is driving. */
+export function hasDrivenDiscreteParams(node) {
   const params = node?.params;
   if (!params) return false;
-  return Object.entries(params).some(
-    ([name, value]) => isExpressionValue(value) && discreteParamKind(getParamDef(node, name))
-  );
+  return Object.entries(params).some(([name, value]) => needsDiscreteResolution(node, name, value));
 }
