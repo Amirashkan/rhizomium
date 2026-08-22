@@ -6,6 +6,9 @@ import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { FileManager } from "./src/ui/FileManager.js";
+import { getAIPanel } from "./src/ui/AIPanel.js";
+import { entitlements } from "./src/ai/entitlements.js";
+import { requireOutputFeature } from "./src/ai/outputGating.js";
 import { WelcomeWindow } from "./src/ui/WelcomeWindow.js";
 import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
@@ -571,6 +574,16 @@ async function initialize() {
     window.backupDialog = backupDialog;
     window.fileManager = fileManager;
     window.welcomeWindow = welcomeWindow;
+    window.entitlements = entitlements;
+
+    // What this visitor may do, read once on load and cached for the session.
+    // Signed-out visitors get a real answer here, so this is not gated on being
+    // logged in; if the gallery cannot be reached it resolves to the free tier
+    // rather than rejecting. Nothing waits on it — the AI panel re-reads it
+    // when opened, and every paid action asks for a fresh grant regardless.
+    entitlements.load().catch((error) => {
+      console.warn('Could not load entitlements:', error);
+    });
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
@@ -1475,6 +1488,21 @@ function setupUIEventHandlers() {
 
     secondMonitorBtn.addEventListener("click", async (e) => {
       e.preventDefault();
+
+      // Multi-screen output is a Cloude Plus entitlement. Closing a viewer that
+      // is already running is never gated - a tier that lapsed mid-show should
+      // not strand a window open on the projector.
+      if (!secondMonitorViewer.isActive
+          && !requireOutputFeature("output.multiscreen", {
+            onRefused: (message, check) => {
+              if (typeof updateStatus === "function") {
+                updateStatus(`${message} See ${check.upgradeUrl}`, "warning");
+              }
+            },
+          })) {
+        return;
+      }
+
       try {
         await secondMonitorViewer.toggle();
       } catch (error) {
@@ -2225,7 +2253,17 @@ function setupRhizomiumMenu() {
   }
 
   // ========== TOOLS MENU ==========
-  
+
+  // AI Assistant
+  const aiPanelBtn = document.getElementById("btn-ai-panel");
+  if (aiPanelBtn) {
+    aiPanelBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      getAIPanel().show();
+    });
+  }
+
   // Script Editor
   const scriptEditorBtn = document.getElementById("btn-script-editor");
   if (scriptEditorBtn) {

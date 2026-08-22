@@ -4,6 +4,11 @@
   "installCommand": "npm install",
   "buildCommand": "npm run build:web",
   "outputDirectory": "dist",
+  "functions": {
+    "api/**/*.js": {
+      "maxDuration": 60
+    }
+  },
   "rewrites": [
     {
       "source": "/studio",

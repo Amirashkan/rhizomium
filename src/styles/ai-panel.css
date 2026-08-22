@@ -1,0 +1,281 @@
+/* --- AI panel ------------------------------------------------------------
+   The AI features, drawn from the live entitlements catalogue (src/ui/AIPanel.js).
+
+   Locked features stay on screen, dimmed, labelled with the tier they need —
+   hiding them would mean an artist never learns the paid tier exists. All
+   colour comes from tokens.css so the panel tracks the rest of the app. */
+
+.ai-panel-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.ai-panel-dialog {
+  width: min(560px, 92vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(var(--rz-panel-top), var(--rz-panel-bottom));
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 8px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  font-family: var(--rz-font-ui);
+  color: var(--rz-text);
+}
+
+.ai-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rz-line);
+}
+
+.ai-panel-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* The persistent tier badge. Cloude and Cloude Plus earn the accent; free is
+   deliberately quiet, so the badge reads as information, not a nag. */
+.ai-panel-tier {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--rz-line-strong);
+  color: var(--rz-text-faint);
+}
+
+.ai-panel-tier.tier-cloude,
+.ai-panel-tier.tier-cloude_plus {
+  color: var(--rz-accent-ink);
+  background: var(--rz-accent);
+  border-color: var(--rz-accent-deep);
+}
+
+.ai-panel-close {
+  background: none;
+  border: none;
+  color: var(--rz-text-faint);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.ai-panel-close:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+.ai-panel-body {
+  padding: 12px 14px 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-panel-loading,
+.ai-panel-note {
+  font-size: 12px;
+  color: var(--rz-text-faint);
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--rz-fill-soft);
+}
+
+.ai-panel-note.warning {
+  color: var(--rz-warn);
+  background: var(--rz-warn-soft);
+}
+
+.ai-feature {
+  border: 1px solid var(--rz-line);
+  border-radius: 6px;
+  padding: 11px 12px;
+  background: var(--rz-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-feature.locked {
+  opacity: 0.62;
+}
+
+.ai-feature-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ai-feature-description {
+  font-size: 12px;
+  color: var(--rz-text-faint);
+  line-height: 1.45;
+}
+
+.ai-feature-allowance {
+  font-size: 11px;
+  color: var(--rz-text-faint);
+  font-family: var(--rz-font-mono);
+}
+
+.ai-feature-allowance.exhausted {
+  color: var(--rz-warn);
+}
+
+.ai-feature-locked {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--rz-text-faint);
+}
+
+.ai-upgrade-link {
+  color: var(--rz-accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.ai-upgrade-link:hover {
+  text-decoration: underline;
+}
+
+.ai-feature-action {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.ai-feature-input {
+  width: 100%;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 5px;
+  color: var(--rz-text);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  padding: 7px 8px;
+  resize: vertical;
+}
+
+.ai-feature-input:focus {
+  outline: none;
+  border-color: var(--rz-accent-deep);
+}
+
+.ai-feature-run {
+  align-self: flex-start;
+  background: var(--rz-accent);
+  color: var(--rz-accent-ink);
+  border: none;
+  border-radius: 5px;
+  padding: 6px 14px;
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-feature-run:hover:not(:disabled) {
+  background: var(--rz-accent-hover);
+}
+
+.ai-feature-run:disabled {
+  background: var(--rz-fill-soft);
+  color: var(--rz-text-disabled);
+  cursor: default;
+}
+
+/* --- Findings, suggestions and directions -------------------------------- */
+
+.ai-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  max-height: 56vh;
+  overflow-y: auto;
+}
+
+.ai-findings-summary {
+  margin: 0 0 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--rz-text);
+}
+
+.ai-finding {
+  border-left: 2px solid var(--rz-line-strong);
+  padding: 7px 0 7px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-finding.severity-error {
+  border-left-color: var(--rz-error);
+}
+
+.ai-finding.severity-warning {
+  border-left-color: var(--rz-warn);
+}
+
+.ai-finding.severity-note {
+  border-left-color: var(--rz-info);
+}
+
+.ai-finding-title {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.ai-finding-detail,
+.ai-finding-fix {
+  font-size: 12px;
+  color: var(--rz-text-faint);
+  line-height: 1.45;
+}
+
+.ai-finding-fix::before {
+  content: "Fix: ";
+  color: var(--rz-accent);
+}
+
+.ai-finding-steps {
+  margin: 2px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--rz-text-faint);
+  line-height: 1.5;
+}
+
+.ai-finding-show {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 4px;
+  color: var(--rz-text-faint);
+  font-family: var(--rz-font-ui);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  margin-top: 2px;
+}
+
+.ai-finding-show:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
