@@ -218,7 +218,7 @@ export class PreferencesWindow {
     section.appendChild(autoSave.container);
     section.appendChild(
       this._createHint(
-        "Snapshots the patch every 30 seconds, and again when the window is hidden or closed, so it can be recovered after a crash. Turn it off to keep saving entirely manual - an autosave already stored stays recoverable either way.",
+        "Snapshots the patch every 30 seconds - in a gap between frames, never mid-gesture - and again when the window is hidden or closed, so it can be recovered after a crash. Turn it off to keep saving entirely manual; an autosave already stored stays recoverable either way.",
       ),
     );
 

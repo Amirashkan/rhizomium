@@ -39,6 +39,11 @@ export class SaveLoadManager {
     this.autosaveInterval = 30000; // 30 seconds
     this.autosaveEnabled = true;
     this._autosaveTimer = null;
+    this._autosaveScheduled = false;
+    // Backups keep a history; the autosave snapshot is what a crash restores
+    // from. Ten of them a session beats ten of them every five minutes.
+    this.autoBackupInterval = 10 * 60 * 1000; // 10 minutes
+    this._lastAutoBackupAt = 0;
     this.maxBackups = 10;
     this.hasUnsavedChanges = false;
     this.isImporting = false;
@@ -159,11 +164,22 @@ export class SaveLoadManager {
   /**
    * Cheap content hash (djb2) of a project export, ignoring volatile fields,
    * used to skip redundant autosaves/backups.
+   *
+   * Inlined media is summarized rather than hashed: a patch with a video in it
+   * carries megabytes of base64, and stringifying that and walking it a
+   * character at a time cost ~30ms per call - three calls a tick, which is a
+   * visible hitch mid-performance. Length plus both ends distinguishes any
+   * texture an artist could actually swap in, and the payload still reaches
+   * the snapshot itself untouched.
    */
   _computeProjectHash(projectData) {
     try {
       const { savedAt, metadata, ...stable } = projectData;
-      const str = JSON.stringify(stable);
+      const str = JSON.stringify(stable, (_key, value) =>
+        typeof value === "string" && value.length > 1024
+          ? `${value.length}:${value.slice(0, 64)}:${value.slice(-64)}`
+          : value,
+      );
       let hash = 5381;
       for (let i = 0; i < str.length; i++) {
         hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
@@ -1702,13 +1718,17 @@ async reinitializeWebGPU() {
    *
    * Passing an explicit key still writes a plain localStorage entry, for the
    * small named saves that path was built for.
+   *
+   * The autosave tick has already exported and hashed the project to decide
+   * whether to run at all, so it hands both in rather than paying for them a
+   * second time.
    */
-  async saveToLocal(key = null) {
+  async saveToLocal(key = null, { projectData: prepared = null, hash = null } = {}) {
     const storageKey = key || this.autosaveKey;
-    let projectData;
+    let projectData = prepared;
 
     try {
-      projectData = this.exportProject();
+      if (!projectData) projectData = this.exportProject();
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'local-storage-save',
@@ -1757,7 +1777,7 @@ async reinitializeWebGPU() {
     }
 
     if (storageKey === this.autosaveKey) {
-      this._lastAutosaveHash = this._computeProjectHash(projectData);
+      this._lastAutosaveHash = hash || this._computeProjectHash(projectData);
     }
     this.hasUnsavedChanges = false;
     this.updateStatus("Project saved locally");
@@ -1841,13 +1861,13 @@ async reinitializeWebGPU() {
     }
   }
 
-  async createBackup(reason = "manual") {
+  async createBackup(reason = "manual", { projectData: prepared = null, hash: preparedHash = null } = {}) {
     try {
-      const projectData = this.exportProject();
+      const projectData = prepared || this.exportProject();
 
       // Skip autosave backups identical to the last one so the list
       // doesn't fill up with duplicate snapshots
-      const hash = this._computeProjectHash(projectData);
+      const hash = preparedHash || this._computeProjectHash(projectData);
       if (reason === "autosave" && hash && hash === this._lastBackupHash) {
         return false;
       }
@@ -1964,17 +1984,9 @@ async reinitializeWebGPU() {
 
       // Auto-save interval. hasUnsavedChanges is set via markUnsaved(),
       // called from the shader update path that every graph edit goes through.
-      this._autosaveTimer = setInterval(async () => {
-        if (this._autosaveInFlight) return;
-        if (this.hasUnsavedChanges && !this.isImporting && this.shouldAutoSave()) {
-          this._autosaveInFlight = true;
-          try {
-            await this.saveToLocal();
-            await this.createBackup("autosave");
-          } finally {
-            this._autosaveInFlight = false;
-          }
-        }
+      // The tick only schedules; the work waits for a gap between frames.
+      this._autosaveTimer = setInterval(() => {
+        this._scheduleAutoSave();
       }, this.autosaveInterval);
     } catch (error) {
       window.errorHandler?.handleError(error, {
@@ -1983,7 +1995,86 @@ async reinitializeWebGPU() {
     }
   }
 
-  shouldAutoSave() {
+  /**
+   * Hands the autosave to the browser's idle time instead of running it
+   * straight off the timer.
+   *
+   * A patch with inlined media is megabytes, and serializing it is main-thread
+   * work: landing that in the middle of a frame is what an artist feels as a
+   * stutter every 30 seconds. requestIdleCallback puts it in the gap after a
+   * frame is committed instead. The timeout is the backstop for a tab that
+   * never goes idle - by then the work below has been cut to a few ms, so it
+   * fits in a frame's slack even in the worst case.
+   */
+  _scheduleAutoSave() {
+    if (this._autosaveInFlight || this._autosaveScheduled) return;
+    if (!this.hasUnsavedChanges || this.isImporting) return;
+
+    this._autosaveScheduled = true;
+    const run = () => {
+      this._autosaveScheduled = false;
+      this._runAutoSave();
+    };
+
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(run, { timeout: this.autosaveInterval });
+    } else {
+      setTimeout(run, 0);
+    }
+  }
+
+  /**
+   * One autosave pass: export once, hash once, and reuse both downstream.
+   * Every one of these used to be paid for three times over per tick.
+   */
+  async _runAutoSave() {
+    if (this._autosaveInFlight) return;
+    if (!this.hasUnsavedChanges || this.isImporting) return;
+
+    // Mid-gesture is the one moment a dropped frame is visible on the wall.
+    // Nothing is lost by waiting - hasUnsavedChanges stays set, so the next
+    // tick picks the same edit up.
+    if (this.isPerforming()) return;
+
+    this._autosaveInFlight = true;
+    try {
+      let projectData;
+      try {
+        projectData = this.exportProject();
+      } catch {
+        return; // saveToLocal reports the export failure on the manual path
+      }
+      const hash = this._computeProjectHash(projectData);
+      if (!this.shouldAutoSave(projectData, hash)) return;
+
+      await this.saveToLocal(null, { projectData, hash });
+
+      // Backups are history, not the crash net - the snapshot above is that.
+      // One every 30 seconds meant a second full serialization plus a deep
+      // copy of the patch on every tick, and bought ten backups spanning five
+      // minutes. On this cadence the same ten cover a whole session.
+      if (Date.now() - this._lastAutoBackupAt >= this.autoBackupInterval) {
+        await this.createBackup("autosave", { projectData, hash });
+        this._lastAutoBackupAt = Date.now();
+      }
+    } finally {
+      this._autosaveInFlight = false;
+    }
+  }
+
+  /**
+   * Whether the artist has a hand on a control right now.
+   *
+   * Deliberately only the drag: a gesture lasts a second or two, so skipping a
+   * tick costs nothing. Playback is not included - a set runs for an hour, and
+   * blocking on it would mean never saving during the one stretch of work
+   * worth keeping.
+   */
+  isPerforming() {
+    return !!this.editor?._parameterDragging;
+  }
+
+  shouldAutoSave(projectData = null, hash = null) {
     try {
       // Only autosave if there's actual content worth saving
       if (!this.graph || !this.graph.nodes || this.graph.nodes.length === 0) {
@@ -1993,8 +2084,9 @@ async reinitializeWebGPU() {
       // Skip if content is identical to the last autosave. The hash covers
       // the full export, so parameter tweaks count as changes (the old
       // node/connection-count comparison missed them).
-      const hash = this._computeProjectHash(this.exportProject());
-      if (hash && hash === this._lastAutosaveHash) {
+      const contentHash =
+        hash || this._computeProjectHash(projectData || this.exportProject());
+      if (contentHash && contentHash === this._lastAutosaveHash) {
         return false;
       }
 

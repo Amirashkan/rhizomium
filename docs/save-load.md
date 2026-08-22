@@ -120,6 +120,22 @@ The choice is remembered between sessions.
 - Snapshots the patch every 30 seconds, and again when the window is hidden or closed
 - Writes a separate auto-save snapshot; your project file is never overwritten
 - Offers to recover that snapshot on the next start after a crash
+- Keeps a rolling history in **Manage Backups**, one entry every 10 minutes
+
+### Auto-Save and Live Performance
+
+Auto-save is built to stay out of the way while you play:
+
+- The work runs in a gap between frames, not in the middle of one
+- A tick is skipped outright while you are dragging a parameter, and picked up
+  once you let go
+- Inlined images and video are summarized rather than re-scanned when checking
+  whether anything changed
+
+A patch with no inlined media costs a few milliseconds per snapshot. Cost grows
+with the size of any media you have inlined, since that has to be written out —
+if you are performing with a large video baked into the patch and still feel it,
+turning Auto-Save off for the set is the escape hatch.
 
 With Auto-Save off, nothing is written unless you ask: no periodic snapshot and
 none on close. Saving, exporting and manual backups are unaffected, and an
