@@ -19,6 +19,7 @@
 // and the caller falls back to the parameter default.
 
 import { unifiedExpressionSystem } from './UnifiedExpressionSystem.js';
+import { EXTERNAL_CONTROL_SOURCES, getExternalReading } from '../parameters/ExternalParameterControl.js';
 
 // Identifiers owned by the expression language itself. A parameter that happens to share one of
 // these names must never shadow the global, or `=time` would stop meaning the clock.
@@ -26,7 +27,14 @@ const RESERVED_IDENTIFIERS = new Set([
   'time', 'frame', 'aspect', 'PI', 'E',
   'audioEnvelope', 'audioEnvelopeBass', 'audioEnvelopeMids',
   'audioEnvelopeHighs', 'audioEnvelopeFull',
+  ...EXTERNAL_CONTROL_SOURCES,
 ]);
+
+/** Does this expression name an external controller (`midi` / `osc`)? */
+export function referencesExternalControl(expression) {
+  if (typeof expression !== 'string') return false;
+  return /\b(midi|osc)\b/.test(expression);
+}
 
 /** WGSL uniform field for a node parameter (matches the compilers' own key sanitisation). */
 export function paramUniformField(nodeId, paramName) {
@@ -102,7 +110,60 @@ export function buildParamRefMapping(node, expression, options = {}) {
     const wgsl = _resolveParamAsWGSL(node, name, { uniformManager, graph, visited, resolveSibling });
     if (wgsl !== null) mapping[name] = wgsl;
   }
+  Object.assign(mapping, externalControlRefMapping(node, expression, excludeParam, uniformManager));
   return mapping;
+}
+
+/**
+ * Identifier -> WGSL mapping for `midi` / `osc` inside a parameter's own expression.
+ *
+ * Both resolve to the parameter's uniform field, which is where MIDI and OSC write their raw
+ * reading (see parameters/ExternalParameterControl.js). Going through the uniform rather than
+ * baking the current number is the whole point: the controller then moves the render at 60fps
+ * without a shader recompile, exactly as it does for a plain numeric parameter.
+ *
+ * Registering the uniform here — not only when a binding exists — means the order the user works
+ * in doesn't matter: writing `=midi + sin(time)` before mapping the CC compiles to the same shader,
+ * and the field simply reads 0 until the first message arrives.
+ *
+ * @param {object} node
+ * @param {string} expression   the parameter expression
+ * @param {string} paramName    the parameter being compiled (the one a controller would drive)
+ * @param {object} [uniformManager] when absent the current reading is baked as a literal, which is
+ *                                  all a standalone thumbnail compile can do
+ */
+export function externalControlRefMapping(node, expression, paramName, uniformManager = null) {
+  const mapping = {};
+  if (!node || !paramName || !referencesExternalControl(expression)) return mapping;
+
+  const identifiers = identifiersOf(expression);
+  if (!identifiers) return mapping;
+
+  for (const source of EXTERNAL_CONTROL_SOURCES) {
+    if (!identifiers.includes(source)) continue;
+
+    const key = `${node.id}.${paramName}`;
+    const reading = getExternalReading(node.id, paramName, source);
+
+    if (uniformManager?.uniformValues) {
+      const current = uniformManager.uniformValues.get(key);
+      uniformManager.uniformValues.set(key, reading ?? current ?? 0);
+      mapping[source] = paramUniformField(node.id, paramName);
+    } else {
+      mapping[source] = floatLiteral(reading ?? 0);
+    }
+  }
+  return mapping;
+}
+
+/** CPU scope holding a parameter's live `midi` / `osc` readings. Unread sources are 0. */
+export function externalControlScope(nodeId, paramName) {
+  const scope = {};
+  if (paramName === null || paramName === undefined) return scope;
+  for (const source of EXTERNAL_CONTROL_SOURCES) {
+    scope[source] = getExternalReading(nodeId, paramName, source) ?? 0;
+  }
+  return scope;
 }
 
 /**
@@ -161,7 +222,8 @@ function _resolveParamAsWGSL(node, name, ctx) {
     }
 
     const nested = { ...ctx, visited: new Set([...ctx.visited, name]) };
-    const nestedMapping = {};
+    // A referenced sibling's own `midi`/`osc` is ITS controller, not the referring parameter's.
+    const nestedMapping = externalControlRefMapping(node, raw, name, ctx.uniformManager);
     for (const ref of referencedParamNames(node, raw, null)) {
       const resolved = _resolveParamAsWGSL(node, ref, nested);
       if (resolved === null) return null; // cycle or unusable value anywhere in the chain
@@ -218,7 +280,8 @@ function _resolveParamAsValue(node, name, ctx) {
 
   if (isExpressionValue(raw)) {
     const nested = { ...ctx, visited: new Set([...ctx.visited, name]) };
-    const scope = { ...ctx.baseContext };
+    // As on the GPU path: a referenced sibling reads its OWN controller readings.
+    const scope = { ...ctx.baseContext, ...externalControlScope(node.id, name) };
     for (const ref of referencedParamNames(node, raw, null)) {
       const resolved = _resolveParamAsValue(node, ref, nested);
       if (resolved === undefined) return undefined;

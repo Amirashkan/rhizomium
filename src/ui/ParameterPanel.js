@@ -2632,6 +2632,23 @@ _processPreviewUpdate(node) {
     const inputData = this.textInputHandler?.activeInputs?.get(key);
 
     if (inputData?.input && document.activeElement !== inputData.input) {
+      // A field holding an expression is NOT the controller's readout — the reading reaches the
+      // formula as `midi` and the formula stays in the field. Writing the number here would erase
+      // it on the first CC, which is exactly what made an expression and a MIDI mapping mutually
+      // exclusive; the evaluated value is refreshed by refreshParameterDisplays when MIDI settles.
+      if (this.expressionSystem.isExpression(inputData.input.value)) {
+        // Still move the evaluated readout, so the formula visibly tracks the controller. One
+        // cached-AST evaluation and one text write — the full validated refresh runs on the
+        // debounce once MIDI settles.
+        if (inputData.resultDisplay) {
+          const evaluated = this.expressionSystem.evaluateExpression(
+            inputData.input.value, {}, inputData.node, paramName,
+          );
+          inputData.resultDisplay.textContent = `→ ${evaluated}`;
+        }
+        return;
+      }
+
       // Only update if user is not currently editing
       const displayValue = typeof newValue === 'number'
         ? Math.round(newValue * 10000) / 10000
@@ -2658,9 +2675,10 @@ updateDependentExpressions(_node) {
       const input = container?.querySelector('.param-input');
       if (input && this.expressionSystem.isExpression(input.value)) {
         const validation = this.expressionSystem.validateExpression(
-          input.value, 
-          {}, 
-          this.selectedNode
+          input.value,
+          {},
+          this.selectedNode,
+          input.dataset.param || null,
         );
         
         if (validation.valid) {

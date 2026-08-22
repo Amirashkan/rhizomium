@@ -7,7 +7,12 @@ import { NodeDefs } from '../data/NodeDefs.js';
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../core/audioAnalysisPins.js';
 import { SEMANTIC, SURFACE, TEXT, FONT_MONO } from '../core/theme.js';
-import { buildParamScope, referencesParams } from './paramReferences.js';
+import {
+  buildParamScope,
+  externalControlScope,
+  referencesExternalControl,
+  referencesParams,
+} from './paramReferences.js';
 import { evaluateWaveNode } from '../core/waveform.js';
 
 export class ParameterExpressionSystem {
@@ -233,19 +238,36 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
   }
 
   /**
+   * Which parameter of `node` holds this exact expression.
+   *
+   * `midi` and `osc` are per-parameter — they mean "the controller mapped to THIS field" — so
+   * evaluation needs the parameter's name, and most call sites only ever had the node. Rather than
+   * thread a name through every one of them, the name is recovered from the value itself; callers
+   * that do know it pass it and skip the lookup.
+   */
+  _paramNameFor(node, expression) {
+    if (!node?.params) return null;
+    for (const [name, value] of Object.entries(node.params)) {
+      if (value === expression) return name;
+    }
+    return null;
+  }
+
+  /**
    * Evaluates a parameter expression with comprehensive error handling
    * NOTE: This method is synchronous for backward compatibility. Worker-based evaluation
    * is only used internally for batched operations when explicitly requested.
    */
-  evaluateExpression(expression, context = {}, node = null) {
+  evaluateExpression(expression, context = {}, node = null, paramName = null) {
     try {
       if (!this.isExpression(expression)) {
         return this.parseValue(expression);
       }
-  if ((expression.includes('time') || expression.includes('audioEnvelope') || expression.includes('frame') || /\bnode_\d/.test(expression)) && node) {
+  if ((expression.includes('time') || expression.includes('audioEnvelope') || expression.includes('frame') || /\bnode_\d/.test(expression) || referencesExternalControl(expression)) && node) {
     // Mark this node as needing continuous updates. A node reference (=node_X...) is included
     // because the referenced node can be live (an Audio Analysis level, a time-driven upstream, ...)
-    // so the readout must keep re-evaluating rather than settle on the first value.
+    // so the readout must keep re-evaluating rather than settle on the first value. A `midi`/`osc`
+    // reference is live in the same way — the controller moves it between evaluations.
     if (!this.timeAnimatedNodes) {
       this.timeAnimatedNodes = new Set();
     }
@@ -262,8 +284,12 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
       // A reference to a sibling parameter is uncached for the same reason: the source parameter's
       // value isn't part of the cache key, so a cached binding would freeze at its first value
       // (and the source may itself be driven by time or audio).
+      // A `midi`/`osc` reference is uncached for the same reason: the reading lives outside the
+      // cache key, so a cached expression would freeze at whatever the controller last sent before
+      // the first evaluation.
       const isTimeDep = cleanExpression.includes('time') || cleanExpression.includes('audioEnvelope')
         || cleanExpression.includes('frame') || /\bnode_\d/.test(cleanExpression)
+        || referencesExternalControl(cleanExpression)
         || referencesParams(node, cleanExpression);
 
       // Check cache first (only for non-time-dependent expressions)
@@ -283,7 +309,9 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
 
       // Main thread evaluation (synchronous)
       // Build evaluation context
-      const evalContext = this.buildEvaluationContext(context, node);
+      const evalContext = this.buildEvaluationContext(
+        context, node, paramName ?? this._paramNameFor(node, expression)
+      );
 
       // Evaluate the expression
       const result = this.safeEvaluate(cleanExpression, evalContext);
@@ -353,7 +381,9 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
 
       // Fallback to main thread evaluation
       // Build evaluation context
-      const evalContext = this.buildEvaluationContext(context, node);
+      const evalContext = this.buildEvaluationContext(
+        context, node, this._paramNameFor(node, expression)
+      );
 
       // Evaluate the expression
       const result = this.safeEvaluate(cleanExpression, evalContext);
@@ -415,7 +445,8 @@ startAnimationLoop() {
 }
 
 isTimeDependentExpression(cacheKey) {
-  return cacheKey.includes('time') || cacheKey.includes('frame') || cacheKey.includes('audioEnvelope');
+  return cacheKey.includes('time') || cacheKey.includes('frame') || cacheKey.includes('audioEnvelope')
+    || referencesExternalControl(cacheKey);
 }
 
 updateTimeBasedPreviews() {
@@ -447,7 +478,7 @@ stopAnimationLoop() {
   /**
    * Builds comprehensive evaluation context
    */
-buildEvaluationContext(context, node) {
+buildEvaluationContext(context, node, paramName = null) {
   const evalContext = {
     // Math constants
     PI: Math.PI,
@@ -480,6 +511,13 @@ buildEvaluationContext(context, node) {
 
   // Add node output values from the graph
   this._addNodeOutputReferences(evalContext, node);
+
+  // `midi` / `osc` are the live readings of the controllers mapped to THIS parameter, so an
+  // expression can build on one instead of being replaced by it ("=midi + sin(time)"). Both read 0
+  // until a controller sends something, so a formula written before the mapping still evaluates.
+  if (node && paramName) {
+    Object.assign(evalContext, externalControlScope(node.id, paramName));
+  }
 
   // Add this node's own parameters as variables, so an expression can bind to a sibling
   // parameter (Scale Y = "=scaleX"). A sibling that is itself an expression is evaluated
@@ -725,7 +763,7 @@ isIncompleteExpression(expression) {
 
       // Filter out built-in functions and constants
       return !Object.hasOwn(this.builtInFunctions, match) &&
-        !['PI', 'E', 'true', 'false', 'time', 'frame', 'audioEnvelope'].includes(match);
+        !['PI', 'E', 'true', 'false', 'time', 'frame', 'audioEnvelope', 'midi', 'osc'].includes(match);
     });
   }
 
@@ -774,18 +812,18 @@ isIncompleteExpression(expression) {
   /**
    * Validates an expression and returns detailed info
    */
-  validateExpression(expression, context = {}, node = null) {
+  validateExpression(expression, context = {}, node = null, paramName = null) {
     try {
       if (!this.isExpression(expression)) {
         const parsed = this.parseValue(expression);
-        return { 
-          valid: true, 
+        return {
+          valid: true,
           result: parsed,
           type: typeof parsed
         };
       }
 
-      const result = this.evaluateExpression(expression, context, node);
+      const result = this.evaluateExpression(expression, context, node, paramName);
       return { 
         valid: true, 
         result,
@@ -1113,7 +1151,7 @@ isIncomplete(value) {
     if (/[a-zA-Z_]\w*\s*\(/.test(trimmed)) return true;
 
     // Contains common expression keywords
-    const keywords = ['time', 'frame', 'node_', 'audioEnvelope', 'PI', 'E'];
+    const keywords = ['time', 'frame', 'node_', 'audioEnvelope', 'midi', 'osc', 'PI', 'E'];
     if (keywords.some(kw => trimmed.includes(kw))) return true;
 
     // Contains operators (but not just a negative number or incomplete number being typed)
@@ -1428,7 +1466,7 @@ isIncomplete(value) {
       input.classList.add('has-expression');
       
       // Validate and show result
-      const validation = this.expressionSystem.validateExpression(value, {}, node);
+      const validation = this.expressionSystem.validateExpression(value, {}, node, param?.name);
       
       if (validation.valid) {
         input.style.borderColor = SEMANTIC.audio;
@@ -1525,10 +1563,18 @@ isIncomplete(value) {
       const inputData = this.activeInputs.get(key);
       if (!inputData) continue; // Input not currently visible
 
-      const { input, resultDisplay } = inputData;
+      const { input, resultDisplay, param, node, valueManager } = inputData;
 
       // Don't update if user is currently editing the input
       if (document.activeElement === input) {
+        continue;
+      }
+
+      // A field holding an expression keeps its formula: the controller feeds it through `midi`,
+      // so overwriting the text here would delete the expression the user typed. Only its
+      // evaluated readout moves.
+      if (this.expressionSystem.isExpression(input.value)) {
+        this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
         continue;
       }
 
@@ -1602,7 +1648,7 @@ getValue(node, paramName) {
     // CRITICAL: Always evaluate expressions when getValue is called
     if (this.expressionSystem.isExpression(rawValue)) {
 
-      const result = this.expressionSystem.evaluateExpression(rawValue, {}, node);
+      const result = this.expressionSystem.evaluateExpression(rawValue, {}, node, paramName);
 
       return result;
     }

@@ -2,7 +2,10 @@
 
 import {
   applyControlValue,
+  clearExternalReadings,
+  getExternalReading,
   mapNormalizedValue,
+  parameterHoldsExpression,
   refreshEditorForControlChange,
   writeParameterUniform,
 } from '../parameters/ExternalParameterControl.js';
@@ -109,6 +112,9 @@ export class MIDIParameterBinding {
       const paramKey = `${binding.nodeId}.${binding.paramName}`;
       this.parameterToMIDI.delete(paramKey);
       this.bindings.delete(midiKey);
+      this.midiParameters.delete(paramKey);
+      // An expression naming `midi` reads 0 again once nothing is mapped to it.
+      clearExternalReadings(binding.nodeId, binding.paramName);
 
       this.eventSystem.emit('MIDI_BINDING_REMOVED', binding);
       return true;
@@ -129,6 +135,8 @@ export class MIDIParameterBinding {
       const removed = this.bindings.get(midiKey);
       this.bindings.delete(midiKey);
       this.parameterToMIDI.delete(paramKey);
+      this.midiParameters.delete(paramKey);
+      clearExternalReadings(nodeId, paramName);
 
       // Announced like any other removal so panels showing this mapping — the
       // MIDI list, the parameter panel's MIDI badge — drop it straight away.
@@ -182,22 +190,42 @@ export class MIDIParameterBinding {
     // Curve + range mapping is shared with OSC (see ExternalParameterControl).
     const paramValue = mapNormalizedValue(normalizedValue, binding);
 
-    // For real-time MIDI, directly update the parameter value (bypass undo tracking)
-    this.setParameterValueDirect(node, paramName, paramValue);
+    // For real-time MIDI, directly update the parameter value (bypass undo tracking).
+    // A parameter holding an expression keeps it — the reading is recorded and reaches the formula
+    // as `midi` instead, so "=midi + sin(time)" is a controller offset an LFO rides on rather than
+    // a formula the next CC deletes.
+    const written = this.setParameterValueDirect(node, paramName, paramValue);
 
-    // Update GPU uniform buffer (fast! no recompilation!)
+    // Update GPU uniform buffer (fast! no recompilation!) — the uniform carries the raw reading,
+    // which is the value itself for a plain parameter and the `midi` term for an expression.
     this.triggerImmediateUpdate(node, paramName, paramValue);
 
     // Mark dirty and redraw canvas to update labels immediately
     refreshEditorForControlChange('midi-parameter-update');
 
-    // Emit parameter update event
+    // Emit parameter update event. newValue is what the parameter now reads — the expression's
+    // result when one is in place — while controlValue is always the controller's own reading.
     this.eventSystem.emit('PARAMETER_CHANGED', {
       node,
       parameterName: paramName,
-      newValue: paramValue,
+      newValue: written ? paramValue : this.evaluatedValue(node, paramName, paramValue),
+      controlValue: paramValue,
       source: 'midi'
     });
+  }
+
+  /**
+   * What an expression-valued parameter currently evaluates to, for listeners that want the
+   * parameter's effective number rather than the controller's raw reading.
+   */
+  evaluatedValue(node, paramName, fallback) {
+    try {
+      const system = window.editor?.paramPanel?.expressionSystem ?? window.expressionSystem;
+      const result = system?.evaluateExpression?.(node.params?.[paramName], {}, node, paramName);
+      return Number.isFinite(result) ? result : fallback;
+    } catch {
+      return fallback;
+    }
   }
 
   /**
@@ -344,6 +372,7 @@ export class MIDIParameterBinding {
   deserialize(data) {
     this.bindings.clear();
     this.parameterToMIDI.clear();
+    this.midiParameters.clear();
 
     if (data.bindings) {
       data.bindings.forEach(binding => {
@@ -351,6 +380,10 @@ export class MIDIParameterBinding {
         const paramKey = `${binding.nodeId}.${binding.paramName}`;
 
         this.bindings.set(midiKey, binding);
+        // Restored alongside the binding, as createBinding does: without it a loaded mapping had
+        // no uniform reserved for it, so the first CC after a load appended a value the compiled
+        // shader had no field for.
+        this.midiParameters.add(paramKey);
         this.parameterToMIDI.set(paramKey, {
           deviceId: binding.deviceId,
           channel: binding.channel,
@@ -377,10 +410,23 @@ export class MIDIParameterBinding {
 
   /**
    * Set parameter value directly without undo tracking (for real-time MIDI)
+   *
+   * @returns {boolean} false when the parameter holds an expression and was left intact
    */
   setParameterValueDirect(node, paramName, value) {
     // Shared with OSC so the ConstVec x/y/z position rule lives in one place.
-    applyControlValue(node, paramName, value);
+    return applyControlValue(node, paramName, value, 'midi');
+  }
+
+  /** Latest CC reading for a parameter, as the `midi` identifier reads it. */
+  getParameterReading(nodeId, paramName) {
+    return getExternalReading(nodeId, paramName, 'midi');
+  }
+
+  /** Is this parameter a formula the controller feeds rather than one it replaces? */
+  drivesExpression(nodeId, paramName) {
+    const node = this.graph?.nodes?.find(n => n.id === nodeId);
+    return parameterHoldsExpression(node, paramName);
   }
 
   /**
@@ -436,8 +482,10 @@ export class MIDIParameterBinding {
    * Cleanup
    */
   destroy() {
+    this.bindings.forEach((binding) => clearExternalReadings(binding.nodeId, binding.paramName));
     this.bindings.clear();
     this.parameterToMIDI.clear();
+    this.midiParameters.clear();
     this.learningMode = false;
     this.learningTarget = null;
   }

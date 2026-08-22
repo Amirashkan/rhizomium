@@ -113,6 +113,37 @@ Flip the mapping direction:
 
 ---
 
+## Using MIDI Inside an Expression
+
+A mapped parameter is not limited to being the knob's raw output. Type an
+expression into the field and the CC reaches it as `midi` — the value after the
+range, curve and invert settings above — instead of overwriting what you typed:
+
+```
+=midi + sin(time) * 0.1      // Knob sets the centre, an LFO wobbles around it
+=midi * audioEnvelope        // Knob as a depth control over the audio
+=clamp(midi * 2, 0, 1)       // Knob at double sensitivity, clamped
+=midi > 0.5 ? 1 : 0          // Knob as a switch
+```
+
+Notes:
+
+- The order does not matter. Map the CC first and then write the expression, or
+  write it first and map afterwards — `midi` simply reads `0` until the first
+  message arrives.
+- `midi` means "the controller on **this** field". In a Radius field it is the CC
+  mapped to Radius, never the one mapped to another parameter.
+- Removing the binding leaves the expression alone; `midi` goes back to `0`.
+- The knob still moves the render at full frame rate — an expression built on
+  `midi` is compiled once and fed by the same uniform a plain mapping uses, so
+  nothing is recompiled while you play.
+- OSC works the same way through `osc`, and both can appear in one expression.
+
+See [Parameter Expressions](parameter-expressions.md) for the full variable and
+function reference.
+
+---
+
 ## Common Use Cases
 
 ### Live Performance

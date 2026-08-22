@@ -27,6 +27,10 @@ Maps MIDI CC messages to node parameters:
 - Applies value transformations (linear, exponential, logarithmic curves)
 - Supports parameter range mapping
 - Serializes/deserializes bindings for save/load
+- Feeds a parameter that holds an expression instead of overwriting it — the mapped
+  reading is recorded in `parameters/ExternalParameterControl.js` and the expression
+  reads it as `midi` (`=midi + sin(time)`). See "Expressions on a mapped parameter"
+  below.
 
 ### MIDISettingsPanel (`src/ui/MIDISettingsPanel.js`)
 Provides user interface for MIDI configuration:
@@ -115,6 +119,31 @@ MIDI Controller → Web MIDI API → MIDIManager → Events
                                                    ↓
                                                Shader Rebuild
 ```
+
+### Expressions on a mapped parameter
+
+A mapped parameter used to be nothing but the controller's output: the reading was
+written straight over `node.params`, so a parameter could be a formula or it could
+be mapped, never both. The reading is now recorded next to the parameter as well:
+
+```
+CC → mapNormalizedValue → recordExternalReading(nodeId, param, 'midi')
+                        → node.params[param]        (plain value only)
+                        → u_params._<id>_<param>    (always, raw reading)
+```
+
+`applyControlValue` returns `false` and leaves the parameter alone when it holds an
+expression. The expression reaches the reading through the `midi` identifier:
+
+- **CPU** — `externalControlScope()` puts `midi`/`osc` into the evaluation context
+  (`utils/paramReferences.js`), so panel readouts, node overlays and previews agree.
+- **GPU** — `externalControlRefMapping()` compiles `midi` to the parameter's own
+  uniform field, which is exactly where the reading is written. The controller
+  therefore moves an expression parameter at 60fps with no shader recompile, the
+  same as a plain one.
+
+`midi` and `osc` are reserved identifiers, so a node parameter that happens to be
+named `midi` can never shadow the controller.
 
 ### Events
 
