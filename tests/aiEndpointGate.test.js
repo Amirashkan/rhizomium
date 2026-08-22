@@ -253,6 +253,42 @@ describe('POST /api/ai/run', () => {
       expect(res.body.code).toBe('refused');
     });
 
+    it('names an unpaid model bill as an operator problem, not a random failure', async () => {
+      // The real shape the SDK throws, from a production log: a 400
+      // invalid_request_error whose only distinguishing mark is the message.
+      const error = new Error(
+        '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}'
+      );
+      error.status = 400;
+      error.error = {
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message:
+            'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.',
+        },
+      };
+      streamMock.mockReturnValue({ finalMessage: async () => { throw error; } });
+
+      const res = await post({ grant: signGrant(), input: { patch: {} } });
+
+      // Not a 500 "try again": retrying cannot fix an unpaid bill.
+      expect(res.statusCode).toBe(503);
+      expect(res.body.code).toBe('not_configured');
+    });
+
+    it('separates a request we built wrongly from a billing problem', async () => {
+      const error = new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"tools.0.input_schema: unexpected keyword"}}');
+      error.status = 400;
+      error.error = { error: { message: 'tools.0.input_schema: unexpected keyword' } };
+      streamMock.mockReturnValue({ finalMessage: async () => { throw error; } });
+
+      const res = await post({ grant: signGrant(), input: { patch: {} } });
+
+      expect(res.statusCode).toBe(502);
+      expect(res.body.code).toBe('bad_model_request');
+    });
+
     it('turns a model rate limit into a retryable answer', async () => {
       const error = new Error('rate limited');
       error.status = 429;

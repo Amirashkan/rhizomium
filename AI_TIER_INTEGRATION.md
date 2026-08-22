@@ -167,32 +167,32 @@ upgrade is a Redis or Postgres set behind the same function.
 
 ---
 
-## 5. What has **not** been verified
+## 5. Verification status
 
-**No call has ever been made to the model.** This environment has no Anthropic
-credentials, so the request shape, prompts, and tool schemas are verified
-structurally — schemas are well-formed, the endpoint builds the request
-correctly, and mocked answers parse and validate — but no feature has produced
-a real result. First deploy should exercise each of the six features once.
+**Verified live** (2026-08-22, against production):
 
-**No call has been made to the gallery either.** `art.tenderworld.org` is not
-reachable from this environment. The client is written against the documented
-contract and against the gallery's own source (see below); it has not been run
-against the live endpoints.
+- `GET /api/entitlements` answers signed-out visitors with the anonymous free
+  allowance — 5 / 5 / 20, which is the free column divided by three, as
+  designed.
+- The grant flow works end to end. A grant was signed by the gallery, verified
+  by this backend, and the quota was spent — which also proves
+  `TIER_GRANT_SECRET` matches on both sides, since a mismatch would have failed
+  verification.
+- `POST /api/ai/run` with no grant returns `401 invalid_grant`. The gate is
+  enforcing in production.
+- Both environment variables are set on the editor: the two `503 not_configured`
+  checks run before anything else, so a `401` from the grant check proves they
+  passed.
 
-**The gallery side is on an unmerged branch.** At the time of writing, the
-gallery's `main` has no `lib/tiers.ts`, no `/api/entitlements`, and no
-`TIER_GRANT_SECRET` — that work lives on
-`claude/glsl-tier-based-infrastructure-be4tqt`. The catalogue here was vendored
-from that branch, and the grant verifier was checked byte-for-byte against its
-`signGrant()`. **Until that branch merges and deploys, every entitlements call
-404s**, the editor falls back to the free tier, and the AI features answer with
-a plain "could not reach the gallery". Nothing breaks; nothing works either.
+**Not yet verified: any model output.** The first live calls failed with
+`400 invalid_request_error` — *"Your credit balance is too low to access the
+Anthropic API"*. The wiring is correct and the request reaches Anthropic
+authenticated; the account simply has no credit. Once credit is added, each of
+the six features still needs exercising once, since no feature has yet produced
+a real result.
 
-**`upgradeUrl` points at `/pricing`, which does not exist yet.** The handoff
-flags this. Locked features link there today.
-
----
+**`upgradeUrl` points at `/pricing`, which does not exist yet.** Locked features
+link there today.
 
 ## 6. Adding a feature
 

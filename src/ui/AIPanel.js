@@ -394,6 +394,17 @@ export class AIPanel {
     }
 
     if (error instanceof AIRequestError) {
+      // Failures that are the deployment's fault, not the artist's. They still
+      // cost an action — the gallery meters the grant before the model runs —
+      // so say that, but do not word it as though they spent it on something.
+      if (OPERATOR_FAULT_CODES.has(error.code)) {
+        return modalManager.toast(
+          `${error.message} An action was still deducted from your allowance for this, which is not your fault — sorry.`,
+          'error',
+          'Not your fault'
+        );
+      }
+
       const suffix = error.quotaSpent ? ' This one still counted against your allowance.' : '';
       return modalManager.toast(`${error.message}${suffix}`, 'error');
     }
@@ -402,6 +413,18 @@ export class AIPanel {
     modalManager.toast('Something went wrong running that. Try again.', 'error');
   }
 }
+
+/**
+ * Backend failures the artist could not have caused and cannot fix by trying
+ * again: an unconfigured deployment, an unpaid model bill, a request this
+ * editor built wrongly, or the model service being down.
+ */
+const OPERATOR_FAULT_CODES = new Set([
+  'not_configured',
+  'bad_model_request',
+  'model_unavailable',
+  'no_tool_use',
+]);
 
 function needsPatch(feature) {
   return feature !== 'ai.patch_generator' && feature !== 'ai.node_generator';
