@@ -6,6 +6,7 @@ import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js'
 import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import { resolveResolution } from '../../ui/OutputFormat.js';
 import { getInputCount } from '../../data/nodeInputs.js';
+import { resolveDiscreteParam } from '../../utils/discreteParams.js';
 
 export class ComputeNodes {
   constructor() {
@@ -4076,6 +4077,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   getParam(node, paramName, defaultValue) {
     const rawValue = node.params?.[paramName] ?? defaultValue;
+
+    // A `select`/`boolean` control is baked into the generated WGSL (a Threshold's `mode` picks an
+    // index, a Convolution's `kernel` picks a matrix), so an expression in one is evaluated on the
+    // CPU and collapsed to a concrete option here — the enum branch below only understands literal
+    // option names. Returns rawValue unchanged for every other parameter.
+    const discrete = resolveDiscreteParam(node, paramName, rawValue, defaultValue);
+    if (discrete !== rawValue) return discrete;
 
     // CRITICAL: For string enum parameters (dropdown selections like "Stripes", "Checkerboard"),
     // return the string value directly so it can be used for index lookup.

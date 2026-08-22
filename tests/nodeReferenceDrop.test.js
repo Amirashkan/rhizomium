@@ -13,9 +13,13 @@ import { SelectionManager } from '../src/core/SelectionManager.js';
  * Build a parameter field like the ones ParameterPanel renders, with a fixed screen rect
  * (happy-dom reports 0-sized rects, so the geometry is stubbed).
  */
-function makeParamField({ param = 'radius', type = 'float', nodeId = '2', value = '', rect }) {
+function makeParamField({
+  param = 'radius', type = 'float', nodeId = '2', value = '', rect, expressionCapable = true,
+}) {
   const input = document.createElement('textarea');
-  input.className = 'param-input expression-capable';
+  // Only the expression text handler marks a field expression-capable; a colour swatch or a file
+  // picker is a plain widget, so the flag is what separates the two here as it does in the panel.
+  input.className = expressionCapable ? 'param-input expression-capable' : 'param-input';
   input.setAttribute('data-param', param);
   input.setAttribute('data-param-type', type);
   if (nodeId !== null) input.setAttribute('data-node-id', String(nodeId));
@@ -158,11 +162,37 @@ describe('NodeReferenceDrop', () => {
   });
 
   it('skips parameter types that are not expression-evaluated', () => {
-    const color = makeParamField({ type: 'color', rect: { left: 100, top: 50, width: 200, height: 24 } });
+    const color = makeParamField({
+      type: 'color', expressionCapable: false, rect: { left: 100, top: 50, width: 200, height: 24 },
+    });
 
     controller.begin({ id: 7 });
     expect(controller.finish(150, 60)).toBe(false);
     expect(color.value).toBe('');
+  });
+
+  it('accepts a dropdown or toggle switched into fx mode', () => {
+    // In fx mode the widget IS an expression textarea, so the drop gesture has to reach it — the
+    // declared type is still 'select'/'boolean', which the type list deliberately excludes.
+    const mode = makeParamField({
+      param: 'sizeMode', type: 'select', rect: { left: 100, top: 50, width: 200, height: 24 },
+    });
+
+    controller.begin({ id: 7 });
+    expect(controller.finish(150, 60)).toBe(true);
+    expect(mode.value).toBe('=node_7');
+  });
+
+  it('still skips the dropdown WIDGET, which has nowhere to put a reference', () => {
+    const select = document.createElement('select');
+    select.className = 'param-select';
+    select.setAttribute('data-param', 'sizeMode');
+    select.setAttribute('data-param-type', 'select');
+    select.getBoundingClientRect = () => ({ left: 100, top: 50, right: 300, bottom: 74, width: 200, height: 24 });
+    document.body.appendChild(select);
+
+    controller.begin({ id: 7 });
+    expect(controller.isActive()).toBe(false);
   });
 
   it('skips fields that are disabled or not on screen', () => {

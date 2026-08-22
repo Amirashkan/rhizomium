@@ -15,6 +15,7 @@
 
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 import { compilerParamRefMapping } from '../../utils/paramReferences.js';
+import { resolveDiscreteParam } from '../../utils/discreteParams.js';
 
 export class TransformNodes {
   constructor() {
@@ -60,7 +61,12 @@ export class TransformNodes {
   // ---------------------------------------------------------------------------
 
   getParam(node, name, defaultValue) {
-    const value = node.params?.[name] ?? defaultValue;
+    const raw = node.params?.[name] ?? defaultValue;
+    // A `select` or `boolean` control holding an expression is collapsed to a concrete option
+    // here: every caller below branches on it in JavaScript (Flip2D's flipX becomes a literal
+    // -1.0), so it can never be handed "=..." text. A numeric expression passes through
+    // untouched — getShaderParam compiles that one into the WGSL instead.
+    const value = resolveDiscreteParam(node, name, raw, defaultValue);
     if (typeof value === 'boolean') return value;
     return value;
   }

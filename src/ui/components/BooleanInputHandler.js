@@ -1,13 +1,38 @@
 import { ACCENT, TEXT } from '../../core/theme.js';
+import {
+  appendEnterExpressionToggle,
+  isExpressionParam,
+  renderExpressionMode,
+} from './discreteExpressionField.js';
 
 export class BooleanInputHandler {
   constructor(undoManager) {
     this.undoManager = undoManager;
+    this.expressionSupport = null;
+  }
+
+  /**
+   * Give the toggle an fx mode. Supplied by ParameterPanel after construction (the expression
+   * text handler it needs does not exist yet when the handlers are built).
+   */
+  setExpressionSupport(support) {
+    this.expressionSupport = support;
   }
 
   create(param, node, container, label, valueManager, onUpdate) {
+    // A parameter holding an expression is edited as text, not as a checkbox — the checkbox has
+    // nowhere to show "=audioEnvelope > 0.3", and reading the evaluated value back into it would
+    // overwrite the expression on the next click.
+    if (this.expressionSupport && isExpressionParam(node, param)) {
+      renderExpressionMode({
+        param, node, div: container, label, valueManager,
+        onChange: onUpdate, support: this.expressionSupport, isBoolean: true,
+      });
+      return container;
+    }
+
     const value = valueManager.getValue(node, param.name) ?? param.default ?? false;
-    
+
     const checkboxContainer = document.createElement('div');
     checkboxContainer.style.cssText = `
       display: flex;
@@ -67,5 +92,14 @@ export class BooleanInputHandler {
     checkboxContainer.appendChild(checkbox);
     checkboxContainer.appendChild(checkboxLabel);
     container.appendChild(checkboxContainer);
+
+    if (this.expressionSupport) {
+      appendEnterExpressionToggle({
+        param, node, div: container, valueManager,
+        onChange: onUpdate, support: this.expressionSupport, isBoolean: true,
+      });
+    }
+
+    return container;
   }
 }

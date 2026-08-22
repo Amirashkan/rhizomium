@@ -22,6 +22,10 @@ import { PreviewComputer } from "./PreviewComputer.js";
 import { releaseTextTexture } from "./TextRasterizer.js";
 import { hasClockExpressionParam } from "./clockExpression.js";
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
+import {
+  discreteResolutionSignature,
+  hasDrivenDiscreteParams,
+} from '../utils/discreteParams.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu } from '../ui/ParameterBindingMenu.js';
 import { ShaderPreviewManager } from '../preview/ShaderPreviewManager.js';
@@ -793,9 +797,68 @@ connectGPURenderer(renderFunction) {
       
       // Clear cache to force re-evaluation with new time
       this.expressionSystem.clearCache();
-      
+
+      this.syncDrivenDiscreteParams();
+
     } catch {
 
+    }
+  }
+
+  /**
+   * Keep driven dropdowns and toggles in step with whatever is driving them.
+   *
+   * A numeric parameter rides into the shader as generated code or a live uniform, so it moves on
+   * its own. A `select`/`boolean` control cannot: the compilers bake it into the WGSL, so the only
+   * way a driven one takes effect is a rebuild. That covers an expression (audio, the clock,
+   * another node) and equally a MIDI or OSC binding, which writes a raw number into node.params
+   * and never triggers a recompile of its own — a knob on a Mix node's blend mode moved nothing
+   * until some unrelated edit rebuilt the shader, and then the picture jumped.
+   *
+   * Rebuilding every frame is out of the question — but the RESOLVED value is discrete, so it
+   * flips rarely even when its driver is continuous. Poll it a few times a second and rebuild only
+   * on a flip: a gate like "=audioEnvelope > 0.3", or a knob sweeping nine blend modes, costs a
+   * recompile per crossing rather than per frame.
+   */
+  syncDrivenDiscreteParams() {
+    const nodes = this.graph?.nodes;
+    if (!Array.isArray(nodes) || nodes.length === 0) return;
+
+    const now = getTimestamp();
+    if (this._discreteCheckedAt && now - this._discreteCheckedAt < 100) {
+      return;
+    }
+    this._discreteCheckedAt = now;
+
+    if (!this._discreteResolutionSignatures) {
+      this._discreteResolutionSignatures = new Map();
+    }
+
+    const live = new Set();
+    let flipped = null;
+
+    for (const node of nodes) {
+      if (!hasDrivenDiscreteParams(node)) continue;
+      live.add(node.id);
+
+      const signature = discreteResolutionSignature(node);
+      const previous = this._discreteResolutionSignatures.get(node.id);
+      this._discreteResolutionSignatures.set(node.id, signature);
+
+      // A node seen for the first time is not a flip: its current signature is already what the
+      // last compile baked in (or what the next one will), so rebuilding here would fire a
+      // recompile every time a patch loads.
+      if (previous !== undefined && previous !== signature) {
+        flipped = node;
+      }
+    }
+
+    for (const id of this._discreteResolutionSignatures.keys()) {
+      if (!live.has(id)) this._discreteResolutionSignatures.delete(id);
+    }
+
+    if (flipped && typeof this.onChange === 'function') {
+      this.onChange(`Discrete parameter change: ${flipped.kind}`);
     }
   }
 

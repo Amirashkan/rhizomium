@@ -1,5 +1,6 @@
 import { globalResourceRegistry } from './ResourceTracker.js';
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
+import { resolveDiscreteParams } from '../utils/discreteParams.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 import { packComputeUniforms } from './computeUniformLayout.js';
 import { FLUID_SIM_VIZ_WGSL } from './fluidSimViz.js';
@@ -717,7 +718,11 @@ export class ComputeShaderManager {
     // Pack node-specific uniforms via the shared single-source-of-truth layout
     // (computeUniformLayout.js) so the editor and the external live viewer pack
     // identical buffers for every compute node type.
-    const packed = packComputeUniforms(this.node?.kind, this.node?.params, {
+    // A dropdown or toggle holding an expression is resolved to its option first: the layout maps
+    // option NAMES to indices (`quality === 'Low'`) and reads flags as truthy, so raw "=..." text
+    // would quietly pack the default index and a permanently-on flag.
+    const packedParams = resolveDiscreteParams(this.node);
+    const packed = packComputeUniforms(this.node?.kind, packedParams, {
       width: this.textureWidth,
       height: this.textureHeight,
       time,
