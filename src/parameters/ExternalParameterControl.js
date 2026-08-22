@@ -81,6 +81,17 @@ export function applyControlValue(node, paramName, value) {
  * This is what keeps external control smooth: the parameter already has a
  * uniform reserved for it (see ParameterUniformManager), so a new value is a
  * buffer write and a redraw rather than a shader rebuild.
+ *
+ * Drawing the frame is deliberately left to the render loop. A controller
+ * message arrives on its own schedule — a knob sweep is a hundred of them a
+ * second — and the loop is the only thing that knows what moment of the
+ * animation is currently on screen: it renders at its accumulated sim time,
+ * which is not wall-clock time (it starts at zero, scales with timeScale, and
+ * stops while paused). A frame rendered from here would have to guess that
+ * clock, and every wrong guess is a visible jump forwards or backwards in an
+ * animated graph — including one whose shader never reads the mapped parameter
+ * at all. The loop already re-writes these uniforms and draws every frame, so
+ * the value is on screen within a frame anyway.
  */
 export function writeParameterUniform(nodeId, paramName, value) {
   const uniformManager = window.nodeCompiler?.uniformManager;
@@ -92,7 +103,16 @@ export function writeParameterUniform(nodeId, paramName, value) {
   if (!renderer) return;
 
   renderer._updateParameterUniforms?.();
-  renderer.render?.();
+
+  // A running loop — paused included, it still draws every frame — will present
+  // this on its next frame, at the right time.
+  if (window.renderLoop?.getState?.()?.running) return;
+
+  // Nothing else is drawing, so draw one frame here. Hold the loop's clock
+  // where there is one: a stopped loop keeps the sim time it stopped at, and
+  // that is the frame the canvas is showing.
+  const simTime = window.renderLoop?.getState?.()?.simTime;
+  renderer.render?.(Number.isFinite(simTime) ? { timeSec: simTime } : {});
 }
 
 /**
