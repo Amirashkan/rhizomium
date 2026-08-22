@@ -368,6 +368,34 @@ _seek(video, seconds) {
 }
 
 /**
+ * Rewind a video to the start of its trimmed span - the start of the clip when there is no trim.
+ * Both the panel's Reset button and the rising edge of its expression land here.
+ *
+ * A clip parked on the last frame of its span (or on the end of the file) is released, so Reset
+ * starts a non-looping clip over rather than leaving it frozen; the hold flag has to be cleared
+ * too, or the next recompile would read the clip as "stopped on purpose" and refuse to resume it.
+ *
+ * @returns {boolean} true when a video was actually rewound
+ */
+resetVideo(nodeId) {
+  const entry = this.videos.get(nodeId);
+  const video = entry?.video;
+  if (!video) return false;
+
+  const range = this._trimRange(entry);
+  this._seek(video, range ? range.start : 0);
+  entry.heldAtEnd = false;
+  // The texture still holds the frame we just left. Clearing the marker forces the next pass to
+  // copy, even if currentTime happens to land back on the value it already recorded.
+  entry.lastFrameTime = -1;
+
+  // Resume only what Play says should be running: a reset on a paused clip re-cues it, it does
+  // not start it.
+  if (entry.playRequested !== false && video.paused) video.play?.().catch(() => {});
+  return true;
+}
+
+/**
  * Copy the current frame of every playing video into its GPU texture. Called once per rendered
  * frame, before bind groups are refreshed.
  */

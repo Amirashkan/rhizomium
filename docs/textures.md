@@ -131,6 +131,23 @@ for a still image):
 A trimmed span nests inside everything else: **Speed** still applies, and the trim is stored with
 the patch like any other parameter.
 
+### Reset
+
+**Reset** rewinds the clip to its start — to Trim Start when the clip is trimmed. It also releases
+a non-looping clip that is holding on its last frame, so the clip plays through again. A paused
+clip is re-cued but stays paused.
+
+The button has an expression field under it. Leave it empty and Reset is click-only; type an
+expression and it is evaluated every frame, with each rising edge past 0.5 rewinding the clip:
+
+- `=audioEnvelopeBass > 0.6` — re-cue the clip on the beat
+- `=node_12` — fire from a Trigger (or anything else) elsewhere in the patch
+- `=sin(time * PI) < 0` — re-cue on a fixed cycle
+
+The expression sees the same globals and node references as any other parameter expression, and it
+is saved with the patch. An already-high expression does not fire on the frame it is first read, so
+loading a patch mid-beat doesn't jog every clip in it.
+
 ---
 
 ## Common Patterns

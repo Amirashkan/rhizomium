@@ -58,6 +58,7 @@ import { TriggerNodeProcessor } from "./src/core/TriggerNodeProcessor.js";
 import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
+import { VideoResetProcessor } from "./src/core/VideoResetProcessor.js";
 import { WaveSyncProcessor } from "./src/core/WaveSyncProcessor.js";
 import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
 import { TextNodeProcessor } from "./src/core/TextNodeProcessor.js";
@@ -88,6 +89,8 @@ const countNodeProcessor = new CountNodeProcessor();
 window.countNodeProcessor = countNodeProcessor;
 // Watches the Feedback nodes' Reset pin and clears feedback on a rising edge. See FeedbackResetProcessor.
 const feedbackResetProcessor = new FeedbackResetProcessor();
+// Rewinds a Texture 2D video when its Reset expression sees a rising edge. See VideoResetProcessor.
+const videoResetProcessor = new VideoResetProcessor();
 // Restarts a Wave node's cycle when its sync pin sees a rising edge. See WaveSyncProcessor.
 const waveSyncProcessor = new WaveSyncProcessor();
 // Runs precise audio kick/onset detection each frame for Audio Analysis nodes. See AudioAnalysisProcessor.
@@ -3538,6 +3541,13 @@ function handleRenderFrame(frameState) {
       feedbackResetProcessor.update(window.editor.graph, {
         time: frameState.simTime,
         computeExecutor: window.computeExecutor,
+      });
+      // Rewind any video whose Reset expression rose this frame, on the same unthrottled cadence:
+      // the expression is often a beat ("=audioEnvelopeBass > 0.6"), and a missed edge is a missed
+      // cue. Runs before the frame is dispatched so the rewound frame is the one drawn.
+      videoResetProcessor.update(window.editor.graph, {
+        time: frameState.simTime,
+        textureManager: window.textureManager,
       });
       // Redraw Text nodes that read a live value ("{node_4}", "=time"). Last, so the string shows
       // this frame's values from the processors above. Self-throttled and a no-op for Text nodes
