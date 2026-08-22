@@ -12,6 +12,7 @@ import { makeDraggable } from './utils/draggable.js';
 const DEFAULT_PREFERENCES = {
   snapToGrid: true,
   gridSize: 20,
+  autoSave: true,
 };
 
 const STORAGE_KEY = "rhizo.preferences";
@@ -134,6 +135,7 @@ export class PreferencesWindow {
     content.className = "custom-scroll";
 
     content.appendChild(this._createCanvasSection());
+    content.appendChild(this._createSavingSection());
     content.appendChild(this._createRenderPointer());
     content.appendChild(
       this._createButton("Reset Preferences to Defaults", () => this._resetAll(), true),
@@ -175,12 +177,12 @@ export class PreferencesWindow {
     }, 200);
   }
 
-  _createCanvasSection() {
+  _createSection(title) {
     const section = document.createElement("div");
     section.style.cssText = "margin-bottom: 20px;";
 
     const sectionTitle = document.createElement("div");
-    sectionTitle.textContent = "Canvas / Node Editor";
+    sectionTitle.textContent = title;
     sectionTitle.style.cssText = `
       color: #f3ede4;
       font-size: 13px;
@@ -190,6 +192,12 @@ export class PreferencesWindow {
       letter-spacing: 0.5px;
     `;
     section.appendChild(sectionTitle);
+
+    return section;
+  }
+
+  _createCanvasSection() {
+    const section = this._createSection("Canvas / Node Editor");
 
     const snap = this._createCheckbox("Snap to Grid", "snapToGrid", this.preferences.snapToGrid);
     const gridSize = this._createSlider("Grid Size", "gridSize", 2, 100, this.preferences.gridSize, "px", 1);
@@ -201,6 +209,34 @@ export class PreferencesWindow {
     this._controls.gridSize = gridSize;
 
     return section;
+  }
+
+  _createSavingSection() {
+    const section = this._createSection("Saving");
+
+    const autoSave = this._createCheckbox("Auto-Save", "autoSave", this.preferences.autoSave);
+    section.appendChild(autoSave.container);
+    section.appendChild(
+      this._createHint(
+        "Snapshots the patch every 30 seconds - in a gap between frames, never mid-gesture - and again when the window is hidden or closed, so it can be recovered after a crash. Turn it off to keep saving entirely manual; an autosave already stored stays recoverable either way.",
+      ),
+    );
+
+    this._controls.autoSave = autoSave.checkbox;
+
+    return section;
+  }
+
+  _createHint(text) {
+    const hint = document.createElement("div");
+    hint.textContent = text;
+    hint.style.cssText = `
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 11px;
+      line-height: 1.5;
+      margin: 2px 0 4px 24px;
+    `;
+    return hint;
   }
 
   _createRenderPointer() {
@@ -355,12 +391,19 @@ export class PreferencesWindow {
         document.documentElement.style?.setProperty("--snap-grid-size", `${value}px`);
         break;
       }
+      case "autoSave": {
+        window.saveLoadManager?.setAutosaveEnabled?.(value);
+        break;
+      }
     }
   }
 
   _refreshControls() {
     if (this._controls.snapToGrid) {
       this._controls.snapToGrid.checked = this.preferences.snapToGrid;
+    }
+    if (this._controls.autoSave) {
+      this._controls.autoSave.checked = this.preferences.autoSave;
     }
     const gridSize = this._controls.gridSize;
     if (gridSize) {
