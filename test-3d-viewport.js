@@ -3,6 +3,8 @@
  * Run this in the browser console after the editor loads
  */
 
+import { MarchingCubes } from './src/scene/algorithms/MarchingCubes.js';
+
 async function test3DVisualization() {
     console.log('=== Testing 3D Visualization System ===');
 
@@ -49,8 +51,6 @@ async function test3DVisualization() {
         console.error('   ✗ Render failed:', error);
     }
     try {
-        const { MarchingCubes } = await import('./src/scene/algorithms/MarchingCubes.js');
-
         // Create a simple sphere field
         const dims = [16, 16, 16];
         const fieldData = new Float32Array(dims[0] * dims[1] * dims[2]);

@@ -67,6 +67,7 @@ import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
 import { TextNodeProcessor } from "./src/core/TextNodeProcessor.js";
 import { setupTauriFileAssociation } from "./src/core/tauriFileOpen.js";
 import { startCompositionFormatSync } from "./src/core/CompositionFormatSync.js";
+import { makeDraggable } from "./src/ui/utils/draggable.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -1825,12 +1826,7 @@ function showExportWindow() {
   document.body.appendChild(exportWindow);
 
   // Make draggable
-  import('./src/ui/utils/draggable.js').then(({ makeDraggable }) => {
-    makeDraggable(exportWindow, header);
-  }).catch(() => {
-    // Fallback if draggable fails
-    console.warn("Could not make export window draggable");
-  });
+  makeDraggable(exportWindow, header);
 
   requestAnimationFrame(() => {
     exportWindow.style.opacity = "1";

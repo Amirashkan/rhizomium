@@ -285,9 +285,6 @@ export class FieldVisualizer {
 
         const [w, h, d] = this.params.dimensions;
 
-        // Import PointCloudGenerator for texture reading utility
-        const { PointCloudGenerator } = await import('./generators/PointCloudGenerator.js');
-
         // Read texture data
         const fieldData = await PointCloudGenerator.readTextureData3D(texture, device, [w, h, d]);
 

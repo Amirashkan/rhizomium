@@ -15,6 +15,7 @@
 // is a bare specifier the un-bundled web deployments cannot resolve.
 
 import { isTauri } from '../utils/isTauri.js';
+import { modalManager } from '../ui/ModalManager.js';
 
 const OPEN_FILE_EVENT = 'rhizomium://open-file';
 
@@ -55,7 +56,6 @@ export async function setupTauriFileAssociation(loadProjectFromFile) {
     } catch (err) {
       console.error(`Could not open ${path}:`, err);
       try {
-        const { modalManager } = await import('../ui/ModalManager.js');
         await modalManager.alert(
           `Could not open this patch:\n\n${err?.message || err}`,
           'Open Failed',

@@ -3,6 +3,7 @@ import { serializeProjectFormat, applyProjectFormat } from '../ui/OutputFormat.j
 import { BackupStore } from './BackupStore.js';
 import { createAutosaveStore, parseAutosaveEntry } from './AutosaveStore.js';
 import { migrateProjectData, SAVE_FORMAT_VERSION } from './projectMigrations.js';
+import { modalManager } from '../ui/ModalManager.js';
 
 /**
  * Decode a base64 data: URL into a Blob. Done by hand rather than with fetch() because the only
@@ -1567,7 +1568,6 @@ async reinitializeWebGPU() {
   /** Naming dialog used by the download fallback; degrades to window.prompt. */
   async _promptForName(defaultValue) {
     try {
-      const { modalManager } = await import("../ui/ModalManager.js");
       return await modalManager.prompt(
         "Name your project",
         "Save Project",
@@ -1674,7 +1674,6 @@ async reinitializeWebGPU() {
       // where a dropped file's failure would look like nothing happened.
       if (/newer version of/i.test(error.message || "")) {
         try {
-          const { modalManager } = await import("../ui/ModalManager.js");
           await modalManager.alert(error.message, "Update Rhizomium");
         } catch {
           /* modal unavailable - the status message already reported it */
