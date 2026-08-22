@@ -106,19 +106,24 @@ Rhizomium uses JSON format for project files, making them human-readable and eas
 
 ## Auto-Save
 
-Rhizomium can automatically save your work at regular intervals.
+Rhizomium saves your work automatically. This is on by default.
 
-### Enabling Auto-Save
+### Turning Auto-Save Off
 
-1. Open **Settings** (gear icon)
-2. Enable **Auto-Save**
-3. Set interval (e.g., every 5 minutes)
+1. Open **Preferences**
+2. Under **Saving**, clear the **Auto-Save** checkbox
+
+The choice is remembered between sessions.
 
 ### Auto-Save Behavior
 
-- Creates a special auto-save file
-- Does not overwrite your main project file
-- Recovers automatically if the browser crashes
+- Snapshots the patch every 30 seconds, and again when the window is hidden or closed
+- Writes a separate auto-save snapshot; your project file is never overwritten
+- Offers to recover that snapshot on the next start after a crash
+
+With Auto-Save off, nothing is written unless you ask: no periodic snapshot and
+none on close. Saving, exporting and manual backups are unaffected, and an
+auto-save that was already stored can still be recovered.
 
 ---
 
@@ -273,8 +278,8 @@ If you saved a project on the web version:
 
 ### "Unsaved changes" warning doesn't appear
 
-- Auto-save might be overwriting your project
-- Disable auto-save if you want manual control
+- Auto-save may already have stored the change
+- Turn Auto-Save off in Preferences → Saving if you want manual control
 
 ### Projects disappeared (Web Version)
 

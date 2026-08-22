@@ -33,8 +33,12 @@ export class SaveLoadManager {
     this.backupsKey = "rhizomium.backups.v2";
     this.projectsKey = "rhizomium.projects.v2";
 
-    // Auto-save settings
+    // Auto-save settings. autosaveEnabled is owned by Preferences -> Saving;
+    // PreferencesWindow.applyAll() calls setAutosaveEnabled() at startup, well
+    // before the first tick could fire.
     this.autosaveInterval = 30000; // 30 seconds
+    this.autosaveEnabled = true;
+    this._autosaveTimer = null;
     this.maxBackups = 10;
     this.hasUnsavedChanges = false;
     this.isImporting = false;
@@ -1937,11 +1941,30 @@ async reinitializeWebGPU() {
   // AUTO-SAVE SYSTEM
   // =============================================================================
 
+  /**
+   * Turns automatic saving on or off. Disabling it stops the periodic snapshot
+   * and the one taken when the tab is hidden or closed, so nothing is written
+   * without the artist asking - manual saves, backups and restoring an existing
+   * autosave all keep working.
+   */
+  setAutosaveEnabled(enabled) {
+    const next = enabled !== false;
+    if (next === this.autosaveEnabled) return;
+    this.autosaveEnabled = next;
+    this.setupAutoSave();
+  }
+
   setupAutoSave() {
     try {
+      if (this._autosaveTimer) {
+        clearInterval(this._autosaveTimer);
+        this._autosaveTimer = null;
+      }
+      if (!this.autosaveEnabled) return;
+
       // Auto-save interval. hasUnsavedChanges is set via markUnsaved(),
       // called from the shader update path that every graph edit goes through.
-      setInterval(async () => {
+      this._autosaveTimer = setInterval(async () => {
         if (this._autosaveInFlight) return;
         if (this.hasUnsavedChanges && !this.isImporting && this.shouldAutoSave()) {
           this._autosaveInFlight = true;
@@ -1991,12 +2014,14 @@ async reinitializeWebGPU() {
       // capture point is the tab going hidden, which fires well before the
       // page is torn down (and is the only one mobile browsers reliably send).
       document.addEventListener("visibilitychange", () => {
+        if (!this.autosaveEnabled) return;
         if (document.visibilityState === "hidden" && this.hasUnsavedChanges) {
           this.saveToLocal();
         }
       });
 
       window.addEventListener("beforeunload", (_e) => {
+        if (!this.autosaveEnabled) return;
         if (this.hasUnsavedChanges) {
           this.saveToLocal();
           // Don't show dialog - just save silently

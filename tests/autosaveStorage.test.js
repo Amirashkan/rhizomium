@@ -204,6 +204,70 @@ describe('autosave recovery', () => {
   });
 });
 
+describe('turning autosave off', () => {
+  function autosaveStub(overrides = {}) {
+    return makeStub({
+      autosaveEnabled: true,
+      autosaveInterval: 1000,
+      _autosaveTimer: null,
+      setupAutoSave: P.setupAutoSave,
+      shouldAutoSave: () => true,
+      saveToLocal: vi.fn().mockResolvedValue(true),
+      createBackup: vi.fn().mockResolvedValue(true),
+      ...overrides,
+    });
+  }
+
+  it('stops the periodic snapshot, and resumes it when switched back on', async () => {
+    vi.useFakeTimers();
+    try {
+      const stub = autosaveStub();
+      P.setupAutoSave.call(stub);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(stub.saveToLocal).toHaveBeenCalledTimes(1);
+
+      P.setAutosaveEnabled.call(stub, false);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(stub.saveToLocal).toHaveBeenCalledTimes(1);
+
+      P.setAutosaveEnabled.call(stub, true);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(stub.saveToLocal).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('skips the snapshot taken when the window is hidden or closed', () => {
+    const handlers = {};
+    vi.spyOn(document, 'addEventListener').mockImplementation((name, fn) => {
+      handlers[name] = fn;
+    });
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'hidden',
+      configurable: true,
+    });
+    global.window.addEventListener = (name, fn) => {
+      handlers[name] = fn;
+    };
+
+    const stub = autosaveStub({ autosaveEnabled: false });
+    P.setupUnloadHandler.call(stub);
+
+    handlers.visibilitychange();
+    handlers.beforeunload({});
+    expect(stub.saveToLocal).not.toHaveBeenCalled();
+
+    // The same handlers still save once autosave is back on.
+    stub.autosaveEnabled = true;
+    handlers.visibilitychange();
+    expect(stub.saveToLocal).toHaveBeenCalledTimes(1);
+
+    delete document.visibilityState;
+    vi.restoreAllMocks();
+  });
+});
+
 describe('desktop autosave', () => {
   it('writes the snapshot to a file through the Rust side, not browser storage', async () => {
     invoke.mockResolvedValue(undefined);
