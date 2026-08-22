@@ -89,6 +89,31 @@ Per-band envelope values (0.0 to 1.0) are also available:
 
 **Note:** Requires audio server running or browser audio enabled. See [Audio Reactivity](audio-web.md).
 
+### Controller Variables
+
+#### `midi` / `osc`
+
+The live reading of the MIDI or OSC controller mapped to **this parameter**, already
+put through the binding's range, curve and invert settings. Writing an expression
+does not give up the mapping: the controller feeds the formula instead of replacing
+it, so a fader can set the centre of a value an LFO wobbles around.
+
+```
+=midi + sin(time) * 0.1     // Fader sets the centre, an LFO wobbles around it
+=midi * audioEnvelope       // Fader as a depth control over the audio
+=max(midi, osc)             // Whichever controller is pushed further
+=clamp(midi + 0.2, 0, 1)    // Fader with an offset and a ceiling
+```
+
+Both read `0` until a controller sends something, so an expression written before
+the mapping exists still evaluates — map the CC afterwards and it comes alive.
+Each names the controller on the field it is written in: `midi` in a Radius field
+is the CC mapped to Radius, never the one mapped to Softness.
+
+**Note:** MIDI Learn on a parameter that already holds an expression keeps the
+expression. Removing the binding leaves the formula in place, with `midi` back
+at `0`. See [MIDI Controller Integration](midi.md).
+
 ### Input Variables
 
 #### `mouse.x` / `mouse.y`

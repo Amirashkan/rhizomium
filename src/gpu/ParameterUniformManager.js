@@ -1,3 +1,5 @@
+import { getExternalReading } from '../parameters/ExternalParameterControl.js';
+
 /**
  * Manages dynamic parameter uniforms for shader compilation
  * Detects which parameters need uniforms vs. baked values
@@ -62,7 +64,18 @@ analyzeNode(node) {
       } else if (typeof value === 'boolean') {
         numericValue = value ? 1.0 : 0.0;
       } else {
-        numericValue = parseFloat(value) || 0;
+        numericValue = parseFloat(value);
+        if (!Number.isFinite(numericValue)) {
+          // An externally controlled parameter holding an expression ("=midi + sin(time)") has no
+          // number to parse: its uniform carries the controller's raw READING, which is what the
+          // inlined `midi`/`osc` identifier reads. parseFloat gives NaN here, and the old `|| 0`
+          // zeroed the controller on every recompile — the render snapped back as soon as anything
+          // else in the patch changed. Fall back to the live reading, then to whatever the uniform
+          // already held, before giving up on 0.
+          numericValue = getExternalReading(node.id, paramName)
+            ?? this.uniformValues.get(paramKey)
+            ?? 0;
+        }
       }
 
       // DEBUG: Log colorize parameter for ComputeNoise nodes (disabled to reduce console spam)

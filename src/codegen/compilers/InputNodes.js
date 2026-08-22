@@ -1,6 +1,7 @@
 // src/codegen/compilers/InputNodes.js
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 import { buildScalarRefMapping } from '../processors/scalarRef.js';
+import { externalControlRefMapping } from '../../utils/paramReferences.js';
 import { isDisplayMode, getDisplayResolution } from '../../utils/resolutionMode.js';
 import { isTriggerChangeMode } from '../../core/triggerMode.js';
 import { buildWaveExpression, isWaveUnipolar, isWaveSynced } from '../../core/waveform.js';
@@ -11,10 +12,18 @@ export class InputNodes {
     // these nodes' (all f32) parameter expressions. Set by NodeCompiler before each pass.
     this.graph = null;
     this.typeConverter = null;
+    // Uniform manager for the pass being compiled. These nodes resolve their own parameter
+    // expressions rather than going through the shared compiler helpers, so they need it directly
+    // to deliver a `midi`/`osc` term as a live uniform instead of a baked number.
+    this.uniformManager = null;
   }
 
   setGraph(graph) {
     this.graph = graph;
+  }
+
+  setUniformManager(manager) {
+    this.uniformManager = manager;
   }
 
   setTypeConverter(typeConverter) {
@@ -53,10 +62,16 @@ export class InputNodes {
    * f32, and a downstream f32 consumer (a Circle radius) would then fail with a type mismatch and
    * blank the render. An unresolvable reference falls back to the default literal.
    */
-  _resolveScalarExpr(rawValue, defaultValue) {
+  _resolveScalarExpr(rawValue, defaultValue, node = null, paramName = null) {
     const fallback = this._defaultLiteral(defaultValue);
     const mapping = buildScalarRefMapping(rawValue, this.graph, this.typeConverter);
     if (mapping === null) return fallback;
+    // `midi` / `osc` name the controllers mapped to THIS parameter — a Const Float's value is one
+    // of the commonest things to put a fader on, so "=midi * 2" has to compile here too.
+    Object.assign(
+      mapping,
+      externalControlRefMapping(node, rawValue, paramName, this.uniformManager),
+    );
     try {
       const result = unifiedExpressionSystem.generateShader(rawValue, mapping, this.graph);
       return result === '0.0' ? fallback : result;
@@ -83,7 +98,7 @@ export class InputNodes {
       const isExpr = typeof raw === 'string'
         && (raw.trim().startsWith('=') || /\b(time|audioEnvelope)\b/.test(raw));
       if (isExpr) {
-        return this._resolveScalarExpr(raw, defaultValue);
+        return this._resolveScalarExpr(raw, defaultValue, node, paramName);
       }
       if (getParam) return getParam(paramName, defaultValue);
       if (typeof raw === 'number') return raw.toFixed(6);
