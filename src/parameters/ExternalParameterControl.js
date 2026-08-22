@@ -13,27 +13,66 @@
  */
 
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
-import { discreteParamKind, getParamDef, optionValues } from '../utils/discreteParams.js';
 
 /**
- * The range a new binding should span when the parameter itself does not name one.
+ * Latest reading from each external controller, keyed "nodeId.paramName".
  *
- * A dropdown has no min/max in its definition, so both controllers used to fall back to 0..1 —
- * which maps a whole knob sweep onto the first two of nine blend modes. A discrete parameter is
- * addressed by option INDEX, so its natural range is 0..n-1 (0..1 for a toggle, which then
- * switches at the middle of the fader's travel).
+ * A parameter driven by MIDI or OSC used to be nothing but the controller's
+ * output: the reading was written straight over node.params, so a parameter
+ * could be a formula or it could be MIDI-controlled, never both. Keeping the
+ * raw reading here as well is what lets an expression name it — `=midi +
+ * sin(time)` reads this value through the `midi` identifier while the formula
+ * stays in the field (see utils/paramReferences.js for the CPU scope and the
+ * WGSL mapping).
  *
- * @returns {{min: number, max: number}|null} null when the parameter is not discrete.
+ * Values are per source, because MIDI and OSC can legitimately claim the same
+ * parameter at once and each identifier should report its own controller.
  */
-export function discreteControlRange(node, paramName) {
-  // A node kind that is not in NodeDefs (a test double, a node built at runtime) yields no
-  // definition, so this returns null and the caller keeps its existing min/max fallback.
-  const def = getParamDef(node, paramName);
-  const kind = discreteParamKind(def);
-  if (!kind) return null;
-  if (kind === 'boolean') return { min: 0, max: 1 };
+const externalReadings = new Map();
 
-  return { min: 0, max: Math.max(1, optionValues(def).length - 1) };
+/** Sources that can appear as an identifier inside a parameter expression. */
+export const EXTERNAL_CONTROL_SOURCES = ['midi', 'osc'];
+
+/** Record the latest reading a controller produced for a parameter. */
+export function recordExternalReading(nodeId, paramName, source, value) {
+  if (!EXTERNAL_CONTROL_SOURCES.includes(source)) return;
+  const key = `${nodeId}.${paramName}`;
+  const entry = externalReadings.get(key) || {};
+  entry[source] = value;
+  externalReadings.set(key, entry);
+}
+
+/**
+ * Latest reading for a parameter, or undefined when no controller has sent one.
+ *
+ * @param {string|number} nodeId
+ * @param {string} paramName
+ * @param {'midi'|'osc'} [source] omit to take whichever source has spoken,
+ *                                preferring MIDI when both have
+ */
+export function getExternalReading(nodeId, paramName, source = null) {
+  const entry = externalReadings.get(`${nodeId}.${paramName}`);
+  if (!entry) return undefined;
+  if (source) return entry[source];
+  return entry.midi ?? entry.osc;
+}
+
+/** Drop a parameter's readings — used when a binding goes away or a node is deleted. */
+export function clearExternalReadings(nodeId, paramName = null) {
+  if (paramName !== null) {
+    externalReadings.delete(`${nodeId}.${paramName}`);
+    return;
+  }
+  const prefix = `${nodeId}.`;
+  for (const key of Array.from(externalReadings.keys())) {
+    if (key.startsWith(prefix)) externalReadings.delete(key);
+  }
+}
+
+/** Does this parameter currently hold an expression rather than a plain value? */
+export function parameterHoldsExpression(node, paramName) {
+  const raw = node?.params?.[paramName];
+  return typeof raw === 'string' && raw.trim().startsWith('=');
 }
 
 /**
@@ -69,20 +108,42 @@ export function mapNormalizedValue(normalized, options = {}) {
 /**
  * Write a controller-driven value onto a node, bypassing undo tracking.
  *
+ * A parameter holding an expression is left alone: the reading is recorded
+ * above and reaches the formula as `midi` / `osc` instead of overwriting it.
+ * Writing anyway is what made "MIDI or an expression, pick one" the rule —
+ * `=midi + sin(time)` was replaced by a bare number on the first CC that
+ * arrived.
+ *
  * NOTE: ConstVec component params named 'x'/'y'/'z' must NOT be written to
  * node.x/node.y/node.z — those are the node's canvas position, so writing them
  * would drag the node across the graph whenever a mapped component moved. Only
  * 'value' has a legacy top-level field (node.value).
+ *
+ * @param {object} node
+ * @param {string} paramName
+ * @param {number} value        mapped value from the controller
+ * @param {'midi'|'osc'} [source] controller this reading came from
+ * @returns {boolean} true when the value was written onto the parameter, false
+ *                    when an expression was preserved instead
  */
-export function applyControlValue(node, paramName, value) {
-  if (!node) return;
+export function applyControlValue(node, paramName, value, source = null) {
+  if (!node) return false;
+
+  if (source) recordExternalReading(node.id, paramName, source, value);
+
+  if (parameterHoldsExpression(node, paramName)) {
+    // The formula owns the parameter; re-rasterise a Text node so a `=midi`
+    // inside its content still tracks the controller.
+    refreshTextNodeTexture(node);
+    return false;
+  }
 
   if (paramName === 'value') {
     node.value = value;
     if (!node.params) node.params = {};
     node.params.value = value;
     refreshTextNodeTexture(node);
-    return;
+    return true;
   }
 
   // Stored in both params and props for compatibility across node kinds.
@@ -95,6 +156,7 @@ export function applyControlValue(node, paramName, value) {
   // rasterised bitmap — so the equivalent of writeParameterUniform for it is re-rasterising.
   // No-op for every other kind.
   refreshTextNodeTexture(node);
+  return true;
 }
 
 /**
@@ -103,6 +165,22 @@ export function applyControlValue(node, paramName, value) {
  * This is what keeps external control smooth: the parameter already has a
  * uniform reserved for it (see ParameterUniformManager), so a new value is a
  * buffer write and a redraw rather than a shader rebuild.
+ *
+ * The uniform carries the controller's RAW reading. For a plain parameter that
+ * is also its value, so nothing changes; for one holding an expression it is
+ * what the inlined `midi` / `osc` identifier reads, which is why an expression
+ * parameter tracks a controller at 60fps without a recompile either.
+ *
+ * Drawing the frame is deliberately left to the render loop. A controller
+ * message arrives on its own schedule — a knob sweep is a hundred of them a
+ * second — and the loop is the only thing that knows what moment of the
+ * animation is currently on screen: it renders at its accumulated sim time,
+ * which is not wall-clock time (it starts at zero, scales with timeScale, and
+ * stops while paused). A frame rendered from here would have to guess that
+ * clock, and every wrong guess is a visible jump forwards or backwards in an
+ * animated graph — including one whose shader never reads the mapped parameter
+ * at all. The loop already re-writes these uniforms and draws every frame, so
+ * the value is on screen within a frame anyway.
  */
 export function writeParameterUniform(nodeId, paramName, value) {
   const uniformManager = window.nodeCompiler?.uniformManager;
@@ -114,7 +192,16 @@ export function writeParameterUniform(nodeId, paramName, value) {
   if (!renderer) return;
 
   renderer._updateParameterUniforms?.();
-  renderer.render?.();
+
+  // A running loop — paused included, it still draws every frame — will present
+  // this on its next frame, at the right time.
+  if (window.renderLoop?.getState?.()?.running) return;
+
+  // Nothing else is drawing, so draw one frame here. Hold the loop's clock
+  // where there is one: a stopped loop keeps the sim time it stopped at, and
+  // that is the frame the canvas is showing.
+  const simTime = window.renderLoop?.getState?.()?.simTime;
+  renderer.render?.(Number.isFinite(simTime) ? { timeSec: simTime } : {});
 }
 
 /**

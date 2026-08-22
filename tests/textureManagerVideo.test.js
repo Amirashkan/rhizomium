@@ -352,6 +352,81 @@ describe('trimming a video to part of the clip', () => {
   });
 });
 
+describe('resetting a video', () => {
+  /** A manager holding one 10-second clip with the given playback parameters applied. */
+  async function loaded(params = {}) {
+    const { tm, video } = managerWithVideo();
+    tm.fileToDataUrl = vi.fn(async () => null);
+    await tm.uploadTexture('n', videoFile());
+    tm.applyVideoParams('n', { playing: true, loop: true, ...params });
+    return { tm, video };
+  }
+
+  it('rewinds an untrimmed clip to the start', async () => {
+    const { tm, video } = await loaded();
+    video.currentTime = 6;
+
+    expect(tm.resetVideo('n')).toBe(true);
+
+    expect(video.currentTime).toBe(0);
+  });
+
+  it('rewinds to Trim Start, not to zero, when the clip is trimmed', async () => {
+    const { tm, video } = await loaded({ trimStart: 2, trimEnd: 5 });
+    video.currentTime = 4;
+
+    tm.resetVideo('n');
+
+    expect(video.currentTime).toBe(2);
+  });
+
+  it('starts a non-looping clip over from where it was holding at the end', async () => {
+    const { tm, video } = await loaded({ trimStart: 1, trimEnd: 4, loop: false });
+    video.currentTime = 4.5;
+    tm.updateVideoTextures();
+    expect(video.paused).toBe(true); // parked on the last frame of the span
+
+    tm.resetVideo('n');
+
+    expect(video.currentTime).toBe(1);
+    expect(video.paused).toBe(false);
+    // The hold is released, so the next recompile doesn't read the clip as stopped on purpose.
+    tm.applyVideoParams('n', { playing: true, loop: false, trimStart: 1, trimEnd: 4 });
+    expect(video.paused).toBe(false);
+  });
+
+  it('re-cues a paused clip without starting it', async () => {
+    const { tm, video } = await loaded({ playing: false });
+    video.currentTime = 7;
+
+    tm.resetVideo('n');
+
+    expect(video.currentTime).toBe(0);
+    expect(video.paused).toBe(true);
+  });
+
+  it('copies the rewound frame even when the texture already held that timestamp', async () => {
+    const { tm, video } = await loaded();
+    tm.updateVideoTextures();
+    const copiesBefore = tm.device.queue.copyExternalImageToTexture.mock.calls.length;
+
+    // Back to a time the texture has already seen - the frame on screen is a later one.
+    video.currentTime = 3;
+    tm.updateVideoTextures();
+    video.currentTime = 0;
+    tm.resetVideo('n');
+    tm.updateVideoTextures();
+
+    expect(tm.device.queue.copyExternalImageToTexture.mock.calls.length)
+      .toBeGreaterThan(copiesBefore + 1);
+  });
+
+  it('is a no-op for a node with no video (a still image, or nothing loaded)', () => {
+    const { tm } = managerWithVideo();
+    expect(tm.resetVideo('nope')).toBe(false);
+  });
+});
+
 describe('TextureManager video cleanup', () => {
   it('stops the decoder and revokes the URL when the node is removed', async () => {
     const { tm, video } = managerWithVideo();

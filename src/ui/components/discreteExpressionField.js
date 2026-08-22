@@ -36,7 +36,7 @@ export function isBooleanParamType(type) {
 export function discreteReadout(node, paramName, text, isBoolean) {
   if (!isExpressionValue(text)) return null;
 
-  const validation = expressionSystem.validateExpression(text, {}, node);
+  const validation = expressionSystem.validateExpression(text, {}, node, paramName);
   if (!validation.valid) return { text: `Error: ${validation.error}`, error: true };
 
   const resolved = resolveDiscreteParam(node, paramName, text);

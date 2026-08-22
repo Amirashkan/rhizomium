@@ -11,6 +11,32 @@ import {
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args) => invoke(...args) }));
 
+// A stand-in for the one autosave row in IndexedDB, so the snapshot can be put
+// and read back the way recovery does it.
+const db = vi.hoisted(() => ({ row: null }));
+vi.mock('../src/core/rhizomiumDB.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  openRhizomiumDB: async () => ({
+    transaction: () => ({
+      objectStore: () => ({
+        get: () => {
+          const request = {};
+          queueMicrotask(() => {
+            request.result = db.row;
+            request.onsuccess?.();
+          });
+          return request;
+        },
+      }),
+    }),
+  }),
+  runTransaction: async (_store, _mode, fn) =>
+    fn({
+      put: (value) => { db.row = value; },
+      clear: () => { db.row = null; },
+    }),
+}));
+
 const P = SaveLoadManager.prototype;
 const KEY = 'rhizomium.autosave.v2';
 
@@ -204,6 +230,145 @@ describe('autosave recovery', () => {
   });
 });
 
+function autosaveStub(overrides = {}) {
+  return makeStub({
+    autosaveEnabled: true,
+    autosaveInterval: 1000,
+    autoBackupInterval: 10 * 60 * 1000,
+    _lastAutoBackupAt: 0,
+    _autosaveTimer: null,
+    _autosaveScheduled: false,
+    setupAutoSave: P.setupAutoSave,
+    _scheduleAutoSave: P._scheduleAutoSave,
+    _runAutoSave: P._runAutoSave,
+    isPerforming: P.isPerforming,
+    shouldAutoSave: () => true,
+    exportProject: vi.fn(() => bigProject()),
+    saveToLocal: vi.fn().mockResolvedValue(true),
+    createBackup: vi.fn().mockResolvedValue(true),
+    ...overrides,
+  });
+}
+
+describe('the autosave tick', () => {
+  // requestIdleCallback is what defers the work off the frame; run it inline
+  // so the tick can be driven with fake timers.
+  beforeEach(() => {
+    global.requestIdleCallback = (fn) => setTimeout(fn, 0);
+  });
+
+  it('exports and hashes once, and reuses both downstream', async () => {
+    const stub = autosaveStub();
+
+    await P._runAutoSave.call(stub);
+
+    // Three exports and three hashes of a patch's inlined media per tick was
+    // the stutter artists were feeling.
+    expect(stub.exportProject).toHaveBeenCalledTimes(1);
+    const [, opts] = stub.saveToLocal.mock.calls[0];
+    expect(opts.projectData).toBeTruthy();
+    expect(opts.hash).toBeTruthy();
+    expect(stub.createBackup.mock.calls[0][1]).toMatchObject({
+      projectData: opts.projectData,
+      hash: opts.hash,
+    });
+  });
+
+  it('stays off the main thread while a parameter is being dragged', async () => {
+    const stub = autosaveStub({ editor: { _parameterDragging: true } });
+
+    await P._runAutoSave.call(stub);
+    expect(stub.saveToLocal).not.toHaveBeenCalled();
+
+    // The edit is not lost - the next tick picks it up once the drag ends.
+    stub.editor._parameterDragging = false;
+    await P._runAutoSave.call(stub);
+    expect(stub.saveToLocal).toHaveBeenCalledTimes(1);
+  });
+
+  it('snapshots every tick but backs up on its own slower cadence', async () => {
+    const stub = autosaveStub();
+
+    await P._runAutoSave.call(stub);
+    expect(stub.saveToLocal).toHaveBeenCalledTimes(1);
+    expect(stub.createBackup).toHaveBeenCalledTimes(1);
+
+    await P._runAutoSave.call(stub);
+    await P._runAutoSave.call(stub);
+    expect(stub.saveToLocal).toHaveBeenCalledTimes(3);
+    expect(stub.createBackup).toHaveBeenCalledTimes(1);
+
+    stub._lastAutoBackupAt = Date.now() - stub.autoBackupInterval;
+    await P._runAutoSave.call(stub);
+    expect(stub.createBackup).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not queue a second pass while one is already waiting', () => {
+    const stub = autosaveStub();
+    let queued = 0;
+    global.requestIdleCallback = () => { queued += 1; };
+
+    P._scheduleAutoSave.call(stub);
+    P._scheduleAutoSave.call(stub);
+    P._scheduleAutoSave.call(stub);
+
+    expect(queued).toBe(1);
+  });
+});
+
+describe('turning autosave off', () => {
+  it('stops the periodic snapshot, and resumes it when switched back on', async () => {
+    vi.useFakeTimers();
+    // The idle hand-off is covered above; here the timer itself is under test.
+    global.requestIdleCallback = (fn) => fn();
+    try {
+      const stub = autosaveStub();
+      P.setupAutoSave.call(stub);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(stub.saveToLocal).toHaveBeenCalledTimes(1);
+
+      P.setAutosaveEnabled.call(stub, false);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(stub.saveToLocal).toHaveBeenCalledTimes(1);
+
+      P.setAutosaveEnabled.call(stub, true);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(stub.saveToLocal).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('skips the snapshot taken when the window is hidden or closed', () => {
+    const handlers = {};
+    vi.spyOn(document, 'addEventListener').mockImplementation((name, fn) => {
+      handlers[name] = fn;
+    });
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'hidden',
+      configurable: true,
+    });
+    global.window.addEventListener = (name, fn) => {
+      handlers[name] = fn;
+    };
+
+    const stub = autosaveStub({ autosaveEnabled: false });
+    P.setupUnloadHandler.call(stub);
+
+    handlers.visibilitychange();
+    handlers.beforeunload({});
+    expect(stub.saveToLocal).not.toHaveBeenCalled();
+
+    // The same handlers still save once autosave is back on.
+    stub.autosaveEnabled = true;
+    handlers.visibilitychange();
+    expect(stub.saveToLocal).toHaveBeenCalledTimes(1);
+
+    delete document.visibilityState;
+    vi.restoreAllMocks();
+  });
+});
+
 describe('desktop autosave', () => {
   it('writes the snapshot to a file through the Rust side, not browser storage', async () => {
     invoke.mockResolvedValue(undefined);
@@ -247,6 +412,72 @@ describe('desktop autosave', () => {
     expect(fallback.put).toHaveBeenCalledTimes(2);
     // The broken primary is not retried on every tick
     expect(primary.put).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the browser snapshot store', () => {
+  beforeEach(() => { db.row = null; });
+
+  it('round-trips the snapshot as one string, not a cloned object graph', async () => {
+    const store = new IndexedDBAutosaveStore();
+    const record = { data: bigProject(), timestamp: 42, version: 3 };
+
+    await store.put(record);
+
+    // Rebuilding the object to hand it to structured clone cost two more full
+    // copies of the patch's media on every autosave.
+    expect(typeof db.row.json).toBe('string');
+    expect(db.row.data).toBeUndefined();
+    await expect(store.get()).resolves.toEqual(record);
+  });
+
+  it('still reads a snapshot an older build stored as an object', async () => {
+    const record = { data: bigProject(), timestamp: 7 };
+    db.row = { id: 'current', ...record };
+
+    await expect(new IndexedDBAutosaveStore().get()).resolves.toMatchObject(record);
+  });
+
+  it('reports no snapshot rather than throwing on a truncated row', async () => {
+    db.row = { id: 'current', json: '{"data":' };
+
+    await expect(new IndexedDBAutosaveStore().get()).resolves.toBeNull();
+  });
+});
+
+describe('the change hash', () => {
+  const withTexture = (dataUrl, extra = {}) => ({
+    nodes: [{ id: 'n1', kind: 'Texture2D', params: { scale: 1 }, ...extra }],
+    textures: { n1: { filename: 'clip.png', dataUrl } },
+  });
+
+  it('still notices the edits an autosave exists for', () => {
+    const media = 'data:image/png;base64,' + 'A'.repeat(200000);
+    const base = P._computeProjectHash(withTexture(media));
+
+    expect(P._computeProjectHash(withTexture(media))).toBe(base);
+    // A parameter tweak - the thing being hashed for
+    expect(
+      P._computeProjectHash(withTexture(media, { params: { scale: 2 } })),
+    ).not.toBe(base);
+    // A different image in the same node
+    expect(
+      P._computeProjectHash(withTexture('data:image/png;base64,' + 'B'.repeat(200000))),
+    ).not.toBe(base);
+    expect(
+      P._computeProjectHash(withTexture(media + 'tail')),
+    ).not.toBe(base);
+  });
+
+  it('summarizes inlined media instead of walking it', () => {
+    // 8MB of base64: hashing it byte by byte took ~30ms, three times a tick.
+    const huge = 'data:image/png;base64,' + 'A'.repeat(8 * 1024 * 1024);
+    const started = performance.now();
+    const hash = P._computeProjectHash(withTexture(huge));
+    const elapsed = performance.now() - started;
+
+    expect(hash).toBeTruthy();
+    expect(elapsed).toBeLessThan(16); // one frame, with room to spare
   });
 });
 

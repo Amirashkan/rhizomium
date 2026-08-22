@@ -62,5 +62,20 @@ export default defineConfig({
         'second-monitor': resolve(__dirname, 'editor/second-monitor.html'),
       },
     },
+    // The editor entry lands around 1.4 MB (~340 kB gzipped) and trips
+    // Rollup's default 500 kB advisory. That default targets apps with a
+    // deferrable route/vendor split; this one has neither. `main.js` wires up
+    // every subsystem - GPU, WGSL codegen, 3D scene, MIDI/OSC/audio, the whole
+    // panel set - during boot, so there is no import to move behind a dynamic
+    // import() without changing startup behaviour, and there is no third-party
+    // dependency of any size to peel off into a vendor chunk. Forcing a split
+    // with `manualChunks` actively hurt: grouping by source directory pulled
+    // the whole app into shared chunks and inflated the deliberately-lean
+    // second-monitor viewer page from ~100 kB to the full bundle, because
+    // Rollup's automatic per-entry splitting is what keeps those entries
+    // apart. Raise the threshold so the advisory reports real growth instead
+    // of firing on every build; lowering it again is the checkpoint if the
+    // editor boot path ever does get split.
+    chunkSizeWarningLimit: 1500,
   },
 })

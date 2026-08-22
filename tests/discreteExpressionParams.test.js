@@ -98,6 +98,23 @@ describe('a discrete parameter under MIDI/OSC', () => {
   });
 });
 
+describe('a discrete parameter in fx mode driven by a controller', () => {
+  // A parameter holding an expression keeps its formula under MIDI/OSC — the reading arrives as
+  // the `midi` identifier instead of overwriting the field. On a dropdown that means the knob can
+  // pick options through an expression: "=midi" sweeps the list, "=8 - midi" reverses it.
+  it('resolves `midi` to an option, per parameter', async () => {
+    const { recordExternalReading } = await import('../src/parameters/ExternalParameterControl.js');
+    const node = { id: '42', kind: 'ComputeMix', params: { mode: '=midi' } };
+
+    recordExternalReading('42', 'mode', 'midi', 0);
+    expect(resolveDiscreteParam(node, 'mode', '=midi')).toBe('Mix');
+
+    recordExternalReading('42', 'mode', 'midi', 4);
+    expect(resolveDiscreteParam(node, 'mode', '=midi')).toBe('Overlay');
+    expect(discreteResolutionSignature(node)).toBe('mode=Overlay;');
+  });
+});
+
 describe('compilers read the resolved option', () => {
   it('Rectangle sizeMode honours an expression', () => {
     expect(rectangleIsProportional({ id: '1', kind: 'Rectangle', params: { sizeMode: '=1' } })).toBe(false);

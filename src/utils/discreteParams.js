@@ -163,7 +163,10 @@ export function resolveDiscreteParam(node, name, rawValue, defaultValue = undefi
 
   let result;
   try {
-    result = expressionSystem.evaluateExpression(rawValue, {}, node);
+    // The parameter name is passed explicitly so a `midi`/`osc` reference inside the expression
+    // resolves to the controller mapped to THIS field (see ParameterExpressionSystem) rather than
+    // being recovered by scanning the node's params for matching text.
+    result = expressionSystem.evaluateExpression(rawValue, {}, node, name);
   } catch {
     result = undefined;
   }
@@ -233,4 +236,28 @@ export function hasDrivenDiscreteParams(node) {
   const params = node?.params;
   if (!params) return false;
   return Object.entries(params).some(([name, value]) => needsDiscreteResolution(node, name, value));
+}
+
+/**
+ * The range a new MIDI or OSC binding should span for a discrete parameter.
+ *
+ * A dropdown names no min/max in its definition, so both controllers used to fall back to 0..1 —
+ * which maps a whole knob sweep onto the first two of a Mix node's nine blend modes. A discrete
+ * parameter is addressed by option INDEX, so its natural range is 0..n-1 (0..1 for a toggle, which
+ * then switches at the middle of the fader's travel).
+ *
+ * Lives here rather than beside the other controller plumbing in ExternalParameterControl because
+ * that module is imported, transitively, by the expression system this one depends on — putting it
+ * there closes an import cycle and leaves EXTERNAL_CONTROL_SOURCES uninitialised at load.
+ *
+ * @returns {{min: number, max: number}|null} null when the parameter is not discrete, so the
+ *                                            caller keeps its existing min/max fallback.
+ */
+export function discreteControlRange(node, paramName) {
+  const def = getParamDef(node, paramName);
+  const kind = discreteParamKind(def);
+  if (!kind) return null;
+  if (kind === 'boolean') return { min: 0, max: 1 };
+
+  return { min: 0, max: Math.max(1, optionValues(def).length - 1) };
 }

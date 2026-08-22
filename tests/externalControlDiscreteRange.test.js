@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { discreteControlRange, mapNormalizedValue } from '../src/parameters/ExternalParameterControl.js';
+import { discreteControlRange } from '../src/utils/discreteParams.js';
+import { mapNormalizedValue } from '../src/parameters/ExternalParameterControl.js';
 
 // A dropdown carries no min/max in its definition, so a new MIDI/OSC binding used to default to
 // 0..1 — which maps a whole knob sweep onto the first two of a Mix node's nine blend modes. A

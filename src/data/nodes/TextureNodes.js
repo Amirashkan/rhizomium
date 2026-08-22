@@ -80,6 +80,21 @@ export const TextureNodes = {
         label: "Trim End (s, 0 = end)",
         activeWhen: { sourceType: "video" },
       },
+      // Rewind to the start of the clip (or of the trimmed span). Momentary, like the Feedback
+      // nodes' Reset - but this one also takes an expression: whatever is typed in the field under
+      // the button is evaluated every frame, and each rising edge past 0.5 rewinds the clip, so a
+      // video can be re-cued by the beat ("=audioEnvelopeBass > 0.6") or by any node in the patch.
+      // VideoResetProcessor watches it; the stored value is the expression, never a pressed state.
+      {
+        name: "reset",
+        type: "button",
+        action: "resetVideo",
+        expressionable: true,
+        expressionPlaceholder: "=audioEnvelopeBass > 0.6",
+        label: "Reset",
+        description: "Rewind to the start of the clip (or of the trim span)",
+        activeWhen: { sourceType: "video" },
+      },
       {
         name: "wrapU",
         type: "select",

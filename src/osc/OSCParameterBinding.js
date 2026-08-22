@@ -3,11 +3,12 @@
 import { oscArgToNumber } from './OSCDecoder.js';
 import {
   applyControlValue,
-  discreteControlRange,
+  clearExternalReadings,
   mapNormalizedValue,
   refreshEditorForControlChange,
   writeParameterUniform,
 } from '../parameters/ExternalParameterControl.js';
+import { discreteControlRange } from '../utils/discreteParams.js';
 
 /**
  * OSCParameterBinding - maps OSC messages to node parameters.
@@ -125,6 +126,8 @@ export class OSCParameterBinding {
       const paramKey = `${binding.nodeId}.${binding.paramName}`;
       this.parameterToOSC.delete(paramKey);
       this.oscParameters.delete(paramKey);
+      // An expression naming `osc` reads 0 again once nothing is mapped to it.
+      clearExternalReadings(binding.nodeId, binding.paramName);
       this.eventSystem?.emit('OSC_BINDING_REMOVED', binding);
     }
     return true;
@@ -156,6 +159,7 @@ export class OSCParameterBinding {
 
     this.parameterToOSC.delete(paramKey);
     this.oscParameters.delete(paramKey);
+    clearExternalReadings(nodeId, paramName);
 
     // Announced like any other removal so the panels showing this mapping —
     // the OSC list, the parameter panel's OSC badge — drop it straight away.
@@ -220,7 +224,12 @@ export class OSCParameterBinding {
 
     const paramValue = mapNormalizedValue(this.normalize(binding, rawValue), binding);
 
-    applyControlValue(node, binding.paramName, paramValue);
+    // A parameter holding an expression keeps its formula: the reading is recorded and reaches it
+    // as `osc` (the MIDI story, in src/parameters/ExternalParameterControl.js) rather than
+    // replacing what the user typed.
+    applyControlValue(node, binding.paramName, paramValue, 'osc');
+    // The uniform carries the raw reading either way, so an expression tracks OSC without a
+    // recompile exactly as a plain parameter does.
     writeParameterUniform(binding.nodeId, binding.paramName, paramValue);
     refreshEditorForControlChange('osc-parameter-update');
 
@@ -228,6 +237,7 @@ export class OSCParameterBinding {
       node,
       parameterName: binding.paramName,
       newValue: paramValue,
+      controlValue: paramValue,
       source: 'osc',
     });
   }

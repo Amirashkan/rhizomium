@@ -822,6 +822,16 @@ case 'circlefield':
             max: 3600.0,
             activeWhen: { sourceType: 'video' },
             description: 'Stop (or loop) at this many seconds in; 0 plays to the end of the clip'
+          },
+          {
+            name: 'reset',
+            type: 'button',
+            action: 'resetVideo',
+            expressionable: true,
+            expressionPlaceholder: '=audioEnvelopeBass > 0.6',
+            displayName: 'Reset',
+            activeWhen: { sourceType: 'video' },
+            description: 'Rewind to the start of the clip (or of the trim span)'
           }
         );
         break;
@@ -1708,16 +1718,27 @@ case 'flip2d':
    * Dispatches a named action rather than storing a value.
    */
   renderActionButton(param, node) {
+    // A button can be declared video-only (Texture 2D's Reset), so it dims for a still image the
+    // same way the playback controls above it do.
+    const active = this._isParameterActive(param, node);
+
     const paramContainer = document.createElement('div');
     paramContainer.className = 'parameter-container';
+    paramContainer.setAttribute('data-param', param.name);
     paramContainer.style.cssText = `
       margin-bottom: 10px;
       padding: 9px 10px;
       background: ${SURFACE.fillSoft};
       border: 1px solid ${SURFACE.line};
       border-radius: 10px;
-      border-left: 3px solid ${ACCENT.base};
+      border-left: 3px solid ${active ? ACCENT.base : SURFACE.lineStrong};
+      opacity: ${active ? '1' : '0.45'};
     `;
+
+    if (!active) {
+      paramContainer.classList.add('parameter-inactive');
+      paramContainer.title = this._inactiveReason(param, node) || 'Not used with the current settings';
+    }
 
     const button = document.createElement('button');
     button.type = 'button';
@@ -1743,7 +1764,78 @@ case 'flip2d':
     });
 
     paramContainer.appendChild(button);
+
+    // An expressionable button also fires on its own: the field below it holds an expression that
+    // is evaluated every frame, and each rising edge runs the same action as a click.
+    if (param.expressionable) {
+      paramContainer.appendChild(this.createActionTriggerInput(param, node));
+    }
+
     this.panelContent.appendChild(paramContainer);
+  }
+
+  /**
+   * The expression field under an expressionable action button (param.expressionable).
+   *
+   * The stored parameter is the expression itself — a button has no value to keep, so the slot is
+   * free — and an empty field means "click only". A per-frame processor (VideoResetProcessor for
+   * Texture 2D's Reset) watches it and fires the action on every rising edge past 0.5, which is
+   * what makes "=audioEnvelopeBass > 0.6" re-cue a clip on the beat.
+   */
+  createActionTriggerInput(param, node) {
+    const container = document.createElement('div');
+    container.className = 'expression-input-container';
+    container.style.cssText = 'position: relative; margin-top: 6px;';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'param-input expression-capable';
+    input.setAttribute('data-param', param.name);
+    input.setAttribute('data-param-type', 'expression');
+    input.setAttribute('data-node-id', String(node.id));
+    input.autocomplete = 'off';
+    input.autocapitalize = 'off';
+    input.spellcheck = false;
+    const stored = node.params?.[param.name];
+    input.value = typeof stored === 'string' ? stored : '';
+    input.placeholder = param.expressionPlaceholder || '= expression to fire on';
+    input.title = `Fire ${param.displayName || param.name} whenever this expression rises past 0.5. Leave empty to use the button only.`;
+    input.style.cssText = `
+      width: 100%;
+      padding: 6px 8px;
+      background: ${SURFACE.well};
+      color: #c9b9f7;
+      border: 1px solid ${SURFACE.line};
+      border-radius: 8px;
+      font-size: 11px;
+      font-family: ${FONT_MONO};
+      box-sizing: border-box;
+    `;
+
+    const commit = () => {
+      const value = input.value.trim();
+      if ((node.params?.[param.name] ?? '') === value) return;
+      if (!node.params) node.params = {};
+      node.params[param.name] = value;
+      this.handleParameterUpdate({ parameterName: param.name, newValue: value });
+    };
+
+    // Keep editor-level shortcuts (delete node, etc.) from firing while typing in the field.
+    input.addEventListener('keydown', (e) => {
+      if (['Delete', 'Backspace', 'Enter'].includes(e.key)) e.stopPropagation();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+        input.blur();
+      }
+    });
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('blur', commit);
+    // A node dropped onto the field to insert its reference arrives as a change, not as typing.
+    input.addEventListener('change', commit);
+
+    container.appendChild(input);
+    return container;
   }
 
   /**
@@ -1751,6 +1843,13 @@ case 'flip2d':
    */
   runParameterAction(action, node) {
     switch (action) {
+      case 'resetVideo':
+        // Rewinds the node's <video> to the start of its clip (or of its trim span). A still image
+        // has no video element, so this is a no-op there.
+        window.textureManager?.resetVideo?.(node.id);
+        // The frame on screen is the one we just left until something asks for a redraw.
+        window.editor?.markDirty?.('video-reset');
+        break;
       case 'resetFeedback':
         if (window.computeExecutor?.resetNodeFeedback) {
           window.computeExecutor.resetNodeFeedback(node.id);
@@ -2550,6 +2649,23 @@ _processPreviewUpdate(node) {
     const inputData = this.textInputHandler?.activeInputs?.get(key);
 
     if (inputData?.input && document.activeElement !== inputData.input) {
+      // A field holding an expression is NOT the controller's readout — the reading reaches the
+      // formula as `midi` and the formula stays in the field. Writing the number here would erase
+      // it on the first CC, which is exactly what made an expression and a MIDI mapping mutually
+      // exclusive; the evaluated value is refreshed by refreshParameterDisplays when MIDI settles.
+      if (this.expressionSystem.isExpression(inputData.input.value)) {
+        // Still move the evaluated readout, so the formula visibly tracks the controller. One
+        // cached-AST evaluation and one text write — the full validated refresh runs on the
+        // debounce once MIDI settles.
+        if (inputData.resultDisplay) {
+          const evaluated = this.expressionSystem.evaluateExpression(
+            inputData.input.value, {}, inputData.node, paramName,
+          );
+          inputData.resultDisplay.textContent = `→ ${evaluated}`;
+        }
+        return;
+      }
+
       // Only update if user is not currently editing
       const displayValue = typeof newValue === 'number'
         ? Math.round(newValue * 10000) / 10000
@@ -2595,7 +2711,8 @@ updateDependentExpressions(_node) {
         const validation = this.expressionSystem.validateExpression(
           input.value,
           {},
-          this.selectedNode
+          this.selectedNode,
+          input.dataset.param || null,
         );
 
         if (validation.valid) {
