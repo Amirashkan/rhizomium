@@ -103,7 +103,10 @@ remove it, `Esc` clears the mask. The inspector also carries one-click shapes �
 ellipse, triangle, arch, diamond — to seed a mask before editing its points.
 
 A shape drawn with the Draw tool is an ordinary mask, so it is editable the same
-way afterwards. Clicks are resolved in this order, so that editing the surface
+way afterwards — and its points are draggable in the **Warp** tool too, since
+they are the surface's shape and the quad around them is only what keystones it.
+
+In the Mask tool, clicks are resolved in this order, so that editing the surface
 you are on stays fluid while the others stay reachable:
 
 1. a point of the selected surface — grab it, or `Alt`-click to remove it
@@ -111,8 +114,12 @@ you are on stays fluid while the others stay reachable:
 3. inside the selected surface — add a point, inserted into the nearest edge
 4. inside any other surface — select it, ready to edit
 
-Every surface's mask points are drawn while the tool is active, dimmed for the
+Every surface's mask points are drawn in the Warp and Mask tools, dimmed for the
 ones that are not selected, since clicking them is what reaches them.
+
+**Preview** and **Guides** toggle the stage's picture and its editing overlay
+independently. Guides off is how an alignment is judged with nothing drawn on top
+of it; preview off leaves the outlines on their own.
 
 **Output quad** pins a surface on the projected frame; **Source crop** chooses
 what that surface shows. A locked surface ignores drags, so an aligned rig can't

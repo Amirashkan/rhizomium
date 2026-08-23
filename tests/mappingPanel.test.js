@@ -506,6 +506,132 @@ describe('MappingPanel', () => {
     });
   });
 
+
+  describe('editing drawn points in the warp tool', () => {
+    beforeEach(() => {
+      window.graph = { nodes: [{ id: '5', kind: 'Circle', params: {}, inputs: [] }], connections: [] };
+      window.rebuild = vi.fn();
+    });
+
+    afterEach(() => {
+      delete window.graph;
+      delete window.rebuild;
+    });
+
+    /** Draw a five-point shape, leaving it selected. */
+    const drawShape = () => {
+      panel.tool = 'draw';
+      for (const [x, y] of [[0.2, 0.1], [0.8, 0.2], [0.9, 0.7], [0.5, 0.9], [0.1, 0.6]]) {
+        const p = panel._toScreen(x, y);
+        panel._onPointerDown(pointer(p.x, p.y));
+      }
+      panel._onKeyDown({ key: 'Enter', shiftKey: false, altKey: false, preventDefault: vi.fn() });
+      panel.tool = 'warp';
+      return model.surfaces[0];
+    };
+
+    it('grabs a drawn point, not just the quad that bounds it', () => {
+      // The bug: only the bounding rectangle's corners were grabbable, so you
+      // could move the box around your outline but never the outline itself.
+      const s = drawShape();
+      const p = panel._fromSurfaceUnit(s, s.mask[2].x, s.mask[2].y);
+      const at = panel._toScreen(p.x, p.y);
+      panel._onPointerDown(pointer(at.x, at.y));
+      expect(panel._drag).toMatchObject({ kind: 'mask', surfaceId: s.id, point: 2 });
+    });
+
+    it('moves the drawn point it grabbed', () => {
+      const s = drawShape();
+      const before = { ...s.mask[2] };
+      const p = panel._fromSurfaceUnit(s, s.mask[2].x, s.mask[2].y);
+      const at = panel._toScreen(p.x, p.y);
+      panel._onPointerDown(pointer(at.x, at.y));
+      const to = panel._toScreen(p.x - 0.15, p.y - 0.1);
+      panel._onPointerMove(pointer(to.x, to.y));
+      expect(s.mask[2]).not.toEqual(before);
+    });
+
+    it('still grabs a quad corner in preference to a point', () => {
+      // The corners are what keystone the surface; they must stay reachable.
+      const s = drawShape();
+      const at = panel._toScreen(s.dst[0].x, s.dst[0].y);
+      panel._onPointerDown(pointer(at.x, at.y));
+      expect(panel._drag).toMatchObject({ kind: 'corner', corner: 0 });
+    });
+
+    it('still moves the whole surface from inside it', () => {
+      const s = drawShape();
+      const at = panel._toScreen(0.5, 0.5);
+      panel._onPointerDown(pointer(at.x, at.y));
+      expect(panel._drag).toMatchObject({ kind: 'move', surfaceId: s.id });
+    });
+
+    it('leaves a locked surface\'s points alone', () => {
+      const s = drawShape();
+      model.updateSurface(s.id, { locked: true });
+      const p = panel._fromSurfaceUnit(s, s.mask[2].x, s.mask[2].y);
+      const at = panel._toScreen(p.x, p.y);
+      panel._onPointerDown(pointer(at.x, at.y));
+      expect(panel._drag).toBeNull();
+    });
+  });
+
+  describe('stage visibility toggles', () => {
+    it('starts with the picture and the guides both shown', () => {
+      expect(panel.showPreview).toBe(true);
+      expect(panel.showGuides).toBe(true);
+    });
+
+    it('toggles the picture', () => {
+      const btn = panel.panel.querySelector('[data-act="preview"]');
+      btn.click();
+      expect(panel.showPreview).toBe(false);
+      expect(btn.getAttribute('aria-pressed')).toBe('false');
+      btn.click();
+      expect(panel.showPreview).toBe(true);
+    });
+
+    it('toggles the guides, which is how a mapping is judged without handles on it', () => {
+      const btn = panel.panel.querySelector('[data-act="guides"]');
+      btn.click();
+      expect(panel.showGuides).toBe(false);
+      expect(btn.getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('draws no overlay at all with the guides off', () => {
+      model.addSurface();
+      const calls = [];
+      panel.overlayCtx = {
+        setTransform() {}, clearRect() { calls.push('clear'); },
+        save() { calls.push('save'); }, restore() {}, beginPath() {}, moveTo() {},
+        lineTo() {}, closePath() {}, stroke() {}, fill() {}, fillText() {},
+        strokeRect() { calls.push('strokeRect'); }, rect() {}, arc() {}, setLineDash() {},
+      };
+      panel.showGuides = false;
+      panel._drawOverlay(1);
+      expect(calls).toEqual(['clear']);
+    });
+  });
+
+  describe('the point about to be placed', () => {
+    it('is tracked before the first click, so the tool shows where it aims', () => {
+      panel.tool = 'draw';
+      const p = panel._toScreen(0.3, 0.4);
+      panel._onPointerMove(pointer(p.x, p.y));
+      expect(panel._drawCursor.x).toBeCloseTo(0.3, 4);
+      expect(panel._drawCursor.y).toBeCloseTo(0.4, 4);
+      expect(panel._drawPoints).toEqual([]);
+    });
+
+    it('stops showing once the pointer leaves the stage', () => {
+      panel.tool = 'draw';
+      const p = panel._toScreen(0.3, 0.4);
+      panel._onPointerMove(pointer(p.x, p.y));
+      panel.overlay.dispatchEvent(new Event('pointerleave'));
+      expect(panel._drawCursor).toBeNull();
+    });
+  });
+
   describe('mask tool', () => {
     let surface;
 

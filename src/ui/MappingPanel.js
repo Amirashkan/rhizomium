@@ -116,6 +116,10 @@ export class MappingPanel {
      * be nudged around without leaving the tool you are working in.
      */
     this.tool = 'warp';
+    /** Show the stage's picture. Off leaves the editing guides on their own. */
+    this.showPreview = true;
+    /** Show the editing guides: outlines, handles, points, labels, the frame. */
+    this.showGuides = true;
     /** Stage view: a zoom about the frame's centre plus a pixel offset. */
     this.view = { scale: 1, x: 0, y: 0 };
     /** Corners placed so far in the draw tool, and the live pointer for the rubber band. */
@@ -172,6 +176,10 @@ export class MappingPanel {
           <button data-act="tool" data-tool="mask" aria-pressed="false" title="Add and move mask points on the selected surface">Mask</button>
         </div>
         <button class="rz-map-btn" data-act="fit" title="Reset zoom and pan">Fit</button>
+        <button class="rz-map-toggle" data-act="preview" aria-pressed="true"
+                title="Show the picture on the stage">Preview</button>
+        <button class="rz-map-toggle" data-act="guides" aria-pressed="true"
+                title="Show outlines, handles and points">Guides</button>
         <span class="rz-map-spacer"></span>
         <div class="rz-map-segment" role="group" aria-label="Edit space">
           <button data-act="mode" data-mode="dst" aria-pressed="true">Output quad</button>
@@ -223,6 +231,8 @@ export class MappingPanel {
     this.overlay.addEventListener('pointercancel', (e) => this._onPointerUp(e));
     this.overlay.addEventListener('dblclick', (e) => this._onDoubleClick(e));
     this.overlay.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
+    // Otherwise the ghost point stays where the pointer left the stage.
+    this.overlay.addEventListener('pointerleave', () => { this._drawCursor = null; });
     // A middle-drag must not paste on Linux or autoscroll on Windows.
     this.overlay.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
     this.stage.addEventListener('keydown', (e) => this._onKeyDown(e));
@@ -575,8 +585,10 @@ export class MappingPanel {
     const compositor = this._ensureCompositor();
     if (compositor.isReady()) {
       compositor.resize(f.sw * dpr, f.sh * dpr);
-      const source = this.getSource();
-      if (this.editMode === 'src' || this._node()) {
+      const source = this.showPreview ? this.getSource() : null;
+      if (!this.showPreview) {
+        compositor.render(null, this._emptyModel, { frame });
+      } else if (this.editMode === 'src' || this._node()) {
         // Source-crop mode wants the composition flat. So does any mapping that
         // has a node: the node IS the mapping, so warping here would either map
         // a mapping (once it drives the output) or invent content for surfaces —
@@ -609,6 +621,10 @@ export class MappingPanel {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, f.sw, f.sh);
 
+    // Guides off: the stage shows the mapping and nothing else, which is how
+    // you judge an alignment without handles sitting on top of it.
+    if (!this.showGuides) return;
+
     // The output frame: everything inside it reaches the projector.
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 244, 230, 0.35)';
@@ -632,7 +648,7 @@ export class MappingPanel {
       const surface = this.model.surfaces[i];
       this._drawQuad(ctx, surface.dst, surface, surface.id === this.model.selectedId, i);
     }
-    if (this.tool === 'draw' && this._drawPoints.length) {
+    if (this.tool === 'draw') {
       this._drawPending(ctx);
     } else if (!this.model.surfaces.length && this.tool !== 'draw') {
       this._drawMessage(ctx, f, 'Add a surface to start mapping');
@@ -641,7 +657,11 @@ export class MappingPanel {
     }
   }
 
-  /** The corners placed so far, with a rubber band out to the cursor. */
+  /**
+   * The points placed so far, a rubber band out to the cursor, and a ghost of
+   * the point the next click would place — including before the first one, so
+   * the tool shows where it is aiming from the moment it is picked up.
+   */
   _drawPending(ctx) {
     const pts = this._drawPoints.map((p) => this._toScreen(p.x, p.y));
     ctx.save();
@@ -649,18 +669,33 @@ export class MappingPanel {
     ctx.lineWidth = 1.5;
     ctx.setLineDash([5, 3]);
 
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    if (pts.length) {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      if (this._drawCursor) {
+        const cursor = this._toScreen(this._drawCursor.x, this._drawCursor.y);
+        ctx.lineTo(cursor.x, cursor.y);
+        // Close back to the start once three are down, so the shape being made
+        // is readable before the last click commits it.
+        if (pts.length >= 3) ctx.lineTo(pts[0].x, pts[0].y);
+      }
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Where the next click would put a point, so it can be placed against the
+    // object rather than guessed at and then dragged.
     if (this._drawCursor) {
       const cursor = this._toScreen(this._drawCursor.x, this._drawCursor.y);
-      ctx.lineTo(cursor.x, cursor.y);
-      // Close back to the start once three are down, so the shape being made is
-      // readable before the last click commits it.
-      if (pts.length >= 3) ctx.lineTo(pts[0].x, pts[0].y);
+      ctx.beginPath();
+      ctx.rect(cursor.x - 4, cursor.y - 4, 8, 8);
+      ctx.fillStyle = 'rgba(198, 242, 78, 0.35)';
+      ctx.fill();
+      ctx.strokeStyle = '#c6f24e';
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
-    ctx.stroke();
-    ctx.setLineDash([]);
 
     // Ring the first point once the outline can be closed on it.
     if (pts.length >= 3) {
@@ -760,7 +795,9 @@ export class MappingPanel {
         // While masking, show every surface's points, not just the selected
         // one's — an unselected surface's mask is editable by clicking it, so it
         // has to look editable.
-        if (this.tool === 'mask') {
+        // Shown in warp as well as mask: they are draggable in both, so they
+        // have to look it in both.
+        if (this.tool === 'mask' || this.tool === 'warp') {
           for (const p of maskPts) {
             ctx.beginPath();
             ctx.arc(p.x, p.y, isSelected ? 4 : 3, 0, Math.PI * 2);
@@ -857,6 +894,20 @@ export class MappingPanel {
       this.activeCorner = hitCorner.corner;
       this._beginDrag(e, { kind: 'corner', surfaceId: hitCorner.surfaceId, corner: hitCorner.corner, space });
       return;
+    }
+
+    // The points a surface was DRAWN with are part of its shape, so they are
+    // draggable here too. Without this the only editable thing is the quad that
+    // bounds the shape — you can move the box around your outline but not the
+    // outline itself, which is not what anyone means by editing a surface.
+    if (space === 'dst') {
+      const shapeHit = this._maskPointOnAnySurface(pt);
+      if (shapeHit) {
+        this.model.select(shapeHit.surface.id);
+        this.activeCorner = null;
+        this._grabMaskPoint(e, shapeHit.surface, shapeHit.index);
+        return;
+      }
     }
 
     const hitSurface = this.model.hitTestSurface(pt.x, pt.y, space);
@@ -984,24 +1035,11 @@ export class MappingPanel {
   _onMaskPointerDown(e, pt) {
     const selected = this.model.getSelected();
 
-    if (selected) {
-      const hit = this._maskPointAt(selected, pt);
-      if (hit >= 0) {
-        this._grabMaskPoint(e, selected, hit);
-        return;
-      }
-    }
-
-    // Front-to-back, so the topmost surface wins where they overlap.
-    for (let i = this.model.surfaces.length - 1; i >= 0; i--) {
-      const surface = this.model.surfaces[i];
-      if (selected && surface.id === selected.id) continue;
-      const hit = this._maskPointAt(surface, pt);
-      if (hit >= 0) {
-        this.model.select(surface.id);
-        this._grabMaskPoint(e, surface, hit);
-        return;
-      }
+    const pointHit = this._maskPointOnAnySurface(pt);
+    if (pointHit) {
+      this.model.select(pointHit.surface.id);
+      this._grabMaskPoint(e, pointHit.surface, pointHit.index);
+      return;
     }
 
     if (selected && pointInQuad(selected.dst, pt.x, pt.y)) {
@@ -1018,6 +1056,27 @@ export class MappingPanel {
     }
 
     if (!selected) this._status('Select a surface to mask', 'error');
+  }
+
+  /**
+   * The mask point under a position on any surface, selected one first so the
+   * surface being worked on keeps priority where shapes overlap.
+   * @returns {{surface: object, index: number}|null}
+   */
+  _maskPointOnAnySurface(pt) {
+    const selected = this.model.getSelected();
+    if (selected && !selected.locked) {
+      const hit = this._maskPointAt(selected, pt);
+      if (hit >= 0) return { surface: selected, index: hit };
+    }
+    for (let i = this.model.surfaces.length - 1; i >= 0; i--) {
+      const surface = this.model.surfaces[i];
+      if (surface.locked) continue;
+      if (selected && surface.id === selected.id) continue;
+      const hit = this._maskPointAt(surface, pt);
+      if (hit >= 0) return { surface, index: hit };
+    }
+    return null;
   }
 
   /**
@@ -1292,6 +1351,15 @@ export class MappingPanel {
       case 'fit':
         this._fitView();
         break;
+      case 'preview':
+        this.showPreview = !this.showPreview;
+        this._syncToolbar();
+        break;
+      case 'guides':
+        // Off is how you check the mapping itself, with nothing drawn over it.
+        this.showGuides = !this.showGuides;
+        this._syncToolbar();
+        break;
       case 'mode':
         this.editMode = button.dataset.mode === 'src' ? 'src' : 'dst';
         this.activeCorner = null;
@@ -1396,6 +1464,8 @@ export class MappingPanel {
     enableBtn.querySelector('[data-role="enable-dot"]').textContent = this.model.enabled ? '●' : '○';
 
     this.panel.querySelector('[data-act="test"]').setAttribute('aria-pressed', String(this.testPattern));
+    this.panel.querySelector('[data-act="preview"]').setAttribute('aria-pressed', String(this.showPreview));
+    this.panel.querySelector('[data-act="guides"]').setAttribute('aria-pressed', String(this.showGuides));
     for (const button of this.panel.querySelectorAll('[data-act="tool"]')) {
       button.setAttribute('aria-pressed', String(button.dataset.tool === this.tool));
     }
@@ -1511,8 +1581,8 @@ export class MappingPanel {
         <label>Shape</label>
         <div class="rz-map-shapes">
           <span class="rz-map-note" style="width:100%">${(surface.mask || []).length >= 3
-            ? `${surface.mask.length} mask points — edit them with the Mask tool`
-            : 'No mask; the whole quad shows'}</span>
+            ? `${surface.mask.length} shape points — drag them on the stage`
+            : 'No shape; the whole quad shows'}</span>
           ${MASK_PRESET_NAMES.map((name) => `
             <button class="rz-map-btn" data-act="mask-preset" data-id="${id}" data-preset="${name}"
                     title="Cut this surface to ${name}">${name[0].toUpperCase()}${name.slice(1)}</button>`).join('')}
