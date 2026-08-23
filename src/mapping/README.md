@@ -102,6 +102,18 @@ In the **Mask** tool: click to add a point, drag one to move it, `Alt`-click to
 remove it, `Esc` clears the mask. The inspector also carries one-click shapes —
 ellipse, triangle, arch, diamond — to seed a mask before editing its points.
 
+A shape drawn with the Draw tool is an ordinary mask, so it is editable the same
+way afterwards. Clicks are resolved in this order, so that editing the surface
+you are on stays fluid while the others stay reachable:
+
+1. a point of the selected surface — grab it, or `Alt`-click to remove it
+2. a point of any other surface — select that surface and grab it
+3. inside the selected surface — add a point, inserted into the nearest edge
+4. inside any other surface — select it, ready to edit
+
+Every surface's mask points are drawn while the tool is active, dimmed for the
+ones that are not selected, since clicking them is what reaches them.
+
 **Output quad** pins a surface on the projected frame; **Source crop** chooses
 what that surface shows. A locked surface ignores drags, so an aligned rig can't
 be knocked out of register by a stray click.

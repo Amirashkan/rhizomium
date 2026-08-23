@@ -23,7 +23,7 @@
 // about the others.
 
 import {
-  MappingModel, CORNERS, rectQuad, MAX_MASK_POINTS, MASK_PRESET_NAMES,
+  MappingModel, CORNERS, rectQuad, MAX_MASK_POINTS, MASK_PRESET_NAMES, pointInQuad,
 } from '../mapping/MappingModel.js';
 import { MappingCompositor, surfaceMatrices } from '../mapping/MappingCompositor.js';
 import { applyMat3 } from '../mapping/homography.js';
@@ -757,15 +757,20 @@ export class MappingPanel {
         ctx.strokeStyle = color;
         ctx.stroke();
         ctx.setLineDash([]);
-        if (isSelected && this.tool === 'mask') {
+        // While masking, show every surface's points, not just the selected
+        // one's — an unselected surface's mask is editable by clicking it, so it
+        // has to look editable.
+        if (this.tool === 'mask') {
           for (const p of maskPts) {
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, isSelected ? 4 : 3, 0, Math.PI * 2);
+            ctx.globalAlpha = isSelected ? 1 : 0.5;
             ctx.fillStyle = color;
             ctx.fill();
             ctx.lineWidth = 1;
             ctx.strokeStyle = '#141110';
             ctx.stroke();
+            ctx.globalAlpha = dim ? 0.35 : 1;
           }
         }
       }
@@ -964,44 +969,97 @@ export class MappingPanel {
   }
 
   /**
-   * Mask editing: click empty space to add a point, drag one to move it,
-   * Alt-click to remove it.
+   * Mask editing.
+   *
+   * Priority matters here. Editing the surface you are working on has to stay
+   * fluid, but the other surfaces' masks have to be reachable too — otherwise
+   * the only way to edit one is to find it in the list first, and a click
+   * meant for it silently adds a point to whatever happens to be selected.
+   *
+   *   1. a point of the selected surface  → grab it (or Alt-click to remove)
+   *   2. a point of any other surface     → select that surface and grab it
+   *   3. inside the selected surface      → add a point
+   *   4. inside any other surface         → select it, ready to edit
    */
   _onMaskPointerDown(e, pt) {
-    const surface = this.model.getSelected();
-    if (!surface) {
-      this._status('Select a surface to mask', 'error');
-      return;
-    }
-    const unit = this._toSurfaceUnit(surface, pt.x, pt.y);
-    if (!unit) return;
+    const selected = this.model.getSelected();
 
-    // The mask lives in unit space, so the grab radius has to be converted too:
-    // a small surface means a large tolerance in its own coordinates.
-    const f = this._frameRect();
-    const edge = this._toSurfaceUnit(surface, pt.x + GRAB_PX / Math.max(1, f.w), pt.y);
-    const unitTolerance = edge ? Math.max(0.01, Math.abs(edge.x - unit.x)) : 0.04;
-
-    const index = this.model.hitTestMaskPoint(surface.id, unit.x, unit.y, unitTolerance);
-    if (index >= 0) {
-      if (e.altKey) {
-        this.model.removeMaskPoint(surface.id, index);
-        this._maskChanged();
+    if (selected) {
+      const hit = this._maskPointAt(selected, pt);
+      if (hit >= 0) {
+        this._grabMaskPoint(e, selected, hit);
         return;
       }
-      this._beginDrag(e, { kind: 'mask', surfaceId: surface.id, point: index });
+    }
+
+    // Front-to-back, so the topmost surface wins where they overlap.
+    for (let i = this.model.surfaces.length - 1; i >= 0; i--) {
+      const surface = this.model.surfaces[i];
+      if (selected && surface.id === selected.id) continue;
+      const hit = this._maskPointAt(surface, pt);
+      if (hit >= 0) {
+        this.model.select(surface.id);
+        this._grabMaskPoint(e, surface, hit);
+        return;
+      }
+    }
+
+    if (selected && pointInQuad(selected.dst, pt.x, pt.y)) {
+      this._addMaskPoint(e, selected, pt);
       return;
     }
 
+    const under = this.model.hitTestSurface(pt.x, pt.y);
+    if (under) {
+      // Select it rather than editing it blind; the next click edits its mask.
+      this.model.select(under.id);
+      this._status(`Editing ${under.name}`);
+      return;
+    }
+
+    if (!selected) this._status('Select a surface to mask', 'error');
+  }
+
+  /**
+   * The mask point of `surface` under a point in output space, or -1.
+   *
+   * The grab radius is in stage pixels but a mask lives in the surface's own
+   * unit space, so the tolerance has to be converted per surface: a small
+   * surface means a large tolerance in its own coordinates.
+   */
+  _maskPointAt(surface, pt) {
+    if (!(surface.mask || []).length) return -1;
+    const unit = this._toSurfaceUnit(surface, pt.x, pt.y);
+    if (!unit) return -1;
+    const f = this._frameRect();
+    const edge = this._toSurfaceUnit(surface, pt.x + GRAB_PX / Math.max(1, f.w), pt.y);
+    const tolerance = edge ? Math.max(0.01, Math.abs(edge.x - unit.x)) : 0.04;
+    return this.model.hitTestMaskPoint(surface.id, unit.x, unit.y, tolerance);
+  }
+
+  /** Start moving a mask point, or remove it on an Alt-click. */
+  _grabMaskPoint(e, surface, index) {
+    if (e.altKey) {
+      this.model.removeMaskPoint(surface.id, index);
+      this._maskChanged();
+      e.preventDefault();
+      return;
+    }
+    this._beginDrag(e, { kind: 'mask', surfaceId: surface.id, point: index });
+  }
+
+  /** Add a point to a surface's mask at a position in output space. */
+  _addMaskPoint(e, surface, pt) {
+    const unit = this._toSurfaceUnit(surface, pt.x, pt.y);
+    if (!unit) return;
     if ((surface.mask || []).length >= MAX_MASK_POINTS) {
       this._status(`A mask holds at most ${MAX_MASK_POINTS} points`, 'error');
       return;
     }
-    // Insert into the nearest edge rather than always appending, so points can
-    // be added part-way round a shape instead of only at its end.
+    // Insert into the nearest edge rather than appending, so points can be
+    // added part-way round a shape instead of only at its end.
     const at = this._nearestMaskEdge(surface, unit);
-    const added = this.model.addMaskPoint(surface.id, unit.x, unit.y, at);
-    if (added >= 0) this._maskChanged();
+    if (this.model.addMaskPoint(surface.id, unit.x, unit.y, at) >= 0) this._maskChanged();
     e.preventDefault();
   }
 
@@ -1363,8 +1421,9 @@ export class MappingPanel {
       return;
     }
     if (this.tool === 'mask') {
-      this.hintEl.innerHTML = 'Masking the selected surface to a shape. '
+      this.hintEl.innerHTML = 'Masking a surface to a shape. '
         + 'Click to add a point · drag one to move it · <kbd>Alt</kbd>-click a point to remove it · '
+        + 'click another surface to edit that one instead · '
         + `<kbd>Esc</kbd> clears the mask. ${view}`;
       return;
     }
@@ -1451,6 +1510,9 @@ export class MappingPanel {
       <div class="rz-map-field">
         <label>Shape</label>
         <div class="rz-map-shapes">
+          <span class="rz-map-note" style="width:100%">${(surface.mask || []).length >= 3
+            ? `${surface.mask.length} mask points — edit them with the Mask tool`
+            : 'No mask; the whole quad shows'}</span>
           ${MASK_PRESET_NAMES.map((name) => `
             <button class="rz-map-btn" data-act="mask-preset" data-id="${id}" data-preset="${name}"
                     title="Cut this surface to ${name}">${name[0].toUpperCase()}${name.slice(1)}</button>`).join('')}

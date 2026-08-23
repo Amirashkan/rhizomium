@@ -579,12 +579,79 @@ describe('MappingPanel', () => {
       expect(surface.mask).toEqual([]);
     });
 
-    it('says so rather than silently doing nothing with no surface selected', () => {
+    it('selects the surface clicked when none is selected', () => {
+      model.select(null);
+      clickAt(0.5, 0.5);
+      expect(model.selectedId).toBe(surface.id);
+      // Selecting is all the first click does; it does not also start a shape.
+      expect(surface.mask).toEqual([]);
+    });
+
+    it('says so when there is nothing under the click at all', () => {
       const onStatus = vi.fn();
       panel.onStatus = onStatus;
       model.select(null);
-      clickAt(0.5, 0.5);
+      model.updateSurface(surface.id, { });
+      surface.dst = rectQuad(0, 0, 0.2, 0.2);
+      clickAt(0.9, 0.9);
       expect(onStatus).toHaveBeenCalledWith('Select a surface to mask', 'error');
+    });
+
+    it('reaches another surface\'s mask instead of mangling the selected one', () => {
+      // The bug: with a second surface selected, clicking a point of the first
+      // added a point to the SECOND, so a mask became uneditable as soon as
+      // there was more than one surface.
+      clickAt(0.1, 0.1);
+      clickAt(0.4, 0.1);
+      clickAt(0.4, 0.4);
+      expect(surface.mask).toHaveLength(3);
+
+      const other = model.addSurface({ dst: rectQuad(0.6, 0.6, 0.3, 0.3) });
+      model.select(other.id);
+
+      const first = panel._fromSurfaceUnit(surface, surface.mask[0].x, surface.mask[0].y);
+      const at = panel._toScreen(first.x, first.y);
+      panel._onPointerDown(pointer(at.x, at.y));
+
+      expect(model.selectedId).toBe(surface.id);
+      expect(panel._drag).toMatchObject({ kind: 'mask', surfaceId: surface.id, point: 0 });
+      expect(other.mask).toEqual([]);
+    });
+
+    it('selects another surface when clicked inside it, without editing it blind', () => {
+      surface.dst = rectQuad(0, 0, 0.4, 0.4); // so the click is genuinely elsewhere
+      const other = model.addSurface({ dst: rectQuad(0.6, 0.6, 0.3, 0.3) });
+      model.select(surface.id);
+      clickAt(0.75, 0.75);
+      expect(model.selectedId).toBe(other.id);
+      expect(other.mask).toEqual([]);
+    });
+
+    it('keeps editing the selected surface where two overlap', () => {
+      // Otherwise a point can never be added inside an overlap.
+      clickAt(0.1, 0.1);
+      clickAt(0.4, 0.1);
+      clickAt(0.4, 0.4);
+      model.addSurface({ dst: rectQuad(0, 0, 1, 1) });
+      model.select(surface.id);
+      clickAt(0.25, 0.25);
+      expect(surface.mask).toHaveLength(4);
+    });
+
+    it('moves a point of a surface reached by clicking it', () => {
+      clickAt(0.1, 0.1);
+      clickAt(0.4, 0.1);
+      clickAt(0.4, 0.4);
+      const other = model.addSurface({ dst: rectQuad(0.6, 0.6, 0.3, 0.3) });
+      model.select(other.id);
+
+      const first = panel._fromSurfaceUnit(surface, surface.mask[0].x, surface.mask[0].y);
+      const at = panel._toScreen(first.x, first.y);
+      panel._onPointerDown(pointer(at.x, at.y));
+      const to = panel._toScreen(first.x + 0.05, first.y + 0.05);
+      panel._onPointerMove(pointer(to.x, to.y));
+
+      expect(surface.mask[0].x).not.toBeCloseTo(0, 3);
     });
   });
 
