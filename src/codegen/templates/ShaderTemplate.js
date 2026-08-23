@@ -47,7 +47,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 }
 
 export function generateShader(
-  { lines = [], uniformStruct = "", shapeFunctions = "", transformHelpers = "", noiseHelpers = "", colorHelpers = "", computeBindings = "" },
+  { lines = [], uniformStruct = "", shapeFunctions = "", transformHelpers = "", noiseHelpers = "", colorHelpers = "", mappingHelpers = "", computeBindings = "" },
   textureBindings = ""
 ) {
   return /* wgsl */`
@@ -94,6 +94,7 @@ ${shapeFunctions}
 ${transformHelpers}
 ${noiseHelpers}
 ${colorHelpers}
+${mappingHelpers}
 ${textureBindings}
 ${computeBindings}
 

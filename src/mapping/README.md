@@ -117,9 +117,28 @@ you are on stays fluid while the others stay reachable:
 Every surface's mask points are drawn in the Warp and Mask tools, dimmed for the
 ones that are not selected, since clicking them is what reaches them.
 
-**Preview** and **Guides** toggle the stage's picture and its editing overlay
-independently. Guides off is how an alignment is judged with nothing drawn on top
-of it; preview off leaves the outlines on their own.
+## Setup visuals
+
+**Guides** draws the setup visuals into the ProjectionMap node's OWN output, so
+they land on the projector: surface outlines, corner marks, shape points, and the
+outline being drawn right now with a ghost of the point the next click would
+place. Aligning a rig means looking at the wall, not at the editor, so a shape
+has to be drawn against the physical object rather than against a picture of it.
+
+Guide geometry is done in PIXELS rather than in the frame's 0..1 space: a line of
+constant width in normalised units comes out thicker across than down on anything
+that is not square, and pixels also avoid derivatives, which the surface clip test
+has already shown are awkward here.
+
+Everything except the on/off flag is a uniform write, so the outline follows the
+cursor on the projector without recompiling per click. The flag itself is
+structural — it decides whether the guide code is emitted at all — which is right
+for a button and wrong for a drag.
+
+**Preview** is the editor's own stage picture and affects nothing downstream.
+
+The node is created when the panel opens rather than on the first source drop,
+since it is what carries the guides.
 
 **Output quad** pins a surface on the projected frame; **Source crop** chooses
 what that surface shows. A locked surface ignores drags, so an aligned rig can't

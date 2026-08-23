@@ -139,6 +139,67 @@ export function mappingParamValues(model) {
 }
 
 /**
+ * The parameter values for the setup visuals: whether to draw them, the outline
+ * being drawn right now, and the point the next click would place.
+ *
+ * @param {{guides?: boolean, draft?: Array<{x:number,y:number}>, cursor?: {x:number,y:number}|null}} state
+ * @returns {Object<string, number>}
+ */
+export function guideParamValues(state = {}) {
+  const values = { guides: state.guides ? 1 : 0 };
+  const draft = Array.isArray(state.draft) ? state.draft.slice(0, MAX_MASK_POINTS) : [];
+  values.dn = draft.length;
+  for (let k = 0; k < MAX_MASK_POINTS; k++) {
+    values[`d${k}x`] = k < draft.length ? draft[k].x : 0;
+    values[`d${k}y`] = k < draft.length ? draft[k].y : 0;
+  }
+  const cursor = state.cursor;
+  values.dcOn = cursor ? 1 : 0;
+  values.dcx = cursor ? cursor.x : 0;
+  values.dcy = cursor ? cursor.y : 0;
+  return values;
+}
+
+/**
+ * Write the setup-visual parameters straight into the uniform buffer.
+ *
+ * Everything except `guides` is a uniform write, so an outline follows the
+ * cursor on the projector without recompiling. `guides` itself is structural —
+ * it decides whether the guide code is emitted at all — so toggling it rebuilds,
+ * which is right for a button and wrong for a drag.
+ *
+ * @returns {boolean} whether a rebuild is needed for the change to take effect
+ */
+export function syncGuidesToNode(node, state, deps = {}) {
+  if (!node || node.kind !== 'ProjectionMap') return false;
+  const uniformManager = deps.uniformManager
+    ?? (typeof window !== 'undefined' ? window.nodeCompiler?.uniformManager : null);
+  const renderer = deps.renderer
+    ?? (typeof window !== 'undefined' ? window.gpuRenderer : null);
+
+  const values = guideParamValues(state);
+  if (!node.params) node.params = {};
+
+  const structural = node.params.guides !== values.guides;
+  let changed = false;
+  for (const [name, value] of Object.entries(values)) {
+    if (node.params[name] !== value) {
+      node.params[name] = value;
+      changed = true;
+    }
+    uniformManager?.uniformValues?.set(`${node.id}.${name}`, value);
+  }
+  if (!changed) return false;
+
+  renderer?._updateParameterUniforms?.();
+  if (typeof window !== 'undefined' && !window.renderLoop?.getState?.()?.running) {
+    const simTime = window.renderLoop?.getState?.()?.simTime;
+    renderer?.render?.(Number.isFinite(simTime) ? { timeSec: simTime } : {});
+  }
+  return structural;
+}
+
+/**
  * Push the mapping's current geometry onto the node and into the uniform buffer.
  *
  * The uniform refresh is batched: a corner drag would otherwise re-upload the

@@ -36,6 +36,21 @@ const IDENTITY_MAT3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
  */
 function buildProjectionMapParams() {
   const params = [];
+  // Setup visuals, drawn into the node's OWN output so they reach the projector.
+  // Aligning a rig means looking at the wall, not at the editor, so the outlines
+  // and the shape being drawn have to be visible on the physical object.
+  params.push({ name: "guides", type: "float", default: 0, hidden: true });
+  // The outline currently being drawn, and the point the next click would place.
+  // These are uniform-backed like everything else, so a half-finished shape
+  // follows the cursor on the projector without recompiling per click.
+  params.push({ name: "dn", type: "float", default: 0, hidden: true });
+  params.push({ name: "dcOn", type: "float", default: 0, hidden: true });
+  params.push({ name: "dcx", type: "float", default: 0, hidden: true });
+  params.push({ name: "dcy", type: "float", default: 0, hidden: true });
+  for (let k = 0; k < MAX_MASK_POINTS; k++) {
+    params.push({ name: `d${k}x`, type: "float", default: 0, hidden: true });
+    params.push({ name: `d${k}y`, type: "float", default: 0, hidden: true });
+  }
   for (let i = 0; i < MAX_MAPPED_SURFACES; i++) {
     for (let k = 0; k < 9; k++) {
       params.push({ name: `s${i}m${k}`, type: "float", default: IDENTITY_MAT3[k], hidden: true });

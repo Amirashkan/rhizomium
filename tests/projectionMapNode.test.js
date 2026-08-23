@@ -10,6 +10,8 @@ import {
   surfaceParamValues,
   mappingParamValues,
   syncMappingToNode,
+  guideParamValues,
+  syncGuidesToNode,
   getSurfaceSource,
   assignSurfaceSource,
   sourceLabel,
@@ -329,5 +331,66 @@ describe('sourceLabel', () => {
   it('falls back to the kind for a node with no definition', () => {
     expect(sourceLabel({ id: '4', kind: 'Mystery' })).toBe('Mystery');
     expect(sourceLabel(null)).toBe('');
+  });
+});
+
+describe('setup visuals', () => {
+  const makeGraph = (nodes = []) => ({ nodes, connections: [] });
+
+  it('carries the outline being drawn and the point the next click would place', () => {
+    const values = guideParamValues({
+      guides: true,
+      draft: [{ x: 0.2, y: 0.3 }, { x: 0.8, y: 0.3 }],
+      cursor: { x: 0.5, y: 0.9 },
+    });
+    expect(values.guides).toBe(1);
+    expect(values.dn).toBe(2);
+    expect(values.d0x).toBeCloseTo(0.2);
+    expect(values.d1x).toBeCloseTo(0.8);
+    expect(values.dcOn).toBe(1);
+    expect(values.dcy).toBeCloseTo(0.9);
+  });
+
+  it('blanks the slots past the outline, so an old point cannot linger', () => {
+    const values = guideParamValues({ guides: true, draft: [{ x: 0.4, y: 0.4 }] });
+    expect(values.dn).toBe(1);
+    expect(values.d1x).toBe(0);
+    expect(values.dcOn).toBe(0);
+  });
+
+  it('never sends more points than the shader has slots', () => {
+    const draft = Array.from({ length: MAX_MASK_POINTS + 4 }, (_, i) => ({ x: i / 20, y: 0.5 }));
+    expect(guideParamValues({ draft }).dn).toBe(MAX_MASK_POINTS);
+  });
+
+  it('reports a rebuild only when the guides are switched, not when they move', () => {
+    // Turning them on changes what the shader CONTAINS; moving the cursor is a
+    // buffer write, and rebuilding per mousemove would make drawing unusable.
+    const node = makeNode();
+    const uniformManager = { uniformValues: new Map() };
+    const renderer = { _updateParameterUniforms: vi.fn(), render: vi.fn() };
+    vi.stubGlobal('window', { renderLoop: { getState: () => ({ running: true }) } });
+
+    expect(syncGuidesToNode(node, { guides: true }, { uniformManager, renderer })).toBe(true);
+    expect(syncGuidesToNode(node, {
+      guides: true, cursor: { x: 0.5, y: 0.5 },
+    }, { uniformManager, renderer })).toBe(false);
+    expect(uniformManager.uniformValues.get('12.dcx')).toBeCloseTo(0.5);
+    vi.unstubAllGlobals();
+  });
+
+  it('does nothing when the geometry has not moved', () => {
+    const node = makeNode();
+    const uniformManager = { uniformValues: new Map() };
+    vi.stubGlobal('window', { renderLoop: { getState: () => ({ running: true }) } });
+    syncGuidesToNode(node, { guides: true }, { uniformManager });
+    expect(syncGuidesToNode(node, { guides: true }, { uniformManager })).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('ignores anything that is not a ProjectionMap node', () => {
+    expect(syncGuidesToNode({ id: '3', kind: 'Circle' }, { guides: true })).toBe(false);
+    expect(syncGuidesToNode(null, { guides: true })).toBe(false);
+    expect(makeGraph()).toBeTruthy();
   });
 });

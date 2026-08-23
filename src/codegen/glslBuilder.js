@@ -127,6 +127,12 @@ export function buildWGSL(graph, options = {}) {
     ? compiler.compilers.utility.getHelperFunctions()
     : '';
 
+  // Projection-mapping setup visuals draw in the node's own output, so their
+  // helpers have to be in the shader whenever a ProjectionMap node might.
+  const mappingHelpers = compiler.compilers.projectionMap?.getHelperFunctions
+    ? compiler.compilers.projectionMap.getHelperFunctions()
+    : '';
+
   // CRITICAL: Only generate bindings for nodes in the dependency chain
   // This prevents exceeding the 16-texture-per-stage limit when there are many unused nodes
   // TextureBindings.generate() already handles both regular textures and compute node textures
@@ -141,6 +147,7 @@ export function buildWGSL(graph, options = {}) {
       transformHelpers,
       noiseHelpers,
       colorHelpers,
+      mappingHelpers,
       computeBindings: '', // Compute bindings are now handled by TextureBindings.generate()
     },
     textureBindings

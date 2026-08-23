@@ -632,6 +632,78 @@ describe('MappingPanel', () => {
     });
   });
 
+
+  describe('setup visuals on the output', () => {
+    let graph;
+
+    beforeEach(() => {
+      graph = { nodes: [{ id: '99', kind: 'OutputFinal', params: {}, inputs: [] }], connections: [] };
+      window.graph = graph;
+      window.rebuild = vi.fn();
+    });
+
+    afterEach(() => {
+      delete window.graph;
+      delete window.rebuild;
+    });
+
+    it('creates the node just by opening, before any surface exists', () => {
+      // The node is what puts the guides on the projector, and drawing onto a
+      // physical shape means seeing the outline on it from the first click.
+      expect(graph.nodes.find((n) => n.kind === 'ProjectionMap')).toBeUndefined();
+      panel.show();
+      expect(graph.nodes.find((n) => n.kind === 'ProjectionMap')).toBeDefined();
+      expect(model.surfaces).toHaveLength(0);
+    });
+
+    it('sends the outline and the ghost to the node while drawing', () => {
+      panel.show();
+      panel.tool = 'draw';
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+
+      const p = panel._toScreen(0.3, 0.4);
+      panel._onPointerDown(pointer(p.x, p.y));
+      expect(node.params.dn).toBe(1);
+      expect(node.params.d0x).toBeCloseTo(0.3, 4);
+
+      const c = panel._toScreen(0.7, 0.8);
+      panel._onPointerMove(pointer(c.x, c.y));
+      expect(node.params.dcOn).toBe(1);
+      expect(node.params.dcx).toBeCloseTo(0.7, 4);
+    });
+
+    it('clears the ghost from the output when the pointer leaves the stage', () => {
+      panel.show();
+      panel.tool = 'draw';
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      const c = panel._toScreen(0.7, 0.8);
+      panel._onPointerMove(pointer(c.x, c.y));
+      expect(node.params.dcOn).toBe(1);
+      panel.overlay.dispatchEvent(new Event('pointerleave'));
+      expect(node.params.dcOn).toBe(0);
+    });
+
+    it('turns the visuals off on the output, not only on the stage', () => {
+      panel.show();
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      expect(node.params.guides).toBe(1);
+      panel.panel.querySelector('[data-act="guides"]').click();
+      expect(node.params.guides).toBe(0);
+      expect(window.rebuild).toHaveBeenCalled(); // it changes what the shader contains
+    });
+
+    it('drops the outline from the output when the drawing is abandoned', () => {
+      panel.show();
+      panel.tool = 'draw';
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      const p = panel._toScreen(0.3, 0.4);
+      panel._onPointerDown(pointer(p.x, p.y));
+      expect(node.params.dn).toBe(1);
+      panel._onKeyDown({ key: 'Escape', shiftKey: false, altKey: false, preventDefault: vi.fn() });
+      expect(node.params.dn).toBe(0);
+    });
+  });
+
   describe('mask tool', () => {
     let surface;
 

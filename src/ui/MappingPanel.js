@@ -36,6 +36,7 @@ import {
   assignSurfaceSource,
   getSurfaceSource,
   syncMappingToNode,
+  syncGuidesToNode,
   trimSurfacePins,
   sourceLabel,
 } from '../mapping/projectionMapNode.js';
@@ -177,9 +178,9 @@ export class MappingPanel {
         </div>
         <button class="rz-map-btn" data-act="fit" title="Reset zoom and pan">Fit</button>
         <button class="rz-map-toggle" data-act="preview" aria-pressed="true"
-                title="Show the picture on the stage">Preview</button>
+                title="Show the picture on this stage (the editor only)">Preview</button>
         <button class="rz-map-toggle" data-act="guides" aria-pressed="true"
-                title="Show outlines, handles and points">Guides</button>
+                title="Show the setup visuals — on the stage and on the projected output">Guides</button>
         <span class="rz-map-spacer"></span>
         <div class="rz-map-segment" role="group" aria-label="Edit space">
           <button data-act="mode" data-mode="dst" aria-pressed="true">Output quad</button>
@@ -232,7 +233,10 @@ export class MappingPanel {
     this.overlay.addEventListener('dblclick', (e) => this._onDoubleClick(e));
     this.overlay.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
     // Otherwise the ghost point stays where the pointer left the stage.
-    this.overlay.addEventListener('pointerleave', () => { this._drawCursor = null; });
+    this.overlay.addEventListener('pointerleave', () => {
+      this._drawCursor = null;
+      this._pushGuides();
+    });
     // A middle-drag must not paste on Linux or autoscroll on Windows.
     this.overlay.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
     this.stage.addEventListener('keydown', (e) => this._onKeyDown(e));
@@ -954,6 +958,7 @@ export class MappingPanel {
       return;
     }
     this._drawPoints.push({ x: pt.x, y: pt.y });
+    this._pushGuides();
     this._updateHint();
   }
 
@@ -970,6 +975,7 @@ export class MappingPanel {
 
     const drawn = points.slice();
     this._drawPoints = [];
+    this._pushGuides();
 
     // Four points ARE the quad: keep the plain corner-pin rather than wrapping
     // them in a bounding box and a mask that says the same thing.
@@ -1015,6 +1021,7 @@ export class MappingPanel {
   _cancelDraw() {
     if (!this._drawPoints.length) return false;
     this._drawPoints = [];
+    this._pushGuides();
     this._updateHint();
     return true;
   }
@@ -1149,6 +1156,29 @@ export class MappingPanel {
     return best;
   }
 
+  /**
+   * Push the setup visuals onto the node, so they reach the projector.
+   *
+   * Everything but the on/off flag is a uniform write, so the outline follows
+   * the cursor on the wall without recompiling per click; only toggling the
+   * guides themselves changes what the shader contains.
+   *
+   * @param {{rebuild?: boolean}} [opts] force the rebuild even if nothing looks structural
+   */
+  _pushGuides(opts = {}) {
+    const node = this._node();
+    if (!node) return;
+    const structural = syncGuidesToNode(node, {
+      guides: this.showGuides,
+      draft: this.tool === 'draw' ? this._drawPoints : [],
+      cursor: this.tool === 'draw' ? this._drawCursor : null,
+    });
+    if ((structural || opts.rebuild)
+        && typeof window !== 'undefined' && typeof window.rebuild === 'function') {
+      window.rebuild();
+    }
+  }
+
   /** A mask gained or lost a point, which changes the shader's structure. */
   _maskChanged() {
     const node = this._node();
@@ -1167,7 +1197,12 @@ export class MappingPanel {
   }
 
   _onPointerMove(e) {
-    if (this.tool === 'draw') this._drawCursor = this._pointerToNormalized(e);
+    if (this.tool === 'draw') {
+      this._drawCursor = this._pointerToNormalized(e);
+      // The ghost has to move on the PROJECTOR, which is where a shape is
+      // actually being aimed; a uniform write, so this is per-move cheap.
+      this._pushGuides();
+    }
     const drag = this._drag;
     if (!drag) {
       this._updateCursor(e);
@@ -1347,6 +1382,7 @@ export class MappingPanel {
         this.activeCorner = null;
         this._syncToolbar();
         this._updateHint();
+        this._pushGuides();
         break;
       case 'fit':
         this._fitView();
@@ -1356,9 +1392,11 @@ export class MappingPanel {
         this._syncToolbar();
         break;
       case 'guides':
-        // Off is how you check the mapping itself, with nothing drawn over it.
+        // Off is how you check the mapping itself, with nothing drawn over it —
+        // on the stage AND on the projector, since that is where it is judged.
         this.showGuides = !this.showGuides;
         this._syncToolbar();
+        this._pushGuides({ rebuild: true });
         break;
       case 'mode':
         this.editMode = button.dataset.mode === 'src' ? 'src' : 'dst';
@@ -1654,6 +1692,20 @@ export class MappingPanel {
     this.panel.classList.add('rz-map-open');
     this._sizeStage();
     this._ensureCompositor();
+    // Bring the node into existence now rather than on the first source drop.
+    // It is what puts the setup visuals on the projector, and drawing onto a
+    // complex physical shape means seeing the outline ON the shape from the
+    // first click — not after something has already been assigned.
+    const graph = this._graph();
+    if (graph) {
+      const node = ensureProjectionMapNode(graph);
+      if (node) {
+        syncMappingToNode(this.model, node);
+        this._pushGuides({ rebuild: true });
+        this._renderList();
+        this._buildInspector();
+      }
+    }
     this._registerDropZone();
     this._startLoop();
     this.stage.focus();
