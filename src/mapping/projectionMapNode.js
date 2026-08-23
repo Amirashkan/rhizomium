@@ -14,7 +14,7 @@
 // so these values are already in the buffer to be overwritten.
 
 import { surfaceMatrices } from './MappingCompositor.js';
-import { MAX_MAPPED_SURFACES } from '../data/nodes/UtilityNodes.js';
+import { MAX_MAPPED_SURFACES, MAX_MASK_POINTS } from '../data/nodes/UtilityNodes.js';
 import { makeNode, updateNodeIdCounter, NodeDefs } from '../data/NodeDefs.js';
 import { getInputCount, setInputCount } from '../data/nodeInputs.js';
 
@@ -92,6 +92,16 @@ export function surfaceParamValues(surface, index) {
   // shader's structure and force a recompile mid-session.
   values[`s${index}opacity`] = surface.enabled ? surface.opacity : 0;
   values[`s${index}soft`] = surface.softEdge;
+
+  const mask = Array.isArray(surface.mask) ? surface.mask : [];
+  // Fewer than three points enclose no area; treat that as no mask rather than
+  // masking the surface away entirely.
+  const count = mask.length >= 3 ? Math.min(mask.length, MAX_MASK_POINTS) : 0;
+  values[`s${index}kn`] = count;
+  for (let k = 0; k < MAX_MASK_POINTS; k++) {
+    values[`s${index}k${k}x`] = k < count ? mask[k].x : 0;
+    values[`s${index}k${k}y`] = k < count ? mask[k].y : 0;
+  }
   return values;
 }
 
@@ -119,6 +129,11 @@ export function mappingParamValues(model) {
     }
     values[`s${i}opacity`] = 0;
     values[`s${i}soft`] = 0;
+    values[`s${i}kn`] = 0;
+    for (let k = 0; k < MAX_MASK_POINTS; k++) {
+      values[`s${i}k${k}x`] = 0;
+      values[`s${i}k${k}y`] = 0;
+    }
   }
   return values;
 }

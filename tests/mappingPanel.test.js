@@ -322,6 +322,150 @@ describe('MappingPanel', () => {
     });
   });
 
+
+  describe('view controls', () => {
+    it('starts fitted', () => {
+      expect(panel.view).toEqual({ scale: 1, x: 0, y: 0 });
+    });
+
+    it('pans the view with a middle-drag whatever tool is selected', () => {
+      panel.tool = 'warp';
+      const down = { ...pointer(100, 100), button: 1 };
+      panel._onPointerDown(down);
+      expect(panel._drag).toMatchObject({ kind: 'pan' });
+
+      panel._onPointerMove(pointer(140, 125));
+      expect(panel.view.x).toBeCloseTo(40);
+      expect(panel.view.y).toBeCloseTo(25);
+    });
+
+    it('pans with the left button in the pan tool', () => {
+      panel.tool = 'pan';
+      panel._onPointerDown(pointer(100, 100));
+      expect(panel._drag).toMatchObject({ kind: 'pan' });
+    });
+
+    it('keeps whatever is under the cursor in place while zooming', () => {
+      // Otherwise the corner being aligned slides out from under the pointer.
+      const before = panel._toNormalized(200, 140);
+      panel._zoomAt(200, 140, 2);
+      const after = panel._toNormalized(200, 140);
+      expect(after.x).toBeCloseTo(before.x, 6);
+      expect(after.y).toBeCloseTo(before.y, 6);
+      expect(panel.view.scale).toBe(2);
+    });
+
+    it('clamps zoom so the frame stays navigable', () => {
+      panel._zoomAt(200, 140, 1000);
+      expect(panel.view.scale).toBe(8);
+      panel._zoomAt(200, 140, 0.00001);
+      expect(panel.view.scale).toBe(0.25);
+    });
+
+    it('scales the stage geometry with the zoom', () => {
+      const before = panel._frameRect().w;
+      panel._zoomAt(200, 140, 2);
+      expect(panel._frameRect().w).toBeCloseTo(before * 2, 6);
+    });
+
+    it('Fit puts the view back', () => {
+      panel._zoomAt(200, 140, 3);
+      panel.view.x = 88;
+      panel.panel.querySelector('[data-act="fit"]').click();
+      expect(panel.view).toEqual({ scale: 1, x: 0, y: 0 });
+    });
+
+    it('switches tools from the toolbar', () => {
+      const maskBtn = panel.panel.querySelector('[data-act="tool"][data-tool="mask"]');
+      maskBtn.click();
+      expect(panel.tool).toBe('mask');
+      expect(maskBtn.getAttribute('aria-pressed')).toBe('true');
+      expect(panel.panel.querySelector('[data-act="tool"][data-tool="warp"]').getAttribute('aria-pressed')).toBe('false');
+    });
+  });
+
+  describe('mask tool', () => {
+    let surface;
+
+    beforeEach(() => {
+      surface = model.addSurface({ dst: rectQuad(0, 0, 1, 1) });
+      panel.tool = 'mask';
+    });
+
+    const clickAt = (nx, ny, mods = {}) => {
+      const p = panel._toScreen(nx, ny);
+      panel._onPointerDown(pointer(p.x, p.y, mods));
+    };
+
+    it('adds a point where the stage was clicked, in the surface\'s own space', () => {
+      clickAt(0.25, 0.75);
+      expect(surface.mask).toHaveLength(1);
+      expect(surface.mask[0].x).toBeCloseTo(0.25, 4);
+      expect(surface.mask[0].y).toBeCloseTo(0.75, 4);
+    });
+
+    it('keeps mask points relative to the quad, so they follow a corner drag', () => {
+      // A mask drawn around a doorway has to stay on the doorway while the
+      // surface is being aligned.
+      clickAt(0.5, 0.5);
+      const recorded = { ...surface.mask[0] };
+      model.moveCorner(surface.id, 0, -0.2, -0.2);
+      expect(surface.mask[0]).toEqual(recorded);
+    });
+
+    it('grabs an existing point instead of adding another on top of it', () => {
+      clickAt(0.5, 0.5);
+      clickAt(0.5, 0.5);
+      expect(surface.mask).toHaveLength(1);
+      expect(panel._drag).toMatchObject({ kind: 'mask', point: 0 });
+    });
+
+    it('drags a point to a new place', () => {
+      clickAt(0.5, 0.5);
+      clickAt(0.5, 0.5); // grab it
+      const to = panel._toScreen(0.7, 0.35);
+      panel._onPointerMove(pointer(to.x, to.y));
+      expect(surface.mask[0].x).toBeCloseTo(0.7, 4);
+      expect(surface.mask[0].y).toBeCloseTo(0.35, 4);
+    });
+
+    it('removes a point on an Alt-click', () => {
+      clickAt(0.2, 0.2);
+      clickAt(0.8, 0.2);
+      clickAt(0.8, 0.8);
+      clickAt(0.2, 0.8);
+      expect(surface.mask).toHaveLength(4);
+      clickAt(0.8, 0.2, { altKey: true });
+      expect(surface.mask).toHaveLength(3);
+    });
+
+    it('inserts into the nearest edge rather than always appending', () => {
+      // Appending blindly makes the shape self-cross as soon as a point is
+      // added anywhere but the end.
+      clickAt(0.1, 0.1);
+      clickAt(0.9, 0.1);
+      clickAt(0.9, 0.9);
+      clickAt(0.5, 0.02); // sits on the edge between points 0 and 1
+      expect(surface.mask[1].x).toBeCloseTo(0.5, 4);
+    });
+
+    it('clears the mask on Escape', () => {
+      clickAt(0.2, 0.2);
+      clickAt(0.8, 0.2);
+      clickAt(0.5, 0.8);
+      panel._onKeyDown({ key: 'Escape', shiftKey: false, altKey: false, preventDefault: vi.fn() });
+      expect(surface.mask).toEqual([]);
+    });
+
+    it('says so rather than silently doing nothing with no surface selected', () => {
+      const onStatus = vi.fn();
+      panel.onStatus = onStatus;
+      model.select(null);
+      clickAt(0.5, 0.5);
+      expect(onStatus).toHaveBeenCalledWith('Select a surface to mask', 'error');
+    });
+  });
+
   // --- per-surface flows ----------------------------------------------------
   //
   // Dropping a node on a surface wires it to that surface's pin on the

@@ -11,6 +11,9 @@
  */
 export const MAX_MAPPED_SURFACES = 6;
 
+/** Points a surface's mask may have; mirrors MAX_MASK_POINTS in MappingModel. */
+export const MAX_MASK_POINTS = 8;
+
 /** Identity 3x3, row-major: the whole frame showing the whole flow. */
 const IDENTITY_MAT3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
@@ -40,6 +43,15 @@ function buildProjectionMapParams() {
     }
     params.push({ name: `s${i}opacity`, type: "float", default: 1.0, hidden: true });
     params.push({ name: `s${i}soft`, type: "float", default: 0.0, hidden: true });
+    // Mask polygon, in the surface's own unit space. The count is structural —
+    // the shader unrolls the crossing test — so adding a point recompiles while
+    // dragging one stays a uniform write, which is the right way round: points
+    // are added a few at a time and moved continuously.
+    params.push({ name: `s${i}kn`, type: "float", default: 0, hidden: true });
+    for (let k = 0; k < MAX_MASK_POINTS; k++) {
+      params.push({ name: `s${i}k${k}x`, type: "float", default: 0, hidden: true });
+      params.push({ name: `s${i}k${k}y`, type: "float", default: 0, hidden: true });
+    }
   }
   return params;
 }

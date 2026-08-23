@@ -15,7 +15,7 @@ import {
   flowLabel,
 } from '../src/mapping/projectionMapNode.js';
 import { MappingModel, rectQuad, resetSurfaceIdCounter } from '../src/mapping/MappingModel.js';
-import { MAX_MAPPED_SURFACES } from '../src/data/nodes/UtilityNodes.js';
+import { MAX_MAPPED_SURFACES, MAX_MASK_POINTS } from '../src/data/nodes/UtilityNodes.js';
 import { getInputCount } from '../src/data/nodeInputs.js';
 import { applyMat3 } from '../src/mapping/homography.js';
 
@@ -129,7 +129,9 @@ describe('mappingParamValues', () => {
     const model = new MappingModel();
     model.addSurface();
     const values = mappingParamValues(model);
-    expect(Object.keys(values)).toHaveLength(MAX_MAPPED_SURFACES * 20);
+    // 9 + 9 matrix, opacity, soft edge, mask count, and MAX_MASK_POINTS x/y.
+    const perSurface = 9 + 9 + 3 + MAX_MASK_POINTS * 2;
+    expect(Object.keys(values)).toHaveLength(MAX_MAPPED_SURFACES * perSurface);
   });
 
   it('mutes pins beyond the mapping, so a removed surface leaves the projector', () => {

@@ -17,6 +17,13 @@
 /** Corner index names, in the order corners are stored. */
 export const CORNERS = Object.freeze(['TL', 'TR', 'BR', 'BL']);
 
+/**
+ * Points a surface's mask may have. The shader unrolls the crossing test, so
+ * this is a real ceiling rather than a soft one; eight is enough for the shapes
+ * a projector actually needs (a doorway, an arch, a notch cut around a pillar).
+ */
+export const MAX_MASK_POINTS = 8;
+
 /** How far outside the output frame a corner may be dragged. */
 const COORD_MIN = -1;
 const COORD_MAX = 2;
@@ -91,7 +98,28 @@ export function createSurface(opts = {}) {
     softEdge: Number.isFinite(opts.softEdge) ? clamp01(opts.softEdge, 0) : 0,
     dst: sanitizeQuad(opts.dst, full, clampCoord),
     src: sanitizeQuad(opts.src, full, clamp01),
+    // Optional shape the surface is cut to, in the surface's OWN unit space so
+    // it follows the quad when a corner moves — a mask drawn around a doorway
+    // stays on the doorway while the surface is being aligned. Empty means the
+    // whole quad shows, which is what a surface starts as.
+    mask: sanitizeMask(opts.mask),
   };
+}
+
+/** Coerce loaded mask data into a usable point list, dropping what it can't read. */
+function sanitizeMask(mask) {
+  if (!Array.isArray(mask)) return [];
+  const points = [];
+  for (const p of mask) {
+    if (!p) continue;
+    const x = Number(p.x);
+    const y = Number(p.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    points.push({ x: clampCoord(x, 0), y: clampCoord(y, 0) });
+    if (points.length >= MAX_MASK_POINTS) break;
+  }
+  // Fewer than three points enclose no area, so they would mask everything out.
+  return points.length >= 3 ? points : [];
 }
 
 /**
@@ -306,6 +334,88 @@ export class MappingModel {
   }
 
   /**
+   * Add a point to a surface's mask, in the surface's unit space.
+   *
+   * @param {string} id
+   * @param {number} x
+   * @param {number} y
+   * @param {number} [index] where to insert; appended when omitted
+   * @returns {number} the new point's index, or -1 when it could not be added
+   */
+  addMaskPoint(id, x, y, index = -1) {
+    const surface = this.getSurface(id);
+    if (!surface || surface.locked) return -1;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return -1;
+    if (!Array.isArray(surface.mask)) surface.mask = [];
+    if (surface.mask.length >= MAX_MASK_POINTS) return -1;
+
+    const point = { x: clampCoord(x, 0), y: clampCoord(y, 0) };
+    const at = (index >= 0 && index <= surface.mask.length) ? index : surface.mask.length;
+    surface.mask.splice(at, 0, point);
+    this._emit();
+    return at;
+  }
+
+  /**
+   * Move one mask point.
+   * @returns {boolean}
+   */
+  moveMaskPoint(id, index, x, y) {
+    const surface = this.getSurface(id);
+    if (!surface || surface.locked) return false;
+    if (!Array.isArray(surface.mask) || !(index >= 0 && index < surface.mask.length)) return false;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    surface.mask[index] = { x: clampCoord(x, 0), y: clampCoord(y, 0) };
+    this._emit();
+    return true;
+  }
+
+  /**
+   * Remove a mask point. Dropping below three points clears the mask outright,
+   * since two points enclose nothing and would mask the surface away entirely.
+   * @returns {boolean}
+   */
+  removeMaskPoint(id, index) {
+    const surface = this.getSurface(id);
+    if (!surface || surface.locked) return false;
+    if (!Array.isArray(surface.mask) || !(index >= 0 && index < surface.mask.length)) return false;
+    surface.mask.splice(index, 1);
+    if (surface.mask.length < 3) surface.mask = [];
+    this._emit();
+    return true;
+  }
+
+  /**
+   * Drop a surface's mask, showing the whole quad again.
+   * @returns {boolean}
+   */
+  clearMask(id) {
+    const surface = this.getSurface(id);
+    if (!surface || surface.locked) return false;
+    if (!Array.isArray(surface.mask) || surface.mask.length === 0) return false;
+    surface.mask = [];
+    this._emit();
+    return true;
+  }
+
+  /**
+   * The mask point nearest a point in the surface's unit space, within
+   * `tolerance`.
+   * @returns {number} the point's index, or -1
+   */
+  hitTestMaskPoint(id, x, y, tolerance = 0.04) {
+    const surface = this.getSurface(id);
+    if (!surface || !Array.isArray(surface.mask)) return -1;
+    let best = -1;
+    let bestDistance = tolerance;
+    for (let i = 0; i < surface.mask.length; i++) {
+      const d = Math.hypot(surface.mask[i].x - x, surface.mask[i].y - y);
+      if (d <= bestDistance) { bestDistance = d; best = i; }
+    }
+    return best;
+  }
+
+  /**
    * Restore a surface's quads to the full frame, keeping its name and settings.
    * @returns {boolean}
    */
@@ -314,6 +424,7 @@ export class MappingModel {
     if (!surface || surface.locked) return false;
     surface.dst = rectQuad(0, 0, 1, 1);
     surface.src = rectQuad(0, 0, 1, 1);
+    surface.mask = [];
     this._emit();
     return true;
   }
@@ -411,6 +522,7 @@ export class MappingModel {
         softEdge: s.softEdge,
         dst: cloneQuad(s.dst),
         src: cloneQuad(s.src),
+        mask: (s.mask || []).map((p) => ({ x: p.x, y: p.y })),
       })),
     };
   }

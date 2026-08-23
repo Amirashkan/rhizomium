@@ -19,7 +19,7 @@
 // the two have to agree or aligning in the panel would not mean aligning on the
 // projector.
 
-import { MAX_MAPPED_SURFACES } from '../../data/nodes/UtilityNodes.js';
+import { MAX_MAPPED_SURFACES, MAX_MASK_POINTS } from '../../data/nodes/UtilityNodes.js';
 import { getInputCount } from '../../data/nodeInputs.js';
 
 /** Below this the surface has collapsed to a line and has nothing to sample. */
@@ -81,6 +81,57 @@ export class ProjectionMapNodes {
   }
 
   /**
+   * How many mask points a surface carries, read from the node at COMPILE time —
+   * the crossing test below is unrolled, so the count is structural. Fewer than
+   * three points enclose no area and are treated as no mask.
+   *
+   * @returns {number}
+   */
+  _maskCount(node, index) {
+    const raw = Number(node.params?.[`s${index}kn`]);
+    if (!Number.isFinite(raw) || raw < 3) return 0;
+    return Math.min(Math.floor(raw), MAX_MASK_POINTS);
+  }
+
+  /**
+   * Crossing-number point-in-polygon over the surface's mask, unrolled.
+   *
+   * The points are separate uniforms rather than an array — that is what keeps
+   * dragging one a buffer write — so the loop cannot be dynamic. Unrolling is
+   * free here: the count only changes when a point is added, which recompiles
+   * anyway.
+   *
+   * @returns {string} WGSL declaring `inside_<tag>`, or '' when unmasked
+   */
+  _compileMask(node, index, tag, count) {
+    if (count < 3) return '';
+    const u = (name) => this._uniform(node, name);
+    const px = (k) => u(`s${index}k${k}x`);
+    const py = (k) => u(`s${index}k${k}y`);
+
+    let code = `
+        var inside_${tag} = false;`;
+    for (let i = 0; i < count; i++) {
+      const j = (i + count - 1) % count; // previous point, wrapping
+      code += `
+        {
+          let ax_${tag}_${i} = ${px(i)}; let ay_${tag}_${i} = ${py(i)};
+          let bx_${tag}_${i} = ${px(j)}; let by_${tag}_${i} = ${py(j)};
+          // Count the edges a ray cast from this point crosses. Ray casting
+          // rather than a half-plane test, so a concave mask - a notch cut
+          // around a pillar - is not silently filled in.
+          if ((ay_${tag}_${i} > q_${tag}.y) != (by_${tag}_${i} > q_${tag}.y)) {
+            let t_${tag}_${i} = (q_${tag}.y - ay_${tag}_${i}) / (by_${tag}_${i} - ay_${tag}_${i});
+            if (q_${tag}.x < ax_${tag}_${i} + t_${tag}_${i} * (bx_${tag}_${i} - ax_${tag}_${i})) {
+              inside_${tag} = !inside_${tag};
+            }
+          }
+        }`;
+    }
+    return code;
+  }
+
+  /**
    * WGSL for one surface: warp, clip, sample, feather, composite.
    * @returns {string}
    */
@@ -89,6 +140,12 @@ export class ProjectionMapNodes {
     const m = (k) => u(`s${index}m${k}`);
     const n = (k) => u(`s${index}n${k}`);
     const tag = `${nodeId}_s${index}`;
+    const maskCount = this._maskCount(node, index);
+    const maskTest = this._compileMask(node, index, tag, maskCount);
+    const maskGuard = maskCount >= 3 ? `${maskTest}
+        if (inside_${tag}) {` : '';
+    const maskClose = maskCount >= 3 ? `
+        }` : '';
 
     return `
   // --- surface ${index + 1} ---
@@ -101,7 +158,7 @@ export class ProjectionMapNodes {
     if (abs(hd_${tag}.z) > ${W_EPSILON}) {
       let q_${tag} = hd_${tag}.xy / hd_${tag}.z;
       // Outside the quad this pixel is not on the surface at all.
-      if (q_${tag}.x >= 0.0 && q_${tag}.x <= 1.0 && q_${tag}.y >= 0.0 && q_${tag}.y <= 1.0) {
+      if (q_${tag}.x >= 0.0 && q_${tag}.x <= 1.0 && q_${tag}.y >= 0.0 && q_${tag}.y <= 1.0) {${maskGuard}
         let hs_${tag} = vec3<f32>(
           ${n(0)} * q_${tag}.x + ${n(1)} * q_${tag}.y + ${n(2)},
           ${n(3)} * q_${tag}.x + ${n(4)} * q_${tag}.y + ${n(5)},
@@ -131,7 +188,7 @@ export class ProjectionMapNodes {
           a_${tag} = clamp(a_${tag}, 0.0, 1.0);
           map_rgb_${nodeId} = mix(map_rgb_${nodeId}, texel_${tag}.rgb, a_${tag});
           map_a_${nodeId} = map_a_${nodeId} + (1.0 - map_a_${nodeId}) * a_${tag};
-        }
+        }${maskClose}
       }
     }
   }`;

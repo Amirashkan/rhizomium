@@ -8,6 +8,7 @@ import {
   rectQuad,
   resetSurfaceIdCounter,
   CORNERS,
+  MAX_MASK_POINTS,
 } from '../src/mapping/MappingModel.js';
 
 describe('rectQuad', () => {
@@ -301,5 +302,116 @@ describe('MappingModel serialization', () => {
     model.clear();
     expect(model.surfaces).toEqual([]);
     expect(model.selectedId).toBeNull();
+  });
+});
+
+describe('MappingModel masks', () => {
+  let model;
+  let surface;
+
+  beforeEach(() => {
+    resetSurfaceIdCounter(1);
+    model = new MappingModel();
+    surface = model.addSurface({ dst: rectQuad(0, 0, 1, 1) });
+  });
+
+  const triangle = () => {
+    model.addMaskPoint(surface.id, 0.5, 0.1);
+    model.addMaskPoint(surface.id, 0.9, 0.9);
+    model.addMaskPoint(surface.id, 0.1, 0.9);
+  };
+
+  it('starts with no mask, so the whole quad shows', () => {
+    expect(surface.mask).toEqual([]);
+  });
+
+  it('builds a mask from points and reports where each landed', () => {
+    expect(model.addMaskPoint(surface.id, 0.2, 0.3)).toBe(0);
+    expect(model.addMaskPoint(surface.id, 0.8, 0.3)).toBe(1);
+    expect(surface.mask).toEqual([{ x: 0.2, y: 0.3 }, { x: 0.8, y: 0.3 }]);
+  });
+
+  it('inserts a point at a given position, so a shape can be extended anywhere', () => {
+    triangle();
+    expect(model.addMaskPoint(surface.id, 0.7, 0.5, 1)).toBe(1);
+    expect(surface.mask[1]).toEqual({ x: 0.7, y: 0.5 });
+    expect(surface.mask).toHaveLength(4);
+  });
+
+  it('refuses to grow past what the shader can unroll', () => {
+    for (let i = 0; i < MAX_MASK_POINTS; i++) {
+      expect(model.addMaskPoint(surface.id, i / 10, 0.5)).toBe(i);
+    }
+    expect(model.addMaskPoint(surface.id, 0.95, 0.5)).toBe(-1);
+    expect(surface.mask).toHaveLength(MAX_MASK_POINTS);
+  });
+
+  it('moves a point', () => {
+    triangle();
+    expect(model.moveMaskPoint(surface.id, 1, 0.95, 0.8)).toBe(true);
+    expect(surface.mask[1]).toEqual({ x: 0.95, y: 0.8 });
+  });
+
+  it('clears the mask when a removal drops it below a closed shape', () => {
+    // Two points enclose nothing, so keeping them would mask the surface away.
+    triangle();
+    model.removeMaskPoint(surface.id, 0);
+    expect(surface.mask).toEqual([]);
+  });
+
+  it('keeps the shape when a removal still leaves one', () => {
+    triangle();
+    model.addMaskPoint(surface.id, 0.5, 0.5);
+    model.removeMaskPoint(surface.id, 3);
+    expect(surface.mask).toHaveLength(3);
+  });
+
+  it('finds the point under a position, and nothing beyond the tolerance', () => {
+    triangle();
+    expect(model.hitTestMaskPoint(surface.id, 0.89, 0.91, 0.05)).toBe(1);
+    expect(model.hitTestMaskPoint(surface.id, 0.5, 0.5, 0.05)).toBe(-1);
+  });
+
+  it('refuses every mask edit on a locked surface', () => {
+    triangle();
+    model.updateSurface(surface.id, { locked: true });
+    expect(model.addMaskPoint(surface.id, 0.5, 0.5)).toBe(-1);
+    expect(model.moveMaskPoint(surface.id, 0, 0.1, 0.1)).toBe(false);
+    expect(model.removeMaskPoint(surface.id, 0)).toBe(false);
+    expect(model.clearMask(surface.id)).toBe(false);
+    expect(surface.mask).toHaveLength(3);
+  });
+
+  it('reports when clearing changes nothing', () => {
+    expect(model.clearMask(surface.id)).toBe(false);
+    triangle();
+    expect(model.clearMask(surface.id)).toBe(true);
+  });
+
+  it('drops the mask when the surface is reset', () => {
+    triangle();
+    model.resetSurface(surface.id);
+    expect(surface.mask).toEqual([]);
+  });
+
+  it('round-trips a mask through a snapshot', () => {
+    triangle();
+    const restored = new MappingModel();
+    restored.deserialize(JSON.parse(JSON.stringify(model.serialize())));
+    expect(restored.surfaces[0].mask).toEqual(surface.mask);
+  });
+
+  it('discards a loaded mask too small to enclose anything', () => {
+    const restored = new MappingModel();
+    restored.deserialize({ surfaces: [{ mask: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }] });
+    expect(restored.surfaces[0].mask).toEqual([]);
+  });
+
+  it('drops unreadable points from a loaded mask', () => {
+    const restored = new MappingModel();
+    restored.deserialize({ surfaces: [{
+      mask: [{ x: 0, y: 0 }, null, { x: 'no', y: 1 }, { x: 1, y: 1 }, { x: 0, y: 1 }],
+    }] });
+    expect(restored.surfaces[0].mask).toEqual([{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }]);
   });
 });

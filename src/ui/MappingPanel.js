@@ -22,8 +22,9 @@
 // bridge, the project file and this UI stay in step without any of them knowing
 // about the others.
 
-import { MappingModel, CORNERS, rectQuad } from '../mapping/MappingModel.js';
-import { MappingCompositor } from '../mapping/MappingCompositor.js';
+import { MappingModel, CORNERS, rectQuad, MAX_MASK_POINTS } from '../mapping/MappingModel.js';
+import { MappingCompositor, surfaceMatrices } from '../mapping/MappingCompositor.js';
+import { applyMat3 } from '../mapping/homography.js';
 import { makeDraggable } from './utils/draggable.js';
 import { getOutputAspect } from './OutputFormat.js';
 import { registerNodeDropZone } from './NodeReferenceDrop.js';
@@ -38,6 +39,9 @@ import {
 
 /** How far past the output frame the stage shows, as a fraction of the frame. */
 const VIEW_PAD = 0.1;
+/** Zoom limits. Past these the frame is either a speck or unnavigable. */
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 8;
 /** Corner grab radius, in stage pixels. */
 const GRAB_PX = 12;
 /** Arrow-key nudge, in normalised units. Shift coarsens, Alt refines. */
@@ -57,6 +61,22 @@ function snapValue(v) {
     if (Math.abs(v - anchor) < SNAP_TOLERANCE) return anchor;
   }
   return Math.round(v / SNAP_GRID) * SNAP_GRID;
+}
+
+/** Inverse of a row-major 3x3, or null when it has collapsed. */
+function invertUnitMatrix(m) {
+  const [a, b, c, d, e, f, g, h, i] = m;
+  const A = e * i - f * h;
+  const B = f * g - d * i;
+  const C = d * h - e * g;
+  const det = a * A + b * B + c * C;
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return null;
+  const inv = 1 / det;
+  return [
+    A * inv, (c * h - b * i) * inv, (b * f - c * e) * inv,
+    B * inv, (a * i - c * g) * inv, (c * d - a * f) * inv,
+    C * inv, (b * g - a * h) * inv, (a * e - b * d) * inv,
+  ];
 }
 
 function escapeHtml(text) {
@@ -83,6 +103,17 @@ export class MappingPanel {
     this.visible = false;
     /** 'dst' pins the surface on the projector; 'src' crops what it shows. */
     this.editMode = 'dst';
+    /**
+     * Which gesture the stage is in.
+     *   warp — drag corners and surfaces (the default)
+     *   pan  — drag the view itself
+     *   mask — add and move the points of a surface's mask polygon
+     * Panning is also always available on the middle button, so a mapping can
+     * be nudged around without leaving the tool you are working in.
+     */
+    this.tool = 'warp';
+    /** Stage view: a zoom about the frame's centre plus a pixel offset. */
+    this.view = { scale: 1, x: 0, y: 0 };
     this.testPattern = false;
     /** Corner the arrow keys act on, or null to move the whole surface. */
     this.activeCorner = null;
@@ -125,6 +156,12 @@ export class MappingPanel {
           <span data-role="enable-dot">○</span> Mapping
         </button>
         <button class="rz-map-toggle" data-act="test" aria-pressed="false">Test grid</button>
+        <div class="rz-map-segment" role="group" aria-label="Tool">
+          <button data-act="tool" data-tool="warp" aria-pressed="true" title="Drag corners and surfaces">Warp</button>
+          <button data-act="tool" data-tool="pan" aria-pressed="false" title="Drag the view (or hold the middle button in any tool)">Pan</button>
+          <button data-act="tool" data-tool="mask" aria-pressed="false" title="Add and move mask points on the selected surface">Mask</button>
+        </div>
+        <button class="rz-map-btn" data-act="fit" title="Reset zoom and pan">Fit</button>
         <span class="rz-map-spacer"></span>
         <div class="rz-map-segment" role="group" aria-label="Edit space">
           <button data-act="mode" data-mode="dst" aria-pressed="true">Output quad</button>
@@ -175,6 +212,9 @@ export class MappingPanel {
     this.overlay.addEventListener('pointerup', (e) => this._onPointerUp(e));
     this.overlay.addEventListener('pointercancel', (e) => this._onPointerUp(e));
     this.overlay.addEventListener('dblclick', (e) => this._onDoubleClick(e));
+    this.overlay.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
+    // A middle-drag must not paste on Linux or autoscroll on Windows.
+    this.overlay.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
     this.stage.addEventListener('keydown', (e) => this._onKeyDown(e));
 
     this._syncToolbar();
@@ -364,9 +404,32 @@ export class MappingPanel {
     const sw = this.stage.clientWidth || 1;
     const sh = this.stage.clientHeight || 1;
     const span = 1 + 2 * VIEW_PAD;
-    const w = sw / span;
-    const h = sh / span;
-    return { x: (sw - w) / 2, y: (sh - h) / 2, w, h, sw, sh };
+    const w = (sw / span) * this.view.scale;
+    const h = (sh / span) * this.view.scale;
+    return {
+      x: (sw - w) / 2 + this.view.x,
+      y: (sh - h) / 2 + this.view.y,
+      w, h, sw, sh,
+    };
+  }
+
+  /** Reset the view so the whole frame is in sight. */
+  _fitView() {
+    this.view = { scale: 1, x: 0, y: 0 };
+  }
+
+  /**
+   * Zoom about a point on the stage, keeping whatever is under it in place —
+   * otherwise the corner being aligned slides out from under the cursor.
+   */
+  _zoomAt(stageX, stageY, factor) {
+    const anchor = this._toNormalized(stageX, stageY);
+    const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.view.scale * factor));
+    if (next === this.view.scale) return;
+    this.view.scale = next;
+    const moved = this._toScreen(anchor.x, anchor.y);
+    this.view.x += stageX - moved.x;
+    this.view.y += stageY - moved.y;
   }
 
   /** Normalised output space -> stage CSS pixels. */
@@ -382,8 +445,33 @@ export class MappingPanel {
   }
 
   _pointerToNormalized(e) {
+    const p = this._pointerToStage(e);
+    return this._toNormalized(p.x, p.y);
+  }
+
+  /** Pointer position in stage pixels. */
+  _pointerToStage(e) {
     const rect = this.overlay.getBoundingClientRect();
-    return this._toNormalized(e.clientX - rect.left, e.clientY - rect.top);
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  /**
+   * Output space -> the selected surface's own unit square, which is the space
+   * its mask points live in so the mask follows the quad when a corner moves.
+   * @returns {{x:number,y:number}|null} null when the quad has collapsed
+   */
+  _toSurfaceUnit(surface, x, y) {
+    const matrices = surfaceMatrices(surface);
+    if (!matrices) return null;
+    return applyMat3(matrices.dstToUnit, x, y);
+  }
+
+  /** The selected surface's unit square -> output space. */
+  _fromSurfaceUnit(surface, x, y) {
+    const matrices = surfaceMatrices(surface);
+    if (!matrices) return null;
+    const unitToDst = invertUnitMatrix(matrices.dstToUnit);
+    return unitToDst ? applyMat3(unitToDst, x, y) : null;
   }
 
   // --- render loop --------------------------------------------------------
@@ -544,6 +632,39 @@ export class MappingPanel {
       ctx.fillText(flow.label, cx, cy + 13);
     }
 
+    // The mask, in the surface's own space, drawn as the shape the surface is
+    // actually cut to.
+    const mask = surface.mask || [];
+    if (mask.length >= 3) {
+      const maskPts = [];
+      for (const p of mask) {
+        const out = this._fromSurfaceUnit(surface, p.x, p.y);
+        if (out) maskPts.push(this._toScreen(out.x, out.y));
+      }
+      if (maskPts.length >= 3) {
+        ctx.beginPath();
+        ctx.moveTo(maskPts[0].x, maskPts[0].y);
+        for (let i = 1; i < maskPts.length; i++) ctx.lineTo(maskPts[i].x, maskPts[i].y);
+        ctx.closePath();
+        ctx.setLineDash([5, 3]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = color;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (isSelected && this.tool === 'mask') {
+          for (const p of maskPts) {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#141110';
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
     if (isSelected && !surface.locked) {
       for (let c = 0; c < pts.length; c++) {
         const p = pts[c];
@@ -582,6 +703,13 @@ export class MappingPanel {
   // --- stage interaction --------------------------------------------------
 
   _onPointerDown(e) {
+    // Panning is available on the middle button whatever tool is selected, so
+    // the view can be nudged without leaving the gesture you are working in.
+    if (e.button === 1 || (e.button === 0 && this.tool === 'pan')) {
+      this.stage.focus();
+      this._beginDrag(e, { kind: 'pan', last: this._pointerToStage(e) });
+      return;
+    }
     if (e.button !== 0) return;
     this.stage.focus();
     const pt = this._pointerToNormalized(e);
@@ -599,6 +727,11 @@ export class MappingPanel {
           return;
         }
       }
+      return;
+    }
+
+    if (this.tool === 'mask') {
+      this._onMaskPointerDown(e, pt);
       return;
     }
 
@@ -624,6 +757,86 @@ export class MappingPanel {
     this.activeCorner = null;
   }
 
+  /**
+   * Mask editing: click empty space to add a point, drag one to move it,
+   * Alt-click to remove it.
+   */
+  _onMaskPointerDown(e, pt) {
+    const surface = this.model.getSelected();
+    if (!surface) {
+      this._status('Select a surface to mask', 'error');
+      return;
+    }
+    const unit = this._toSurfaceUnit(surface, pt.x, pt.y);
+    if (!unit) return;
+
+    // The mask lives in unit space, so the grab radius has to be converted too:
+    // a small surface means a large tolerance in its own coordinates.
+    const f = this._frameRect();
+    const edge = this._toSurfaceUnit(surface, pt.x + GRAB_PX / Math.max(1, f.w), pt.y);
+    const unitTolerance = edge ? Math.max(0.01, Math.abs(edge.x - unit.x)) : 0.04;
+
+    const index = this.model.hitTestMaskPoint(surface.id, unit.x, unit.y, unitTolerance);
+    if (index >= 0) {
+      if (e.altKey) {
+        this.model.removeMaskPoint(surface.id, index);
+        this._maskChanged();
+        return;
+      }
+      this._beginDrag(e, { kind: 'mask', surfaceId: surface.id, point: index });
+      return;
+    }
+
+    if ((surface.mask || []).length >= MAX_MASK_POINTS) {
+      this._status(`A mask holds at most ${MAX_MASK_POINTS} points`, 'error');
+      return;
+    }
+    // Insert into the nearest edge rather than always appending, so points can
+    // be added part-way round a shape instead of only at its end.
+    const at = this._nearestMaskEdge(surface, unit);
+    const added = this.model.addMaskPoint(surface.id, unit.x, unit.y, at);
+    if (added >= 0) this._maskChanged();
+    e.preventDefault();
+  }
+
+  /**
+   * Where a new point belongs: after the vertex whose outgoing edge passes
+   * closest to it. Appending blindly makes a shape self-cross as soon as you
+   * add a point anywhere but the end.
+   * @returns {number} insertion index
+   */
+  _nearestMaskEdge(surface, unit) {
+    const mask = surface.mask || [];
+    if (mask.length < 3) return mask.length;
+
+    let best = mask.length;
+    let bestDistance = Infinity;
+    for (let i = 0; i < mask.length; i++) {
+      const a = mask[i];
+      const b = mask[(i + 1) % mask.length];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const lengthSq = dx * dx + dy * dy;
+      const t = lengthSq > 0
+        ? Math.max(0, Math.min(1, ((unit.x - a.x) * dx + (unit.y - a.y) * dy) / lengthSq))
+        : 0;
+      const distance = Math.hypot(unit.x - (a.x + t * dx), unit.y - (a.y + t * dy));
+      if (distance < bestDistance) { bestDistance = distance; best = i + 1; }
+    }
+    return best;
+  }
+
+  /** A mask gained or lost a point, which changes the shader's structure. */
+  _maskChanged() {
+    const node = this._node();
+    if (node) {
+      syncMappingToNode(this.model, node);
+      if (typeof window !== 'undefined' && typeof window.rebuild === 'function') {
+        window.rebuild();
+      }
+    }
+  }
+
   _beginDrag(e, drag) {
     this._drag = drag;
     try { this.overlay.setPointerCapture(e.pointerId); } catch { /* not captured; moves still track */ }
@@ -636,7 +849,24 @@ export class MappingPanel {
       this._updateCursor(e);
       return;
     }
+    if (drag.kind === 'pan') {
+      const now = this._pointerToStage(e);
+      this.view.x += now.x - drag.last.x;
+      this.view.y += now.y - drag.last.y;
+      drag.last = now;
+      e.preventDefault();
+      return;
+    }
+
     const pt = this._pointerToNormalized(e);
+
+    if (drag.kind === 'mask') {
+      const surface = this.model.getSurface(drag.surfaceId);
+      const unit = surface ? this._toSurfaceUnit(surface, pt.x, pt.y) : null;
+      if (unit) this.model.moveMaskPoint(drag.surfaceId, drag.point, unit.x, unit.y);
+      e.preventDefault();
+      return;
+    }
 
     if (drag.kind === 'corner') {
       let { x, y } = pt;
@@ -655,6 +885,15 @@ export class MappingPanel {
     try { this.overlay.releasePointerCapture(e.pointerId); } catch { /* already released */ }
   }
 
+  _onWheel(e) {
+    e.preventDefault();
+    const p = this._pointerToStage(e);
+    // A trackpad sends many small deltas and a mouse a few large ones; scaling
+    // by the delta rather than a fixed step keeps both feeling the same.
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    this._zoomAt(p.x, p.y, factor);
+  }
+
   /** Double-clicking empty stage space drops a new surface centred there. */
   _onDoubleClick(e) {
     if (this.editMode !== 'dst') return;
@@ -666,6 +905,10 @@ export class MappingPanel {
   }
 
   _updateCursor(e) {
+    if (this.tool === 'pan') {
+      if (this.overlay.style.cursor !== 'grab') this.overlay.style.cursor = 'grab';
+      return;
+    }
     const pt = this._pointerToNormalized(e);
     const f = this._frameRect();
     const tolerance = GRAB_PX / Math.max(1, f.w);
@@ -700,6 +943,10 @@ export class MappingPanel {
     }
 
     if (e.key === 'Escape') {
+      if (this.tool === 'mask' && this.model.clearMask(selected.id)) {
+        this._maskChanged();
+        this._status('Mask cleared');
+      }
       this.activeCorner = null;
       e.preventDefault();
       return;
@@ -748,6 +995,15 @@ export class MappingPanel {
       case 'test':
         this.testPattern = !this.testPattern;
         this._syncToolbar();
+        break;
+      case 'tool':
+        this.tool = button.dataset.tool;
+        this.activeCorner = null;
+        this._syncToolbar();
+        this._updateHint();
+        break;
+      case 'fit':
+        this._fitView();
         break;
       case 'mode':
         this.editMode = button.dataset.mode === 'src' ? 'src' : 'dst';
@@ -835,16 +1091,30 @@ export class MappingPanel {
     enableBtn.querySelector('[data-role="enable-dot"]').textContent = this.model.enabled ? '●' : '○';
 
     this.panel.querySelector('[data-act="test"]').setAttribute('aria-pressed', String(this.testPattern));
+    for (const button of this.panel.querySelectorAll('[data-act="tool"]')) {
+      button.setAttribute('aria-pressed', String(button.dataset.tool === this.tool));
+    }
     for (const button of this.panel.querySelectorAll('[data-act="mode"]')) {
       button.setAttribute('aria-pressed', String(button.dataset.mode === this.editMode));
     }
   }
 
   _updateHint() {
+    const view = 'Scroll to zoom · middle-drag to pan · <kbd>Fit</kbd> resets';
+    if (this.tool === 'pan') {
+      this.hintEl.innerHTML = `Dragging the view. ${view}`;
+      return;
+    }
+    if (this.tool === 'mask') {
+      this.hintEl.innerHTML = 'Masking the selected surface to a shape. '
+        + 'Click to add a point · drag one to move it · <kbd>Alt</kbd>-click a point to remove it · '
+        + `<kbd>Esc</kbd> clears the mask. ${view}`;
+      return;
+    }
     const shared = 'Drag a corner to pin it · drag inside to move · <kbd>Shift</kbd> snaps · arrows nudge, <kbd>Tab</kbd> picks a corner';
     this.hintEl.innerHTML = this.editMode === 'src'
-      ? `Cropping what the selected surface shows. ${shared}`
-      : `Pinning surfaces onto the projected frame. Drag a node from the graph onto a surface to give it its own flow · double-click empty space to add one. ${shared}`;
+      ? `Cropping what the selected surface shows. ${shared} · ${view}`
+      : `Pinning surfaces onto the projected frame. Drag a node from the graph onto a surface to give it its own flow · double-click empty space to add one. ${shared} · ${view}`;
   }
 
   _onModelChange() {

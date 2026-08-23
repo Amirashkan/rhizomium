@@ -64,6 +64,16 @@ beyond it.
 
 ## Editing
 
+The stage has three tools. Panning and zooming work in all of them — a rig is
+often aligned a few pixels at a time, and you should not have to leave the
+gesture you are in to get a closer look.
+
+| Tool | |
+| --- | --- |
+| **Warp** | Pin corners and move surfaces (the default) |
+| **Pan** | Drag the view |
+| **Mask** | Cut the selected surface to a shape |
+
 | Action | Result |
 | --- | --- |
 | Drag a corner | Pin it |
@@ -72,10 +82,33 @@ beyond it.
 | `Shift` while dragging | Snap to a 0.05 grid and onto the frame's edges and centre |
 | Arrow keys | Nudge (`Shift` coarsens, `Alt` refines) |
 | `Tab` | Pick which corner the arrows act on; `Esc` drops the pick |
+| Scroll | Zoom about the cursor |
+| Middle-drag | Pan, in any tool |
+| `Fit` | Back to the whole frame |
+
+In the **Mask** tool: click to add a point, drag one to move it, `Alt`-click to
+remove it, `Esc` clears the mask.
 
 **Output quad** pins a surface on the projected frame; **Source crop** chooses
 what that surface shows. A locked surface ignores drags, so an aligned rig can't
 be knocked out of register by a stray click.
+
+## Masks
+
+A surface can be cut to a shape — an arch, a doorway, a notch around a pillar —
+rather than only to its quad. Mask points live in the surface's **own unit
+space**, so a mask drawn around a doorway stays on the doorway while the surface
+is still being aligned.
+
+The shader unrolls the crossing test, so the point count is a real ceiling
+(`MAX_MASK_POINTS`, currently 8) rather than a soft one. That is also why adding
+a point recompiles while dragging one is a uniform write — which is the right way
+round, since points are added a few at a time and moved continuously. The test is
+ray casting rather than a half-plane check, so a concave mask is not silently
+filled in.
+
+Fewer than three points enclose no area, so that is treated as no mask rather
+than masking the surface away entirely.
 
 ## Per-surface flows: the ProjectionMap node
 
