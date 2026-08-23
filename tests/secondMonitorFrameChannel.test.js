@@ -22,6 +22,8 @@ describe('secondMonitorFrameChannel', () => {
       TEXTURE: 'texture',
       // pixel fallback path
       FRAME: 'frame',
+      // projection mapping
+      MAPPING: 'mapping',
       // receiver → editor
       READY: 'ready',
       RESIZE: 'resize',

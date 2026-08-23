@@ -29,6 +29,8 @@ import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
 import { OSCManager } from './src/osc/OSCManager.js';
 import { OSCParameterBinding } from './src/osc/OSCParameterBinding.js';
 import { getOSCSettingsPanel } from './src/ui/OSCSettingsPanel.js';
+import { MappingModel } from './src/mapping/MappingModel.js';
+import { getMappingPanel } from './src/ui/MappingPanel.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
@@ -566,6 +568,35 @@ async function initialize() {
           onActiveChange: (active) => setSecondMonitorButtonState(active),
         });
         window.secondMonitorViewer = secondMonitorViewer;
+      }
+
+      // Projection mapping — corner-pin the rendered output onto the physical
+      // surfaces a projector is aimed at. The model is the single source of
+      // truth: the panel edits it, the project file carries it, and the output
+      // window warps by it. It starts switched off, so nothing about the
+      // existing output changes until an artist turns it on.
+      try {
+        const mappingModel = new MappingModel();
+        window.mappingModel = mappingModel;
+        editor.mappingModel = mappingModel;
+
+        const mappingPanel = getMappingPanel(mappingModel, {
+          getSource: () => gpuCanvas,
+          onStatus: (message, kind) => updateStatus(message, kind),
+        });
+        window.mappingPanel = mappingPanel;
+        editor.mappingPanel = mappingPanel;
+
+        // Push every edit to the output window as it happens, so a corner
+        // dragged in the panel moves on the projector during the drag - which
+        // is the only way aligning against a real object is workable.
+        mappingModel.onChange((model) => {
+          if (secondMonitorViewer && typeof secondMonitorViewer.setMapping === "function") {
+            secondMonitorViewer.setMapping(model.serialize());
+          }
+        });
+      } catch (error) {
+        console.error("ERROR creating projection mapping tool:", error);
       }
     }
 
@@ -1266,6 +1297,38 @@ function setupUIEventHandlers() {
   } else {
     console.error('[main.js] Audio settings button NOT found in DOM! Available buttons:',
       Array.from(document.querySelectorAll('button')).map(b => b.id).filter(Boolean));
+  }
+
+  // Projection Mapping tool
+  const mappingBtn = removeExistingHandlers("btn-mapping-tool");
+
+  if (mappingBtn) {
+    mappingBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+
+      try {
+        const mappingPanel = window.mappingPanel;
+
+        if (mappingPanel && typeof mappingPanel.toggle === "function") {
+          mappingPanel.toggle();
+          mappingBtn.textContent = mappingPanel.isVisible()
+            ? "Projection Mapping \u2713"
+            : "Projection Mapping\u2026";
+          if (typeof updateStatus === "function") {
+            updateStatus(mappingPanel.isVisible()
+              ? "Projection mapping opened"
+              : "Projection mapping closed");
+          }
+        } else if (typeof updateStatus === "function") {
+          updateStatus("Projection mapping panel failed to load", "error");
+        }
+      } catch (error) {
+        console.error("[main.js] Error opening projection mapping:", error);
+        if (typeof updateStatus === "function") {
+          updateStatus("Error opening projection mapping: " + error.message, "error");
+        }
+      }
+    });
   }
 
   // MIDI Settings Panel

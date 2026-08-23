@@ -263,6 +263,41 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
+  it('broadcasts a projection mapping and re-sends it to a late receiver (READY)', async () => {
+    const renderer = makeFakeRenderer({ eligible: true });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    const mapping = {
+      enabled: true,
+      surfaces: [{ id: 'surface-1', name: 'Wall', enabled: true }],
+    };
+    viewer.setMapping(mapping);
+    expect(channel.posted.find((m) => m.type === MSG.MAPPING)?.mapping).toEqual(mapping);
+
+    // A projector window reopened onto the same rig must come back on its
+    // surfaces, not full-frame.
+    channel.posted.length = 0;
+    channel.emit({ type: MSG.READY, webgpu: true });
+    expect(channel.posted.find((m) => m.type === MSG.MAPPING)?.mapping).toEqual(mapping);
+
+    await viewer.close();
+  });
+
+  it('sends no mapping while the output is unmapped', async () => {
+    const renderer = makeFakeRenderer({ eligible: true });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    channel.posted.length = 0;
+    channel.emit({ type: MSG.READY, webgpu: true });
+    expect(channel.posted.find((m) => m.type === MSG.MAPPING)).toBeUndefined();
+
+    await viewer.close();
+  });
+
   it('broadcasts SHADER only when the WGSL changes, uniforms every frame', async () => {
     const renderer = makeFakeRenderer({ eligible: true });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });

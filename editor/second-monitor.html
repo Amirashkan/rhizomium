@@ -15,6 +15,14 @@
       width: 100vw; height: 100vh; background: #000;
     }
     #second-monitor-gpu { display: none; }
+    /* Projection-mapping presentation surface. When mapping is on, the render
+       above is warped onto this instead of being shown directly, so it covers
+       the WHOLE display: a surface may be pinned outside the composition's
+       letterboxed rect. Hidden until a mapping arrives. */
+    #second-monitor-map {
+      position: fixed; inset: 0; display: none;
+      width: 100vw; height: 100vh; background: #000; z-index: 2;
+    }
     /* Performance profiler overlay (toggle with P). Hidden by default. */
     #second-monitor-profiler {
       position: fixed; top: 12px; left: 12px; margin: 0; display: none;
@@ -28,6 +36,7 @@
 <body>
   <canvas id="second-monitor-gpu"></canvas>
   <canvas id="second-monitor-output"></canvas>
+  <canvas id="second-monitor-map"></canvas>
   <pre id="second-monitor-profiler"></pre>
   <script type="module" src="../src/ui/secondMonitorReceiver.js"></script>
 </body>

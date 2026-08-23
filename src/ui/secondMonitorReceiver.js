@@ -38,6 +38,11 @@
 // minimised/occluded so its rAF is throttled) we hold the last frame rather than
 // spin re-rendering and re-stepping feedback sims.
 //
+// PROJECTION MAPPING sits after either path: when the editor sends a mapping,
+// whichever surface just rendered becomes the texture for a warp pass onto
+// #second-monitor-map, which covers the whole display and shows the frame
+// corner-pinned onto the projector's physical surfaces.
+//
 // Keyboard: Esc closes the window; F (or double-click) toggles native
 // fullscreen. Tauri APIs are loaded via guarded dynamic import so this module
 // stays inert if ever opened outside the desktop app.
@@ -110,6 +115,7 @@ async function defaultCreateComputeRuntime(device, win) {
 export function initSecondMonitorReceiver(doc = document, win = window, opts = {}) {
   const fbCanvas = doc.getElementById('second-monitor-output'); // 2D fallback
   const gpuCanvas = doc.getElementById('second-monitor-gpu');   // WebGPU native
+  const mapCanvas = doc.getElementById('second-monitor-map');   // projection-mapping warp
   if (!fbCanvas && !gpuCanvas) return null;
   const fbCtx = fbCanvas && typeof fbCanvas.getContext === 'function'
     ? fbCanvas.getContext('2d') : null;
@@ -117,6 +123,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     ? opts.createRenderer : defaultCreateRenderer;
   const createComputeRuntime = typeof opts.createComputeRuntime === 'function'
     ? opts.createComputeRuntime : defaultCreateComputeRuntime;
+  const createMappingCompositor = typeof opts.createMappingCompositor === 'function'
+    ? opts.createMappingCompositor : null;
 
   let tier = TIER.FALLBACK;     // start safe: show pixels until told to go native
   let renderer = null;          // window-local GPURenderer (native path)
@@ -157,6 +165,15 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let lastComputeGraphMsg = null;          // last COMPUTE_GRAPH (re-applied when the override changes)
   const computeDimsOverride = new Map();   // node id -> [w,h] actually used (for the packed-resolution override)
   let cachedWindow = null;
+
+  // Projection mapping. Loaded lazily on the first MAPPING message, so a session
+  // that never maps anything pays nothing for the module or the GL context.
+  let mappingModel = null;
+  let mappingCompositor = null;
+  let mappingRuntimePromise = null;
+  let pendingMapping = null;      // snapshot seen before the runtime existed
+  let mappingShown = false;       // whether the warp surface is currently presented
+  let masterOpacity = 1;          // latest level from the editor's master fader
 
   // Native-compute runtime (Tier 2): the receiver's own ComputeExecutor + TextureManager.
   let computeRuntime = null;        // { computeExecutor, textureManager }
@@ -599,10 +616,25 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
    */
   function applyMasterOpacity(value) {
     const n = Number(value);
-    const level = Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
+    masterOpacity = Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
+    updatePresentationOpacity();
+  }
+
+  /**
+   * Put the master level on whichever surface the display is actually showing.
+   *
+   * With mapping on, the warp canvas is what the projector shows, so it carries
+   * the fade and the render behind it is held fully transparent — NOT hidden:
+   * the warp samples that canvas every frame, and display:none would stop the
+   * frames it needs. CSS opacity does not touch a canvas's pixels, so the warp
+   * still uploads the render at full brightness and the fade stays honest.
+   */
+  function updatePresentationOpacity() {
+    const behind = mappingShown ? '0' : String(masterOpacity);
     [gpuCanvas, fbCanvas].forEach(canvas => {
-      if (canvas && canvas.style) canvas.style.opacity = String(level);
+      if (canvas && canvas.style) canvas.style.opacity = behind;
     });
+    if (mapCanvas && mapCanvas.style) mapCanvas.style.opacity = String(masterOpacity);
   }
 
   // --- channel handling ----------------------------------------------------
@@ -661,6 +693,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         break;
       case MSG.MASTER_OPACITY:
         applyMasterOpacity(d.opacity);
+        break;
+      case MSG.MAPPING:
+        applyMapping(d.mapping);
         break;
       case MSG.RENDER_RES:
         setComputeMaxDim(d.maxDim);
@@ -857,6 +892,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   function onResize() {
     sizeFallbackCanvas();
     sizeGpuCanvas();
+    sizeMapCanvas();
     reportSize();
     // Auto mode sizes compute to THIS display — a real window/display size change
     // must rebuild at the new size. The dedup key includes our derived dims, so a
@@ -869,6 +905,124 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   sizeFallbackCanvas();
   sizeGpuCanvas();
   win.addEventListener('resize', onResize);
+
+  // --- projection mapping --------------------------------------------------
+
+  /**
+   * Bring up the mapping runtime on first use: the model the editor's snapshots
+   * are applied to, and the WebGL2 compositor that warps our rendered frame
+   * onto it. Both are dynamic imports so the common unmapped session never
+   * loads either.
+   */
+  function ensureMappingRuntime() {
+    if (mappingRuntimePromise || !mapCanvas) return mappingRuntimePromise;
+    mappingRuntimePromise = Promise.all([
+      import('../mapping/MappingModel.js'),
+      createMappingCompositor ? null : import('../mapping/MappingCompositor.js'),
+    ]).then(([modelMod, compositorMod]) => {
+      mappingModel = new modelMod.MappingModel();
+      mappingCompositor = createMappingCompositor
+        ? createMappingCompositor(mapCanvas)
+        : new compositorMod.MappingCompositor(mapCanvas);
+      if (!mappingCompositor || !mappingCompositor.isReady()) {
+        // No WebGL2 here: keep presenting the render unmapped rather than
+        // blacking out the projector.
+        mappingCompositor = null;
+        mappingModel = null;
+        return;
+      }
+      if (pendingMapping) {
+        mappingModel.deserialize(pendingMapping);
+        pendingMapping = null;
+      }
+    }).catch(() => {
+      mappingModel = null;
+      mappingCompositor = null;
+    });
+    return mappingRuntimePromise;
+  }
+
+  // Start explicitly stood down rather than trusting the page stylesheet: the
+  // warp surface must be off until a mapping is both present and switched on.
+  if (mapCanvas && mapCanvas.style) mapCanvas.style.display = 'none';
+
+  /** Adopt a mapping snapshot from the editor (streams during a corner drag). */
+  function applyMapping(snapshot) {
+    if (!mapCanvas) return;
+    if (!mappingModel) {
+      pendingMapping = snapshot || null;
+      ensureMappingRuntime();
+      return;
+    }
+    mappingModel.deserialize(snapshot || { enabled: false, surfaces: [] });
+  }
+
+  /** @returns {boolean} whether frames should be warped before presenting. */
+  function mappingActive() {
+    return !!(mappingModel && mappingModel.isActive()
+      && mappingCompositor && mappingCompositor.isReady());
+  }
+
+  /** The warp surface spans the whole display, capped like the render surface. */
+  function sizeMapCanvas() {
+    if (!mapCanvas || !mappingCompositor) return;
+    const { cssW, cssH, bw, bh } = backingSize();
+    mappingCompositor.resize(bw, bh);
+    mapCanvas.style.width = cssW + 'px';
+    mapCanvas.style.height = cssH + 'px';
+  }
+
+  /**
+   * Where the composition's frame sits on the display, in fractions of it. The
+   * render is letterboxed, so this is the letterboxed rect — which is what a
+   * mapping's 0..1 output space means, matching the editor's mapping stage
+   * exactly. Corners pinned outside it land in the surrounding black, which the
+   * full-display warp canvas covers.
+   */
+  function frameRectFor(canvas) {
+    const cssW = win.innerWidth || 0;
+    const cssH = win.innerHeight || 0;
+    if (!canvas || !(cssW > 0) || !(cssH > 0)) return null;
+    let rect = null;
+    try { rect = canvas.getBoundingClientRect?.(); } catch { rect = null; }
+    if (!rect || !(rect.width > 0) || !(rect.height > 0)) return null;
+    return {
+      x: rect.left / cssW,
+      y: rect.top / cssH,
+      w: rect.width / cssW,
+      h: rect.height / cssH,
+    };
+  }
+
+  /**
+   * Warp the frame just rendered onto the mapped surfaces, or stand down and let
+   * the render show through when nothing is mapped.
+   * @param {HTMLCanvasElement} sourceCanvas the surface that just rendered
+   */
+  function presentMapping(sourceCanvas) {
+    if (!mapCanvas) return;
+    const active = mappingActive();
+
+    if (!active) {
+      if (mappingShown) {
+        mappingShown = false;
+        mapCanvas.style.display = 'none';
+        updatePresentationOpacity();
+      }
+      return;
+    }
+
+    sizeMapCanvas();
+    mappingCompositor.render(sourceCanvas, mappingModel, {
+      frame: frameRectFor(sourceCanvas),
+    });
+
+    if (!mappingShown) {
+      mappingShown = true;
+      mapCanvas.style.display = 'block';
+      updatePresentationOpacity();
+    }
+  }
 
   // --- render loop ---------------------------------------------------------
   function showCanvas(which) {
@@ -1096,11 +1250,13 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     profiler.renderStart();
     if ((tier === TIER.NATIVE || tier === TIER.NATIVE_COMPUTE) && renderNative()) {
       showCanvas('gpu');
+      presentMapping(gpuCanvas);
       profiler.renderEnd();
       return;
     }
     showCanvas('2d');
     paintFallback();
+    presentMapping(fbCanvas);
     profiler.renderEnd();
   }
   showCanvas('2d');
@@ -1189,6 +1345,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     get displayMaxDim() { return displayMaxDim; },
     setComputeMaxDim,
     setDisplayMaxDim,
+    get mappingModel() { return mappingModel; },
+    get mappingShown() { return mappingShown; },
     profiler,
     onMessage,
     closeSelf,

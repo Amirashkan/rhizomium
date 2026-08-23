@@ -90,6 +90,9 @@ export class TauriSecondMonitorViewer {
     // how many pixels the presentation surface spends is configurable here
     // (0 = the display's own resolution).
     this._displayMaxDim = 0;
+    // Latest projection-mapping snapshot, or null while the output is unmapped.
+    // Held so a viewer opened (or reconnected) mid-set starts already aligned.
+    this._mapping = null;
     this._feedbackStateInFlight = false; // a feedback-state capture/broadcast is running
     this._stepSeq = 0;           // sim-step counter (one per COMPUTE_UNIFORMS message)
     this._active = false;
@@ -275,6 +278,9 @@ export class TauriSecondMonitorViewer {
       // A mirror opened mid-set has to start at the level already on the fader,
       // not full brightness.
       this._broadcastMasterOpacity(getOutputOpacity());
+      // Likewise the mapping: a projector re-opened onto the same rig must come
+      // back on its surfaces, not full-frame.
+      this._broadcastMapping();
     }
   }
 
@@ -284,6 +290,28 @@ export class TauriSecondMonitorViewer {
     const level = Number.isFinite(opacity) ? Math.min(1, Math.max(0, opacity)) : 1;
     try {
       this._channel.postMessage({ type: MSG.MASTER_OPACITY, opacity: level });
+    } catch { /* ignore */ }
+  }
+
+  /**
+   * Set the projection mapping the output window warps its frames through.
+   *
+   * Called on every edit while a corner is being dragged, so this stays a
+   * single small structured-clone with no rendering work on the editor's side.
+   *
+   * @param {{enabled:boolean, surfaces:object[]}|null} snapshot a
+   *   MappingModel.serialize() result, or null to present unmapped
+   */
+  setMapping(snapshot) {
+    this._mapping = snapshot || null;
+    this._broadcastMapping();
+  }
+
+  /** Send the held mapping snapshot, if a receiver is listening. */
+  _broadcastMapping() {
+    if (!this._channel || !this._mapping) return;
+    try {
+      this._channel.postMessage({ type: MSG.MAPPING, mapping: this._mapping });
     } catch { /* ignore */ }
   }
 
