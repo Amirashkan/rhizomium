@@ -34,7 +34,7 @@ export class TextureBindings {
       }
     }
 
-    // A ProjectionMap surface samples its flow at a warped coordinate, which only
+    // A ProjectionMap surface samples its source at a warped coordinate, which only
     // a texture can answer, so ComputeExecutor bridges each pin's source through
     // the fragment renderer and publishes it in nodeOutputs under the source's id
     // (see _projectionMapFragmentSources). That is the same place a compute

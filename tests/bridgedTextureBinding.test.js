@@ -6,7 +6,7 @@
 // that map holds real compute nodes only. The renderer used nodeOutputs solely
 // to refresh an existing computeTextures entry, so a bridged texture resolved
 // to nothing and the binding fell through to the 1x1 white dummy: every mapped
-// surface showed flat white instead of its flow.
+// surface showed flat white instead of its source.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { GPURenderer } from '../src/gpu/gpuRenderer.js';
 

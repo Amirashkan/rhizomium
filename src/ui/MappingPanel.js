@@ -10,7 +10,7 @@
 // the output frame (the dashed rectangle) because a surface's corners routinely
 // need to be pulled beyond the frame to cover an object that overshoots it.
 //
-// A surface can also be given its OWN FLOW: drag a node out of the graph and drop
+// A surface can also be given its OWN SOURCE: drag a node out of the graph and drop
 // it on the surface, and that node is wired to the surface's pin on the
 // ProjectionMap node. That node is the mapping in the shader, which is how a
 // mapping reaches the projector — so once it drives the output, the stage stops
@@ -22,7 +22,9 @@
 // bridge, the project file and this UI stay in step without any of them knowing
 // about the others.
 
-import { MappingModel, CORNERS, rectQuad, MAX_MASK_POINTS } from '../mapping/MappingModel.js';
+import {
+  MappingModel, CORNERS, rectQuad, MAX_MASK_POINTS, MASK_PRESET_NAMES,
+} from '../mapping/MappingModel.js';
 import { MappingCompositor, surfaceMatrices } from '../mapping/MappingCompositor.js';
 import { applyMat3 } from '../mapping/homography.js';
 import { makeDraggable } from './utils/draggable.js';
@@ -31,10 +33,11 @@ import { registerNodeDropZone } from './NodeReferenceDrop.js';
 import {
   findProjectionMapNode,
   ensureProjectionMapNode,
-  assignSurfaceFlow,
-  getSurfaceFlow,
+  assignSurfaceSource,
+  getSurfaceSource,
   syncMappingToNode,
-  flowLabel,
+  trimSurfacePins,
+  sourceLabel,
 } from '../mapping/projectionMapNode.js';
 
 /** How far past the output frame the stage shows, as a fraction of the frame. */
@@ -106,6 +109,7 @@ export class MappingPanel {
     /**
      * Which gesture the stage is in.
      *   warp — drag corners and surfaces (the default)
+     *   draw — place a new surface by clicking its four corners
      *   pan  — drag the view itself
      *   mask — add and move the points of a surface's mask polygon
      * Panning is also always available on the middle button, so a mapping can
@@ -114,6 +118,9 @@ export class MappingPanel {
     this.tool = 'warp';
     /** Stage view: a zoom about the frame's centre plus a pixel offset. */
     this.view = { scale: 1, x: 0, y: 0 };
+    /** Corners placed so far in the draw tool, and the live pointer for the rubber band. */
+    this._drawPoints = [];
+    this._drawCursor = null;
     this.testPattern = false;
     /** Corner the arrow keys act on, or null to move the whole surface. */
     this.activeCorner = null;
@@ -134,7 +141,9 @@ export class MappingPanel {
     // code path for what is otherwise the same upload-and-draw.
     this._identityModel = new MappingModel();
     this._identityModel.enabled = true;
-    this._identityModel.addSurface({ name: 'source', dst: rectQuad(0, 0, 1, 1) });
+    this._identityModel.addSurface({ name: 'unwarped', dst: rectQuad(0, 0, 1, 1) });
+    // Nothing at all: used to clear the stage to an empty frame.
+    this._emptyModel = new MappingModel();
 
     this._createPanel();
     this._unsubscribe = this.model.onChange(() => this._onModelChange());
@@ -158,6 +167,7 @@ export class MappingPanel {
         <button class="rz-map-toggle" data-act="test" aria-pressed="false">Test grid</button>
         <div class="rz-map-segment" role="group" aria-label="Tool">
           <button data-act="tool" data-tool="warp" aria-pressed="true" title="Drag corners and surfaces">Warp</button>
+          <button data-act="tool" data-tool="draw" aria-pressed="false" title="Click four corners to place a surface">Draw</button>
           <button data-act="tool" data-tool="pan" aria-pressed="false" title="Drag the view (or hold the middle button in any tool)">Pan</button>
           <button data-act="tool" data-tool="mask" aria-pressed="false" title="Add and move mask points on the selected surface">Mask</button>
         </div>
@@ -280,16 +290,16 @@ export class MappingPanel {
     return false;
   }
 
-  /** The flow feeding a surface, as { id, label }, or null. */
-  _flowFor(surfaceIndex) {
-    const sourceId = getSurfaceFlow(this._node(), surfaceIndex);
+  /** The source feeding a surface, as { id, label }, or null. */
+  _sourceFor(surfaceIndex) {
+    const sourceId = getSurfaceSource(this._node(), surfaceIndex);
     if (!sourceId) return null;
     const source = this._graph()?.nodes?.find((n) => String(n.id) === sourceId);
-    return { id: sourceId, label: source ? flowLabel(source) : `node ${sourceId}` };
+    return { id: sourceId, label: source ? sourceLabel(source) : `node ${sourceId}` };
   }
 
-  /** Wire (or clear) a surface's own flow and rebuild the shader. */
-  _setFlow(surfaceIndex, sourceNodeId) {
+  /** Wire (or clear) a surface's own source and rebuild the shader. */
+  _setSource(surfaceIndex, sourceNodeId) {
     const graph = this._graph();
     if (!graph) return false;
     // Clearing needs no node; assigning brings one into existence.
@@ -298,8 +308,8 @@ export class MappingPanel {
       : ensureProjectionMapNode(graph);
     if (!node) return false;
 
-    const previousId = getSurfaceFlow(node, surfaceIndex);
-    if (!assignSurfaceFlow(graph, node, surfaceIndex, sourceNodeId)) return false;
+    const previousId = getSurfaceSource(node, surfaceIndex);
+    if (!assignSurfaceSource(graph, node, surfaceIndex, sourceNodeId)) return false;
 
     // Hand the node the geometry it was just created for. The model has not
     // CHANGED here — the surfaces already existed — so the change listener that
@@ -354,9 +364,56 @@ export class MappingPanel {
     } catch { /* a stale thumbnail is better than a broken drop */ }
 
     try {
-      editor?.markDirty?.('mapping-flow-changed');
+      editor?.markDirty?.('mapping-source-changed');
       editor?.draw?.();
     } catch { /* ignore */ }
+  }
+
+  /**
+   * Run an edit that moves surfaces around the list, carrying each surface's
+   * SOURCE with it.
+   *
+   * A source is held on the node's pin for the surface's POSITION. Anything that
+   * reorders or removes a surface — send back, bring forward, delete, duplicate
+   * — would otherwise leave the sources sitting where they were and hand every
+   * surface its neighbour's texture.
+   *
+   * @param {() => (Object<string,string>|void)} mutate performs the edit; may
+   *   return { newSurfaceId: inheritFromSurfaceId } so a duplicate keeps the
+   *   source of the surface it was copied from
+   */
+  _preservingSources(mutate) {
+    const node = this._node();
+    if (!node) { mutate(); return; }
+    const graph = this._graph();
+
+    const sourceById = new Map();
+    this.model.surfaces.forEach((surface, i) => {
+      sourceById.set(surface.id, getSurfaceSource(node, i));
+    });
+
+    const inherit = mutate() || null;
+    if (inherit) {
+      for (const [newId, fromId] of Object.entries(inherit)) {
+        sourceById.set(newId, sourceById.get(fromId) ?? null);
+      }
+    }
+
+    const surfaces = this.model.surfaces;
+    let changed = false;
+    for (let i = 0; i < surfaces.length; i++) {
+      const want = sourceById.get(surfaces[i].id) ?? null;
+      if (assignSurfaceSource(graph, node, i, want)) changed = true;
+    }
+    if (trimSurfacePins(graph, node, surfaces.length)) changed = true;
+
+    if (changed) {
+      syncMappingToNode(this.model, node);
+      if (typeof window !== 'undefined' && typeof window.rebuild === 'function') {
+        window.rebuild();
+      }
+      this._afterWiring(graph, node, 0, null, null);
+    }
   }
 
   /**
@@ -381,7 +438,7 @@ export class MappingPanel {
       },
       highlight: (hit) => { this._dropTarget = hit ? hit.index : null; },
       label: (hit) => `→ ${hit.surface.name}`,
-      drop: (hit, nodeId) => { this._setFlow(hit.index, nodeId); },
+      drop: (hit, nodeId) => { this._setSource(hit.index, nodeId); },
     });
   }
 
@@ -523,19 +580,18 @@ export class MappingPanel {
         // Source-crop mode wants the composition flat. So does any mapping that
         // has a node: the node IS the mapping, so warping here would either map
         // a mapping (once it drives the output) or invent content for surfaces —
-        // showing the composition on a surface whose flow is something else.
+        // showing the composition on a surface whose source is something else.
         // Flat, with handles over it, tells the truth in both cases.
         compositor.render(source, this._identityModel, { frame });
       } else if (this.testPattern) {
         compositor.render(source, this.model, { frame, testPattern: true });
       } else {
-        // No node yet, so no surface has a flow of its own. Painting the
-        // composition into them would show content on a surface nothing has
-        // been assigned to — which reads as a texture that came from nowhere.
-        // Draw the frame instead and let the outlines say where the surfaces
-        // are; the alignment grid is there for anyone who wants shapes to aim
-        // with before assigning anything.
-        compositor.render(source, this._identityModel, { frame });
+        // Nothing has a source yet, so there is nothing to show. Painting the
+        // composition here would put a picture on the stage that no surface was
+        // assigned — it reads as a texture that came from nowhere. Clear to the
+        // frame and let the outlines say where the surfaces are; the alignment
+        // grid is there for anyone who wants shapes to aim with first.
+        compositor.render(null, this._emptyModel, { frame });
       }
     }
 
@@ -576,9 +632,47 @@ export class MappingPanel {
       const surface = this.model.surfaces[i];
       this._drawQuad(ctx, surface.dst, surface, surface.id === this.model.selectedId, i);
     }
-    if (!this.model.surfaces.length) {
+    if (this.tool === 'draw' && this._drawPoints.length) {
+      this._drawPending(ctx);
+    } else if (!this.model.surfaces.length && this.tool !== 'draw') {
       this._drawMessage(ctx, f, 'Add a surface to start mapping');
+    } else if (!this.model.surfaces.length) {
+      this._drawMessage(ctx, f, 'Click four corners to place a surface');
     }
+  }
+
+  /** The corners placed so far, with a rubber band out to the cursor. */
+  _drawPending(ctx) {
+    const pts = this._drawPoints.map((p) => this._toScreen(p.x, p.y));
+    ctx.save();
+    ctx.strokeStyle = '#c6f24e';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    if (this._drawCursor) {
+      const cursor = this._toScreen(this._drawCursor.x, this._drawCursor.y);
+      ctx.lineTo(cursor.x, cursor.y);
+      // Close back to the start once three are down, so the shape being made is
+      // readable before the last click commits it.
+      if (pts.length >= 3) ctx.lineTo(pts[0].x, pts[0].y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (let i = 0; i < pts.length; i++) {
+      ctx.beginPath();
+      ctx.rect(pts[i].x - 4, pts[i].y - 4, 8, 8);
+      ctx.fillStyle = '#c6f24e';
+      ctx.fill();
+      ctx.font = '9px ui-monospace, monospace';
+      ctx.fillStyle = 'rgba(255, 244, 230, 0.8)';
+      ctx.textAlign = 'center';
+      ctx.fillText(CORNERS[i], pts[i].x, pts[i].y - 9);
+    }
+    ctx.restore();
   }
 
   _drawQuad(ctx, quad, surface, isSelected, index) {
@@ -624,12 +718,12 @@ export class MappingPanel {
     const label = surface.locked ? `${surface.name} 🔒` : surface.name;
     ctx.fillText(label, cx, cy);
 
-    // The flow this surface is showing, so the rig is readable at a glance.
-    const flow = this._flowFor(index);
-    if (flow) {
+    // The source this surface is showing, so the rig is readable at a glance.
+    const source = this._sourceFor(index);
+    if (source) {
       ctx.font = '9px ui-monospace, monospace';
       ctx.fillStyle = 'rgba(255, 244, 230, 0.6)';
-      ctx.fillText(flow.label, cx, cy + 13);
+      ctx.fillText(source.label, cx, cy + 13);
     }
 
     // The mask, in the surface's own space, drawn as the shape the surface is
@@ -730,6 +824,11 @@ export class MappingPanel {
       return;
     }
 
+    if (this.tool === 'draw') {
+      this._onDrawPointerDown(e, pt);
+      return;
+    }
+
     if (this.tool === 'mask') {
       this._onMaskPointerDown(e, pt);
       return;
@@ -755,6 +854,39 @@ export class MappingPanel {
 
     this.model.select(null);
     this.activeCorner = null;
+  }
+
+  /**
+   * Draw a surface by placing its four corners.
+   *
+   * A default rectangle has to be dragged into shape corner by corner anyway;
+   * clicking where the object's corners actually are gets there in four clicks.
+   * Corners are taken in click order, so going round the object — clockwise from
+   * its top-left — lands them as TL, TR, BR, BL.
+   */
+  _onDrawPointerDown(e, pt) {
+    this._drawPoints.push({ x: pt.x, y: pt.y });
+    e.preventDefault();
+    if (this._drawPoints.length < 4) return;
+
+    const dst = this._drawPoints.slice(0, 4);
+    this._drawPoints = [];
+    const surface = this.model.addSurface({ dst });
+    // A quad with three corners in a line has no projective map; say so rather
+    // than leaving a surface on the list that can never draw.
+    if (!surfaceMatrices(surface)) {
+      this.model.removeSurface(surface.id);
+      this._status('Those four corners do not make a shape — try again', 'error');
+      return;
+    }
+    this._status('Surface drawn');
+  }
+
+  /** Abandon a half-placed surface. */
+  _cancelDraw() {
+    if (!this._drawPoints.length) return false;
+    this._drawPoints = [];
+    return true;
   }
 
   /**
@@ -844,6 +976,7 @@ export class MappingPanel {
   }
 
   _onPointerMove(e) {
+    if (this.tool === 'draw') this._drawCursor = this._pointerToNormalized(e);
     const drag = this._drag;
     if (!drag) {
       this._updateCursor(e);
@@ -909,6 +1042,10 @@ export class MappingPanel {
       if (this.overlay.style.cursor !== 'grab') this.overlay.style.cursor = 'grab';
       return;
     }
+    if (this.tool === 'draw') {
+      if (this.overlay.style.cursor !== 'crosshair') this.overlay.style.cursor = 'crosshair';
+      return;
+    }
     const pt = this._pointerToNormalized(e);
     const f = this._frameRect();
     const tolerance = GRAB_PX / Math.max(1, f.w);
@@ -928,6 +1065,11 @@ export class MappingPanel {
   }
 
   _onKeyDown(e) {
+    if (e.key === 'Escape' && this._cancelDraw()) {
+      this._status('Drawing cancelled');
+      e.preventDefault();
+      return;
+    }
     const selected = this.model.getSelected();
     if (!selected) return;
 
@@ -997,6 +1139,7 @@ export class MappingPanel {
         this._syncToolbar();
         break;
       case 'tool':
+        this._cancelDraw();
         this.tool = button.dataset.tool;
         this.activeCorner = null;
         this._syncToolbar();
@@ -1031,25 +1174,43 @@ export class MappingPanel {
         break;
       }
       case 'duplicate':
-        this.model.duplicateSurface(id);
+        this._preservingSources(() => {
+          const copy = this.model.duplicateSurface(id);
+          // A copy shows what it was copied from; that is what duplicate means.
+          return copy ? { [copy.id]: id } : null;
+        });
         break;
       case 'remove':
-        this.model.removeSurface(id);
+        this._preservingSources(() => { this.model.removeSurface(id); });
         break;
       case 'reset':
         this.model.resetSurface(id);
         break;
-      case 'clear-flow':
+      case 'mask-preset':
+        if (this.model.applyMaskPreset(id, button.dataset.preset)) {
+          this._maskChanged();
+          this._buildInspector();
+          this._status(`Surface cut to ${button.dataset.preset}`);
+        }
+        break;
+      case 'mask-clear':
+        if (this.model.clearMask(id)) {
+          this._maskChanged();
+          this._buildInspector();
+          this._status('Mask cleared');
+        }
+        break;
+      case 'clear-source':
         // The surface falls back to the composition, as an unfed one always has.
-        if (this._setFlow(Number(button.dataset.index), null)) {
-          this._status('Surface flow cleared');
+        if (this._setSource(Number(button.dataset.index), null)) {
+          this._status('Surface source cleared');
         }
         break;
       case 'back':
-        this.model.reorder(id, -1);
+        this._preservingSources(() => { this.model.reorder(id, -1); });
         break;
       case 'forward':
-        this.model.reorder(id, 1);
+        this._preservingSources(() => { this.model.reorder(id, 1); });
         break;
       default:
         return;
@@ -1105,6 +1266,12 @@ export class MappingPanel {
       this.hintEl.innerHTML = `Dragging the view. ${view}`;
       return;
     }
+    if (this.tool === 'draw') {
+      const placed = this._drawPoints.length;
+      this.hintEl.innerHTML = `Placing a surface — ${placed} of 4 corners. `
+        + `Click round the object, starting at its top-left · <kbd>Esc</kbd> cancels. ${view}`;
+      return;
+    }
     if (this.tool === 'mask') {
       this.hintEl.innerHTML = 'Masking the selected surface to a shape. '
         + 'Click to add a point · drag one to move it · <kbd>Alt</kbd>-click a point to remove it · '
@@ -1114,7 +1281,7 @@ export class MappingPanel {
     const shared = 'Drag a corner to pin it · drag inside to move · <kbd>Shift</kbd> snaps · arrows nudge, <kbd>Tab</kbd> picks a corner';
     this.hintEl.innerHTML = this.editMode === 'src'
       ? `Cropping what the selected surface shows. ${shared} · ${view}`
-      : `Pinning surfaces onto the projected frame. Drag a node from the graph onto a surface to give it its own flow · double-click empty space to add one. ${shared} · ${view}`;
+      : `Pinning surfaces onto the projected frame. Drag a node from the graph onto a surface to give it its own source · double-click empty space to add one. ${shared} · ${view}`;
   }
 
   _onModelChange() {
@@ -1134,13 +1301,13 @@ export class MappingPanel {
     for (let i = this.model.surfaces.length - 1; i >= 0; i--) {
       const s = this.model.surfaces[i];
       const swatch = SWATCHES[i % SWATCHES.length];
-      const flow = this._flowFor(i);
+      const source = this._sourceFor(i);
       rows.push(`
         <div class="rz-map-row ${s.id === this.model.selectedId ? 'rz-map-selected' : ''} ${s.enabled ? '' : 'rz-map-off'}"
              data-act="select" data-id="${escapeHtml(s.id)}">
           <span class="rz-map-swatch" style="background:${swatch}"></span>
           <span class="rz-map-row-name">${escapeHtml(s.name)}</span>
-          ${flow ? `<span class="rz-map-flow" title="Showing ${escapeHtml(flow.label)}">${escapeHtml(flow.label)}</span>` : ''}
+          ${source ? `<span class="rz-map-source" title="Showing ${escapeHtml(source.label)}">${escapeHtml(source.label)}</span>` : ''}
           <button class="rz-map-icon-btn" data-act="toggle-enabled" data-id="${escapeHtml(s.id)}"
                   aria-pressed="${s.enabled}" title="${s.enabled ? 'Hide surface' : 'Show surface'}">${s.enabled ? '◉' : '○'}</button>
           <button class="rz-map-icon-btn" data-act="toggle-locked" data-id="${escapeHtml(s.id)}"
@@ -1161,7 +1328,7 @@ export class MappingPanel {
     }
     const id = escapeHtml(surface.id);
     const index = this.model.surfaces.indexOf(surface);
-    const flow = this._flowFor(index);
+    const source = this._sourceFor(index);
     const quad = this.editMode === 'src' ? surface.src : surface.dst;
     const cornerRows = CORNERS.map((label, c) => `
       <span>${label}</span>
@@ -1185,11 +1352,22 @@ export class MappingPanel {
         <span class="rz-map-value" data-role="soft-value">${Math.round(surface.softEdge * 100)}%</span>
       </div>
       <div class="rz-map-field">
-        <label>Flow</label>
-        ${flow
-          ? `<span class="rz-map-flow-name" title="${escapeHtml(flow.label)}">${escapeHtml(flow.label)}</span>
-             <button class="rz-map-btn" data-act="clear-flow" data-index="${index}">Clear</button>`
-          : '<span class="rz-map-note">Drag a node here to give this surface its own flow</span>'}
+        <label>Source</label>
+        ${source
+          ? `<span class="rz-map-source-name" title="${escapeHtml(source.label)}">${escapeHtml(source.label)}</span>
+             <button class="rz-map-btn" data-act="clear-source" data-index="${index}">Clear</button>`
+          : '<span class="rz-map-note">Drag a node here to give this surface its own source</span>'}
+      </div>
+      <div class="rz-map-field">
+        <label>Shape</label>
+        <div class="rz-map-shapes">
+          ${MASK_PRESET_NAMES.map((name) => `
+            <button class="rz-map-btn" data-act="mask-preset" data-id="${id}" data-preset="${name}"
+                    title="Cut this surface to ${name}">${name[0].toUpperCase()}${name.slice(1)}</button>`).join('')}
+          ${(surface.mask || []).length >= 3
+            ? `<button class="rz-map-btn" data-act="mask-clear" data-id="${id}">None</button>`
+            : ''}
+        </div>
       </div>
       <div class="rz-map-note">
         ${this.editMode === 'src'

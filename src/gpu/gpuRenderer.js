@@ -562,7 +562,7 @@ export class GPURenderer {
       // output — is published in nodeOutputs and has NO computeTextures entry:
       // that map holds real compute nodes only, and the lookups above use it to
       // find a sampler. Without this the binding falls through to the 1x1 white
-      // dummy and the consumer shows flat white instead of its flow.
+      // dummy and the consumer shows flat white instead of its source.
       if (!computeInfo) {
         let bridged = currentOutputTexture;
         if (!bridged && computeExecutor.nodeOutputs) {

@@ -14,7 +14,7 @@ export const MAX_MAPPED_SURFACES = 6;
 /** Points a surface's mask may have; mirrors MAX_MASK_POINTS in MappingModel. */
 export const MAX_MASK_POINTS = 8;
 
-/** Identity 3x3, row-major: the whole frame showing the whole flow. */
+/** Identity 3x3, row-major: the whole frame showing the whole source. */
 const IDENTITY_MAT3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 /**
@@ -24,7 +24,7 @@ const IDENTITY_MAT3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
  * 8x8 solve, so the homographies are solved once on the CPU whenever a corner
  * moves (see src/mapping/homography.js) and arrive here already inverted:
  *   m0..m8  output space -> this surface's unit square
- *   n0..n8  unit square  -> the crop of the flow to show
+ *   n0..n8  unit square  -> the crop of the source to show
  * The corners themselves live in the MappingModel, which is what the panel edits
  * and what the project file carries; these are the projection of that state onto
  * what the GPU actually reads.
@@ -159,7 +159,7 @@ export const UtilityNodes = {
    * ProjectionMap - corner-pin each input onto its own quad of the frame.
    *
    * This is the projection-mapping surfaces represented IN THE GRAPH: one input
-   * pin per surface, so each surface can be fed its own flow. It is what carries
+   * pin per surface, so each surface can be fed its own source. It is what carries
    * a mapping to the projector - the second-monitor window re-renders the
    * editor's broadcast WGSL, so a mapping that lives in the shader arrives there
    * (and in the floating preview, and in an export) with nothing mapping-shaped
@@ -168,7 +168,7 @@ export const UtilityNodes = {
    * It does not replace the mapping panel's own compositor: the panel still
    * warps interactively for editing, and a surface with no pin connected falls
    * back to the composition the way it always did. The node adds the per-surface
-   * FLOW, and the shader path that reaches the output.
+   * SOURCE, and the shader path that reaches the output.
    *
    * Inputs are sampled as textures, since a surface has to be read at the warped
    * coordinate its quad implies rather than at the pixel being shaded.

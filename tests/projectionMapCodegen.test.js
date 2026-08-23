@@ -13,7 +13,7 @@ function makeGraph(inputs, extraNodes = []) {
       { id: '5', kind: 'Circle', params: { radius: 0.3 }, inputs: [] },
       ...extraNodes,
       // inputCount is what the canvas draws pins from and what the compiler
-      // reads; assignSurfaceFlow keeps the two in step, so a real node always
+      // reads; assignSurfaceSource keeps the two in step, so a real node always
       // carries it alongside its inputs.
       { id: '12', kind: 'ProjectionMap', params: {}, inputs, inputCount: inputs.length },
       { id: '99', kind: 'OutputFinal', params: {}, inputs: ['12'] },
@@ -85,7 +85,7 @@ describe('ProjectionMap codegen', () => {
     expect(wgsl).toContain('if (soft_12_s0 > 0.0)');
   });
 
-  it('gives every surface its own flow, sampled as its own texture', () => {
+  it('gives every surface its own source, sampled as its own texture', () => {
     const graph = makeGraph(['5', '7'], [
       { id: '7', kind: 'ComputeNoise', params: {}, inputs: [] },
     ]);
@@ -98,7 +98,7 @@ describe('ProjectionMap codegen', () => {
     expect(isBalanced(wgsl)).toBe(true);
   });
 
-  it('declares a binding for a fragment flow bridged to a texture', () => {
+  it('declares a binding for a fragment source bridged to a texture', () => {
     // A Circle is not a compute node; it reaches the surface through the
     // fragment bridge, published under its own id.
     const wgsl = compile(makeGraph(['5']));
@@ -106,7 +106,7 @@ describe('ProjectionMap codegen', () => {
     expect(wgsl).toMatch(/var sampler_compute_node_5: sampler/);
   });
 
-  it('binds a Texture2D flow under its own texture pair instead of bridging it', () => {
+  it('binds a Texture2D source under its own texture pair instead of bridging it', () => {
     const graph = makeGraph(['8'], [
       { id: '8', kind: 'Texture2D', params: {}, inputs: [] },
     ]);
@@ -116,7 +116,7 @@ describe('ProjectionMap codegen', () => {
   });
 
   it('skips an empty pin rather than drawing a black surface over the rig', () => {
-    // A mapping is routinely built one flow at a time.
+    // A mapping is routinely built one source at a time.
     const wgsl = compile(makeGraph([null, '5']));
     expect(wgsl).toContain('// --- surface 2 ---');
     expect(wgsl).not.toContain('// --- surface 1 ---');
@@ -145,7 +145,7 @@ describe('ProjectionMap codegen', () => {
 
   it('samples at an explicit LOD, the only kind WGSL allows inside the clip test', () => {
     // The sample sits inside the surface's containment branch, which is
-    // non-uniform control flow; textureSample's implicit derivatives are
+    // non-uniform control source; textureSample's implicit derivatives are
     // rejected there and the whole shader fails to compile.
     const wgsl = compile(makeGraph(['5']));
     expect(wgsl).toContain('textureSampleLevel(compute_node_5, sampler_compute_node_5, suv_12_s0, 0.0)');

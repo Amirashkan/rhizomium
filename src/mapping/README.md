@@ -71,6 +71,7 @@ gesture you are in to get a closer look.
 | Tool | |
 | --- | --- |
 | **Warp** | Pin corners and move surfaces (the default) |
+| **Draw** | Place a surface by clicking its four corners |
 | **Pan** | Drag the view |
 | **Mask** | Cut the selected surface to a shape |
 
@@ -86,8 +87,14 @@ gesture you are in to get a closer look.
 | Middle-drag | Pan, in any tool |
 | `Fit` | Back to the whole frame |
 
+In the **Draw** tool, click round the object starting at its top-left; four
+corners place the surface. A default rectangle has to be dragged into shape
+corner by corner anyway, so clicking where the corners actually are gets there in
+four clicks. `Esc` abandons a half-placed surface.
+
 In the **Mask** tool: click to add a point, drag one to move it, `Alt`-click to
-remove it, `Esc` clears the mask.
+remove it, `Esc` clears the mask. The inspector also carries one-click shapes —
+ellipse, triangle, arch, diamond — to seed a mask before editing its points.
 
 **Output quad** pins a surface on the projected frame; **Source crop** chooses
 what that surface shows. A locked surface ignores drags, so an aligned rig can't
@@ -110,15 +117,24 @@ filled in.
 Fewer than three points enclose no area, so that is treated as no mask rather
 than masking the surface away entirely.
 
-## Per-surface flows: the ProjectionMap node
+## Sources move with their surfaces
 
-A surface can show the composition, or it can show **its own flow**. Drag a node
+A surface's source lives on the node's pin for that surface's POSITION. Anything
+that reorders or removes a surface — send back, bring forward, delete, duplicate
+— therefore has to carry the sources along with it, or every surface ends up
+showing its neighbour's. The panel captures which source belongs to which surface
+id, performs the edit, and reassigns the pins from that; a duplicate inherits the
+source it was copied from.
+
+## Per-surface sources: the ProjectionMap node
+
+A surface can show the composition, or it can show **its own source**. Drag a node
 out of the graph and drop it on a surface, and that node is wired to the
 surface's pin on a `ProjectionMap` node — created on the first drop, so the
 gesture never fails for a reason invisible from the panel.
 
 `ProjectionMap` is the mapping *in the graph*: one input pin per surface. That is
-what carries a per-surface flow to the projector — the output window re-renders
+what carries a per-surface source to the projector — the output window re-renders
 the editor's broadcast WGSL, so a mapping that lives in the shader arrives there,
 and in the floating preview, and in an export, with nothing mapping-shaped having
 to cross the wire.

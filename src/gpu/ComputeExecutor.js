@@ -9,7 +9,7 @@
  * - Change detection: Only re-dispatches nodes when inputs or parameters change
  * - Flexible API: Supports both ComputeNodeBase (unified API) and legacy ComputeShaderManager
  *
- * Execution Flow:
+ * Execution Source:
  * 1. Initialize: Create fallback texture, load compute nodes, compute execution order
  * 2. Execute: Dispatch nodes in topological order, update output dictionary after each dispatch
  * 3. Propagate: Provide computed outputs (or fallbacks) to dependent nodes
@@ -747,7 +747,7 @@ export class ComputeExecutor {
   /**
    * Sources feeding a ProjectionMap node's surface pins.
    *
-   * A mapping surface samples its flow at the warped coordinate its quad
+   * A mapping surface samples its source at the warped coordinate its quad
    * implies, which only a TEXTURE can answer - so every pin that is not already
    * a compute node is bridged through the fragment renderer, exactly as a field
    * mapper's source is. Each pin is a separate surface, so unlike the mapper
@@ -975,7 +975,7 @@ export class ComputeExecutor {
     // Field mappers and projection-mapping surfaces with a fragment-node source
     // need the auto-bridge below even when there isn't a single registered
     // compute node in the graph. Without this a mapped surface fed by a pure
-    // fragment flow samples a texture nothing ever rendered into.
+    // fragment source samples a texture nothing ever rendered into.
     const bridgeOnlySources = this._fieldMapperFragmentSources()
       .concat(this._projectionMapFragmentSources());
 

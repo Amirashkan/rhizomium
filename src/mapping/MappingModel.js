@@ -46,6 +46,37 @@ function clamp01(v, fallback = 0) {
 }
 
 /**
+ * Ready-made mask shapes, in a surface's unit space.
+ *
+ * A surface's quad is always four-cornered — that is what a homography is — so
+ * every shape other than a rectangle comes from a mask. Seeding one from a
+ * preset and then dragging a few points is far quicker than placing eight points
+ * by hand, and these are the shapes a projector is actually aimed at.
+ *
+ * Point counts stay inside MAX_MASK_POINTS, since the shader unrolls the test.
+ */
+export const MASK_PRESETS = Object.freeze({
+  ellipse: () => {
+    const points = [];
+    for (let i = 0; i < MAX_MASK_POINTS; i++) {
+      const a = (i / MAX_MASK_POINTS) * Math.PI * 2 - Math.PI / 2;
+      points.push({ x: 0.5 + 0.5 * Math.cos(a), y: 0.5 + 0.5 * Math.sin(a) });
+    }
+    return points;
+  },
+  triangle: () => [{ x: 0.5, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }],
+  // A doorway: straight sides, shoulders, and a flat top between them.
+  arch: () => [
+    { x: 0, y: 1 }, { x: 0, y: 0.45 }, { x: 0.22, y: 0.06 },
+    { x: 0.78, y: 0.06 }, { x: 1, y: 0.45 }, { x: 1, y: 1 },
+  ],
+  diamond: () => [{ x: 0.5, y: 0 }, { x: 1, y: 0.5 }, { x: 0.5, y: 1 }, { x: 0, y: 0.5 }],
+});
+
+/** Preset names, for building the picker. */
+export const MASK_PRESET_NAMES = Object.freeze(Object.keys(MASK_PRESETS));
+
+/**
  * A rectangle as a corner quad in TL, TR, BR, BL order.
  * @returns {Array<{x:number,y:number}>}
  */
@@ -396,6 +427,34 @@ export class MappingModel {
     surface.mask = [];
     this._emit();
     return true;
+  }
+
+  /**
+   * Replace a surface's mask outright — used by the shape presets.
+   *
+   * @param {string} id
+   * @param {Array<{x:number,y:number}>} points
+   * @returns {boolean}
+   */
+  setMask(id, points) {
+    const surface = this.getSurface(id);
+    if (!surface || surface.locked) return false;
+    surface.mask = sanitizeMask(points);
+    this._emit();
+    return true;
+  }
+
+  /**
+   * Seed a surface's mask from a named preset.
+   *
+   * @param {string} id
+   * @param {string} preset one of {@link MASK_PRESET_NAMES}
+   * @returns {boolean} false when the preset is unknown
+   */
+  applyMaskPreset(id, preset) {
+    const build = MASK_PRESETS[preset];
+    if (typeof build !== 'function') return false;
+    return this.setMask(id, build());
   }
 
   /**

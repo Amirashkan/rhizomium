@@ -437,8 +437,8 @@
   line-height: 1.5;
 }
 
-/* The flow a surface is showing — a node dragged onto it from the graph. */
-.rz-map-flow {
+/* The source a surface is showing — a node dragged onto it from the graph. */
+.rz-map-source {
   flex: none;
   max-width: 74px;
   overflow: hidden;
@@ -452,7 +452,7 @@
   font-size: 9px;
 }
 
-.rz-map-flow-name {
+.rz-map-source-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -461,4 +461,18 @@
   color: var(--rz-accent);
   font-family: var(--rz-font-mono);
   font-size: 11px;
+}
+
+/* Mask shape presets — a row of one-click shapes to seed a mask with. */
+.rz-map-shapes {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.rz-map-shapes .rz-map-btn {
+  padding: 3px 6px;
+  font-size: 10px;
 }

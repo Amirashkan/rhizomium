@@ -2,7 +2,7 @@
 //
 // Compiles the ProjectionMap node: the projection-mapping surfaces, in the shader.
 //
-// Each input pin is one surface's own flow, sampled as a texture so it can be
+// Each input pin is one surface's own source, sampled as a texture so it can be
 // read at the warped coordinate the surface's quad implies rather than at the
 // pixel being shaded. ComputeExecutor bridges any non-compute pin through the
 // fragment renderer and publishes it under the source's id, so every pin binds
@@ -166,10 +166,10 @@ export class ProjectionMapNodes {
         );
         if (abs(hs_${tag}.z) > ${W_EPSILON}) {
           // Already in the composition's own top-down space, which is what the
-          // flow's texture is stored in — no further flip.
+          // source's texture is stored in — no further flip.
           let suv_${tag} = hs_${tag}.xy / hs_${tag}.z;
           // textureSampleLevel, not textureSample: the sample sits inside the
-          // surface's clip test, which is non-uniform control flow, and WGSL
+          // surface's clip test, which is non-uniform control source, and WGSL
           // forbids implicit-derivative sampling there (neighbouring
           // invocations may have taken the other branch). An explicit LOD needs
           // no derivatives — and a mapped surface samples a full-resolution
@@ -211,7 +211,7 @@ export class ProjectionMapNodes {
     for (let i = 0; i < pinCount; i++) {
       const binding = this._pinTexture(node, i);
       // An empty pin contributes nothing rather than a black surface — a mapping
-      // is routinely built one flow at a time.
+      // is routinely built one source at a time.
       if (!binding) continue;
       surfaces.push(this._compileSurface(node, nodeId, i, binding));
     }

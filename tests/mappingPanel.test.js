@@ -466,13 +466,13 @@ describe('MappingPanel', () => {
     });
   });
 
-  // --- per-surface flows ----------------------------------------------------
+  // --- per-surface sources ----------------------------------------------------
   //
   // Dropping a node on a surface wires it to that surface's pin on the
   // ProjectionMap node — the mapping in the shader, and so the thing that
-  // carries a surface's own flow all the way to the projector.
+  // carries a surface's own source all the way to the projector.
 
-  describe('surface flows', () => {
+  describe('surface sources', () => {
     let graph;
 
     beforeEach(() => {
@@ -499,7 +499,7 @@ describe('MappingPanel', () => {
       const surface = model.addSurface({ dst: rectQuad(0.2, 0.2, 0.4, 0.4) });
       expect(projectionNode()).toBeUndefined();
 
-      expect(panel._setFlow(0, '5')).toBe(true);
+      expect(panel._setSource(0, '5')).toBe(true);
 
       const node = projectionNode();
       expect(node).toBeDefined();
@@ -508,45 +508,45 @@ describe('MappingPanel', () => {
       expect(window.rebuild).toHaveBeenCalled(); // a changed pin changes the shader
     });
 
-    it('gives each surface its own flow', () => {
+    it('gives each surface its own source', () => {
       model.addSurface();
       model.addSurface();
-      panel._setFlow(0, '5');
-      panel._setFlow(1, '6');
+      panel._setSource(0, '5');
+      panel._setSource(1, '6');
       expect(projectionNode().inputs).toEqual(['5', '6']);
       // The node must actually SHOW two pins, or the second wire lands past the
       // pin count and is pruned as out of range.
       expect(getInputCount(projectionNode())).toBe(2);
       // The label is what the node is CALLED in the graph, not its kind — a
       // user who dropped "Compute Noise" should not be told "ComputeNoise".
-      expect(panel._flowFor(0).label).toBe('Circle');
-      expect(panel._flowFor(1).label).toBe('Compute Noise');
+      expect(panel._sourceFor(0).label).toBe('Circle');
+      expect(panel._sourceFor(1).label).toBe('Compute Noise');
     });
 
-    it('reports no flow for a surface that falls back to the composition', () => {
+    it('reports no source for a surface that falls back to the composition', () => {
       model.addSurface();
-      expect(panel._flowFor(0)).toBeNull();
+      expect(panel._sourceFor(0)).toBeNull();
     });
 
-    it('clears a flow back to the composition', () => {
+    it('clears a source back to the composition', () => {
       model.addSurface();
-      panel._setFlow(0, '5');
-      expect(panel._setFlow(0, null)).toBe(true);
-      expect(panel._flowFor(0)).toBeNull();
+      panel._setSource(0, '5');
+      expect(panel._setSource(0, null)).toBe(true);
+      expect(panel._sourceFor(0)).toBeNull();
     });
 
-    it('shows the flow in the surface list and the inspector', () => {
+    it('shows the source in the surface list and the inspector', () => {
       model.addSurface();
-      panel._setFlow(0, '5');
-      expect(panel.listEl.querySelector('.rz-map-flow').textContent).toBe('Circle');
-      expect(panel.inspectorEl.querySelector('.rz-map-flow-name').textContent).toBe('Circle');
+      panel._setSource(0, '5');
+      expect(panel.listEl.querySelector('.rz-map-source').textContent).toBe('Circle');
+      expect(panel.inspectorEl.querySelector('.rz-map-source-name').textContent).toBe('Circle');
     });
 
-    it('offers a Clear button only once a surface has a flow', () => {
+    it('offers a Clear button only once a surface has a source', () => {
       model.addSurface();
-      expect(panel.inspectorEl.querySelector('[data-act="clear-flow"]')).toBeNull();
-      panel._setFlow(0, '5');
-      expect(panel.inspectorEl.querySelector('[data-act="clear-flow"]')).not.toBeNull();
+      expect(panel.inspectorEl.querySelector('[data-act="clear-source"]')).toBeNull();
+      panel._setSource(0, '5');
+      expect(panel.inspectorEl.querySelector('[data-act="clear-source"]')).not.toBeNull();
     });
 
 
@@ -559,7 +559,7 @@ describe('MappingPanel', () => {
       // is dragged.
       model.addSurface({ dst: rectQuad(0.1, 0.1, 0.4, 0.4) });
       model.addSurface({ dst: rectQuad(0.5, 0.5, 0.4, 0.4) });
-      panel._setFlow(0, '5');
+      panel._setSource(0, '5');
 
       const node = projectionNode();
       // A quarter-size surface inverts to a scale of 2.5, not the identity's 1.
@@ -584,7 +584,7 @@ describe('MappingPanel', () => {
 
       try {
         model.addSurface();
-        panel._setFlow(0, '5');
+        panel._setSource(0, '5');
 
         const node = projectionNode();
         expect(created).toHaveBeenCalledWith('5', node.id, 0, 0);
@@ -593,7 +593,7 @@ describe('MappingPanel', () => {
         expect(draw).toHaveBeenCalled();
 
         // Re-feeding the surface retires the wire it replaces.
-        panel._setFlow(0, '6');
+        panel._setSource(0, '6');
         expect(deleted).toHaveBeenCalledWith(expect.objectContaining({
           targetNode: node,
           targetInput: 0,
@@ -615,7 +615,7 @@ describe('MappingPanel', () => {
       };
       try {
         model.addSurface();
-        expect(panel._setFlow(0, '5')).toBe(true);
+        expect(panel._setSource(0, '5')).toBe(true);
         expect(projectionNode().inputs[0]).toBe('5');
       } finally {
         delete window.onConnectionCreated;
@@ -626,16 +626,87 @@ describe('MappingPanel', () => {
 
     it('stops warping locally as soon as the mapping has a node', () => {
       // The node IS the mapping. Warping here too would either map a mapping or
-      // paint the composition onto a surface whose flow is something else.
+      // paint the composition onto a surface whose source is something else.
       model.addSurface();
       expect(panel._node()).toBeNull();
-      panel._setFlow(0, '5');
+      panel._setSource(0, '5');
       expect(panel._node()).not.toBeNull();
+    });
+
+
+    it('carries each surface\'s source with it when the order changes', () => {
+      // A source sits on the pin for the surface's POSITION, so reordering used to
+      // leave the sources behind and hand every surface its neighbour's texture.
+      const a = model.addSurface();
+      const b = model.addSurface();
+      panel._setSource(0, '5');
+      panel._setSource(1, '6');
+      expect(panel._sourceFor(0).id).toBe('5');
+
+      panel.panel.querySelector('[data-act="forward"]').dataset.id = a.id;
+      panel.panel.querySelector('[data-act="forward"]').click();
+
+      // `a` is now second and must still be showing its own source.
+      expect(model.surfaces.map((s) => s.id)).toEqual([b.id, a.id]);
+      expect(panel._sourceFor(0).id).toBe('6');
+      expect(panel._sourceFor(1).id).toBe('5');
+    });
+
+    it('carries sources across a deletion', () => {
+      const a = model.addSurface();
+      const b = model.addSurface();
+      panel._setSource(0, '5');
+      panel._setSource(1, '6');
+
+      const remove = document.createElement('button');
+      remove.dataset.act = 'remove';
+      remove.dataset.id = a.id;
+      panel.panel.appendChild(remove);
+      remove.click();
+      remove.remove();
+
+      expect(model.surfaces.map((s) => s.id)).toEqual([b.id]);
+      // The surviving surface keeps ITS source, not the deleted one's.
+      expect(panel._sourceFor(0).id).toBe('6');
+    });
+
+    it('drops the pin a deleted surface was using', () => {
+      model.addSurface();
+      model.addSurface();
+      panel._setSource(0, '5');
+      panel._setSource(1, '6');
+      expect(getInputCount(projectionNode())).toBe(2);
+
+      const remove = document.createElement('button');
+      remove.dataset.act = 'remove';
+      remove.dataset.id = model.surfaces[1].id;
+      panel.panel.appendChild(remove);
+      remove.click();
+      remove.remove();
+
+      expect(getInputCount(projectionNode())).toBe(1);
+      expect(graph.connections.filter((c) => c.to.pin === 1)).toHaveLength(0);
+    });
+
+    it('gives a duplicate the source it was copied from', () => {
+      const a = model.addSurface();
+      panel._setSource(0, '5');
+
+      const dup = document.createElement('button');
+      dup.dataset.act = 'duplicate';
+      dup.dataset.id = a.id;
+      panel.panel.appendChild(dup);
+      dup.click();
+      dup.remove();
+
+      expect(model.surfaces).toHaveLength(2);
+      expect(panel._sourceFor(0).id).toBe('5');
+      expect(panel._sourceFor(1).id).toBe('5');
     });
 
     it('knows when the node is already putting the mapping on screen', () => {
       model.addSurface();
-      panel._setFlow(0, '5');
+      panel._setSource(0, '5');
       const node = projectionNode();
       // Not wired to the output yet.
       expect(panel._nodeDrivesOutput()).toBe(false);
@@ -645,7 +716,7 @@ describe('MappingPanel', () => {
 
     it('follows the graph back through intermediate nodes to the output', () => {
       model.addSurface();
-      panel._setFlow(0, '5');
+      panel._setSource(0, '5');
       const node = projectionNode();
       graph.nodes.push({ id: '50', kind: 'ColorInvert', params: {}, inputs: [node.id] });
       graph.nodes.find((n) => n.kind === 'OutputFinal').inputs = ['50'];
@@ -703,7 +774,7 @@ describe('MappingPanel', () => {
       expect(zone.accepts('5')).toBe(false); // no surfaces yet
       model.addSurface();
       expect(zone.accepts('5')).toBe(true);
-      // Cropping edits what a surface shows, not which flow feeds it.
+      // Cropping edits what a surface shows, not which source feeds it.
       panel.editMode = 'src';
       expect(zone.accepts('5')).toBe(false);
     });

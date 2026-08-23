@@ -18,7 +18,7 @@ import { MAX_MAPPED_SURFACES, MAX_MASK_POINTS } from '../data/nodes/UtilityNodes
 import { makeNode, updateNodeIdCounter, NodeDefs } from '../data/NodeDefs.js';
 import { getInputCount, setInputCount } from '../data/nodeInputs.js';
 
-/** The identity mapping: the whole frame showing the whole flow. */
+/** The identity mapping: the whole frame showing the whole source. */
 const IDENTITY_MAT3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 /**
@@ -40,7 +40,7 @@ export function findProjectionMapNode(graph) {
 /**
  * The graph's ProjectionMap node, creating one if the graph has none.
  *
- * Dropping a flow onto a surface is the gesture that brings the node into
+ * Dropping a source onto a surface is the gesture that brings the node into
  * existence: asking someone to add it by hand first would make the drop fail for
  * a reason that is invisible from the mapping panel.
  *
@@ -183,34 +183,58 @@ export function syncMappingToNode(model, node, deps = {}) {
 }
 
 /**
- * The node currently feeding a surface's pin, or null when it has no flow of its
+ * Trim the node to a surface count, dropping the pins past it.
+ *
+ * Removing a surface has to remove its pin too, or the node keeps an input the
+ * mapping no longer has anything to put on.
+ *
+ * @param {object} graph
+ * @param {object} node the ProjectionMap node
+ * @param {number} count how many surfaces the mapping now has
+ * @returns {boolean} whether anything changed
+ */
+export function trimSurfacePins(graph, node, count) {
+  if (!node || node.kind !== 'ProjectionMap') return false;
+  const keep = Math.max(1, Math.min(MAX_MAPPED_SURFACES, Math.floor(count) || 0));
+  if (getInputCount(node) <= keep) return false;
+
+  // Clear through assignSurfaceSource so the wires go with the pins.
+  for (let i = keep; i < getInputCount(node); i++) {
+    assignSurfaceSource(graph, node, i, null);
+  }
+  setInputCount(node, keep);
+  return true;
+}
+
+/**
+ * The node currently feeding a surface's pin, or null when it has no source of its
  * own (and so falls back to the composition).
  *
  * @param {object} node the ProjectionMap node
  * @param {number} index
  * @returns {string|null} the source node's id
  */
-export function getSurfaceFlow(node, index) {
+export function getSurfaceSource(node, index) {
   if (!node || !Array.isArray(node.inputs)) return null;
   const sourceId = node.inputs[index];
   return (sourceId === null || sourceId === undefined) ? null : String(sourceId);
 }
 
 /**
- * The name a flow shows under, matching what is written on the node in the graph
+ * The name a source shows under, matching what is written on the node in the graph
  * rather than its internal kind — a user who dropped "Gradient" should not be
  * told the surface is showing "ComputeGradient".
  *
  * @param {object} sourceNode
  * @returns {string}
  */
-export function flowLabel(sourceNode) {
+export function sourceLabel(sourceNode) {
   if (!sourceNode) return '';
   return sourceNode.name || NodeDefs[sourceNode.kind]?.label || sourceNode.kind || '';
 }
 
 /**
- * Give a surface its own flow.
+ * Give a surface its own source.
  *
  * A connection lives in TWO places: `graph.connections`, which is what draws the
  * wire and what save/load and undo read, and the target's `inputs` array, which
@@ -229,7 +253,7 @@ export function flowLabel(sourceNode) {
  * @param {string|null} sourceId node to feed it from, or null to clear
  * @returns {boolean} whether the wiring changed
  */
-export function assignSurfaceFlow(graph, node, index, sourceId) {
+export function assignSurfaceSource(graph, node, index, sourceId) {
   if (!node || node.kind !== 'ProjectionMap') return false;
   if (!(index >= 0 && index < MAX_MAPPED_SURFACES)) return false;
   // A node feeding itself is a cycle the compiler cannot resolve.
