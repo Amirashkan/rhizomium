@@ -406,6 +406,25 @@ describe('MappingPanel', () => {
     });
 
 
+
+    it('hands the node the current geometry the moment it is created', () => {
+      // The surfaces already exist when the node appears, so the model does not
+      // CHANGE and the listener that normally syncs it never fires. Without this
+      // every surface sits at the identity matrix — each covering the whole
+      // frame, so the last drawn wins and the mapping only appears once a corner
+      // is dragged.
+      model.addSurface({ dst: rectQuad(0.1, 0.1, 0.4, 0.4) });
+      model.addSurface({ dst: rectQuad(0.5, 0.5, 0.4, 0.4) });
+      panel._setFlow(0, '5');
+
+      const node = projectionNode();
+      // A quarter-size surface inverts to a scale of 2.5, not the identity's 1.
+      expect(node.params.s0m0).toBeCloseTo(2.5, 6);
+      expect(node.params.s1m0).toBeCloseTo(2.5, 6);
+      // and the two surfaces are not sitting on top of each other
+      expect(node.params.s0m2).not.toBeCloseTo(node.params.s1m2, 3);
+    });
+
     it('records the wiring for undo and refreshes what the canvas shows', () => {
       // Writing the connection is only half of what a dragged wire does. Without
       // the rest the drop is not undoable, the wire is not drawn, and the node
@@ -458,6 +477,16 @@ describe('MappingPanel', () => {
         delete window.onConnectionCreated;
         delete window.editor;
       }
+    });
+
+
+    it('stops warping locally as soon as the mapping has a node', () => {
+      // The node IS the mapping. Warping here too would either map a mapping or
+      // paint the composition onto a surface whose flow is something else.
+      model.addSurface();
+      expect(panel._node()).toBeNull();
+      panel._setFlow(0, '5');
+      expect(panel._node()).not.toBeNull();
     });
 
     it('knows when the node is already putting the mapping on screen', () => {

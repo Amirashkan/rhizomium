@@ -972,11 +972,14 @@ export class ComputeExecutor {
       return;
     }
 
-    // Field mappers with a fragment-node source need the auto-bridge below
-    // even when there isn't a single registered compute node in the graph
-    const mapperFragmentSources = this._fieldMapperFragmentSources();
+    // Field mappers and projection-mapping surfaces with a fragment-node source
+    // need the auto-bridge below even when there isn't a single registered
+    // compute node in the graph. Without this a mapped surface fed by a pure
+    // fragment flow samples a texture nothing ever rendered into.
+    const bridgeOnlySources = this._fieldMapperFragmentSources()
+      .concat(this._projectionMapFragmentSources());
 
-    if ((!this.initialized || this.computeManagers.size === 0) && mapperFragmentSources.length === 0) {
+    if ((!this.initialized || this.computeManagers.size === 0) && bridgeOnlySources.length === 0) {
       return;
     }
 

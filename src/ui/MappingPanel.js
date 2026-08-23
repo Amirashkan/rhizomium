@@ -32,6 +32,7 @@ import {
   ensureProjectionMapNode,
   assignSurfaceFlow,
   getSurfaceFlow,
+  syncMappingToNode,
   flowLabel,
 } from '../mapping/projectionMapNode.js';
 
@@ -260,6 +261,13 @@ export class MappingPanel {
     const previousId = getSurfaceFlow(node, surfaceIndex);
     if (!assignSurfaceFlow(graph, node, surfaceIndex, sourceNodeId)) return false;
 
+    // Hand the node the geometry it was just created for. The model has not
+    // CHANGED here — the surfaces already existed — so the change listener that
+    // normally syncs it never fires, and every surface would sit at the default
+    // identity matrix: each one covering the whole frame, so the last drawn wins
+    // and the mapping only appears once a corner is dragged.
+    syncMappingToNode(this.model, node);
+
     this._afterWiring(graph, node, surfaceIndex, previousId, sourceNodeId);
 
     // A changed pin changes the shader's structure, so this one does rebuild.
@@ -423,10 +431,13 @@ export class MappingPanel {
     if (compositor.isReady()) {
       compositor.resize(f.sw * dpr, f.sh * dpr);
       const source = this.getSource();
-      if (this.editMode === 'src' || this._nodeDrivesOutput()) {
-        // Source-crop mode wants the composition flat; and once the node is
-        // driving the output the render already carries the mapping, so warping
-        // it here would map a mapping.
+      if (this.editMode === 'src' || this._node()) {
+        // Source-crop mode wants the composition flat. So does any mapping that
+        // has a node: the node IS the mapping, so warping here would either map
+        // a mapping (once it drives the output) or invent content for surfaces —
+        // showing the composition on a surface whose flow is something else, or
+        // on one with no flow at all. Flat, with handles over it, tells the
+        // truth in both cases.
         compositor.render(source, this._identityModel, { frame });
       } else {
         compositor.render(source, this.model, { frame, testPattern: this.testPattern });
