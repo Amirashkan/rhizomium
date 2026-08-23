@@ -71,7 +71,7 @@ gesture you are in to get a closer look.
 | Tool | |
 | --- | --- |
 | **Warp** | Pin corners and move surfaces (the default) |
-| **Draw** | Place a surface by clicking its four corners |
+| **Draw** | Draw a surface's outline, one click per point |
 | **Pan** | Drag the view |
 | **Mask** | Cut the selected surface to a shape |
 
@@ -87,10 +87,16 @@ gesture you are in to get a closer look.
 | Middle-drag | Pan, in any tool |
 | `Fit` | Back to the whole frame |
 
-In the **Draw** tool, click round the object starting at its top-left; four
-corners place the surface. A default rectangle has to be dragged into shape
-corner by corner anyway, so clicking where the corners actually are gets there in
-four clicks. `Esc` abandons a half-placed surface.
+In the **Draw** tool, click round the object one point at a time and close with
+`Enter`, a double-click, or a click back on the first point. `Esc` abandons a
+half-drawn outline.
+
+A surface's *warp* is always four-cornered — that is what a homography is — but
+its *shape* need not be. **Four** points are taken as the quad itself, keeping
+the familiar corner pin with four draggable handles. **Any other count** becomes
+the quad that bounds the outline, with the outline as the surface's mask: the
+shape is what you drew, and the four corners are still there to keystone it
+with.
 
 In the **Mask** tool: click to add a point, drag one to move it, `Alt`-click to
 remove it, `Esc` clears the mask. The inspector also carries one-click shapes —

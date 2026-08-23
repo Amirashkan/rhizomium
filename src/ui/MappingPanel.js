@@ -637,7 +637,7 @@ export class MappingPanel {
     } else if (!this.model.surfaces.length && this.tool !== 'draw') {
       this._drawMessage(ctx, f, 'Add a surface to start mapping');
     } else if (!this.model.surfaces.length) {
-      this._drawMessage(ctx, f, 'Click four corners to place a surface');
+      this._drawMessage(ctx, f, 'Click round the object to draw a surface');
     }
   }
 
@@ -662,6 +662,15 @@ export class MappingPanel {
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // Ring the first point once the outline can be closed on it.
+    if (pts.length >= 3) {
+      ctx.beginPath();
+      ctx.arc(pts[0].x, pts[0].y, 7, 0, Math.PI * 2);
+      ctx.strokeStyle = '#c6f24e';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
     for (let i = 0; i < pts.length; i++) {
       ctx.beginPath();
       ctx.rect(pts[i].x - 4, pts[i].y - 4, 8, 8);
@@ -670,7 +679,10 @@ export class MappingPanel {
       ctx.font = '9px ui-monospace, monospace';
       ctx.fillStyle = 'rgba(255, 244, 230, 0.8)';
       ctx.textAlign = 'center';
-      ctx.fillText(CORNERS[i], pts[i].x, pts[i].y - 9);
+      // Four points become a quad, so name them as corners; otherwise number
+      // them, since the shape is an outline rather than a corner pin.
+      const label = this._drawPoints.length === 4 ? CORNERS[i] : String(i + 1);
+      ctx.fillText(label, pts[i].x, pts[i].y - 9);
     }
     ctx.restore();
   }
@@ -857,35 +869,97 @@ export class MappingPanel {
   }
 
   /**
-   * Draw a surface by placing its four corners.
+   * Draw a surface by placing its outline, one click per point.
    *
-   * A default rectangle has to be dragged into shape corner by corner anyway;
-   * clicking where the object's corners actually are gets there in four clicks.
-   * Corners are taken in click order, so going round the object — clockwise from
-   * its top-left — lands them as TL, TR, BR, BL.
+   * A surface's WARP is always four-cornered — that is what a homography is —
+   * but its SHAPE need not be. Four points are taken as the quad itself, which
+   * keeps the familiar corner-pin with four draggable handles. Any other count
+   * becomes the quad that bounds the outline, with the outline itself as the
+   * surface's mask: the shape is what was drawn, and the four corners are still
+   * there to keystone it with.
+   *
+   * Close with Enter, a double-click, or a click back on the first point.
    */
   _onDrawPointerDown(e, pt) {
-    this._drawPoints.push({ x: pt.x, y: pt.y });
     e.preventDefault();
-    if (this._drawPoints.length < 4) return;
 
-    const dst = this._drawPoints.slice(0, 4);
-    this._drawPoints = [];
-    const surface = this.model.addSurface({ dst });
-    // A quad with three corners in a line has no projective map; say so rather
-    // than leaving a surface on the list that can never draw.
-    if (!surfaceMatrices(surface)) {
-      this.model.removeSurface(surface.id);
-      this._status('Those four corners do not make a shape — try again', 'error');
+    // Clicking the first point again closes the outline, the way a pen tool does.
+    if (this._drawPoints.length >= 3) {
+      const first = this._toScreen(this._drawPoints[0].x, this._drawPoints[0].y);
+      const here = this._toScreen(pt.x, pt.y);
+      if (Math.hypot(first.x - here.x, first.y - here.y) <= GRAB_PX) {
+        this._commitDraw();
+        return;
+      }
+    }
+
+    if (this._drawPoints.length >= MAX_MASK_POINTS) {
+      this._status(`An outline holds at most ${MAX_MASK_POINTS} points`, 'error');
       return;
     }
-    this._status('Surface drawn');
+    this._drawPoints.push({ x: pt.x, y: pt.y });
+    this._updateHint();
   }
 
-  /** Abandon a half-placed surface. */
+  /**
+   * Turn the placed points into a surface.
+   * @returns {boolean} whether one was made
+   */
+  _commitDraw() {
+    const points = this._drawPoints;
+    if (points.length < 3) {
+      this._status('An outline needs at least three points', 'error');
+      return false;
+    }
+
+    const drawn = points.slice();
+    this._drawPoints = [];
+
+    // Four points ARE the quad: keep the plain corner-pin rather than wrapping
+    // them in a bounding box and a mask that says the same thing.
+    if (drawn.length === 4) {
+      const surface = this.model.addSurface({ dst: drawn });
+      if (!surfaceMatrices(surface)) {
+        this.model.removeSurface(surface.id);
+        this._status('Those corners do not make a shape — try again', 'error');
+        return false;
+      }
+      this._status('Surface drawn');
+      this._updateHint();
+      return true;
+    }
+
+    const xs = drawn.map((p) => p.x);
+    const ys = drawn.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const w = maxX - minX;
+    const h = maxY - minY;
+    if (!(w > 1e-4 && h > 1e-4)) {
+      this._status('Those points lie in a line — try again', 'error');
+      this._updateHint();
+      return false;
+    }
+
+    // The mask is the outline in the quad's own space, so it keystones with the
+    // surface when the corners are later dragged onto the object.
+    const surface = this.model.addSurface({
+      dst: rectQuad(minX, minY, w, h),
+      mask: drawn.map((p) => ({ x: (p.x - minX) / w, y: (p.y - minY) / h })),
+    });
+    this._maskChanged();
+    this._status(`Surface drawn — ${drawn.length} points`);
+    this._updateHint();
+    return !!surface;
+  }
+
+  /** Abandon a half-drawn outline. */
   _cancelDraw() {
     if (!this._drawPoints.length) return false;
     this._drawPoints = [];
+    this._updateHint();
     return true;
   }
 
@@ -1029,6 +1103,13 @@ export class MappingPanel {
 
   /** Double-clicking empty stage space drops a new surface centred there. */
   _onDoubleClick(e) {
+    if (this.tool === 'draw') {
+      // The double-click's first press already placed a point; the outline is
+      // finished with what is down.
+      this._commitDraw();
+      e.preventDefault();
+      return;
+    }
     if (this.editMode !== 'dst') return;
     const pt = this._pointerToNormalized(e);
     if (this.model.hitTestSurface(pt.x, pt.y)) return;
@@ -1065,6 +1146,11 @@ export class MappingPanel {
   }
 
   _onKeyDown(e) {
+    if (this.tool === 'draw' && (e.key === 'Enter' || e.key === ' ') && this._drawPoints.length) {
+      this._commitDraw();
+      e.preventDefault();
+      return;
+    }
     if (e.key === 'Escape' && this._cancelDraw()) {
       this._status('Drawing cancelled');
       e.preventDefault();
@@ -1268,8 +1354,12 @@ export class MappingPanel {
     }
     if (this.tool === 'draw') {
       const placed = this._drawPoints.length;
-      this.hintEl.innerHTML = `Placing a surface — ${placed} of 4 corners. `
-        + `Click round the object, starting at its top-left · <kbd>Esc</kbd> cancels. ${view}`;
+      const close = placed >= 3
+        ? '<kbd>Enter</kbd>, double-click or click the first point to close'
+        : 'at least three points';
+      this.hintEl.innerHTML = `Drawing a surface — ${placed} point${placed === 1 ? '' : 's'} placed. `
+        + `Click round the object · ${close} · <kbd>Esc</kbd> cancels. `
+        + `Four points make a plain quad; any other count keeps the shape you drew. ${view}`;
       return;
     }
     if (this.tool === 'mask') {

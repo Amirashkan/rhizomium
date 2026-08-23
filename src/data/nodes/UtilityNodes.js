@@ -12,7 +12,7 @@
 export const MAX_MAPPED_SURFACES = 6;
 
 /** Points a surface's mask may have; mirrors MAX_MASK_POINTS in MappingModel. */
-export const MAX_MASK_POINTS = 8;
+export const MAX_MASK_POINTS = 16;
 
 /** Identity 3x3, row-major: the whole frame showing the whole source. */
 const IDENTITY_MAT3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];

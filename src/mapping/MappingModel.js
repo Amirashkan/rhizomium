@@ -18,11 +18,15 @@
 export const CORNERS = Object.freeze(['TL', 'TR', 'BR', 'BL']);
 
 /**
- * Points a surface's mask may have. The shader unrolls the crossing test, so
- * this is a real ceiling rather than a soft one; eight is enough for the shapes
- * a projector actually needs (a doorway, an arch, a notch cut around a pillar).
+ * Points a surface's mask may have.
+ *
+ * The shader unrolls the crossing test, so this is a real ceiling rather than a
+ * soft one — but it only emits the points a surface actually uses, so raising it
+ * costs an unmasked surface nothing. Sixteen covers the shapes a projector is
+ * genuinely aimed at: an arch, a window frame, a notch cut around a pillar, the
+ * outline of a truss.
  */
-export const MAX_MASK_POINTS = 8;
+export const MAX_MASK_POINTS = 16;
 
 /** How far outside the output frame a corner may be dragged. */
 const COORD_MIN = -1;
@@ -57,9 +61,12 @@ function clamp01(v, fallback = 0) {
  */
 export const MASK_PRESETS = Object.freeze({
   ellipse: () => {
+    // Twelve reads as a smooth curve without spending the whole point budget,
+    // leaving room to drag a few more in.
+    const segments = Math.min(12, MAX_MASK_POINTS);
     const points = [];
-    for (let i = 0; i < MAX_MASK_POINTS; i++) {
-      const a = (i / MAX_MASK_POINTS) * Math.PI * 2 - Math.PI / 2;
+    for (let i = 0; i < segments; i++) {
+      const a = (i / segments) * Math.PI * 2 - Math.PI / 2;
       points.push({ x: 0.5 + 0.5 * Math.cos(a), y: 0.5 + 0.5 * Math.sin(a) });
     }
     return points;

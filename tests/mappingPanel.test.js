@@ -6,7 +6,9 @@
 // coordinate mapping the part most worth pinning down.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MappingPanel } from '../src/ui/MappingPanel.js';
-import { MappingModel, rectQuad, resetSurfaceIdCounter } from '../src/mapping/MappingModel.js';
+import {
+  MappingModel, rectQuad, resetSurfaceIdCounter, MAX_MASK_POINTS,
+} from '../src/mapping/MappingModel.js';
 import * as dropModule from '../src/ui/NodeReferenceDrop.js';
 import { getInputCount } from '../src/data/nodeInputs.js';
 
@@ -381,6 +383,126 @@ describe('MappingPanel', () => {
       expect(panel.tool).toBe('mask');
       expect(maskBtn.getAttribute('aria-pressed')).toBe('true');
       expect(panel.panel.querySelector('[data-act="tool"][data-tool="warp"]').getAttribute('aria-pressed')).toBe('false');
+    });
+  });
+
+
+  describe('draw tool', () => {
+    beforeEach(() => {
+      panel.tool = 'draw';
+      window.graph = { nodes: [{ id: '5', kind: 'Circle', params: {}, inputs: [] }], connections: [] };
+      window.rebuild = vi.fn();
+    });
+
+    afterEach(() => {
+      delete window.graph;
+      delete window.rebuild;
+    });
+
+    const click = (nx, ny) => {
+      const p = panel._toScreen(nx, ny);
+      panel._onPointerDown(pointer(p.x, p.y));
+    };
+    const key = (k) => ({ key: k, shiftKey: false, altKey: false, preventDefault: vi.fn() });
+
+    it('takes four points as the quad itself, with no mask', () => {
+      // Four points ARE a homography's corners; wrapping them in a bounding box
+      // and a mask that says the same thing would just cost two handles.
+      click(0.1, 0.2); click(0.5, 0.1); click(0.5, 0.9); click(0.1, 0.8);
+      panel._onKeyDown(key('Enter'));
+
+      expect(model.surfaces).toHaveLength(1);
+      const s = model.surfaces[0];
+      expect(s.mask).toEqual([]);
+      expect(s.dst[0].x).toBeCloseTo(0.1, 4);
+      expect(s.dst[1].x).toBeCloseTo(0.5, 4);
+    });
+
+    it('keeps the shape drawn when it is not four points', () => {
+      click(0.2, 0.1); click(0.8, 0.2); click(0.9, 0.7); click(0.5, 0.9); click(0.1, 0.6);
+      panel._onKeyDown(key('Enter'));
+
+      const s = model.surfaces[0];
+      expect(s.mask).toHaveLength(5);
+      // The quad bounds the outline, so the corners are still there to keystone.
+      expect(s.dst[0].x).toBeCloseTo(0.1, 4);
+      expect(s.dst[0].y).toBeCloseTo(0.1, 4);
+      expect(s.dst[2].x).toBeCloseTo(0.9, 4);
+      expect(s.dst[2].y).toBeCloseTo(0.9, 4);
+    });
+
+    it('draws a triangle', () => {
+      click(0.5, 0.1); click(0.9, 0.9); click(0.1, 0.9);
+      panel._onKeyDown(key('Enter'));
+      expect(model.surfaces[0].mask).toHaveLength(3);
+    });
+
+    it('puts the outline in the quad\'s own space, so it keystones with it', () => {
+      click(0.2, 0.2); click(0.6, 0.2); click(0.6, 0.6); click(0.4, 0.8); click(0.2, 0.6);
+      panel._onKeyDown(key('Enter'));
+      const s = model.surfaces[0];
+      // The leftmost/topmost drawn point sits at the quad's own origin.
+      expect(s.mask[0].x).toBeCloseTo(0, 4);
+      expect(s.mask[0].y).toBeCloseTo(0, 4);
+    });
+
+    it('closes on a click back at the first point', () => {
+      click(0.2, 0.2); click(0.8, 0.2); click(0.5, 0.8);
+      click(0.2, 0.2); // back to the start
+      expect(model.surfaces).toHaveLength(1);
+      expect(model.surfaces[0].mask).toHaveLength(3);
+    });
+
+    it('closes on a double-click', () => {
+      click(0.2, 0.2); click(0.8, 0.2); click(0.5, 0.8);
+      panel._onDoubleClick(pointer(0, 0));
+      expect(model.surfaces).toHaveLength(1);
+    });
+
+    it('refuses an outline with too few points', () => {
+      const onStatus = vi.fn();
+      panel.onStatus = onStatus;
+      click(0.2, 0.2); click(0.8, 0.2);
+      panel._onKeyDown(key('Enter'));
+      expect(model.surfaces).toHaveLength(0);
+      expect(onStatus).toHaveBeenCalledWith('An outline needs at least three points', 'error');
+    });
+
+    it('refuses points that lie in a line', () => {
+      const onStatus = vi.fn();
+      panel.onStatus = onStatus;
+      click(0.1, 0.5); click(0.4, 0.5); click(0.7, 0.5);
+      panel._onKeyDown(key('Enter'));
+      expect(model.surfaces).toHaveLength(0);
+      expect(onStatus).toHaveBeenCalledWith('Those points lie in a line — try again', 'error');
+    });
+
+    it('goes past four points, and up to what the shader can carry', () => {
+      for (let i = 0; i < MAX_MASK_POINTS; i++) {
+        const a = (i / MAX_MASK_POINTS) * Math.PI * 2;
+        click(0.5 + 0.4 * Math.cos(a), 0.5 + 0.4 * Math.sin(a));
+      }
+      expect(panel._drawPoints).toHaveLength(MAX_MASK_POINTS);
+      const onStatus = vi.fn();
+      panel.onStatus = onStatus;
+      click(0.99, 0.99);
+      expect(panel._drawPoints).toHaveLength(MAX_MASK_POINTS);
+      expect(onStatus).toHaveBeenCalledWith(
+        `An outline holds at most ${MAX_MASK_POINTS} points`, 'error',
+      );
+    });
+
+    it('abandons a half-drawn outline on Escape', () => {
+      click(0.2, 0.2); click(0.8, 0.2);
+      panel._onKeyDown(key('Escape'));
+      expect(panel._drawPoints).toEqual([]);
+      expect(model.surfaces).toHaveLength(0);
+    });
+
+    it('abandons a half-drawn outline when the tool changes', () => {
+      click(0.2, 0.2); click(0.8, 0.2);
+      panel.panel.querySelector('[data-act="tool"][data-tool="warp"]').click();
+      expect(panel._drawPoints).toEqual([]);
     });
   });
 
