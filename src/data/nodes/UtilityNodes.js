@@ -46,6 +46,9 @@ function buildProjectionMapParams() {
   // it. Read at compile time, like the mask counts, since it decides how much
   // guide code is emitted.
   params.push({ name: "sn", type: "float", default: 0, hidden: true });
+  // The frame's centre lines. Their own flag rather than part of `guides`, so a
+  // shape can be judged against the centre with the outlines switched off.
+  params.push({ name: "axes", type: "float", default: 0, hidden: true });
   // The outline currently being drawn, and the point the next click would place.
   // These are uniform-backed like everything else, so a half-finished shape
   // follows the cursor on the projector without recompiling per click.

@@ -37,6 +37,7 @@ import {
   getSurfaceSource,
   syncMappingToNode,
   syncGuidesToNode,
+  uploadParameters,
   trimSurfacePins,
   sourceLabel,
 } from '../mapping/projectionMapNode.js';
@@ -59,6 +60,11 @@ const SNAP_TOLERANCE = 0.02;
 
 /** Matches MappingCompositor's test tints, so the list dot names the surface. */
 const SWATCHES = ['#c7f24f', '#59c7ff', '#ff8c52', '#b88cff', '#5cf2b8', '#ffd659'];
+
+/** The centre axes, cool so they never read as a surface edge. */
+const AXIS_COLOR = 'rgba(90, 200, 255, 0.55)';
+/** Half-length of the solid cross marking the exact centre, in CSS pixels. */
+const AXIS_CROSS_PX = 9;
 
 function snapValue(v) {
   for (const anchor of SNAP_ANCHORS) {
@@ -121,6 +127,10 @@ export class MappingPanel {
     this.showPreview = true;
     /** Show the editing guides: outlines, handles, points, labels, the frame. */
     this.showGuides = true;
+    /** Show the centre axes — the reference a shape is judged against. */
+    this.showAxes = true;
+    /** Pending animation frame for the batched uniform upload. */
+    this._uploadPending = null;
     /** Stage view: a zoom about the frame's centre plus a pixel offset. */
     this.view = { scale: 1, x: 0, y: 0 };
     /** Corners placed so far in the draw tool, and the live pointer for the rubber band. */
@@ -184,6 +194,8 @@ export class MappingPanel {
                 title="Show the picture on this stage (the editor only)">Preview</button>
         <button class="rz-map-toggle" data-act="guides" aria-pressed="true"
                 title="Show the setup visuals — on the stage and on the projected output">Guides</button>
+        <button class="rz-map-toggle" data-act="axes" aria-pressed="true"
+                title="Show the frame's centre lines, to judge a shape against">Axes</button>
         <span class="rz-map-spacer"></span>
         <div class="rz-map-segment" role="group" aria-label="Edit space">
           <button data-act="mode" data-mode="dst" aria-pressed="true">Output quad</button>
@@ -612,6 +624,13 @@ export class MappingPanel {
   }
 
   _stopLoop() {
+    // A batched upload still has to land: the last thing the pointer wrote is
+    // what the projector should be showing when the panel closes.
+    if (this._uploadPending != null) {
+      cancelAnimationFrame(this._uploadPending);
+      this._uploadPending = null;
+      uploadParameters();
+    }
     if (this._rafId == null) return;
     cancelAnimationFrame(this._rafId);
     this._rafId = null;
@@ -699,6 +718,9 @@ export class MappingPanel {
     ctx.strokeRect(f.x + 0.5, f.y + 0.5, f.w - 1, f.h - 1);
     ctx.restore();
 
+    // Under the surfaces, so an outline is never lost behind a reference line.
+    if (this.showAxes) this._drawAxes(ctx, f);
+
     const space = this.editMode;
     const selected = this.model.getSelected();
 
@@ -721,6 +743,43 @@ export class MappingPanel {
     } else if (!this.model.surfaces.length) {
       this._drawMessage(ctx, f, 'Click round the object to draw a surface');
     }
+  }
+
+  /**
+   * The frame's centre lines.
+   *
+   * A shape traced freehand has nothing to be square to. The centre is the one
+   * landmark every frame shares, so the axes give a click something to be
+   * measured against — and they are drawn on the PROJECTOR too, since that is
+   * where the shape is being aimed.
+   *
+   * Dashed and cool-coloured so they never read as a surface edge.
+   */
+  _drawAxes(ctx, f) {
+    const cx = f.x + f.w / 2;
+    const cy = f.y + f.h / 2;
+    ctx.save();
+    ctx.strokeStyle = AXIS_COLOR;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath();
+    ctx.moveTo(Math.round(cx) + 0.5, f.y);
+    ctx.lineTo(Math.round(cx) + 0.5, f.y + f.h);
+    ctx.moveTo(f.x, Math.round(cy) + 0.5);
+    ctx.lineTo(f.x + f.w, Math.round(cy) + 0.5);
+    ctx.stroke();
+
+    // Solid right at the centre, so the middle of the frame is a mark and not
+    // just the place two dashed lines happen to cross.
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(cx) + 0.5 - AXIS_CROSS_PX, Math.round(cy) + 0.5);
+    ctx.lineTo(Math.round(cx) + 0.5 + AXIS_CROSS_PX, Math.round(cy) + 0.5);
+    ctx.moveTo(Math.round(cx) + 0.5, Math.round(cy) + 0.5 - AXIS_CROSS_PX);
+    ctx.lineTo(Math.round(cx) + 0.5, Math.round(cy) + 0.5 + AXIS_CROSS_PX);
+    ctx.stroke();
+    ctx.restore();
   }
 
   /**
@@ -1232,13 +1291,35 @@ export class MappingPanel {
     if (!node) return;
     const structural = syncGuidesToNode(node, {
       guides: this.showGuides,
+      axes: this.showAxes,
       draft: this.tool === 'draw' ? this._drawPoints : [],
       cursor: this.tool === 'draw' ? this._drawCursor : null,
-    });
+    }, { deferUpload: !!opts.defer });
+    if (opts.defer) this._scheduleUpload();
     if ((structural || opts.rebuild)
         && typeof window !== 'undefined' && typeof window.rebuild === 'function') {
       window.rebuild();
     }
+  }
+
+  /**
+   * One uniform upload per displayed frame, however fast the pointer reports.
+   *
+   * A mouse can report several times per frame, and each report used to upload
+   * the whole parameter buffer and — with the render loop stopped — force a
+   * frame with it. The ghost then trails the hand it is meant to be under,
+   * which is precisely when a point is being placed on something.
+   */
+  _scheduleUpload() {
+    if (this._uploadPending) return;
+    if (typeof requestAnimationFrame !== 'function') {
+      uploadParameters();
+      return;
+    }
+    this._uploadPending = requestAnimationFrame(() => {
+      this._uploadPending = null;
+      uploadParameters();
+    });
   }
 
   /**
@@ -1299,8 +1380,10 @@ export class MappingPanel {
     if (this.tool === 'draw') {
       this._drawCursor = this._pointerToNormalized(e);
       // The ghost has to move on the PROJECTOR, which is where a shape is
-      // actually being aimed; a uniform write, so this is per-move cheap.
-      this._pushGuides();
+      // actually being aimed. The values are written now, so the stage draws
+      // this position on its next frame; the buffer upload waits for that same
+      // frame rather than happening once per pointer report.
+      this._pushGuides({ defer: true });
     }
     const drag = this._drag;
     if (!drag) {
@@ -1497,6 +1580,11 @@ export class MappingPanel {
         this._syncToolbar();
         this._pushGuides({ rebuild: true });
         break;
+      case 'axes':
+        this.showAxes = !this.showAxes;
+        this._syncToolbar();
+        this._pushGuides({ rebuild: true });
+        break;
       case 'mode':
         this.editMode = button.dataset.mode === 'src' ? 'src' : 'dst';
         this.activeCorner = null;
@@ -1602,6 +1690,7 @@ export class MappingPanel {
 
     this.panel.querySelector('[data-act="test"]').setAttribute('aria-pressed', String(this.testPattern));
     this.panel.querySelector('[data-act="preview"]').setAttribute('aria-pressed', String(this.showPreview));
+    this.panel.querySelector('[data-act="axes"]').setAttribute('aria-pressed', String(this.showAxes));
     this.panel.querySelector('[data-act="guides"]').setAttribute('aria-pressed', String(this.showGuides));
     for (const button of this.panel.querySelectorAll('[data-act="tool"]')) {
       button.setAttribute('aria-pressed', String(button.dataset.tool === this.tool));

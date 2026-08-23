@@ -12,6 +12,7 @@ import {
   syncMappingToNode,
   guideParamValues,
   syncGuidesToNode,
+  uploadParameters,
   getSurfaceSource,
   assignSurfaceSource,
   sourceLabel,
@@ -187,6 +188,43 @@ describe('syncMappingToNode', () => {
     model.addSurface();
     syncMappingToNode(model, makeNode(), { uniformManager, renderer });
     expect(renderer._updateParameterUniforms).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats the axes as structural too, since they are code and not a value', () => {
+    const node = makeNode();
+    const uniformManager = { uniformValues: new Map() };
+    const renderer = { _updateParameterUniforms: vi.fn(), render: vi.fn() };
+    vi.stubGlobal('window', { renderLoop: { getState: () => ({ running: true }) } });
+
+    syncGuidesToNode(node, { guides: true }, { uniformManager, renderer });
+    expect(syncGuidesToNode(node, { guides: true, axes: true }, { uniformManager, renderer })).toBe(true);
+    expect(node.params.axes).toBe(1);
+    expect(syncGuidesToNode(node, { guides: true, axes: false }, { uniformManager, renderer })).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('can write the values and leave the upload to the caller', () => {
+    // A mouse reports faster than the screen refreshes. Uploading the whole
+    // buffer on every report — and forcing a frame with it, when the render
+    // loop is stopped — is what makes the ghost trail the hand.
+    const node = makeNode();
+    const uniformManager = { uniformValues: new Map() };
+    const renderer = { _updateParameterUniforms: vi.fn(), render: vi.fn() };
+    vi.stubGlobal('window', { renderLoop: { getState: () => ({ running: false }) } });
+
+    syncGuidesToNode(node, {
+      guides: true, cursor: { x: 0.25, y: 0.75 },
+    }, { uniformManager, renderer, deferUpload: true });
+
+    expect(node.params.dcx).toBeCloseTo(0.25);
+    expect(uniformManager.uniformValues.get('12.dcy')).toBeCloseTo(0.75);
+    expect(renderer._updateParameterUniforms).not.toHaveBeenCalled();
+    expect(renderer.render).not.toHaveBeenCalled();
+
+    uploadParameters(renderer);
+    expect(renderer._updateParameterUniforms).toHaveBeenCalledTimes(1);
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
   });
 
   it('does nothing when the geometry has not moved', () => {

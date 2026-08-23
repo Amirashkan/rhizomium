@@ -219,6 +219,40 @@ describe('ProjectionMap codegen', () => {
       expect(wgsl).not.toContain(`// --- surface ${MAX_MAPPED_SURFACES + 1} guides ---`);
     });
 
+    it('draws the frame\'s centre lines when the axes are on', () => {
+      // A shape traced freehand has nothing to be square to; the centre is the
+      // one landmark every frame shares, and it has to be on the projector,
+      // since that is what the shape is being aimed at.
+      const graph = makeGraph([]);
+      graph.nodes.find((n) => n.kind === 'ProjectionMap').params = { guides: 1, axes: 1 };
+      const wgsl = compile(graph);
+      expect(wgsl).toContain('// --- centre axes ---');
+      expect(wgsl).toContain('let axc_12 = 0.5 * g.resolution;');
+      expect(isBalanced(wgsl)).toBe(true);
+    });
+
+    it('keeps the axes their own switch, and under the guides', () => {
+      const graph = makeGraph([]);
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+
+      node.params = { guides: 1, axes: 0 };
+      expect(compile(graph)).not.toContain('// --- centre axes ---');
+
+      // Guides off means nothing drawn over the mapping at all — that is what
+      // the switch is for, so the axes go with them.
+      node.params = { guides: 0, axes: 1 };
+      expect(compile(graph)).not.toContain('// --- centre axes ---');
+    });
+
+    it('lays the axes under the surface outlines', () => {
+      // A reference line must never be what an outline is lost behind.
+      const graph = makeGraph([]);
+      graph.nodes.find((n) => n.kind === 'ProjectionMap').params = { guides: 1, axes: 1, sn: 1 };
+      const wgsl = compile(graph);
+      expect(wgsl.indexOf('vec3<f32>(0.35, 0.78, 1.0)'))
+        .toBeLessThan(wgsl.indexOf('vec3<f32>(0.78, 0.95, 0.31)'));
+    });
+
     it('builds the inverse from columns, since that is what mat3x3 takes', () => {
       // The adjugate reads naturally as rows, and fed to the constructor flat it
       // transposes silently. A transposed inverse is not obviously broken — the

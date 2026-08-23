@@ -718,6 +718,36 @@ describe('MappingPanel', () => {
       expect(window.rebuild).toHaveBeenCalled();
     });
 
+    it('batches the upload while the pointer moves, but writes the values now', () => {
+      // A mouse reports several times a frame. Uploading the whole buffer on
+      // each report is what makes the ghost trail the hand that is placing it.
+      panel.show();
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      panel.tool = 'draw';
+      const uploads = vi.fn();
+      window.gpuRenderer = { _updateParameterUniforms: uploads };
+
+      const c = panel._toScreen(0.42, 0.66);
+      panel._onPointerMove(pointer(c.x, c.y));
+      expect(node.params.dcx).toBeCloseTo(0.42, 4);
+      expect(uploads).not.toHaveBeenCalled();
+      expect(panel._uploadPending).not.toBeNull();
+
+      delete window.gpuRenderer;
+    });
+
+    it('puts the centre axes on the projector, and lets them be switched off', () => {
+      panel.show();
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      expect(node.params.axes).toBe(1);
+
+      panel.panel.querySelector('[data-act="axes"]').click();
+      expect(panel.showAxes).toBe(false);
+      expect(node.params.axes).toBe(0);
+      // The axes are code, not a value, so switching them recompiles.
+      expect(window.rebuild).toHaveBeenCalled();
+    });
+
     it('sends the outline and the ghost to the node while drawing', () => {
       panel.show();
       panel.tool = 'draw';

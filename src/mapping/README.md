@@ -135,7 +135,21 @@ cursor on the projector without recompiling per click. The flag itself is
 structural — it decides whether the guide code is emitted at all — which is right
 for a button and wrong for a drag.
 
+**Axes** draws the frame's centre lines — dashed, cool-coloured so they never
+read as a surface edge, solid right at the centre so the middle of the frame is a
+mark and not just where two dashed lines cross. A shape traced freehand has
+nothing to be square to; the centre is the one landmark every frame shares. They
+sit UNDER the surface outlines, and they are their own switch but still gated by
+Guides, since Guides off has to mean nothing drawn over the mapping at all.
+
 **Preview** is the editor's own stage picture and affects nothing downstream.
+
+While the pointer is moving, guide values are written immediately but the uniform
+BUFFER upload is batched to one per animation frame. A mouse reports several
+times per frame, and uploading the whole buffer on each report — plus forcing a
+frame with it when the render loop is stopped — is what makes the ghost trail the
+hand that is placing it. `syncGuidesToNode` takes `deferUpload` for this, with
+`uploadParameters` as the flush.
 
 Guides are drawn per SURFACE, not per pin — the node carries an `sn` count for
 exactly this. A surface grows a pin only once something is wired to it, and the

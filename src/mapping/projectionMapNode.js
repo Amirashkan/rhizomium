@@ -149,7 +149,7 @@ export function mappingParamValues(model) {
  * @returns {Object<string, number>}
  */
 export function guideParamValues(state = {}) {
-  const values = { guides: state.guides ? 1 : 0 };
+  const values = { guides: state.guides ? 1 : 0, axes: state.axes ? 1 : 0 };
   const draft = Array.isArray(state.draft) ? state.draft.slice(0, MAX_MASK_POINTS) : [];
   values.dn = draft.length;
   for (let k = 0; k < MAX_MASK_POINTS; k++) {
@@ -171,6 +171,12 @@ export function guideParamValues(state = {}) {
  * it decides whether the guide code is emitted at all — so toggling it rebuilds,
  * which is right for a button and wrong for a drag.
  *
+ * A caller sampling the pointer can pass `deferUpload` to write the values and
+ * skip the buffer write, then flush once a frame. A mouse reports far faster
+ * than the display refreshes, and uploading the whole buffer — plus forcing a
+ * frame, when the render loop is stopped — on every one of those reports is
+ * what makes the ghost lag behind the hand it is following.
+ *
  * @returns {boolean} whether a rebuild is needed for the change to take effect
  */
 export function syncGuidesToNode(node, state, deps = {}) {
@@ -183,7 +189,10 @@ export function syncGuidesToNode(node, state, deps = {}) {
   const values = guideParamValues(state);
   if (!node.params) node.params = {};
 
-  const structural = node.params.guides !== values.guides;
+  // Both flags decide whether their code is emitted at all, so either changing
+  // is a recompile. Everything else here is a buffer write.
+  const structural = node.params.guides !== values.guides
+    || node.params.axes !== values.axes;
   let changed = false;
   for (const [name, value] of Object.entries(values)) {
     if (node.params[name] !== value) {
@@ -194,12 +203,24 @@ export function syncGuidesToNode(node, state, deps = {}) {
   }
   if (!changed) return false;
 
-  renderer?._updateParameterUniforms?.();
+  if (!deps.deferUpload) uploadParameters(renderer);
+  return structural;
+}
+
+/**
+ * Push the uniform buffer to the GPU, and draw a frame if nothing else will.
+ *
+ * Split out so a caller that writes parameters faster than the screen can show
+ * them — a pointer being dragged — can batch the expensive half.
+ */
+export function uploadParameters(renderer = null) {
+  const target = renderer
+    ?? (typeof window !== 'undefined' ? window.gpuRenderer : null);
+  target?._updateParameterUniforms?.();
   if (typeof window !== 'undefined' && !window.renderLoop?.getState?.()?.running) {
     const simTime = window.renderLoop?.getState?.()?.simTime;
-    renderer?.render?.(Number.isFinite(simTime) ? { timeSec: simTime } : {});
+    target?.render?.(Number.isFinite(simTime) ? { timeSec: simTime } : {});
   }
-  return structural;
 }
 
 /**

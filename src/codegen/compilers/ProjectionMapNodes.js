@@ -87,6 +87,10 @@ const GUIDE_RGB = 'vec3<f32>(0.78, 0.95, 0.31)';
 const GUIDE_MARK_RGB = 'vec3<f32>(1.0, 1.0, 1.0)';
 const GUIDE_LINE_PX = '1.5';
 const GUIDE_POINT_PX = '4.0';
+/** The centre axes, cool so they never read as a surface edge. */
+const AXIS_RGB = 'vec3<f32>(0.35, 0.78, 1.0)';
+const AXIS_DASH_PX = '12.0';
+const AXIS_CROSS_PX = '9.0';
 
 export class ProjectionMapNodes {
   constructor() {
@@ -190,6 +194,46 @@ export class ProjectionMapNodes {
     code += `
   }`;
     return code;
+  }
+
+  /** Whether this node is drawing the frame's centre lines. */
+  _axesOn(node) {
+    return Number(node.params?.axes) > 0.5;
+  }
+
+  /**
+   * WGSL for the frame's centre lines.
+   *
+   * A shape traced freehand onto an object has nothing to be square to. The
+   * centre is the one landmark every frame shares, so the axes give a click
+   * something to be measured against — and they have to be on the PROJECTOR,
+   * since the shape is being aimed at the object and not at the editor.
+   *
+   * Dashed, and drawn at the centre of the frame rather than of any surface:
+   * this is the projector's own reference, which is what a rig is squared to.
+   */
+  _compileAxisGuides(node, nodeId) {
+    return `
+  // --- centre axes ---
+  {
+    let axc_${nodeId} = 0.5 * g.resolution;
+    let axd_${nodeId} = abs(gp_${nodeId} - axc_${nodeId});
+    // Dashes run along each line, so the axes read as a reference rather than
+    // as one more edge to align something to.
+    let axdash_${nodeId} = vec2<f32>(
+      step(0.5, fract(gp_${nodeId}.y / ${AXIS_DASH_PX})),
+      step(0.5, fract(gp_${nodeId}.x / ${AXIS_DASH_PX}))
+    );
+    axis_${nodeId} = max(axis_${nodeId},
+      axdash_${nodeId}.x * rzGuideStroke(axd_${nodeId}.x, 1.0));
+    axis_${nodeId} = max(axis_${nodeId},
+      axdash_${nodeId}.y * rzGuideStroke(axd_${nodeId}.y, 1.0));
+    // Solid right at the centre, so the middle of the frame is a mark and not
+    // just where two dashed lines happen to cross.
+    let axnear_${nodeId} = step(max(axd_${nodeId}.x, axd_${nodeId}.y), ${AXIS_CROSS_PX});
+    axis_${nodeId} = max(axis_${nodeId},
+      axnear_${nodeId} * rzGuideStroke(min(axd_${nodeId}.x, axd_${nodeId}.y), 1.0));
+  }`;
   }
 
   /**
@@ -416,11 +460,15 @@ export class ProjectionMapNodes {
     const guides = this._guidesOn(node);
     let guideCode = '';
     if (guides) {
+      const axes = this._axesOn(node);
       guideCode = `
   // --- setup visuals ---
   var guide_${nodeId} = 0.0;
   var guideMark_${nodeId} = 0.0;
+  var axis_${nodeId} = 0.0;
   let gp_${nodeId} = map_uv_${nodeId} * g.resolution;`;
+      // Axes first, so a surface outline always draws over them.
+      if (axes) guideCode += this._compileAxisGuides(node, nodeId);
       const guided = this._guideSurfaceCount(node, pinCount);
       for (let i = 0; i < guided; i++) {
         guideCode += this._compileSurfaceGuides(node, nodeId, i, this._maskCount(node, i));
@@ -430,9 +478,11 @@ export class ProjectionMapNodes {
       // surface and on the black around it alike — a rig is aligned against the
       // object, and the outline has to be visible off the content too.
       guideCode += `
+  map_rgb_${nodeId} = mix(map_rgb_${nodeId}, ${AXIS_RGB}, clamp(axis_${nodeId}, 0.0, 1.0));
   map_rgb_${nodeId} = mix(map_rgb_${nodeId}, ${GUIDE_RGB}, clamp(guide_${nodeId}, 0.0, 1.0));
   map_rgb_${nodeId} = mix(map_rgb_${nodeId}, ${GUIDE_MARK_RGB}, clamp(guideMark_${nodeId}, 0.0, 1.0));
-  map_a_${nodeId} = max(map_a_${nodeId}, clamp(max(guide_${nodeId}, guideMark_${nodeId}), 0.0, 1.0));`;
+  map_a_${nodeId} = max(map_a_${nodeId},
+    clamp(max(axis_${nodeId}, max(guide_${nodeId}, guideMark_${nodeId})), 0.0, 1.0));`;
     }
 
     // Unmapped areas of the projector's field are black and fully transparent:
