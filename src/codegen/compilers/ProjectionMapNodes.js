@@ -87,6 +87,16 @@ const GUIDE_RGB = 'vec3<f32>(0.78, 0.95, 0.31)';
 const GUIDE_MARK_RGB = 'vec3<f32>(1.0, 1.0, 1.0)';
 const GUIDE_LINE_PX = '1.5';
 const GUIDE_POINT_PX = '4.0';
+/**
+ * Distinct hues so neighbouring surfaces stay tellable apart in the grid, the
+ * same six MappingCompositor tints the stage with — the stage and the projector
+ * have to agree about which surface is which.
+ */
+const GRID_TINTS = [
+  'vec3<f32>(0.78, 0.95, 0.31)', 'vec3<f32>(0.35, 0.78, 1.0)', 'vec3<f32>(1.0, 0.55, 0.32)',
+  'vec3<f32>(0.72, 0.55, 1.0)', 'vec3<f32>(0.36, 0.95, 0.72)', 'vec3<f32>(1.0, 0.84, 0.35)',
+];
+
 /** The centre axes, cool so they never read as a surface edge. */
 const AXIS_RGB = 'vec3<f32>(0.35, 0.78, 1.0)';
 const AXIS_DASH_PX = '12.0';
@@ -194,6 +204,64 @@ export class ProjectionMapNodes {
     code += `
   }`;
     return code;
+  }
+
+  /** Whether this node is drawing the alignment grid. */
+  _gridOn(node) {
+    return Number(node.params?.grid) > 0.5;
+  }
+
+  /**
+   * WGSL for one surface's alignment grid.
+   *
+   * A keystoned test pattern is how a surface is squared onto an object BEFORE
+   * anything is playing on it, which means it has to be on the projector — a
+   * grid confined to the editor cannot be lined up against a physical edge.
+   *
+   * Drawn in the surface's own unit space, so it keystones exactly as the
+   * content will: if the grid looks square on the object, the content will too.
+   * The diagonal disambiguates a surface that has been flipped or turned a
+   * quarter, which a symmetric grid alone cannot show.
+   */
+  _compileSurfaceGrid(node, nodeId, index) {
+    const u = (name) => this._uniform(node, name);
+    const m = (k) => u(`s${index}m${k}`);
+    const tag = `${nodeId}_g${index}`;
+    const tint = GRID_TINTS[index % GRID_TINTS.length];
+    return `
+  // --- alignment grid, surface ${index + 1} ---
+  {
+    let gh_${tag} = vec3<f32>(
+      ${m(0)} * map_uv_${nodeId}.x + ${m(1)} * map_uv_${nodeId}.y + ${m(2)},
+      ${m(3)} * map_uv_${nodeId}.x + ${m(4)} * map_uv_${nodeId}.y + ${m(5)},
+      ${m(6)} * map_uv_${nodeId}.x + ${m(7)} * map_uv_${nodeId}.y + ${m(8)}
+    );
+    // Divided safely rather than guarded by an if, so the derivatives below sit
+    // in UNIFORM control flow — WGSL rejects fwidth inside the containment test,
+    // where neighbouring invocations may have taken the other branch.
+    let gz_${tag} = select(gh_${tag}.z, 1e-6, abs(gh_${tag}.z) < ${W_EPSILON});
+    let gq_${tag} = gh_${tag}.xy / gz_${tag};
+    // Lines of constant SCREEN width however far the surface is warped, which is
+    // what makes a keystone legible instead of a smear at the far edge.
+    let gfw_${tag} = max(fwidth(gq_${tag} * 8.0), vec2<f32>(1e-6));
+    let gfe_${tag} = max(fwidth(gq_${tag}), vec2<f32>(1e-6));
+    let gfd_${tag} = max(fwidth(gq_${tag}.x - gq_${tag}.y), 1e-6);
+    if (abs(gh_${tag}.z) > ${W_EPSILON}
+        && gq_${tag}.x >= 0.0 && gq_${tag}.x <= 1.0
+        && gq_${tag}.y >= 0.0 && gq_${tag}.y <= 1.0) {
+      let gl_${tag} = abs(fract(gq_${tag} * 8.0 - 0.5) - 0.5) / gfw_${tag};
+      let gline_${tag} = 1.0 - min(min(gl_${tag}.x, gl_${tag}.y), 1.0);
+      let gedge_${tag} = min(gq_${tag}, vec2<f32>(1.0) - gq_${tag}) / gfe_${tag};
+      let gborder_${tag} = 1.0 - min(min(gedge_${tag}.x, gedge_${tag}.y), 1.0);
+      let gdiag_${tag} = 1.0 - min(abs(gq_${tag}.x - gq_${tag}.y) / gfd_${tag}, 1.0);
+      let gmark_${tag} = max(gline_${tag}, gdiag_${tag});
+      let gcol_${tag} = ${tint} * (0.25 + 0.75 * gmark_${tag}) + vec3<f32>(gborder_${tag});
+      let ga_${tag} = clamp(max(gmark_${tag} * 0.9, gborder_${tag})
+        * ${u(`s${index}opacity`)}, 0.0, 1.0);
+      gridRgb_${nodeId} = mix(gridRgb_${nodeId}, gcol_${tag}, ga_${tag});
+      gridA_${nodeId} = max(gridA_${nodeId}, ga_${tag});
+    }
+  }`;
   }
 
   /** Whether this node is drawing the frame's centre lines. */
@@ -472,6 +540,26 @@ export class ProjectionMapNodes {
       surfaces.push(this._compileSurface(node, nodeId, i, binding));
     }
 
+    // The grid goes on every SURFACE, not every pin: squaring a surface onto an
+    // object is what you do before deciding what to play on it, so the one
+    // without a source yet is exactly the one that needs it.
+    let gridCode = '';
+    if (this._gridOn(node)) {
+      const gridded = this._guideSurfaceCount(node, pinCount);
+      gridCode = `
+  var gridRgb_${nodeId} = vec3<f32>(0.0);
+  var gridA_${nodeId} = 0.0;`;
+      for (let i = 0; i < gridded; i++) {
+        gridCode += this._compileSurfaceGrid(node, nodeId, i);
+      }
+      // REPLACES the mapping rather than sitting over it, the same way the
+      // stage does. The grid exists to be lined up against a physical edge, and
+      // a pattern read through the content is exactly what cannot be.
+      gridCode += `
+  map_rgb_${nodeId} = gridRgb_${nodeId};
+  map_a_${nodeId} = gridA_${nodeId};`;
+    }
+
     const guides = this._guidesOn(node);
     let guideCode = '';
     if (guides) {
@@ -514,7 +602,7 @@ export class ProjectionMapNodes {
   var map_a_${nodeId} = 0.0;`;
 
     return {
-      line: `${header}${surfaces.join('')}${guideCode}
+      line: `${header}${surfaces.join('')}${gridCode}${guideCode}
   let node_${nodeId} = vec4<f32>(map_rgb_${nodeId}, map_a_${nodeId});`,
       outputType: 'vec4',
     };

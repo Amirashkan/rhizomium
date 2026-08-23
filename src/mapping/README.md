@@ -149,6 +149,19 @@ pinned wants lining up as much as a point being placed does — sit UNDER the
 surface outlines, and are their own switch but still gated by Guides, since
 Guides off has to mean nothing drawn over the mapping at all.
 
+**Test grid** draws the keystoned alignment pattern INSTEAD of the content — on
+the stage and on the projector both, since a grid confined to the editor cannot
+be lined up against a physical edge. Each surface gets its own tint and a
+diagonal, which is what tells a flipped or quarter-turned surface from a
+correct one; a symmetric grid alone cannot. Emitted per SURFACE like the guides,
+so the surface with no source yet — the one being squared onto an object before
+anything plays on it — gets one too.
+
+Its derivatives (`fwidth`, for lines of constant screen width however far the
+surface is warped) are taken BEFORE the containment test, in uniform control
+flow: WGSL rejects them inside it, and without them a keystone smears at its far
+edge.
+
 **Preview** is the editor's own stage picture and affects nothing downstream.
 
 While the pointer is moving, guide values are written immediately but the uniform
@@ -261,3 +274,27 @@ the warp still samples the render at full brightness and the fade stays honest.
 
 Without WebGL2, or if the mapping is switched off, the output presents exactly as
 it did before — mapping is off by default and adds nothing until switched on.
+
+## Undo
+
+Mapping edits have their own history, on Ctrl+Z / Ctrl+Shift+Z while the panel
+holds the focus. The listener is on the **document, in the capture phase**,
+because the editor's own Ctrl+Z is on the window: without it, undo while looking
+at a mapping moves a node touched ten minutes ago and leaves the surface just
+drawn exactly where it was. Only keystrokes aimed inside the panel are taken —
+click back on the graph and Ctrl+Z is the graph's again.
+
+History is WHOLE STATES, not inverse operations. A surface is four corners, four
+more for the crop and at most sixteen shape points, so a mapping serialises to a
+few hundred numbers — cheap enough to snapshot outright, and a snapshot cannot
+drift out of step with the edits the way a hand-written inverse can.
+
+Sources are captured **by surface id**, not by pin. Pins are positional, so a
+restore that ignored which surface a source belonged to would hand every surface
+its neighbour's content.
+
+A snapshot is taken BEFORE an edit, and for a continuous gesture only at its
+start: one per drag, not per mousemove, or a single corner move would take a
+hundred presses to undo. Sliders and held arrow keys are coalesced the same way,
+by run. A grab that moved nothing is dropped again on release, and panning is
+never recorded — moving the view is not an edit.

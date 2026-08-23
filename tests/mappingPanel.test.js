@@ -11,6 +11,7 @@ import {
 } from '../src/mapping/MappingModel.js';
 import * as dropModule from '../src/ui/NodeReferenceDrop.js';
 import { getInputCount } from '../src/data/nodeInputs.js';
+import { getSurfaceSource } from '../src/mapping/projectionMapNode.js';
 
 const STAGE_W = 660;
 const STAGE_H = 371;
@@ -632,6 +633,130 @@ describe('MappingPanel', () => {
     });
   });
 
+
+  describe('undoing a mapping edit', () => {
+    let graph;
+
+    beforeEach(() => {
+      graph = { nodes: [{ id: '99', kind: 'OutputFinal', params: {}, inputs: [] }], connections: [] };
+      window.graph = graph;
+      window.rebuild = vi.fn();
+      panel.show();
+    });
+
+    afterEach(() => {
+      delete window.graph;
+      delete window.rebuild;
+    });
+
+    const ctrlZ = (target, shift = false) => new KeyboardEvent('keydown', {
+      key: 'z', ctrlKey: true, shiftKey: shift, bubbles: true, cancelable: true,
+    });
+
+    it('takes back a drawn surface, and puts it back on redo', () => {
+      const before = panel.model.surfaces.length;
+      panel.tool = 'draw';
+      for (const [x, y] of [[0.2, 0.2], [0.6, 0.25], [0.5, 0.7]]) {
+        const p = panel._toScreen(x, y);
+        panel._onPointerDown(pointer(p.x, p.y));
+      }
+      panel._commitDraw();
+      expect(panel.model.surfaces).toHaveLength(before + 1);
+
+      expect(panel._undo()).toBe(true);
+      expect(panel.model.surfaces).toHaveLength(before);
+      expect(panel._redo()).toBe(true);
+      expect(panel.model.surfaces).toHaveLength(before + 1);
+    });
+
+    it('treats a whole corner drag as one step, not one per mousemove', () => {
+      const surface = panel.model.addSurface({ dst: rectQuad(0.2, 0.2, 0.4, 0.4) });
+      panel.model.select(surface.id);
+      const depth = panel._undoStack.length;
+
+      const start = panel._toScreen(0.2, 0.2);
+      panel._onPointerDown(pointer(start.x, start.y));
+      for (let i = 1; i <= 6; i++) {
+        const p = panel._toScreen(0.2 + i * 0.01, 0.2 + i * 0.01);
+        panel._onPointerMove(pointer(p.x, p.y));
+      }
+      panel._onPointerUp(pointer(0, 0));
+
+      expect(panel._undoStack.length).toBe(depth + 1);
+      expect(panel._undo()).toBe(true);
+      expect(panel.model.getSurface(surface.id).dst[0].x).toBeCloseTo(0.2, 4);
+    });
+
+    it('leaves no step behind for a grab that moved nothing', () => {
+      const surface = panel.model.addSurface({ dst: rectQuad(0.2, 0.2, 0.4, 0.4) });
+      panel.model.select(surface.id);
+      const depth = panel._undoStack.length;
+
+      const p = panel._toScreen(0.2, 0.2);
+      panel._onPointerDown(pointer(p.x, p.y));
+      panel._onPointerUp(pointer(p.x, p.y));
+      expect(panel._undoStack.length).toBe(depth);
+    });
+
+    it('does not record panning — moving the view is not an edit', () => {
+      panel.tool = 'pan';
+      const depth = panel._undoStack.length;
+      const p = panel._toScreen(0.5, 0.5);
+      panel._onPointerDown(pointer(p.x, p.y));
+      panel._onPointerMove(pointer(p.x + 30, p.y + 20));
+      panel._onPointerUp(pointer(p.x + 30, p.y + 20));
+      expect(panel._undoStack.length).toBe(depth);
+    });
+
+    it('gives a surface back the source it had, not its neighbour\'s', () => {
+      // Pins are positional, so a restore that ignores which surface a source
+      // belonged to hands every surface the wrong content.
+      graph.nodes.push({ id: '7', kind: 'ComputeNoise', params: {}, inputs: [] });
+      const first = panel.model.surfaces[0];
+      panel._setSource(0, '7');
+
+      panel._mark('the test edit');
+      panel.model.addSurface({ dst: rectQuad(0.1, 0.1, 0.2, 0.2) });
+      panel.model.reorder(first.id, 1);
+
+      panel._undo();
+      const node = panel._node();
+      const index = panel.model.surfaces.findIndex((s) => s.id === first.id);
+      expect(getSurfaceSource(node, index)).toBe('7');
+    });
+
+    it('takes Ctrl+Z inside the panel, and leaves it alone outside', () => {
+      // The editor's own Ctrl+Z is on the window. Undoing a graph edit while
+      // the artist is looking at a mapping moves a node they touched minutes
+      // ago and leaves the surface they just drew exactly where it was.
+      const before = panel.model.surfaces.length;
+      panel._mark('the test edit');
+      panel.model.addSurface();
+      expect(panel.model.surfaces).toHaveLength(before + 1);
+
+      const inside = ctrlZ(panel.stage);
+      panel.stage.dispatchEvent(inside);
+      expect(panel.model.surfaces).toHaveLength(before);
+      expect(inside.defaultPrevented).toBe(true);
+
+      // Away from the panel it is the graph's key again.
+      panel._mark('the test edit');
+      panel.model.addSurface();
+      const outside = ctrlZ(document.body);
+      document.body.dispatchEvent(outside);
+      expect(panel.model.surfaces).toHaveLength(before + 1);
+      expect(outside.defaultPrevented).toBe(false);
+    });
+
+    it('stops listening once the panel is closed', () => {
+      panel._mark('the test edit');
+      const count = panel.model.surfaces.length;
+      panel.model.addSurface();
+      panel.hide();
+      panel.stage.dispatchEvent(ctrlZ(panel.stage));
+      expect(panel.model.surfaces).toHaveLength(count + 1);
+    });
+  });
 
   describe('setup visuals on the output', () => {
     let graph;

@@ -61,6 +61,16 @@ const SNAP_TOLERANCE = 0.02;
 /** Matches MappingCompositor's test tints, so the list dot names the surface. */
 const SWATCHES = ['#c7f24f', '#59c7ff', '#ff8c52', '#b88cff', '#5cf2b8', '#ffd659'];
 
+/** How many mapping edits are kept. Whole states, but small ones. */
+const MAX_UNDO = 100;
+
+/** What a drag is called in the status line when it is undone. */
+const DRAG_LABELS = {
+  corner: 'the corner move',
+  surface: 'the surface move',
+  mask: 'the point move',
+};
+
 /** The centre axes, cool so they never read as a surface edge. */
 const AXIS_COLOR = 'rgba(90, 200, 255, 0.55)';
 /** Half-length of the solid cross marking the exact centre, in CSS pixels. */
@@ -131,6 +141,13 @@ export class MappingPanel {
     this.showAxes = true;
     /** Pending animation frame for the batched uniform upload. */
     this._uploadPending = null;
+    /** Mapping undo history, as whole states — see {@link MappingPanel#_snapshot}. */
+    this._undoStack = [];
+    this._redoStack = [];
+    /** Which control the current run of edits is coming from, or null. */
+    this._inputRun = null;
+    /** The snapshot taken for the drag in progress, to drop if it moved nothing. */
+    this._dragMark = null;
     /**
      * Where the pointer is on the stage, in normalised output space, or null
      * once it leaves. The axes follow it, in EVERY tool — a corner being pinned
@@ -185,10 +202,12 @@ export class MappingPanel {
       </div>
 
       <div class="rz-map-toolbar">
-        <button class="rz-map-toggle" data-act="enable" aria-pressed="false">
-          <span data-role="enable-dot">○</span> Mapping
+        <button class="rz-map-toggle" data-act="enable" aria-pressed="false"
+                title="Warp the second-screen output window itself. Not needed when the Projection Map node drives the output — the mapping is already in the render by then, and warping it again maps a mapping.">
+          <span data-role="enable-dot">○</span> Warp 2nd screen
         </button>
-        <button class="rz-map-toggle" data-act="test" aria-pressed="false">Test grid</button>
+        <button class="rz-map-toggle" data-act="test" aria-pressed="false"
+                title="Draw the keystoned alignment grid instead of the content, on the stage and on the projector">Test grid</button>
         <div class="rz-map-segment" role="group" aria-label="Tool">
           <button data-act="tool" data-tool="warp" aria-pressed="true" title="Drag corners and surfaces">Warp</button>
           <button data-act="tool" data-tool="draw" aria-pressed="false" title="Click four corners to place a surface">Draw</button>
@@ -262,6 +281,8 @@ export class MappingPanel {
     // A middle-drag must not paste on Linux or autoscroll on Windows.
     this.overlay.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
     this.stage.addEventListener('keydown', (e) => this._onKeyDown(e));
+    // On the document, in capture: the editor's own Ctrl+Z lives on the window.
+    this._onDocKey = (e) => this._onDocumentKeyDown(e);
 
     this._syncToolbar();
     this._renderList();
@@ -526,7 +547,10 @@ export class MappingPanel {
       },
       highlight: (hit) => { this._dropTarget = hit ? hit.index : null; },
       label: (hit) => `→ ${hit.surface.name}`,
-      drop: (hit, nodeId) => { this._setSource(hit.index, nodeId); },
+      drop: (hit, nodeId) => {
+        this._mark('the dropped source');
+        this._setSource(hit.index, nodeId);
+      },
     });
   }
 
@@ -673,6 +697,12 @@ export class MappingPanel {
       const source = this.showPreview ? this.getSource() : null;
       if (!this.showPreview) {
         compositor.render(null, this._emptyModel, { frame });
+      } else if (this.testPattern) {
+        // Before the flat branch below, not after it: the grid REPLACES the
+        // composition, so there is no mapping-of-a-mapping to worry about, and
+        // checked last it was unreachable the moment a node existed — which is
+        // now the moment the panel opens.
+        compositor.render(source, this.model, { frame, testPattern: true });
       } else if (this.editMode === 'src'
                  || this._nodeDrivesOutput()
                  || (this._node() && this.model.surfaces.length > 0)) {
@@ -687,8 +717,6 @@ export class MappingPanel {
         // show the composition ON — painting it anyway is the "why is there a
         // picture I never assigned" case the empty branch below exists for.
         compositor.render(source, this._identityModel, { frame });
-      } else if (this.testPattern) {
-        compositor.render(source, this.model, { frame, testPattern: true });
       } else {
         // Nothing has a source yet, so there is nothing to show. Painting the
         // composition here would put a picture on the stage that no surface was
@@ -1111,6 +1139,7 @@ export class MappingPanel {
     const drawn = points.slice();
     this._drawPoints = [];
     this._pushGuides();
+    this._mark('drawing the surface');
 
     // Four points ARE the quad: keep the plain corner-pin rather than wrapping
     // them in a bounding box and a mask that says the same thing.
@@ -1241,6 +1270,7 @@ export class MappingPanel {
   /** Start moving a mask point, or remove it on an Alt-click. */
   _grabMaskPoint(e, surface, index) {
     if (e.altKey) {
+      this._mark('removing the point');
       this.model.removeMaskPoint(surface.id, index);
       this._maskChanged();
       e.preventDefault();
@@ -1260,6 +1290,7 @@ export class MappingPanel {
     // Insert into the nearest edge rather than appending, so points can be
     // added part-way round a shape instead of only at its end.
     const at = this._nearestMaskEdge(surface, unit);
+    this._mark('adding the point');
     if (this.model.addMaskPoint(surface.id, unit.x, unit.y, at) >= 0) this._maskChanged();
     e.preventDefault();
   }
@@ -1291,6 +1322,137 @@ export class MappingPanel {
     return best;
   }
 
+  // --- undo -----------------------------------------------------------------
+
+  /**
+   * The whole mapping, small enough to snapshot outright.
+   *
+   * A surface is four corners, four more for the crop and at most sixteen shape
+   * points, so a mapping serialises to a few hundred numbers — cheap enough
+   * that undo can be whole states rather than inverse operations, which cannot
+   * drift out of step with the edits the way a hand-written inverse can.
+   *
+   * Sources are captured BY SURFACE ID, not by pin: the pins are positional, so
+   * restoring a mapping whose surface order changed would otherwise hand every
+   * surface its neighbour's content.
+   */
+  _snapshot() {
+    const node = this._node();
+    return {
+      model: this.model.serialize(),
+      sources: this.model.surfaces.map(
+        (surface, i) => [surface.id, node ? getSurfaceSource(node, i) : null],
+      ),
+    };
+  }
+
+  /** Put a snapshot back, wiring included. */
+  _restore(state) {
+    this.model.deserialize(state.model);
+    const node = this._node();
+    const graph = this._graph();
+    if (node) {
+      const byId = new Map(state.sources);
+      const surfaces = this.model.surfaces;
+      for (let i = 0; i < surfaces.length; i++) {
+        assignSurfaceSource(graph, node, i, byId.get(surfaces[i].id) ?? null);
+      }
+      trimSurfacePins(graph, node, surfaces.length);
+      syncMappingToNode(this.model, node);
+      this._mappingSig = this._mappingSignature();
+      if (typeof window !== 'undefined' && typeof window.rebuild === 'function') {
+        window.rebuild();
+      }
+      this._afterWiring(graph, node, 0, null, null);
+    }
+    this._syncToolbar();
+    this._renderList();
+    this._buildInspector();
+    this._updateHint();
+  }
+
+  /**
+   * Record the state an edit is about to change.
+   *
+   * Called BEFORE the edit, and for a continuous gesture only at its start —
+   * one snapshot per drag, not per mousemove, or a single corner move would
+   * take a hundred presses to undo.
+   *
+   * @param {string} label what the edit is, for the status line
+   */
+  _mark(label) {
+    this._undoStack.push({ label, state: this._snapshot() });
+    if (this._undoStack.length > MAX_UNDO) this._undoStack.shift();
+    // A fresh edit is a new branch; whatever was undone past it is gone, the
+    // same as every other undo stack in the app.
+    this._redoStack.length = 0;
+    this._inputRun = null;
+  }
+
+  /**
+   * Mark once per RUN of edits from the same control.
+   *
+   * A slider fires on every pixel of its travel and an arrow key repeats while
+   * held. Each is one edit as far as the artist is concerned, so the snapshot
+   * is taken when the run starts and not again until something else is touched.
+   */
+  _markRun(key, label) {
+    if (this._inputRun === key) return;
+    this._mark(label);
+    this._inputRun = key;
+  }
+
+  /** @returns {boolean} whether anything was undone */
+  _undo() {
+    const entry = this._undoStack.pop();
+    if (!entry) {
+      this._status('Nothing to undo in the mapping', 'warning');
+      return false;
+    }
+    this._redoStack.push({ label: entry.label, state: this._snapshot() });
+    this._restore(entry.state);
+    this._inputRun = null;
+    this._status(`Undid ${entry.label}`);
+    return true;
+  }
+
+  /** @returns {boolean} whether anything was redone */
+  _redo() {
+    const entry = this._redoStack.pop();
+    if (!entry) {
+      this._status('Nothing to redo in the mapping', 'warning');
+      return false;
+    }
+    this._undoStack.push({ label: entry.label, state: this._snapshot() });
+    this._restore(entry.state);
+    this._inputRun = null;
+    this._status(`Redid ${entry.label}`);
+    return true;
+  }
+
+  /**
+   * Undo/redo while the mapping panel holds the focus.
+   *
+   * Registered on the document in the CAPTURE phase, because the editor's own
+   * Ctrl+Z is on the window and would otherwise undo a graph edit while the
+   * artist is looking at a mapping — the surface they just drew stays, and a
+   * node they touched ten minutes ago moves instead. Only keystrokes aimed
+   * inside the panel are taken; click back on the graph and Ctrl+Z is the
+   * graph's again.
+   */
+  _onDocumentKeyDown(e) {
+    if (!this.visible) return;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    if (e.key?.toLowerCase() !== 'z' && e.key?.toLowerCase() !== 'y') return;
+    if (!this.panel || !this.panel.contains(e.target)) return;
+
+    const redo = e.key.toLowerCase() === 'y' || e.shiftKey;
+    if (redo) this._redo();
+    else this._undo();
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+
   /**
    * Push the setup visuals onto the node, so they reach the projector.
    *
@@ -1306,6 +1468,7 @@ export class MappingPanel {
     const structural = syncGuidesToNode(node, {
       guides: this.showGuides,
       axes: this.showAxes,
+      grid: this.testPattern,
       pointer: this.showAxes ? this._pointer : null,
       draft: this.tool === 'draw' ? this._drawPoints : [],
       cursor: this.tool === 'draw' ? this._drawCursor : null,
@@ -1380,12 +1543,33 @@ export class MappingPanel {
     }
   }
 
+  /**
+   * Clear a mask, recording it first — but only if there was one to clear, so
+   * Escape on an unmasked surface does not put an empty step in the history.
+   * @returns {boolean}
+   */
+  _markedClearMask(surfaceId) {
+    const surface = this.model.getSurface(surfaceId);
+    if (!surface || !(surface.mask || []).length) return false;
+    this._mark('clearing the shape');
+    return this.model.clearMask(surfaceId);
+  }
+
   /** A mask gained or lost a point, which changes the shader's structure. */
   _maskChanged() {
     this._syncModelToNode();
   }
 
   _beginDrag(e, drag) {
+    // One snapshot for the whole gesture: a corner drag emits a change per
+    // mousemove, and a snapshot each would take a hundred presses to undo.
+    // Panning is not in the table — moving the view is not an edit.
+    const label = DRAG_LABELS[drag.kind];
+    if (label) {
+      this._mark(label);
+      // Held so a grab that moves nothing can be dropped again on release.
+      this._dragMark = this._undoStack[this._undoStack.length - 1];
+    }
     this._drag = drag;
     try { this.overlay.setPointerCapture(e.pointerId); } catch { /* not captured; moves still track */ }
     e.preventDefault();
@@ -1437,6 +1621,15 @@ export class MappingPanel {
   _onPointerUp(e) {
     if (!this._drag) return;
     this._drag = null;
+    // A grab that moved nothing — a click on a handle to select it, a drag the
+    // lock refused — must not leave a step in the history that appears to undo
+    // nothing when it is pressed.
+    const mark = this._dragMark;
+    this._dragMark = null;
+    if (mark && this._undoStack[this._undoStack.length - 1] === mark
+        && JSON.stringify(mark.state.model) === JSON.stringify(this.model.serialize())) {
+      this._undoStack.pop();
+    }
     try { this.overlay.releasePointerCapture(e.pointerId); } catch { /* already released */ }
   }
 
@@ -1462,6 +1655,7 @@ export class MappingPanel {
     const pt = this._pointerToNormalized(e);
     if (this.model.hitTestSurface(pt.x, pt.y)) return;
     const half = 0.15;
+    this._mark('adding the surface');
     this.model.addSurface({ dst: rectQuad(pt.x - half, pt.y - half, half * 2, half * 2) });
     this._status('Surface added');
   }
@@ -1519,7 +1713,7 @@ export class MappingPanel {
     }
 
     if (e.key === 'Escape') {
-      if (this.tool === 'mask' && this.model.clearMask(selected.id)) {
+      if (this.tool === 'mask' && this._markedClearMask(selected.id)) {
         this._maskChanged();
         this._status('Mask cleared');
       }
@@ -1533,6 +1727,9 @@ export class MappingPanel {
     };
     const delta = deltas[e.key];
     if (!delta) return;
+
+    // Held down, an arrow repeats; the whole run is one nudge to undo.
+    this._markRun(`nudge:${selected.id}:${this.activeCorner}`, 'the nudge');
 
     let step = NUDGE;
     if (e.shiftKey) step = NUDGE_COARSE;
@@ -1554,11 +1751,39 @@ export class MappingPanel {
 
   // --- panel controls -----------------------------------------------------
 
+  /**
+   * Actions that change the mapping, and what each is called when it is undone.
+   * A click that only changes what is LOOKED at — the tool, the zoom, which
+   * surface is selected — is not an edit and does not belong in the history.
+   */
+  static get UNDOABLE_ACTIONS() {
+    return {
+      add: 'adding the surface',
+      remove: 'deleting the surface',
+      duplicate: 'duplicating the surface',
+      back: 'the reorder',
+      forward: 'the reorder',
+      'toggle-enabled': 'hiding the surface',
+      'toggle-locked': 'locking the surface',
+      reset: 'the reset',
+      'mask-preset': 'the shape preset',
+      'mask-clear': 'clearing the shape',
+      'clear-source': 'clearing the source',
+    };
+  }
+
   _onPanelClick(e) {
     const button = e.target.closest('[data-act]');
     if (!button) return;
     const act = button.dataset.act;
     const id = button.dataset.id;
+
+    // Snapshot before the edit, not after. A click that only changes what is
+    // LOOKED at — the tool, the zoom, which surface is selected — is not an
+    // edit and has no business in the history.
+    const undoable = MappingPanel.UNDOABLE_ACTIONS[act];
+    if (undoable) this._mark(undoable);
+    this._inputRun = null;
 
     switch (act) {
       case 'close':
@@ -1566,11 +1791,28 @@ export class MappingPanel {
         break;
       case 'enable':
         this.model.setEnabled(!this.model.enabled);
-        this._status(this.model.enabled ? 'Projection mapping on' : 'Projection mapping off');
+        // Say what it actually does. It warps the SECOND-SCREEN WINDOW, which is
+        // a different path from the node — and once the node drives the output
+        // the render already carries the mapping, so this warps a warp.
+        if (!this.model.enabled) {
+          this._status('Second screen shows the output unwarped');
+        } else if (this._nodeDrivesOutput()) {
+          this._status('The Projection Map node already maps the output — '
+            + 'warping the second screen too maps it twice', 'error');
+        } else {
+          this._status('Second screen warps the output through this mapping');
+        }
         break;
       case 'test':
+        // The grid is a shape in the shader, not a value, so switching it
+        // recompiles — and it goes to the PROJECTOR as well as the stage, since
+        // squaring a surface onto an object is done by looking at the object.
         this.testPattern = !this.testPattern;
         this._syncToolbar();
+        this._pushGuides({ rebuild: true });
+        this._status(this.testPattern
+          ? 'Alignment grid on — on the stage and on the projector'
+          : 'Alignment grid off');
         break;
       case 'tool':
         this._cancelDraw();
@@ -1674,6 +1916,11 @@ export class MappingPanel {
     if (!field) return;
     const id = field.dataset.id;
     const name = field.dataset.field;
+
+    // A slider fires on every pixel of its travel and a name field on every
+    // keystroke; each run is one edit as far as the artist is concerned.
+    this._markRun(`${id}:${name}:${field.dataset.corner ?? ''}${field.dataset.axis ?? ''}`,
+      name === 'name' ? 'the rename' : `the ${name} change`);
 
     if (name === 'name') {
       this.model.updateSurface(id, { name: field.value });
@@ -1895,6 +2142,7 @@ export class MappingPanel {
     this.panel.classList.add('rz-map-open');
     this._sizeStage();
     this._ensureCompositor();
+    document.addEventListener('keydown', this._onDocKey, true);
     // Bring the node into existence now rather than on the first source drop.
     // It is what puts the setup visuals on the projector, and drawing onto a
     // complex physical shape means seeing the outline ON the shape from the
@@ -1925,6 +2173,7 @@ export class MappingPanel {
     this.panel.classList.remove('rz-map-open');
     this._unregisterDrop();
     this._stopLoop();
+    document.removeEventListener('keydown', this._onDocKey, true);
   }
 
   toggle() {
@@ -1937,6 +2186,11 @@ export class MappingPanel {
   }
 
   dispose() {
+    // Before the panel goes: hide() is not guaranteed to have run, and a
+    // document listener outliving the element it guards is a key that a
+    // disposed panel still swallows.
+    this.visible = false;
+    document.removeEventListener('keydown', this._onDocKey, true);
     this._stopLoop();
     this._unregisterDrop();
     if (this._unsubscribe) this._unsubscribe();

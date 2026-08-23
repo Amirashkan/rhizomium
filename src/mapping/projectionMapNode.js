@@ -149,7 +149,11 @@ export function mappingParamValues(model) {
  * @returns {Object<string, number>}
  */
 export function guideParamValues(state = {}) {
-  const values = { guides: state.guides ? 1 : 0, axes: state.axes ? 1 : 0 };
+  const values = {
+    guides: state.guides ? 1 : 0,
+    axes: state.axes ? 1 : 0,
+    grid: state.grid ? 1 : 0,
+  };
   const draft = Array.isArray(state.draft) ? state.draft.slice(0, MAX_MASK_POINTS) : [];
   values.dn = draft.length;
   for (let k = 0; k < MAX_MASK_POINTS; k++) {
@@ -199,7 +203,8 @@ export function syncGuidesToNode(node, state, deps = {}) {
   // Both flags decide whether their code is emitted at all, so either changing
   // is a recompile. Everything else here is a buffer write.
   const structural = node.params.guides !== values.guides
-    || node.params.axes !== values.axes;
+    || node.params.axes !== values.axes
+    || node.params.grid !== values.grid;
   let changed = false;
   for (const [name, value] of Object.entries(values)) {
     if (node.params[name] !== value) {

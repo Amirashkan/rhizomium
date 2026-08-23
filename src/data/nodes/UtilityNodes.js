@@ -52,6 +52,9 @@ function buildProjectionMapParams() {
   // fall back to the frame's centre. The position is a plain uniform, so
   // tracking the hand never recompiles.
   params.push({ name: "axes", type: "float", default: 0, hidden: true });
+  // The alignment grid, drawn in each surface's own space so it keystones with
+  // it. Structural: it decides whether the pattern is emitted at all.
+  params.push({ name: "grid", type: "float", default: 0, hidden: true });
   params.push({ name: "axOn", type: "float", default: 0, hidden: true });
   params.push({ name: "axx", type: "float", default: 0.5, hidden: true });
   params.push({ name: "axy", type: "float", default: 0.5, hidden: true });

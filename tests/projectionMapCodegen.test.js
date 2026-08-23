@@ -264,6 +264,38 @@ describe('ProjectionMap codegen', () => {
         .toBeLessThan(wgsl.indexOf('vec3<f32>(0.78, 0.95, 0.31)'));
     });
 
+    it('puts the alignment grid on every surface, source or not', () => {
+      // Squaring a surface onto an object is what you do BEFORE deciding what
+      // to play on it, so the surface without a source is the one that needs
+      // the grid most — and it has to be on the projector to be lined up
+      // against a physical edge at all.
+      const graph = makeGraph([]);
+      graph.nodes.find((n) => n.kind === 'ProjectionMap').params = { grid: 1, sn: 2 };
+      const wgsl = compile(graph);
+      expect(wgsl).toContain('// --- alignment grid, surface 1 ---');
+      expect(wgsl).toContain('// --- alignment grid, surface 2 ---');
+      expect(wgsl).not.toContain('// --- alignment grid, surface 3 ---');
+      expect(isBalanced(wgsl)).toBe(true);
+    });
+
+    it('takes the grid\'s derivatives outside the containment test', () => {
+      // WGSL rejects fwidth in non-uniform control flow, and the lines have to
+      // be a constant SCREEN width or a keystone smears at its far edge.
+      const graph = makeGraph([]);
+      graph.nodes.find((n) => n.kind === 'ProjectionMap').params = { grid: 1, sn: 1 };
+      const wgsl = compile(graph);
+      const derivative = wgsl.indexOf('fwidth(gq_12_g0 * 8.0)');
+      const test = wgsl.indexOf('gq_12_g0.x >= 0.0');
+      expect(derivative).toBeGreaterThan(-1);
+      expect(derivative).toBeLessThan(test);
+    });
+
+    it('leaves the grid out when it is switched off', () => {
+      const graph = makeGraph([]);
+      graph.nodes.find((n) => n.kind === 'ProjectionMap').params = { grid: 0, sn: 2 };
+      expect(compile(graph)).not.toContain('// --- alignment grid');
+    });
+
     it('builds the inverse from columns, since that is what mat3x3 takes', () => {
       // The adjugate reads naturally as rows, and fed to the constructor flat it
       // transposes silently. A transposed inverse is not obviously broken — the
