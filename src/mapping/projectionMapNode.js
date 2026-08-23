@@ -160,6 +160,13 @@ export function guideParamValues(state = {}) {
   values.dcOn = cursor ? 1 : 0;
   values.dcx = cursor ? cursor.x : 0;
   values.dcy = cursor ? cursor.y : 0;
+  // Where the axes are centred. The pointer while it is on the stage, so a
+  // point can be lined up against something already on the object; the frame's
+  // centre once it leaves, so the axes never just vanish.
+  const pointer = state.pointer;
+  values.axOn = pointer ? 1 : 0;
+  values.axx = pointer ? pointer.x : 0.5;
+  values.axy = pointer ? pointer.y : 0.5;
   return values;
 }
 

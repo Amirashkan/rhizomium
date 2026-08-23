@@ -131,6 +131,12 @@ export class MappingPanel {
     this.showAxes = true;
     /** Pending animation frame for the batched uniform upload. */
     this._uploadPending = null;
+    /**
+     * Where the pointer is on the stage, in normalised output space, or null
+     * once it leaves. The axes follow it, in EVERY tool — a corner being pinned
+     * wants lining up against the object as much as a point being placed does.
+     */
+    this._pointer = null;
     /** Stage view: a zoom about the frame's centre plus a pixel offset. */
     this.view = { scale: 1, x: 0, y: 0 };
     /** Corners placed so far in the draw tool, and the live pointer for the rubber band. */
@@ -250,6 +256,7 @@ export class MappingPanel {
     // Otherwise the ghost point stays where the pointer left the stage.
     this.overlay.addEventListener('pointerleave', () => {
       this._drawCursor = null;
+      this._pointer = null;
       this._pushGuides();
     });
     // A middle-drag must not paste on Linux or autoscroll on Windows.
@@ -756,29 +763,36 @@ export class MappingPanel {
    * Dashed and cool-coloured so they never read as a surface edge.
    */
   _drawAxes(ctx, f) {
-    const cx = f.x + f.w / 2;
-    const cy = f.y + f.h / 2;
+    const home = { x: f.x + f.w / 2, y: f.y + f.h / 2 };
+    const at = this._pointer ? this._toScreen(this._pointer.x, this._pointer.y) : home;
+    const cross = (p) => {
+      ctx.beginPath();
+      ctx.moveTo(Math.round(p.x) + 0.5 - AXIS_CROSS_PX, Math.round(p.y) + 0.5);
+      ctx.lineTo(Math.round(p.x) + 0.5 + AXIS_CROSS_PX, Math.round(p.y) + 0.5);
+      ctx.moveTo(Math.round(p.x) + 0.5, Math.round(p.y) + 0.5 - AXIS_CROSS_PX);
+      ctx.lineTo(Math.round(p.x) + 0.5, Math.round(p.y) + 0.5 + AXIS_CROSS_PX);
+      ctx.stroke();
+    };
+
     ctx.save();
     ctx.strokeStyle = AXIS_COLOR;
     ctx.lineWidth = 1;
     ctx.setLineDash([6, 6]);
     ctx.beginPath();
-    ctx.moveTo(Math.round(cx) + 0.5, f.y);
-    ctx.lineTo(Math.round(cx) + 0.5, f.y + f.h);
-    ctx.moveTo(f.x, Math.round(cy) + 0.5);
-    ctx.lineTo(f.x + f.w, Math.round(cy) + 0.5);
+    ctx.moveTo(Math.round(at.x) + 0.5, f.y);
+    ctx.lineTo(Math.round(at.x) + 0.5, f.y + f.h);
+    ctx.moveTo(f.x, Math.round(at.y) + 0.5);
+    ctx.lineTo(f.x + f.w, Math.round(at.y) + 0.5);
     ctx.stroke();
 
-    // Solid right at the centre, so the middle of the frame is a mark and not
-    // just the place two dashed lines happen to cross.
+    // Solid where they cross, so the exact spot is a mark and not just the
+    // place two dashed lines happen to meet.
     ctx.setLineDash([]);
     ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(Math.round(cx) + 0.5 - AXIS_CROSS_PX, Math.round(cy) + 0.5);
-    ctx.lineTo(Math.round(cx) + 0.5 + AXIS_CROSS_PX, Math.round(cy) + 0.5);
-    ctx.moveTo(Math.round(cx) + 0.5, Math.round(cy) + 0.5 - AXIS_CROSS_PX);
-    ctx.lineTo(Math.round(cx) + 0.5, Math.round(cy) + 0.5 + AXIS_CROSS_PX);
-    ctx.stroke();
+    cross(at);
+    // The frame's centre keeps a mark of its own, so it stays findable while
+    // the axes are away following the pointer.
+    if (this._pointer) cross(home);
     ctx.restore();
   }
 
@@ -1292,6 +1306,7 @@ export class MappingPanel {
     const structural = syncGuidesToNode(node, {
       guides: this.showGuides,
       axes: this.showAxes,
+      pointer: this.showAxes ? this._pointer : null,
       draft: this.tool === 'draw' ? this._drawPoints : [],
       cursor: this.tool === 'draw' ? this._drawCursor : null,
     }, { deferUpload: !!opts.defer });
@@ -1377,14 +1392,13 @@ export class MappingPanel {
   }
 
   _onPointerMove(e) {
-    if (this.tool === 'draw') {
-      this._drawCursor = this._pointerToNormalized(e);
-      // The ghost has to move on the PROJECTOR, which is where a shape is
-      // actually being aimed. The values are written now, so the stage draws
-      // this position on its next frame; the buffer upload waits for that same
-      // frame rather than happening once per pointer report.
-      this._pushGuides({ defer: true });
-    }
+    // The ghost and the axes have to move on the PROJECTOR, which is where a
+    // shape is actually being aimed. The values are written now, so the stage
+    // draws this position on its next frame; the buffer upload waits for that
+    // same frame rather than happening once per pointer report.
+    this._pointer = this._pointerToNormalized(e);
+    if (this.tool === 'draw') this._drawCursor = this._pointer;
+    this._pushGuides({ defer: true });
     const drag = this._drag;
     if (!drag) {
       this._updateCursor(e);

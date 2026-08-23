@@ -219,16 +219,27 @@ describe('ProjectionMap codegen', () => {
       expect(wgsl).not.toContain(`// --- surface ${MAX_MAPPED_SURFACES + 1} guides ---`);
     });
 
-    it('draws the frame\'s centre lines when the axes are on', () => {
-      // A shape traced freehand has nothing to be square to; the centre is the
-      // one landmark every frame shares, and it has to be on the projector,
-      // since that is what the shape is being aimed at.
+    it('draws axis lines when they are on, and puts them on the projector', () => {
+      // A shape traced freehand has nothing to be square to, and it is being
+      // aimed at the object rather than at the editor.
       const graph = makeGraph([]);
       graph.nodes.find((n) => n.kind === 'ProjectionMap').params = { guides: 1, axes: 1 };
       const wgsl = compile(graph);
-      expect(wgsl).toContain('// --- centre axes ---');
-      expect(wgsl).toContain('let axc_12 = 0.5 * g.resolution;');
+      expect(wgsl).toContain('// --- axes ---');
       expect(isBalanced(wgsl)).toBe(true);
+    });
+
+    it('follows the pointer by uniform, so tracking it never recompiles', () => {
+      // Lining a point up against something already on the object is the common
+      // case; the middle of the frame is the fallback for when the pointer has
+      // left the stage, not the thing the axes are for.
+      const graph = makeGraph([]);
+      graph.nodes.find((n) => n.kind === 'ProjectionMap').params = { guides: 1, axes: 1 };
+      const wgsl = compile(graph);
+      expect(wgsl).toContain('u_params._12_axx');
+      expect(wgsl).toContain('u_params._12_axy');
+      // mix against the frame centre on the same uniform: off the stage, home.
+      expect(wgsl).toMatch(/mix\(axhome_12,\s*vec2<f32>\(u_params\._12_axx, u_params\._12_axy\), u_params\._12_axOn\)/);
     });
 
     it('keeps the axes their own switch, and under the guides', () => {
@@ -236,12 +247,12 @@ describe('ProjectionMap codegen', () => {
       const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
 
       node.params = { guides: 1, axes: 0 };
-      expect(compile(graph)).not.toContain('// --- centre axes ---');
+      expect(compile(graph)).not.toContain('// --- axes ---');
 
       // Guides off means nothing drawn over the mapping at all — that is what
       // the switch is for, so the axes go with them.
       node.params = { guides: 0, axes: 1 };
-      expect(compile(graph)).not.toContain('// --- centre axes ---');
+      expect(compile(graph)).not.toContain('// --- axes ---');
     });
 
     it('lays the axes under the surface outlines', () => {

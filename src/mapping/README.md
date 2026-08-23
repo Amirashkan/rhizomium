@@ -135,12 +135,19 @@ cursor on the projector without recompiling per click. The flag itself is
 structural — it decides whether the guide code is emitted at all — which is right
 for a button and wrong for a drag.
 
-**Axes** draws the frame's centre lines — dashed, cool-coloured so they never
-read as a surface edge, solid right at the centre so the middle of the frame is a
-mark and not just where two dashed lines cross. A shape traced freehand has
-nothing to be square to; the centre is the one landmark every frame shares. They
-sit UNDER the surface outlines, and they are their own switch but still gated by
-Guides, since Guides off has to mean nothing drawn over the mapping at all.
+**Axes** draws a full-frame crosshair that FOLLOWS THE POINTER — dashed, cool-
+coloured so it never reads as a surface edge, solid where the lines cross so the
+exact spot is a mark. A shape traced freehand has nothing to be square to, and
+lining a point up against something already on the object is the common case, so
+the lines run out from the pointer across the whole frame. Off the stage they
+fall back to the frame's centre rather than vanishing, and the centre keeps a
+small mark of its own so it stays findable while they are away.
+
+The position is a plain uniform (`axx`/`axy`/`axOn`), so tracking a hand is a
+buffer write and never a recompile. They track in EVERY tool — a corner being
+pinned wants lining up as much as a point being placed does — sit UNDER the
+surface outlines, and are their own switch but still gated by Guides, since
+Guides off has to mean nothing drawn over the mapping at all.
 
 **Preview** is the editor's own stage picture and affects nothing downstream.
 

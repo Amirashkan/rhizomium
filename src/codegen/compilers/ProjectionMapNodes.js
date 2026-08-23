@@ -213,11 +213,19 @@ export class ProjectionMapNodes {
    * this is the projector's own reference, which is what a rig is squared to.
    */
   _compileAxisGuides(node, nodeId) {
+    const u = (name) => this._uniform(node, name);
     return `
-  // --- centre axes ---
+  // --- axes ---
   {
-    let axc_${nodeId} = 0.5 * g.resolution;
-    let axd_${nodeId} = abs(gp_${nodeId} - axc_${nodeId});
+    let axhome_${nodeId} = vec2<f32>(0.5, 0.5);
+    // Centred on the POINTER while it is on the stage — a point is lined up
+    // against something already on the object far more often than against the
+    // middle of the frame — and back on the frame's centre once it leaves, so
+    // the reference never simply vanishes. A uniform, so following the hand is
+    // a buffer write and not a recompile.
+    let axat_${nodeId} = mix(axhome_${nodeId},
+      vec2<f32>(${u('axx')}, ${u('axy')}), ${u('axOn')}) * g.resolution;
+    let axd_${nodeId} = abs(gp_${nodeId} - axat_${nodeId});
     // Dashes run along each line, so the axes read as a reference rather than
     // as one more edge to align something to.
     let axdash_${nodeId} = vec2<f32>(
@@ -228,11 +236,18 @@ export class ProjectionMapNodes {
       axdash_${nodeId}.x * rzGuideStroke(axd_${nodeId}.x, 1.0));
     axis_${nodeId} = max(axis_${nodeId},
       axdash_${nodeId}.y * rzGuideStroke(axd_${nodeId}.y, 1.0));
-    // Solid right at the centre, so the middle of the frame is a mark and not
-    // just where two dashed lines happen to cross.
+    // Solid where they cross, so the exact spot is a mark and not just where
+    // two dashed lines happen to meet.
     let axnear_${nodeId} = step(max(axd_${nodeId}.x, axd_${nodeId}.y), ${AXIS_CROSS_PX});
     axis_${nodeId} = max(axis_${nodeId},
       axnear_${nodeId} * rzGuideStroke(min(axd_${nodeId}.x, axd_${nodeId}.y), 1.0));
+
+    // The frame's centre keeps a mark of its own, so it stays findable while
+    // the axes are away following the pointer.
+    let axhd_${nodeId} = abs(gp_${nodeId} - axhome_${nodeId} * g.resolution);
+    let axhn_${nodeId} = step(max(axhd_${nodeId}.x, axhd_${nodeId}.y), ${AXIS_CROSS_PX});
+    axis_${nodeId} = max(axis_${nodeId},
+      axhn_${nodeId} * rzGuideStroke(min(axhd_${nodeId}.x, axhd_${nodeId}.y), 1.0));
   }`;
   }
 

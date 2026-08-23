@@ -190,6 +190,20 @@ describe('syncMappingToNode', () => {
     expect(renderer._updateParameterUniforms).toHaveBeenCalledTimes(1);
   });
 
+  it('sends the axes to the pointer, and home when it leaves the stage', () => {
+    const on = guideParamValues({ guides: true, axes: true, pointer: { x: 0.2, y: 0.85 } });
+    expect(on.axOn).toBe(1);
+    expect(on.axx).toBeCloseTo(0.2);
+    expect(on.axy).toBeCloseTo(0.85);
+
+    // Off the stage the axes fall back to the frame's centre rather than
+    // vanishing — a reference that disappears is worse than a fixed one.
+    const off = guideParamValues({ guides: true, axes: true });
+    expect(off.axOn).toBe(0);
+    expect(off.axx).toBe(0.5);
+    expect(off.axy).toBe(0.5);
+  });
+
   it('treats the axes as structural too, since they are code and not a value', () => {
     const node = makeNode();
     const uniformManager = { uniformValues: new Map() };
@@ -423,6 +437,10 @@ describe('setup visuals', () => {
     expect(syncGuidesToNode(node, { guides: true }, { uniformManager, renderer })).toBe(true);
     expect(syncGuidesToNode(node, {
       guides: true, cursor: { x: 0.5, y: 0.5 },
+    }, { uniformManager, renderer })).toBe(false);
+    // Moving the axes is a buffer write too, or they could not follow a hand.
+    expect(syncGuidesToNode(node, {
+      guides: true, cursor: { x: 0.5, y: 0.5 }, pointer: { x: 0.1, y: 0.2 },
     }, { uniformManager, renderer })).toBe(false);
     expect(uniformManager.uniformValues.get('12.dcx')).toBeCloseTo(0.5);
     vi.unstubAllGlobals();

@@ -736,6 +736,26 @@ describe('MappingPanel', () => {
       delete window.gpuRenderer;
     });
 
+    it('sends the axes after the pointer in every tool, not just Draw', () => {
+      // A corner being pinned wants lining up against the object as much as a
+      // point being placed does.
+      panel.show();
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      panel.tool = 'warp';
+
+      const p = panel._toScreen(0.28, 0.62);
+      panel._onPointerMove(pointer(p.x, p.y));
+      expect(node.params.axOn).toBe(1);
+      expect(node.params.axx).toBeCloseTo(0.28, 4);
+      expect(node.params.axy).toBeCloseTo(0.62, 4);
+      // The draw ghost stays a Draw-tool thing.
+      expect(node.params.dcOn).toBe(0);
+
+      panel.overlay.dispatchEvent(new Event('pointerleave'));
+      expect(node.params.axOn).toBe(0);
+      expect(node.params.axx).toBe(0.5);
+    });
+
     it('puts the centre axes on the projector, and lets them be switched off', () => {
       panel.show();
       const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');

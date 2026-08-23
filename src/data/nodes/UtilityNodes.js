@@ -46,9 +46,15 @@ function buildProjectionMapParams() {
   // it. Read at compile time, like the mask counts, since it decides how much
   // guide code is emitted.
   params.push({ name: "sn", type: "float", default: 0, hidden: true });
-  // The frame's centre lines. Their own flag rather than part of `guides`, so a
-  // shape can be judged against the centre with the outlines switched off.
+  // The axis lines, and where they are centred. They follow the POINTER, so a
+  // point can be lined up against something already on the object rather than
+  // only against the middle of the frame; with the pointer off the stage they
+  // fall back to the frame's centre. The position is a plain uniform, so
+  // tracking the hand never recompiles.
   params.push({ name: "axes", type: "float", default: 0, hidden: true });
+  params.push({ name: "axOn", type: "float", default: 0, hidden: true });
+  params.push({ name: "axx", type: "float", default: 0.5, hidden: true });
+  params.push({ name: "axy", type: "float", default: 0.5, hidden: true });
   // The outline currently being drawn, and the point the next click would place.
   // These are uniform-backed like everything else, so a half-finished shape
   // follows the cursor on the projector without recompiling per click.
