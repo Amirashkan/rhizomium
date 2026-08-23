@@ -1,6 +1,7 @@
 // src/ui/NodeReferenceDrop.js
 //
-// Drag a node from the graph onto a parameter field to reference it.
+// Drag a node from the graph onto a parameter field to reference it — or onto any
+// other zone that has registered itself, such as a projection-mapping surface.
 //
 // A parameter can already reference another node by typing its identifier by hand
 // (`=node_12`, resolved by UnifiedExpressionSystem). That requires knowing the id of the
@@ -35,6 +36,36 @@ function acceptsNodeReference(el) {
 }
 
 const HOVER_CLASS = 'node-ref-drop-target';
+
+/**
+ * Drop zones contributed from outside the parameter panel.
+ *
+ * A parameter field is a DOM rect, which is all the panel ever needed. A mapping
+ * surface is a quad drawn on a canvas, so it cannot be hit-tested by rect and
+ * cannot be highlighted by a CSS class — a zone brings its own hit test and its
+ * own highlight instead of the gesture trying to guess at either.
+ *
+ * @typedef {object} DropZone
+ * @property {(nodeId: string) => boolean} accepts whether this zone takes the dragged node
+ * @property {(clientX: number, clientY: number) => *} hitTest the thing under the pointer, or null
+ * @property {(hit: *, nodeId: string) => void} drop commit the drop
+ * @property {(hit: *|null) => void} [highlight] show what a release would hit
+ * @property {(hit: *) => string} [label] badge text; defaults to the node reference token
+ */
+const dropZones = new Set();
+
+/**
+ * Register a drop zone for node drags.
+ * @param {DropZone} zone
+ * @returns {Function} unregister
+ */
+export function registerNodeDropZone(zone) {
+  if (!zone || typeof zone.hitTest !== 'function' || typeof zone.drop !== 'function') {
+    return () => {};
+  }
+  dropZones.add(zone);
+  return () => dropZones.delete(zone);
+}
 
 export const nodeReferenceDropStyles = `
 .node-ref-drop-target {
@@ -113,6 +144,8 @@ export class NodeReferenceDrop {
     this.active = false;
     this.token = null;
     this.targets = [];
+    this.zones = [];
+    this.draggedNodeId = null;
     this.hovered = null;
     this.badge = null;
   }
@@ -128,8 +161,16 @@ export class NodeReferenceDrop {
     if (typeof document === 'undefined') return;
 
     this.token = nodeReferenceToken(node.id);
-    this.targets = this._collectTargets(String(node.id));
-    this.active = this.targets.length > 0;
+    this.draggedNodeId = String(node.id);
+    this.targets = this._collectTargets(this.draggedNodeId);
+    this.zones = [...dropZones].filter((zone) => {
+      try {
+        return typeof zone.accepts !== 'function' || zone.accepts(this.draggedNodeId);
+      } catch {
+        return false; // a broken zone must not break dragging a node
+      }
+    });
+    this.active = this.targets.length > 0 || this.zones.length > 0;
   }
 
   /** Is a reference drag in progress with at least one field to drop on? */
@@ -151,7 +192,7 @@ export class NodeReferenceDrop {
     }
 
     if (target) {
-      this._showBadge(clientX, clientY);
+      this._showBadge(clientX, clientY, this._badgeText(target));
       return true;
     }
 
@@ -172,9 +213,21 @@ export class NodeReferenceDrop {
 
     const target = this._hitTest(clientX, clientY);
     const token = this.token;
+    const nodeId = this.draggedNodeId;
     this.cleanup();
 
     if (!target || !token) return false;
+
+    // A zone commits the drop its own way — wiring a graph connection, say,
+    // rather than writing a reference into a text field.
+    if (target.zone) {
+      try {
+        target.zone.drop(target.hit, nodeId);
+      } catch {
+        return false; // the drop failed; treat the drag as a plain node move
+      }
+      return true;
+    }
 
     insertNodeReference(target.el, token);
 
@@ -201,7 +254,9 @@ export class NodeReferenceDrop {
     this._removeBadge();
     this.active = false;
     this.token = null;
+    this.draggedNodeId = null;
     this.targets = [];
+    this.zones = [];
   }
 
   _collectTargets(draggedNodeId) {
@@ -237,6 +292,18 @@ export class NodeReferenceDrop {
         return target;
       }
     }
+
+    // Parameter fields win where they overlap: they are small, explicit targets
+    // sitting above the canvas a zone is drawn on.
+    for (const zone of this.zones) {
+      let hit = null;
+      try {
+        hit = zone.hitTest(clientX, clientY);
+      } catch {
+        hit = null;
+      }
+      if (hit) return { zone, hit };
+    }
     return null;
   }
 
@@ -244,19 +311,37 @@ export class NodeReferenceDrop {
     if (this.hovered?.el) {
       this.hovered.el.classList.remove(HOVER_CLASS);
     }
+    if (this.hovered?.zone?.highlight) {
+      try { this.hovered.zone.highlight(null); } catch { /* ignore */ }
+    }
     this.hovered = target;
     if (target?.el) {
       target.el.classList.add(HOVER_CLASS);
     }
+    if (target?.zone?.highlight) {
+      try { target.zone.highlight(target.hit); } catch { /* ignore */ }
+    }
   }
 
-  _showBadge(clientX, clientY) {
+  /** Badge text for the thing under the pointer. */
+  _badgeText(target) {
+    if (target?.zone?.label) {
+      try {
+        return target.zone.label(target.hit) || this.token;
+      } catch {
+        return this.token;
+      }
+    }
+    return this.token;
+  }
+
+  _showBadge(clientX, clientY, text = this.token) {
     if (!this.badge) {
       this.badge = document.createElement('div');
       this.badge.className = 'node-ref-drop-badge';
       document.body.appendChild(this.badge);
     }
-    this.badge.textContent = this.token;
+    this.badge.textContent = text;
     this.badge.style.left = `${clientX + 14}px`;
     this.badge.style.top = `${clientY + 14}px`;
   }

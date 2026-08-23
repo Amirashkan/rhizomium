@@ -31,6 +31,7 @@ import { OSCParameterBinding } from './src/osc/OSCParameterBinding.js';
 import { getOSCSettingsPanel } from './src/ui/OSCSettingsPanel.js';
 import { MappingModel } from './src/mapping/MappingModel.js';
 import { getMappingPanel } from './src/ui/MappingPanel.js';
+import { findProjectionMapNode, syncMappingToNode } from './src/mapping/projectionMapNode.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
@@ -594,6 +595,11 @@ async function initialize() {
           if (secondMonitorViewer && typeof secondMonitorViewer.setMapping === "function") {
             secondMonitorViewer.setMapping(model.serialize());
           }
+          // Keep the graph's ProjectionMap node — the mapping in the shader —
+          // on the same geometry. This writes uniform bytes, not a recompile,
+          // so a corner drag stays a drag.
+          const mapNode = findProjectionMapNode(graph);
+          if (mapNode) syncMappingToNode(model, mapNode);
         });
       } catch (error) {
         console.error("ERROR creating projection mapping tool:", error);

@@ -10,6 +10,13 @@
 // the output frame (the dashed rectangle) because a surface's corners routinely
 // need to be pulled beyond the frame to cover an object that overshoots it.
 //
+// A surface can also be given its OWN FLOW: drag a node out of the graph and drop
+// it on the surface, and that node is wired to the surface's pin on the
+// ProjectionMap node. That node is the mapping in the shader, which is how a
+// mapping reaches the projector — so once it drives the output, the stage stops
+// warping locally and shows the already-mapped render instead, or the warp would
+// be applied twice.
+//
 // Everything the panel edits lives in the shared {@link MappingModel}; the panel
 // holds no mapping state of its own. That is what lets the second-monitor
 // bridge, the project file and this UI stay in step without any of them knowing
@@ -19,6 +26,13 @@ import { MappingModel, CORNERS, rectQuad } from '../mapping/MappingModel.js';
 import { MappingCompositor } from '../mapping/MappingCompositor.js';
 import { makeDraggable } from './utils/draggable.js';
 import { getOutputAspect } from './OutputFormat.js';
+import { registerNodeDropZone } from './NodeReferenceDrop.js';
+import {
+  findProjectionMapNode,
+  ensureProjectionMapNode,
+  assignSurfaceFlow,
+  getSurfaceFlow,
+} from '../mapping/projectionMapNode.js';
 
 /** How far past the output frame the stage shows, as a fraction of the frame. */
 const VIEW_PAD = 0.1;
@@ -78,6 +92,9 @@ export class MappingPanel {
     this._unsubscribe = null;
     this._drag = null;
     this._inspectorFor = null;
+    this._unregisterDropZone = null;
+    /** Surface index a node drag would land on, while one is in progress. */
+    this._dropTarget = null;
 
     // Editing the source crop needs the composition shown UNWARPED. Rendering an
     // identity surface through the same compositor gives that without a second
@@ -174,6 +191,115 @@ export class MappingPanel {
     return this.compositor;
   }
 
+  // --- the mapping's node ---------------------------------------------------
+
+  /** The editor's graph, or null outside the editor (tests). */
+  _graph() {
+    if (typeof window === 'undefined') return null;
+    return window.editor?.graph || window.graph || null;
+  }
+
+  /** The ProjectionMap node standing for this mapping, or null. */
+  _node() {
+    return findProjectionMapNode(this._graph());
+  }
+
+  /**
+   * Whether the node is already putting the mapping on screen.
+   *
+   * When it is, the render the stage samples has been warped ALREADY. Warping it
+   * again here would show a mapping of a mapping — so the stage presents it flat
+   * and the handles simply sit over it.
+   *
+   * @returns {boolean}
+   */
+  _nodeDrivesOutput() {
+    const node = this._node();
+    if (!node) return false;
+    const graph = this._graph();
+    const nodes = graph?.nodes;
+    if (!Array.isArray(nodes)) return false;
+    // Reachability from the output, following inputs back.
+    const output = nodes.find((n) => n && n.kind === 'OutputFinal');
+    if (!output) return false;
+    const seen = new Set();
+    const stack = [output];
+    while (stack.length) {
+      const current = stack.pop();
+      if (!current || seen.has(current.id)) continue;
+      seen.add(current.id);
+      if (current.id === node.id) return true;
+      for (const inputId of current.inputs || []) {
+        if (inputId === null || inputId === undefined) continue;
+        const next = nodes.find((n) => String(n.id) === String(inputId));
+        if (next) stack.push(next);
+      }
+    }
+    return false;
+  }
+
+  /** The flow feeding a surface, as { id, label }, or null. */
+  _flowFor(surfaceIndex) {
+    const sourceId = getSurfaceFlow(this._node(), surfaceIndex);
+    if (!sourceId) return null;
+    const source = this._graph()?.nodes?.find((n) => String(n.id) === sourceId);
+    return { id: sourceId, label: source ? (source.name || source.kind) : `node ${sourceId}` };
+  }
+
+  /** Wire (or clear) a surface's own flow and rebuild the shader. */
+  _setFlow(surfaceIndex, sourceNodeId) {
+    const graph = this._graph();
+    if (!graph) return false;
+    // Clearing needs no node; assigning brings one into existence.
+    const node = sourceNodeId === null
+      ? this._node()
+      : ensureProjectionMapNode(graph);
+    if (!node) return false;
+    if (!assignSurfaceFlow(node, surfaceIndex, sourceNodeId)) return false;
+
+    // A changed pin changes the shader's structure, so this one does rebuild.
+    if (typeof window !== 'undefined' && typeof window.rebuild === 'function') {
+      window.rebuild();
+    }
+    this._renderList();
+    this._buildInspector();
+    return true;
+  }
+
+  /**
+   * Offer the surfaces as drop targets for a node dragged out of the graph.
+   * Registered only while the panel is open — a hidden panel has nothing on
+   * screen to aim at.
+   */
+  _registerDropZone() {
+    if (this._unregisterDropZone) return;
+    this._unregisterDropZone = registerNodeDropZone({
+      accepts: () => this.visible && this.editMode === 'dst' && this.model.surfaces.length > 0,
+      hitTest: (clientX, clientY) => {
+        if (!this.visible) return null;
+        const rect = this.overlay.getBoundingClientRect();
+        if (clientX < rect.left || clientX > rect.right) return null;
+        if (clientY < rect.top || clientY > rect.bottom) return null;
+        const pt = this._toNormalized(clientX - rect.left, clientY - rect.top);
+        const surface = this.model.hitTestSurface(pt.x, pt.y);
+        if (!surface) return null;
+        const index = this.model.surfaces.indexOf(surface);
+        return index === -1 ? null : { index, surface };
+      },
+      highlight: (hit) => { this._dropTarget = hit ? hit.index : null; },
+      label: (hit) => `→ ${hit.surface.name}`,
+      drop: (hit, nodeId) => { this._setFlow(hit.index, nodeId); },
+    });
+  }
+
+  _unregisterDrop() {
+    this._dropTarget = null;
+    if (this._unregisterDropZone) {
+      this._unregisterDropZone();
+      this._unregisterDropZone = null;
+    }
+  }
+
   // --- geometry -----------------------------------------------------------
 
   /**
@@ -252,7 +378,10 @@ export class MappingPanel {
     if (compositor.isReady()) {
       compositor.resize(f.sw * dpr, f.sh * dpr);
       const source = this.getSource();
-      if (this.editMode === 'src') {
+      if (this.editMode === 'src' || this._nodeDrivesOutput()) {
+        // Source-crop mode wants the composition flat; and once the node is
+        // driving the output the render already carries the mapping, so warping
+        // it here would map a mapping.
         compositor.render(source, this._identityModel, { frame });
       } else {
         compositor.render(source, this.model, { frame, testPattern: this.testPattern });
@@ -305,6 +434,7 @@ export class MappingPanel {
     const pts = quad.map((p) => this._toScreen(p.x, p.y));
     const color = SWATCHES[index % SWATCHES.length];
     const dim = !surface.enabled;
+    const isDropTarget = this._dropTarget === index;
 
     ctx.save();
     ctx.globalAlpha = dim ? 0.35 : 1;
@@ -317,7 +447,17 @@ export class MappingPanel {
     ctx.strokeStyle = isSelected ? color : 'rgba(255, 244, 230, 0.45)';
     ctx.stroke();
 
-    if (isSelected) {
+    if (isDropTarget) {
+      // A node is being dragged over this surface — show what a release hits.
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#c6f24e';
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(198, 242, 78, 0.18)';
+      ctx.fill();
+      ctx.restore();
+    } else if (isSelected) {
       ctx.fillStyle = 'rgba(198, 242, 78, 0.06)';
       ctx.fill();
     }
@@ -332,6 +472,14 @@ export class MappingPanel {
     ctx.fillStyle = isSelected ? color : 'rgba(255, 244, 230, 0.55)';
     const label = surface.locked ? `${surface.name} 🔒` : surface.name;
     ctx.fillText(label, cx, cy);
+
+    // The flow this surface is showing, so the rig is readable at a glance.
+    const flow = this._flowFor(index);
+    if (flow) {
+      ctx.font = '9px ui-monospace, monospace';
+      ctx.fillStyle = 'rgba(255, 244, 230, 0.6)';
+      ctx.fillText(flow.label, cx, cy + 13);
+    }
 
     if (isSelected && !surface.locked) {
       for (let c = 0; c < pts.length; c++) {
@@ -572,6 +720,12 @@ export class MappingPanel {
       case 'reset':
         this.model.resetSurface(id);
         break;
+      case 'clear-flow':
+        // The surface falls back to the composition, as an unfed one always has.
+        if (this._setFlow(Number(button.dataset.index), null)) {
+          this._status('Surface flow cleared');
+        }
+        break;
       case 'back':
         this.model.reorder(id, -1);
         break;
@@ -627,7 +781,7 @@ export class MappingPanel {
     const shared = 'Drag a corner to pin it · drag inside to move · <kbd>Shift</kbd> snaps · arrows nudge, <kbd>Tab</kbd> picks a corner';
     this.hintEl.innerHTML = this.editMode === 'src'
       ? `Cropping what the selected surface shows. ${shared}`
-      : `Pinning surfaces onto the projected frame. Double-click empty space to add one. ${shared}`;
+      : `Pinning surfaces onto the projected frame. Drag a node from the graph onto a surface to give it its own flow · double-click empty space to add one. ${shared}`;
   }
 
   _onModelChange() {
@@ -647,11 +801,13 @@ export class MappingPanel {
     for (let i = this.model.surfaces.length - 1; i >= 0; i--) {
       const s = this.model.surfaces[i];
       const swatch = SWATCHES[i % SWATCHES.length];
+      const flow = this._flowFor(i);
       rows.push(`
         <div class="rz-map-row ${s.id === this.model.selectedId ? 'rz-map-selected' : ''} ${s.enabled ? '' : 'rz-map-off'}"
              data-act="select" data-id="${escapeHtml(s.id)}">
           <span class="rz-map-swatch" style="background:${swatch}"></span>
           <span class="rz-map-row-name">${escapeHtml(s.name)}</span>
+          ${flow ? `<span class="rz-map-flow" title="Showing ${escapeHtml(flow.label)}">${escapeHtml(flow.label)}</span>` : ''}
           <button class="rz-map-icon-btn" data-act="toggle-enabled" data-id="${escapeHtml(s.id)}"
                   aria-pressed="${s.enabled}" title="${s.enabled ? 'Hide surface' : 'Show surface'}">${s.enabled ? '◉' : '○'}</button>
           <button class="rz-map-icon-btn" data-act="toggle-locked" data-id="${escapeHtml(s.id)}"
@@ -671,6 +827,8 @@ export class MappingPanel {
       return;
     }
     const id = escapeHtml(surface.id);
+    const index = this.model.surfaces.indexOf(surface);
+    const flow = this._flowFor(index);
     const quad = this.editMode === 'src' ? surface.src : surface.dst;
     const cornerRows = CORNERS.map((label, c) => `
       <span>${label}</span>
@@ -692,6 +850,13 @@ export class MappingPanel {
         <label for="rz-map-soft">Soft edge</label>
         <input id="rz-map-soft" type="range" min="0" max="0.5" step="0.005" data-field="softEdge" data-id="${id}" value="${surface.softEdge}">
         <span class="rz-map-value" data-role="soft-value">${Math.round(surface.softEdge * 100)}%</span>
+      </div>
+      <div class="rz-map-field">
+        <label>Flow</label>
+        ${flow
+          ? `<span class="rz-map-flow-name" title="${escapeHtml(flow.label)}">${escapeHtml(flow.label)}</span>
+             <button class="rz-map-btn" data-act="clear-flow" data-index="${index}">Clear</button>`
+          : '<span class="rz-map-note">Drag a node here to give this surface its own flow</span>'}
       </div>
       <div class="rz-map-note">
         ${this.editMode === 'src'
@@ -756,6 +921,7 @@ export class MappingPanel {
     this.panel.classList.add('rz-map-open');
     this._sizeStage();
     this._ensureCompositor();
+    this._registerDropZone();
     this._startLoop();
     this.stage.focus();
   }
@@ -764,6 +930,7 @@ export class MappingPanel {
     if (!this.visible) return;
     this.visible = false;
     this.panel.classList.remove('rz-map-open');
+    this._unregisterDrop();
     this._stopLoop();
   }
 
@@ -778,6 +945,7 @@ export class MappingPanel {
 
   dispose() {
     this._stopLoop();
+    this._unregisterDrop();
     if (this._unsubscribe) this._unsubscribe();
     if (this._cleanupDraggable) this._cleanupDraggable();
     if (this.compositor) this.compositor.dispose();

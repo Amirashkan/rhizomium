@@ -77,6 +77,37 @@ beyond it.
 what that surface shows. A locked surface ignores drags, so an aligned rig can't
 be knocked out of register by a stray click.
 
+## Per-surface flows: the ProjectionMap node
+
+A surface can show the composition, or it can show **its own flow**. Drag a node
+out of the graph and drop it on a surface, and that node is wired to the
+surface's pin on a `ProjectionMap` node — created on the first drop, so the
+gesture never fails for a reason invisible from the panel.
+
+`ProjectionMap` is the mapping *in the graph*: one input pin per surface. That is
+what carries a per-surface flow to the projector — the output window re-renders
+the editor's broadcast WGSL, so a mapping that lives in the shader arrives there,
+and in the floating preview, and in an export, with nothing mapping-shaped having
+to cross the wire.
+
+Inputs are sampled as textures, since a surface has to be read at the warped
+coordinate its quad implies rather than at the pixel being shaded. A pin fed by
+anything that is not already a texture (a Circle, a noise chain) is bridged
+through `FragmentTextureRenderer` and published under its own id, the same way a
+3D field mapper consumes any graph output — so any subgraph can feed a surface.
+
+The corner geometry reaches the node as **uniform matrices**, not corners.
+Inverting a quad is an 8x8 solve, hopeless per fragment, and a baked matrix would
+mean recompiling on every mousemove of a drag; the homographies are solved on the
+CPU when a corner moves and written straight into the uniform buffer, batched so
+one drag is one upload rather than 120.
+
+The node does not replace the panel's own compositor. A surface with no pin
+connected falls back to the composition exactly as before, and the panel keeps
+warping interactively for editing — except once the node is driving the output,
+where the stage presents the render flat, because it already carries the mapping
+and warping it again would map a mapping.
+
 ## Output
 
 Mapping applies to the second-monitor output window. The editor broadcasts the

@@ -436,3 +436,29 @@
   color: var(--rz-text-faint);
   line-height: 1.5;
 }
+
+/* The flow a surface is showing — a node dragged onto it from the graph. */
+.rz-map-flow {
+  flex: none;
+  max-width: 74px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--rz-accent-14);
+  color: var(--rz-accent);
+  font-family: var(--rz-font-mono);
+  font-size: 9px;
+}
+
+.rz-map-flow-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--rz-accent);
+  font-family: var(--rz-font-mono);
+  font-size: 11px;
+}

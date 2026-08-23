@@ -3,6 +3,47 @@
 /**
  * Utility node definitions for data manipulation and conversion
  */
+
+/**
+ * Surfaces a {@link UtilityNodes.ProjectionMap} node can carry. Matches the
+ * swatch/tint count the mapping panel and compositor colour surfaces with, so a
+ * surface has the same identity everywhere it is drawn.
+ */
+export const MAX_MAPPED_SURFACES = 6;
+
+/** Identity 3x3, row-major: the whole frame showing the whole flow. */
+const IDENTITY_MAT3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+
+/**
+ * Per-surface parameters for the ProjectionMap node.
+ *
+ * The shader needs MATRICES, not corners. Inverting a quad per fragment is an
+ * 8x8 solve, so the homographies are solved once on the CPU whenever a corner
+ * moves (see src/mapping/homography.js) and arrive here already inverted:
+ *   m0..m8  output space -> this surface's unit square
+ *   n0..n8  unit square  -> the crop of the flow to show
+ * The corners themselves live in the MappingModel, which is what the panel edits
+ * and what the project file carries; these are the projection of that state onto
+ * what the GPU actually reads.
+ *
+ * They are `hidden` because the panel maintains them - nobody aligns a projector
+ * by typing matrix coefficients - and they are separate float params rather than
+ * one packed blob so each is uniform-backed individually, which is what keeps a
+ * corner drag a buffer write instead of a shader rebuild on every mousemove.
+ */
+function buildProjectionMapParams() {
+  const params = [];
+  for (let i = 0; i < MAX_MAPPED_SURFACES; i++) {
+    for (let k = 0; k < 9; k++) {
+      params.push({ name: `s${i}m${k}`, type: "float", default: IDENTITY_MAT3[k], hidden: true });
+      params.push({ name: `s${i}n${k}`, type: "float", default: IDENTITY_MAT3[k], hidden: true });
+    }
+    params.push({ name: `s${i}opacity`, type: "float", default: 1.0, hidden: true });
+    params.push({ name: `s${i}soft`, type: "float", default: 0.0, hidden: true });
+  }
+  return params;
+}
+
 export const UtilityNodes = {
   Expr: {
     label: "Expression",
@@ -100,6 +141,45 @@ export const UtilityNodes = {
         label: "Output Type"
       },
     ],
+  },
+
+  /**
+   * ProjectionMap - corner-pin each input onto its own quad of the frame.
+   *
+   * This is the projection-mapping surfaces represented IN THE GRAPH: one input
+   * pin per surface, so each surface can be fed its own flow. It is what carries
+   * a mapping to the projector - the second-monitor window re-renders the
+   * editor's broadcast WGSL, so a mapping that lives in the shader arrives there
+   * (and in the floating preview, and in an export) with nothing mapping-shaped
+   * having to cross the wire.
+   *
+   * It does not replace the mapping panel's own compositor: the panel still
+   * warps interactively for editing, and a surface with no pin connected falls
+   * back to the composition the way it always did. The node adds the per-surface
+   * FLOW, and the shader path that reaches the output.
+   *
+   * Inputs are sampled as textures, since a surface has to be read at the warped
+   * coordinate its quad implies rather than at the pixel being shaded.
+   *
+   * The corner params are maintained by the mapping panel - see
+   * buildProjectionMapParams above for why they look the way they do.
+   */
+  ProjectionMap: {
+    label: "Projection Map",
+    cat: "Utility",
+    inputs: 1,
+    pinsIn: [],
+    pinsOut: [{ label: "out", type: "vec4" }],
+    dynamicInputs: {
+      min: 1,
+      max: MAX_MAPPED_SURFACES,
+      labelStyle: "index1",
+      labelPrefix: "Surface ",
+    },
+    // Every corner is a live uniform: aligning a rig is a continuous drag, and a
+    // recompile per mousemove would make it unusable.
+    alwaysUniform: true,
+    params: buildProjectionMapParams(),
   },
 
   CustomGLSL: {

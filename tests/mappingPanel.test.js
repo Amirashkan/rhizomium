@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MappingPanel } from '../src/ui/MappingPanel.js';
 import { MappingModel, rectQuad, resetSurfaceIdCounter } from '../src/mapping/MappingModel.js';
+import * as dropModule from '../src/ui/NodeReferenceDrop.js';
 
 const STAGE_W = 660;
 const STAGE_H = 371;
@@ -317,6 +318,214 @@ describe('MappingPanel', () => {
       panel.hide();
       expect(panel.isVisible()).toBe(false);
       expect(panel._rafId).toBeNull();
+    });
+  });
+
+  // --- per-surface flows ----------------------------------------------------
+  //
+  // Dropping a node on a surface wires it to that surface's pin on the
+  // ProjectionMap node — the mapping in the shader, and so the thing that
+  // carries a surface's own flow all the way to the projector.
+
+  describe('surface flows', () => {
+    let graph;
+
+    beforeEach(() => {
+      graph = {
+        nodes: [
+          { id: '5', kind: 'Circle', params: {}, inputs: [] },
+          { id: '6', kind: 'ComputeNoise', params: {}, inputs: [] },
+          { id: '99', kind: 'OutputFinal', params: {}, inputs: [] },
+        ],
+      };
+      window.graph = graph;
+      window.rebuild = vi.fn();
+    });
+
+    afterEach(() => {
+      delete window.graph;
+      delete window.rebuild;
+    });
+
+    const projectionNode = () => graph.nodes.find((n) => n.kind === 'ProjectionMap');
+
+    it('creates the mapping node on the first drop rather than failing silently', () => {
+      const surface = model.addSurface({ dst: rectQuad(0.2, 0.2, 0.4, 0.4) });
+      expect(projectionNode()).toBeUndefined();
+
+      expect(panel._setFlow(0, '5')).toBe(true);
+
+      const node = projectionNode();
+      expect(node).toBeDefined();
+      expect(node.inputs[0]).toBe('5');
+      expect(surface).toBeDefined();
+      expect(window.rebuild).toHaveBeenCalled(); // a changed pin changes the shader
+    });
+
+    it('gives each surface its own flow', () => {
+      model.addSurface();
+      model.addSurface();
+      panel._setFlow(0, '5');
+      panel._setFlow(1, '6');
+      expect(projectionNode().inputs).toEqual(['5', '6']);
+      expect(panel._flowFor(0).label).toBe('Circle');
+      expect(panel._flowFor(1).label).toBe('ComputeNoise');
+    });
+
+    it('reports no flow for a surface that falls back to the composition', () => {
+      model.addSurface();
+      expect(panel._flowFor(0)).toBeNull();
+    });
+
+    it('clears a flow back to the composition', () => {
+      model.addSurface();
+      panel._setFlow(0, '5');
+      expect(panel._setFlow(0, null)).toBe(true);
+      expect(panel._flowFor(0)).toBeNull();
+    });
+
+    it('shows the flow in the surface list and the inspector', () => {
+      model.addSurface();
+      panel._setFlow(0, '5');
+      expect(panel.listEl.querySelector('.rz-map-flow').textContent).toBe('Circle');
+      expect(panel.inspectorEl.querySelector('.rz-map-flow-name').textContent).toBe('Circle');
+    });
+
+    it('offers a Clear button only once a surface has a flow', () => {
+      model.addSurface();
+      expect(panel.inspectorEl.querySelector('[data-act="clear-flow"]')).toBeNull();
+      panel._setFlow(0, '5');
+      expect(panel.inspectorEl.querySelector('[data-act="clear-flow"]')).not.toBeNull();
+    });
+
+    it('knows when the node is already putting the mapping on screen', () => {
+      model.addSurface();
+      panel._setFlow(0, '5');
+      const node = projectionNode();
+      // Not wired to the output yet.
+      expect(panel._nodeDrivesOutput()).toBe(false);
+      graph.nodes.find((n) => n.kind === 'OutputFinal').inputs = [node.id];
+      expect(panel._nodeDrivesOutput()).toBe(true);
+    });
+
+    it('follows the graph back through intermediate nodes to the output', () => {
+      model.addSurface();
+      panel._setFlow(0, '5');
+      const node = projectionNode();
+      graph.nodes.push({ id: '50', kind: 'ColorInvert', params: {}, inputs: [node.id] });
+      graph.nodes.find((n) => n.kind === 'OutputFinal').inputs = ['50'];
+      expect(panel._nodeDrivesOutput()).toBe(true);
+    });
+
+    it('survives a cycle in the graph while walking back from the output', () => {
+      graph.nodes.find((n) => n.kind === 'OutputFinal').inputs = ['5'];
+      graph.nodes.find((n) => n.id === '5').inputs = ['99'];
+      expect(() => panel._nodeDrivesOutput()).not.toThrow();
+    });
+  });
+
+  describe('drop zone', () => {
+    let graph;
+
+    beforeEach(() => {
+      graph = { nodes: [{ id: '5', kind: 'Circle', params: {}, inputs: [] }] };
+      window.graph = graph;
+      window.rebuild = vi.fn();
+    });
+
+    afterEach(() => {
+      delete window.graph;
+      delete window.rebuild;
+    });
+
+    /** The zone the panel registers, reached the way the drag controller does. */
+    function zoneOf(p) {
+      let captured = null;
+      const original = p._unregisterDropZone;
+      // The panel registers on show(); capture what it handed over.
+      p._unregisterDrop();
+      p._unregisterDropZone = original;
+      const spy = vi.spyOn(dropModule, 'registerNodeDropZone').mockImplementation((z) => {
+        captured = z;
+        return () => {};
+      });
+      p._registerDropZone();
+      spy.mockRestore();
+      return captured;
+    }
+
+    it('registers only while the panel is open', () => {
+      expect(panel._unregisterDropZone).toBeNull();
+      panel.show();
+      expect(panel._unregisterDropZone).not.toBeNull();
+      panel.hide();
+      expect(panel._unregisterDropZone).toBeNull();
+    });
+
+    it('accepts a drag only with somewhere to put it', () => {
+      const zone = zoneOf(panel);
+      panel.visible = true;
+      expect(zone.accepts('5')).toBe(false); // no surfaces yet
+      model.addSurface();
+      expect(zone.accepts('5')).toBe(true);
+      // Cropping edits what a surface shows, not which flow feeds it.
+      panel.editMode = 'src';
+      expect(zone.accepts('5')).toBe(false);
+    });
+
+    it('hit-tests the pointer onto the surface under it', () => {
+      panel.visible = true;
+      const back = model.addSurface({ dst: rectQuad(0, 0, 1, 1) });
+      const front = model.addSurface({ dst: rectQuad(0.4, 0.4, 0.2, 0.2) });
+      const zone = zoneOf(panel);
+
+      const over = panel._toScreen(0.5, 0.5);
+      expect(zone.hitTest(over.x, over.y).surface.id).toBe(front.id);
+
+      const behind = panel._toScreen(0.05, 0.05);
+      expect(zone.hitTest(behind.x, behind.y).surface.id).toBe(back.id);
+    });
+
+    it('ignores a pointer outside the stage', () => {
+      panel.visible = true;
+      model.addSurface({ dst: rectQuad(0, 0, 1, 1) });
+      const zone = zoneOf(panel);
+      expect(zone.hitTest(-500, -500)).toBeNull();
+      expect(zone.hitTest(STAGE_W + 500, STAGE_H + 500)).toBeNull();
+    });
+
+    it('wires the dropped node to the surface it was released on', () => {
+      panel.visible = true;
+      model.addSurface({ dst: rectQuad(0, 0, 0.4, 0.4) });
+      model.addSurface({ dst: rectQuad(0.5, 0.5, 0.4, 0.4) });
+      const zone = zoneOf(panel);
+
+      const onSecond = panel._toScreen(0.7, 0.7);
+      const hit = zone.hitTest(onSecond.x, onSecond.y);
+      zone.drop(hit, '5');
+
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      expect(node.inputs[1]).toBe('5');
+      expect(node.inputs[0]).toBeNull();
+    });
+
+    it('names the surface a release would hit', () => {
+      panel.visible = true;
+      const surface = model.addSurface({ dst: rectQuad(0, 0, 1, 1) });
+      model.updateSurface(surface.id, { name: 'Left wall' });
+      const zone = zoneOf(panel);
+      const over = panel._toScreen(0.5, 0.5);
+      expect(zone.label(zone.hitTest(over.x, over.y))).toBe('→ Left wall');
+    });
+
+    it('marks the surface under the pointer so the stage can show it', () => {
+      panel.visible = true;
+      model.addSurface({ dst: rectQuad(0, 0, 1, 1) });
+      const zone = zoneOf(panel);
+      zone.highlight({ index: 0 });
+      expect(panel._dropTarget).toBe(0);
+      zone.highlight(null);
+      expect(panel._dropTarget).toBeNull();
     });
   });
 });
