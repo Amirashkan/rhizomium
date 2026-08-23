@@ -131,6 +131,18 @@ describe('ProjectionMap codegen', () => {
     expect(isBalanced(wgsl)).toBe(true);
   });
 
+  it('places surfaces in the top-down space their corners are stored in', () => {
+    // in.uv is y-UP; a surface's corners are y-DOWN. Without converting once at
+    // the top, a surface pinned to the top of the frame renders at the bottom —
+    // the handles and the content mirror about the midline. The conversion has
+    // to happen BEFORE the warp, not at the sample, or it only cancels out for a
+    // full-frame surface and every partial one is misplaced.
+    const wgsl = compile(makeGraph(['5']));
+    expect(wgsl).toContain('let map_uv_12 = vec2<f32>(in.uv.x, 1.0 - in.uv.y)');
+    // and nothing flips it back again on the way to the texture
+    expect(wgsl).not.toMatch(/suv_12_s0 = vec2<f32>\(suv_12_s0\.x, 1\.0 - suv_12_s0\.y\)/);
+  });
+
   it('samples at an explicit LOD, the only kind WGSL allows inside the clip test', () => {
     // The sample sits inside the surface's containment branch, which is
     // non-uniform control flow; textureSample's implicit derivatives are

@@ -108,9 +108,9 @@ export class ProjectionMapNodes {
           ${n(6)} * q_${tag}.x + ${n(7)} * q_${tag}.y + ${n(8)}
         );
         if (abs(hs_${tag}.z) > ${W_EPSILON}) {
-          var suv_${tag} = hs_${tag}.xy / hs_${tag}.z;
-          // Texture space is bottom-up; surface space is top-down like the frame.
-          suv_${tag} = vec2<f32>(suv_${tag}.x, 1.0 - suv_${tag}.y);
+          // Already in the composition's own top-down space, which is what the
+          // flow's texture is stored in — no further flip.
+          let suv_${tag} = hs_${tag}.xy / hs_${tag}.z;
           // textureSampleLevel, not textureSample: the sample sits inside the
           // surface's clip test, which is non-uniform control flow, and WGSL
           // forbids implicit-derivative sampling there (neighbouring
@@ -162,8 +162,13 @@ export class ProjectionMapNodes {
     // Unmapped areas of the projector's field are black and fully transparent:
     // black is what a projector shows for "off", and the alpha lets the node be
     // composited over something else if it is not driving the output directly.
+    // in.uv is y-UP; a surface's corners are y-DOWN, the way the mapping panel
+    // stores them and the way the frame reads. Converting once here puts the
+    // whole chain — placement, clip test, crop, sampling — in one top-down
+    // space. Without it a surface pinned to the top of the frame renders at the
+    // bottom: the handles and the content mirror about the midline.
     const header = `
-  let map_uv_${nodeId} = in.uv;
+  let map_uv_${nodeId} = vec2<f32>(in.uv.x, 1.0 - in.uv.y);
   var map_rgb_${nodeId} = vec3<f32>(0.0);
   var map_a_${nodeId} = 0.0;`;
 

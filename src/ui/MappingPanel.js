@@ -435,12 +435,19 @@ export class MappingPanel {
         // Source-crop mode wants the composition flat. So does any mapping that
         // has a node: the node IS the mapping, so warping here would either map
         // a mapping (once it drives the output) or invent content for surfaces —
-        // showing the composition on a surface whose flow is something else, or
-        // on one with no flow at all. Flat, with handles over it, tells the
-        // truth in both cases.
+        // showing the composition on a surface whose flow is something else.
+        // Flat, with handles over it, tells the truth in both cases.
         compositor.render(source, this._identityModel, { frame });
+      } else if (this.testPattern) {
+        compositor.render(source, this.model, { frame, testPattern: true });
       } else {
-        compositor.render(source, this.model, { frame, testPattern: this.testPattern });
+        // No node yet, so no surface has a flow of its own. Painting the
+        // composition into them would show content on a surface nothing has
+        // been assigned to — which reads as a texture that came from nowhere.
+        // Draw the frame instead and let the outlines say where the surfaces
+        // are; the alignment grid is there for anyone who wants shapes to aim
+        // with before assigning anything.
+        compositor.render(source, this._identityModel, { frame });
       }
     }
 
