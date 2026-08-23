@@ -117,6 +117,9 @@ export function surfaceParamValues(surface, index) {
 export function mappingParamValues(model) {
   const values = {};
   const surfaces = model?.surfaces || [];
+  // The count is carried separately because a surface with no source of its own
+  // has no pin, and the guides are drawn per SURFACE, not per pin.
+  values.sn = Math.min(surfaces.length, MAX_MAPPED_SURFACES);
   for (let i = 0; i < MAX_MAPPED_SURFACES; i++) {
     const surface = surfaces[i];
     if (surface) {

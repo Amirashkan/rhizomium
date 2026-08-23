@@ -4,7 +4,7 @@
 // matrices every surface is drawn with — is pure math and is what actually
 // decides whether a mapped pixel lands in the right place.
 import { describe, it, expect } from 'vitest';
-import { surfaceMatrices, outputToSource } from '../src/mapping/MappingCompositor.js';
+import { MappingCompositor, surfaceMatrices, outputToSource } from '../src/mapping/MappingCompositor.js';
 import { createSurface, rectQuad } from '../src/mapping/MappingModel.js';
 import { applyMat3 } from '../src/mapping/homography.js';
 
@@ -74,5 +74,58 @@ describe('outputToSource', () => {
   it('returns null off the surface', () => {
     const surface = createSurface({ dst: rectQuad(0, 0, 0.4, 0.4) });
     expect(outputToSource(surface, 0.9, 0.9)).toBeNull();
+  });
+});
+
+describe('holding the last frame', () => {
+  /** The upload decision on its own: a stub context, no real GL needed. */
+  function uploader({ throws = false } = {}) {
+    const uploads = [];
+    const compositor = Object.create(MappingCompositor.prototype);
+    compositor._hasFrame = false;
+    compositor.texture = {};
+    compositor.gl = {
+      TEXTURE_2D: 1, RGBA: 2, UNSIGNED_BYTE: 3, UNPACK_FLIP_Y_WEBGL: 4,
+      bindTexture() {},
+      pixelStorei() {},
+      texImage2D(...args) {
+        if (throws) throw new Error('canvas not readable right now');
+        uploads.push(args[args.length - 1]);
+      },
+    };
+    return { compositor, uploads };
+  }
+
+  const frame = { width: 64, height: 36 };
+
+  it('redraws the held frame when the source cannot be read', () => {
+    // The editor's WebGPU canvas is caught between presents all the time — the
+    // stage runs its own animation frame and beats against the render loop.
+    // Clearing to black on those frames is what makes the stage strobe.
+    const { compositor } = uploader();
+    expect(compositor._uploadSource(frame)).toBe(true);
+
+    compositor.gl.texImage2D = () => { throw new Error('not readable'); };
+    expect(compositor._uploadSource(frame)).toBe(true);
+  });
+
+  it('has nothing to hold before the first frame arrives', () => {
+    const { compositor } = uploader({ throws: true });
+    expect(compositor._uploadSource(frame)).toBe(false);
+  });
+
+  it('goes black when there is deliberately no source', () => {
+    // Preview switched off, or a mapping with nothing assigned. Holding the last
+    // frame there would ignore the very thing the button was pressed for.
+    const { compositor } = uploader();
+    expect(compositor._uploadSource(frame)).toBe(true);
+    expect(compositor._uploadSource(null)).toBe(false);
+  });
+
+  it('holds through a source that has not been laid out yet', () => {
+    const { compositor, uploads } = uploader();
+    expect(compositor._uploadSource(frame)).toBe(true);
+    expect(compositor._uploadSource({ width: 0, height: 0 })).toBe(true);
+    expect(uploads).toHaveLength(1);
   });
 });

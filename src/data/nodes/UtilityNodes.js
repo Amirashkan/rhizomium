@@ -40,6 +40,12 @@ function buildProjectionMapParams() {
   // Aligning a rig means looking at the wall, not at the editor, so the outlines
   // and the shape being drawn have to be visible on the physical object.
   params.push({ name: "guides", type: "float", default: 0, hidden: true });
+  // How many surfaces the mapping actually holds. A surface with no source of
+  // its own has no PIN, so the pin count cannot stand in here: the outline of a
+  // surface is exactly what you need on the wall BEFORE deciding what to put on
+  // it. Read at compile time, like the mask counts, since it decides how much
+  // guide code is emitted.
+  params.push({ name: "sn", type: "float", default: 0, hidden: true });
   // The outline currently being drawn, and the point the next click would place.
   // These are uniform-backed like everything else, so a half-finished shape
   // follows the cursor on the projector without recompiling per click.

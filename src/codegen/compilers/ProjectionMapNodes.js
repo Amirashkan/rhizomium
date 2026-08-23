@@ -62,10 +62,15 @@ fn rzInverse3(m: mat3x3<f32>) -> mat3x3<f32> {
     return mat3x3<f32>(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
   }
   let s = 1.0 / det;
+  // mat3x3 is constructed from COLUMNS, and the adjugate below reads naturally
+  // as rows, so each column is spelled out as a vec3 rather than trusting the
+  // nine-scalar form: written flat it transposes silently, and a transposed
+  // inverse still looks like a plausible mapping — the outline lands somewhere,
+  // just not on the surface.
   return mat3x3<f32>(
-    A * s,                  C * s,                  (b * f - c * e) * s,
-    B * s,                  (a * i - c * gg) * s,   (c * d - a * f) * s,
-    (b * gg - a * h) * s,   (c * h - b * i) * s,    (a * e - b * d) * s,
+    vec3<f32>(A, B, C) * s,
+    vec3<f32>(c * h - b * i, a * i - c * gg, b * gg - a * h) * s,
+    vec3<f32>(b * f - c * e, c * d - a * f, a * e - b * d) * s,
   );
 }
 
@@ -113,6 +118,24 @@ export class ProjectionMapNodes {
   /** Whether this node is drawing its setup visuals into the output. */
   _guidesOn(node) {
     return Number(node.params?.guides) > 0.5;
+  }
+
+  /**
+   * How many surfaces the guides cover.
+   *
+   * Deliberately NOT the pin count. A surface only grows a pin once it is given
+   * a source of its own, and the order of work is the other way round: you draw
+   * the outline onto the object first, with the projector showing you where the
+   * edges land, and decide what to play on it afterwards. Keying the guides off
+   * pins would hide the outline of every surface until it had content, which is
+   * precisely when the outline is the only thing there is to see.
+   *
+   * @returns {number}
+   */
+  _guideSurfaceCount(node, pinCount) {
+    const declared = Number(node.params?.sn);
+    const count = Number.isFinite(declared) ? Math.floor(declared) : 0;
+    return Math.min(Math.max(count, pinCount), MAX_MAPPED_SURFACES);
   }
 
   /**
@@ -398,7 +421,8 @@ export class ProjectionMapNodes {
   var guide_${nodeId} = 0.0;
   var guideMark_${nodeId} = 0.0;
   let gp_${nodeId} = map_uv_${nodeId} * g.resolution;`;
-      for (let i = 0; i < pinCount; i++) {
+      const guided = this._guideSurfaceCount(node, pinCount);
+      for (let i = 0; i < guided; i++) {
         guideCode += this._compileSurfaceGuides(node, nodeId, i, this._maskCount(node, i));
       }
       guideCode += this._compileDraftGuides(node, nodeId);

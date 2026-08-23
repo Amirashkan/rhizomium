@@ -179,6 +179,8 @@ export class MappingCompositor {
     this.uniforms = null;
     this.failed = false;
     this._contextLost = false;
+    /** Whether the texture holds a frame worth redrawing when a read fails. */
+    this._hasFrame = false;
     this._vertices = new Float32Array(8);
     this._onContextLost = null;
     this._onContextRestored = null;
@@ -280,6 +282,8 @@ export class MappingCompositor {
     };
     this._onContextRestored = () => {
       this._contextLost = false;
+      // The old texture died with the context, so there is nothing to hold.
+      this._hasFrame = false;
       try {
         this._initGL();
         this.failed = false;
@@ -405,25 +409,35 @@ export class MappingCompositor {
    * @returns {boolean} whether the texture holds a usable frame
    */
   _uploadSource(source) {
+    // No source at all is a deliberate "show nothing" — preview turned off, or a
+    // mapping with nothing assigned. That must go black, so it never falls back
+    // to the held frame below.
     if (!source) return false;
     const gl = this.gl;
     const w = source.width || source.videoWidth || source.displayWidth || 0;
     const h = source.height || source.videoHeight || source.displayHeight || 0;
-    if (!(w > 0 && h > 0)) return false;
-    try {
-      gl.bindTexture(gl.TEXTURE_2D, this.texture);
-      // Uploaded UNFLIPPED, so the source's top row lands at t=0. Source UVs are
-      // y-down like the rest of this file's coordinates, so they then index the
-      // texture directly. Flipping here as well would invert the warp — every
-      // surface would show its composition upside down.
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
-      return true;
-    } catch {
-      // A canvas can refuse to be read mid-resize or after its own context is
-      // lost; hold the previous texture and try again next frame.
-      return false;
+    if (w > 0 && h > 0) {
+      try {
+        gl.bindTexture(gl.TEXTURE_2D, this.texture);
+        // Uploaded UNFLIPPED, so the source's top row lands at t=0. Source UVs are
+        // y-down like the rest of this file's coordinates, so they then index the
+        // texture directly. Flipping here as well would invert the warp — every
+        // surface would show its composition upside down.
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+        this._hasFrame = true;
+        return true;
+      } catch { /* unreadable this frame; fall through to the one being held */ }
     }
+    // A source that is there but cannot be read RIGHT NOW is a gap, not a black
+    // frame: a canvas mid-resize, a video that has not decoded yet, or — the
+    // common one — the editor's WebGPU canvas caught between presents, since
+    // the stage runs its own animation frame and beats against the render loop.
+    // Redrawing the frame already in the texture holds the picture steady.
+    // Clearing to black on those frames is what makes the stage strobe, and it
+    // strobes hardest with nothing mapped yet, which is when someone is staring
+    // at the empty stage wondering what to do.
+    return this._hasFrame;
   }
 
   /** Release GL resources and detach listeners. */
@@ -448,6 +462,7 @@ export class MappingCompositor {
     this.program = null;
     this.gl = null;
     this.failed = true;
+    this._hasFrame = false;
   }
 }
 

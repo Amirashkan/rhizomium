@@ -137,8 +137,28 @@ for a button and wrong for a drag.
 
 **Preview** is the editor's own stage picture and affects nothing downstream.
 
+Guides are drawn per SURFACE, not per pin — the node carries an `sn` count for
+exactly this. A surface grows a pin only once something is wired to it, and the
+order of work is the other way round: put the outline on the object first, with
+the projector showing where the edges land, and choose the content afterwards.
+Keying the guides off pins would hide precisely the outline that is the only
+thing there is to see.
+
 The node is created when the panel opens rather than on the first source drop,
-since it is what carries the guides.
+since it is what carries the guides — and it is wired to the output at the same
+time, because a node nothing consumes renders nowhere. An empty mapping outputs
+transparent black, so taking over the output would blank the projector; whatever
+was feeding the output becomes a full-frame surface instead, which is the
+identity mapping and pixel-identical to what was on screen a moment before. A
+node that was already in the graph is left exactly where it was put — that graph
+was built by hand and may be feeding a blend, or parked deliberately.
+
+The stage HOLDS its last readable frame rather than clearing to black when the
+source cannot be read. The editor's canvas is a WebGPU canvas caught between
+presents all the time, since the stage runs its own animation frame and beats
+against the render loop; clearing on those frames makes the stage strobe. A
+source that is deliberately absent — preview off, nothing assigned — still goes
+black, which is what those states mean.
 
 **Output quad** pins a surface on the projected frame; **Source crop** chooses
 what that surface shows. A locked surface ignores drags, so an aligned rig can't

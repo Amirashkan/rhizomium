@@ -181,4 +181,55 @@ describe('ProjectionMap codegen', () => {
     }
     expect(wgsl).not.toContain(`// --- surface ${MAX_MAPPED_SURFACES + 1} ---`);
   });
+
+  describe('setup visuals', () => {
+    it('draws nothing until they are switched on', () => {
+      expect(compile(makeGraph(['5']))).not.toContain('// --- setup visuals ---');
+    });
+
+    it('outlines a surface that has no source of its own', () => {
+      // The pin count cannot stand in for the surface count here. A surface
+      // grows a pin only once something is wired to it, and the order of work
+      // is the other way round: you put the outline on the object first, with
+      // the projector showing where the edges land, and choose the content
+      // afterwards. Keying the guides off pins hides exactly the outline that
+      // is the only thing there is to see.
+      const graph = makeGraph([]);
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      node.params = { guides: 1, sn: 3 };
+      node.inputCount = 1;
+      const wgsl = compile(graph);
+      expect(wgsl).toContain('// --- setup visuals ---');
+      expect(wgsl).toContain('// --- surface 1 guides ---');
+      expect(wgsl).toContain('// --- surface 3 guides ---');
+      // ...and still nothing for a surface the mapping does not have.
+      expect(wgsl).not.toContain('// --- surface 4 guides ---');
+      // No pin means no content: the outline goes on, the warp block does not.
+      expect(wgsl).not.toContain('// --- surface 1 ---');
+      expect(isBalanced(wgsl)).toBe(true);
+    });
+
+    it('never outlines more surfaces than the node can carry', () => {
+      const graph = makeGraph([]);
+      graph.nodes.find((n) => n.kind === 'ProjectionMap').params = {
+        guides: 1, sn: MAX_MAPPED_SURFACES + 4,
+      };
+      const wgsl = compile(graph);
+      expect(wgsl).toContain(`// --- surface ${MAX_MAPPED_SURFACES} guides ---`);
+      expect(wgsl).not.toContain(`// --- surface ${MAX_MAPPED_SURFACES + 1} guides ---`);
+    });
+
+    it('builds the inverse from columns, since that is what mat3x3 takes', () => {
+      // The adjugate reads naturally as rows, and fed to the constructor flat it
+      // transposes silently. A transposed inverse is not obviously broken — the
+      // outline still lands somewhere plausible, just not on the surface — so it
+      // is worth pinning the column form down here.
+      const graph = makeGraph([]);
+      graph.nodes.find((n) => n.kind === 'ProjectionMap').params = { guides: 1, sn: 1 };
+      const wgsl = compile(graph);
+      expect(wgsl).toContain('vec3<f32>(A, B, C) * s');
+      expect(wgsl).toContain('vec3<f32>(c * h - b * i, a * i - c * gg, b * gg - a * h) * s');
+      expect(wgsl).toContain('vec3<f32>(b * f - c * e, c * d - a * f, a * e - b * d) * s');
+    });
+  });
 });

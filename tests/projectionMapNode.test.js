@@ -131,9 +131,20 @@ describe('mappingParamValues', () => {
     const model = new MappingModel();
     model.addSurface();
     const values = mappingParamValues(model);
-    // 9 + 9 matrix, opacity, soft edge, mask count, and MAX_MASK_POINTS x/y.
+    // 9 + 9 matrix, opacity, soft edge, mask count, and MAX_MASK_POINTS x/y,
+    // plus the one surface count shared by the whole mapping.
     const perSurface = 9 + 9 + 3 + MAX_MASK_POINTS * 2;
-    expect(Object.keys(values)).toHaveLength(MAX_MAPPED_SURFACES * perSurface);
+    expect(Object.keys(values)).toHaveLength(MAX_MAPPED_SURFACES * perSurface + 1);
+  });
+
+  it('carries the surface count, which the pin count cannot stand in for', () => {
+    // The guides are drawn per surface, and a surface with no source of its own
+    // has no pin — which is exactly the surface whose outline matters most.
+    const model = new MappingModel();
+    model.addSurface();
+    model.addSurface();
+    expect(mappingParamValues(model).sn).toBe(2);
+    expect(mappingParamValues(new MappingModel()).sn).toBe(0);
   });
 
   it('mutes pins beyond the mapping, so a removed surface leaves the projector', () => {

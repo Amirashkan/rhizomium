@@ -647,13 +647,75 @@ describe('MappingPanel', () => {
       delete window.rebuild;
     });
 
-    it('creates the node just by opening, before any surface exists', () => {
+    it('creates the node just by opening, and puts it in the render chain', () => {
       // The node is what puts the guides on the projector, and drawing onto a
-      // physical shape means seeing the outline on it from the first click.
+      // physical shape means seeing the outline on it from the first click. A
+      // node nothing consumes renders nowhere, so opening the panel also wires
+      // it to the output.
       expect(graph.nodes.find((n) => n.kind === 'ProjectionMap')).toBeUndefined();
       panel.show();
-      expect(graph.nodes.find((n) => n.kind === 'ProjectionMap')).toBeDefined();
-      expect(model.surfaces).toHaveLength(0);
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      expect(node).toBeDefined();
+      const output = graph.nodes.find((n) => n.kind === 'OutputFinal');
+      expect(String(output.inputs[0])).toBe(String(node.id));
+      expect(graph.connections).toContainEqual({
+        from: { nodeId: node.id, pin: 0 },
+        to: { nodeId: output.id, pin: 0 },
+      });
+    });
+
+    it('keeps the picture when it takes over the output', () => {
+      // An empty mapping outputs transparent black. Taking over the output with
+      // one would blank the projector the moment the panel opened, so whatever
+      // was feeding the output becomes a full-frame surface: the identity
+      // mapping, pixel-identical to what was on screen a moment before.
+      graph.nodes.push({ id: '7', kind: 'ComputeGradient', params: {}, inputs: [] });
+      const output = graph.nodes.find((n) => n.kind === 'OutputFinal');
+      output.inputs[0] = '7';
+      graph.connections.push({ from: { nodeId: '7', pin: 0 }, to: { nodeId: '99', pin: 0 } });
+
+      panel.show();
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      expect(model.surfaces).toHaveLength(1);
+      expect(model.surfaces[0].dst).toEqual(rectQuad(0, 0, 1, 1));
+      expect(String(node.inputs[0])).toBe('7');
+      expect(String(output.inputs[0])).toBe(String(node.id));
+    });
+
+    it('leaves a node the artist already placed where it is', () => {
+      // Opening the panel must not rewire a graph someone built by hand — the
+      // node may be feeding a blend, or deliberately parked off to the side.
+      const existing = { id: '5', kind: 'ProjectionMap', params: {}, inputs: [] };
+      graph.nodes.push(existing);
+      panel.show();
+      const output = graph.nodes.find((n) => n.kind === 'OutputFinal');
+      expect(output.inputs[0]).toBeUndefined();
+      expect(graph.connections).toHaveLength(0);
+    });
+
+    it('keeps the node in step with an edit the panel did not make itself', () => {
+      // The model is authoritative and anything can change it — a project load,
+      // undo, the second-monitor bridge. Syncing only where the panel happened
+      // to know about the node let a corner move on the stage and stay put on
+      // the wall.
+      panel.show();
+      const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
+      model.addSurface({ dst: rectQuad(0.1, 0.1, 0.5, 0.5) });
+      expect(node.params.sn).toBe(2);
+      expect(node.params.s1m0).toBeCloseTo(2, 6);
+    });
+
+    it('recompiles for a new surface, but not for moving one', () => {
+      // The guide code is unrolled per surface, so the count is structural; a
+      // corner is a uniform write, and rebuilding on one would make aligning a
+      // projector impossible.
+      panel.show();
+      const surface = model.addSurface({ dst: rectQuad(0.1, 0.1, 0.5, 0.5) });
+      window.rebuild.mockClear();
+      model.moveSurface(surface.id, 0.05, 0.05);
+      expect(window.rebuild).not.toHaveBeenCalled();
+      model.addSurface();
+      expect(window.rebuild).toHaveBeenCalled();
     });
 
     it('sends the outline and the ghost to the node while drawing', () => {

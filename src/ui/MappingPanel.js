@@ -126,6 +126,9 @@ export class MappingPanel {
     /** Corners placed so far in the draw tool, and the live pointer for the rubber band. */
     this._drawPoints = [];
     this._drawCursor = null;
+    // Last structural shape of the mapping, so an ordinary edit stays a uniform
+    // write and only adding or removing a surface or a point recompiles.
+    this._mappingSig = null;
     this.testPattern = false;
     /** Corner the arrow keys act on, or null to move the whole surface. */
     this.activeCorner = null;
@@ -431,6 +434,58 @@ export class MappingPanel {
   }
 
   /**
+   * Put the node in the render chain, so what it draws actually reaches the
+   * projector.
+   *
+   * A ProjectionMap node that nothing consumes renders nowhere — its surfaces
+   * and its setup visuals alike. Connecting it has to preserve the picture,
+   * though: an empty mapping outputs transparent black, so whatever was feeding
+   * the output becomes the source of a full-frame surface. That is the identity
+   * mapping, pixel-identical to what was on screen a moment ago, and it gives
+   * the first surface something to show while its corners are dragged onto the
+   * object.
+   *
+   * @returns {boolean} whether the graph changed
+   */
+  _connectToOutput() {
+    const graph = this._graph();
+    const node = this._node();
+    if (!graph || !node || !Array.isArray(graph.nodes)) return false;
+    const output = graph.nodes.find((n) => n && n.kind === 'OutputFinal');
+    if (!output) return false;
+    if (!Array.isArray(output.inputs)) output.inputs = [];
+    if (String(output.inputs[0]) === String(node.id)) return false;
+
+    const previous = output.inputs[0];
+
+    // Keep the picture: the old output becomes the first surface's source.
+    if (!this.model.surfaces.length) {
+      this.model.addSurface({ dst: rectQuad(0, 0, 1, 1) });
+    }
+    if (previous !== null && previous !== undefined && String(previous) !== String(node.id)
+        && !getSurfaceSource(node, 0)) {
+      this._setSource(0, String(previous));
+    }
+
+    if (!Array.isArray(graph.connections)) graph.connections = [];
+    graph.connections = graph.connections.filter(
+      (c) => !(c && c.to && String(c.to.nodeId) === String(output.id) && c.to.pin === 0),
+    );
+    graph.connections.push({
+      from: { nodeId: node.id, pin: 0 },
+      to: { nodeId: output.id, pin: 0 },
+    });
+    output.inputs[0] = node.id;
+
+    this._afterWiring(graph, output, 0, previous ?? null, node.id);
+    syncMappingToNode(this.model, node);
+    this._pushGuides({ rebuild: true });
+    this._renderList();
+    this._buildInspector();
+    return true;
+  }
+
+  /**
    * Offer the surfaces as drop targets for a node dragged out of the graph.
    * Registered only while the panel is open — a hidden panel has nothing on
    * screen to aim at.
@@ -592,12 +647,19 @@ export class MappingPanel {
       const source = this.showPreview ? this.getSource() : null;
       if (!this.showPreview) {
         compositor.render(null, this._emptyModel, { frame });
-      } else if (this.editMode === 'src' || this._node()) {
+      } else if (this.editMode === 'src'
+                 || this._nodeDrivesOutput()
+                 || (this._node() && this.model.surfaces.length > 0)) {
         // Source-crop mode wants the composition flat. So does any mapping that
         // has a node: the node IS the mapping, so warping here would either map
         // a mapping (once it drives the output) or invent content for surfaces —
         // showing the composition on a surface whose source is something else.
         // Flat, with handles over it, tells the truth in both cases.
+        //
+        // Having a node is not on its own enough, though. One exists from the
+        // moment the panel opens, and a mapping with no surfaces has nothing to
+        // show the composition ON — painting it anyway is the "why is there a
+        // picture I never assigned" case the empty branch below exists for.
         compositor.render(source, this._identityModel, { frame });
       } else if (this.testPattern) {
         compositor.render(source, this.model, { frame, testPattern: true });
@@ -1179,15 +1241,52 @@ export class MappingPanel {
     }
   }
 
-  /** A mask gained or lost a point, which changes the shader's structure. */
-  _maskChanged() {
+  /**
+   * What about the mapping the SHADER is built around rather than merely
+   * parameterised by: how many surfaces there are, and how many points each
+   * one's shape has. Both are unrolled in the generated WGSL, so a change to
+   * either has to recompile, while everything else — corners, opacity, feather,
+   * where a point sits — is a uniform write.
+   *
+   * @returns {string}
+   */
+  _mappingSignature() {
+    return this.model.surfaces
+      .map((s) => {
+        const points = Array.isArray(s.mask) ? s.mask.length : 0;
+        return points >= 3 ? Math.min(points, MAX_MASK_POINTS) : 0;
+      })
+      .join(',');
+  }
+
+  /**
+   * Push the mapping onto the node after any edit at all.
+   *
+   * The model is what the panel drags and the stage draws; the node is what the
+   * projector draws. Syncing only at the few call sites that happened to know
+   * about the node left the two able to disagree — a corner dragged onto the
+   * object moved on the stage and stayed put on the wall. Doing it from the
+   * model's own change event means there is no edit that can be forgotten.
+   *
+   * Only a structural change rebuilds: this runs on every mousemove of a drag,
+   * and recompiling there would make aligning impossible.
+   */
+  _syncModelToNode() {
     const node = this._node();
-    if (node) {
-      syncMappingToNode(this.model, node);
+    if (!node) return;
+    const signature = this._mappingSignature();
+    syncMappingToNode(this.model, node);
+    if (signature !== this._mappingSig) {
+      this._mappingSig = signature;
       if (typeof window !== 'undefined' && typeof window.rebuild === 'function') {
         window.rebuild();
       }
     }
+  }
+
+  /** A mask gained or lost a point, which changes the shader's structure. */
+  _maskChanged() {
+    this._syncModelToNode();
   }
 
   _beginDrag(e, drag) {
@@ -1542,6 +1641,7 @@ export class MappingPanel {
   }
 
   _onModelChange() {
+    this._syncModelToNode();
     this._syncToolbar();
     this._renderList();
     if (this._inspectorFor !== this.model.selectedId) this._buildInspector();
@@ -1698,9 +1798,14 @@ export class MappingPanel {
     // first click — not after something has already been assigned.
     const graph = this._graph();
     if (graph) {
+      const existing = findProjectionMapNode(graph);
       const node = ensureProjectionMapNode(graph);
       if (node) {
         syncMappingToNode(this.model, node);
+        // A node we just created is of no use to anyone until something
+        // consumes it, so put it in the chain. One that was already in the
+        // graph is left exactly where the artist put it.
+        if (!existing) this._connectToOutput();
         this._pushGuides({ rebuild: true });
         this._renderList();
         this._buildInspector();
