@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MappingPanel } from '../src/ui/MappingPanel.js';
 import { MappingModel, rectQuad, resetSurfaceIdCounter } from '../src/mapping/MappingModel.js';
 import * as dropModule from '../src/ui/NodeReferenceDrop.js';
+import { getInputCount } from '../src/data/nodeInputs.js';
 
 const STAGE_W = 660;
 const STAGE_H = 371;
@@ -337,6 +338,7 @@ describe('MappingPanel', () => {
           { id: '6', kind: 'ComputeNoise', params: {}, inputs: [] },
           { id: '99', kind: 'OutputFinal', params: {}, inputs: [] },
         ],
+        connections: [],
       };
       window.graph = graph;
       window.rebuild = vi.fn();
@@ -368,8 +370,13 @@ describe('MappingPanel', () => {
       panel._setFlow(0, '5');
       panel._setFlow(1, '6');
       expect(projectionNode().inputs).toEqual(['5', '6']);
+      // The node must actually SHOW two pins, or the second wire lands past the
+      // pin count and is pruned as out of range.
+      expect(getInputCount(projectionNode())).toBe(2);
+      // The label is what the node is CALLED in the graph, not its kind — a
+      // user who dropped "Compute Noise" should not be told "ComputeNoise".
       expect(panel._flowFor(0).label).toBe('Circle');
-      expect(panel._flowFor(1).label).toBe('ComputeNoise');
+      expect(panel._flowFor(1).label).toBe('Compute Noise');
     });
 
     it('reports no flow for a surface that falls back to the composition', () => {
@@ -396,6 +403,61 @@ describe('MappingPanel', () => {
       expect(panel.inspectorEl.querySelector('[data-act="clear-flow"]')).toBeNull();
       panel._setFlow(0, '5');
       expect(panel.inspectorEl.querySelector('[data-act="clear-flow"]')).not.toBeNull();
+    });
+
+
+    it('records the wiring for undo and refreshes what the canvas shows', () => {
+      // Writing the connection is only half of what a dragged wire does. Without
+      // the rest the drop is not undoable, the wire is not drawn, and the node
+      // keeps a thumbnail from before it was fed.
+      const created = vi.fn();
+      const deleted = vi.fn();
+      const generateNodePreview = vi.fn();
+      const markDirty = vi.fn();
+      const draw = vi.fn();
+      window.onConnectionCreated = created;
+      window.onConnectionDeleted = deleted;
+      window.editor = { graph, previewIntegration: { generateNodePreview }, markDirty, draw };
+
+      try {
+        model.addSurface();
+        panel._setFlow(0, '5');
+
+        const node = projectionNode();
+        expect(created).toHaveBeenCalledWith('5', node.id, 0, 0);
+        expect(generateNodePreview).toHaveBeenCalledWith(node);
+        expect(markDirty).toHaveBeenCalled();
+        expect(draw).toHaveBeenCalled();
+
+        // Re-feeding the surface retires the wire it replaces.
+        panel._setFlow(0, '6');
+        expect(deleted).toHaveBeenCalledWith(expect.objectContaining({
+          targetNode: node,
+          targetInput: 0,
+          sourceOutput: 0,
+        }));
+      } finally {
+        delete window.onConnectionCreated;
+        delete window.onConnectionDeleted;
+        delete window.editor;
+      }
+    });
+
+    it('completes the drop even when the editor callbacks throw', () => {
+      window.onConnectionCreated = () => { throw new Error('undo broke'); };
+      window.editor = {
+        graph,
+        previewIntegration: { generateNodePreview: () => { throw new Error('preview broke'); } },
+        markDirty: () => { throw new Error('draw broke'); },
+      };
+      try {
+        model.addSurface();
+        expect(panel._setFlow(0, '5')).toBe(true);
+        expect(projectionNode().inputs[0]).toBe('5');
+      } finally {
+        delete window.onConnectionCreated;
+        delete window.editor;
+      }
     });
 
     it('knows when the node is already putting the mapping on screen', () => {
@@ -428,7 +490,7 @@ describe('MappingPanel', () => {
     let graph;
 
     beforeEach(() => {
-      graph = { nodes: [{ id: '5', kind: 'Circle', params: {}, inputs: [] }] };
+      graph = { nodes: [{ id: '5', kind: 'Circle', params: {}, inputs: [] }], connections: [] };
       window.graph = graph;
       window.rebuild = vi.fn();
     });
@@ -507,6 +569,11 @@ describe('MappingPanel', () => {
       const node = graph.nodes.find((n) => n.kind === 'ProjectionMap');
       expect(node.inputs[1]).toBe('5');
       expect(node.inputs[0]).toBeNull();
+      // and the canvas has a wire to show for it
+      expect(graph.connections).toContainEqual({
+        from: { nodeId: '5', pin: 0 },
+        to: { nodeId: node.id, pin: 1 },
+      });
     });
 
     it('names the surface a release would hit', () => {

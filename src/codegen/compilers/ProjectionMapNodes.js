@@ -20,6 +20,7 @@
 // projector.
 
 import { MAX_MAPPED_SURFACES } from '../../data/nodes/UtilityNodes.js';
+import { getInputCount } from '../../data/nodeInputs.js';
 
 /** Below this the surface has collapsed to a line and has nothing to sample. */
 const W_EPSILON = '1e-6';
@@ -143,10 +144,11 @@ export class ProjectionMapNodes {
    */
   compile(node, _getInput = null) {
     const nodeId = String(node.id).replace(/[^a-zA-Z0-9_]/g, '_');
-    const pinCount = Math.min(
-      Array.isArray(node.inputs) ? node.inputs.length : 0,
-      MAX_MAPPED_SURFACES,
-    );
+    // getInputCount, not inputs.length: the pin count everything else draws,
+    // hit-tests and validates against lives on the node instance. Compiling a
+    // surface the canvas is not showing a pin for would put a surface on the
+    // projector with no way to see or unwire it.
+    const pinCount = Math.min(getInputCount(node), MAX_MAPPED_SURFACES);
 
     const surfaces = [];
     for (let i = 0; i < pinCount; i++) {

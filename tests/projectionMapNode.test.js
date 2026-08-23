@@ -12,9 +12,11 @@ import {
   syncMappingToNode,
   getSurfaceFlow,
   assignSurfaceFlow,
+  flowLabel,
 } from '../src/mapping/projectionMapNode.js';
 import { MappingModel, rectQuad, resetSurfaceIdCounter } from '../src/mapping/MappingModel.js';
 import { MAX_MAPPED_SURFACES } from '../src/data/nodes/UtilityNodes.js';
+import { getInputCount } from '../src/data/nodeInputs.js';
 import { applyMat3 } from '../src/mapping/homography.js';
 
 const makeNode = (over = {}) => ({ id: '12', kind: 'ProjectionMap', params: {}, inputs: [], ...over });
@@ -211,6 +213,8 @@ describe('syncMappingToNode', () => {
 });
 
 describe('surface flows', () => {
+  const makeGraph = (nodes = []) => ({ nodes, connections: [] });
+
   it('reports the flow feeding a surface, or none', () => {
     const node = makeNode({ inputs: ['7', null, '9'] });
     expect(getSurfaceFlow(node, 0)).toBe('7');
@@ -221,32 +225,107 @@ describe('surface flows', () => {
 
   it('assigns a flow, growing the pins to reach the surface', () => {
     const node = makeNode();
-    expect(assignSurfaceFlow(node, 2, '7')).toBe(true);
+    const graph = makeGraph([node]);
+    expect(assignSurfaceFlow(graph, node, 2, '7')).toBe(true);
     // Pins are positional: reaching surface 3 means 1 and 2 exist, empty.
     expect(node.inputs).toEqual([null, null, '7']);
-    expect(getSurfaceFlow(node, 2)).toBe('7');
+    // The node must SHOW three pins. Everything that draws, hit-tests and
+    // validates a pin reads inputCount, and a connection landing past it is
+    // pruned as out of range — so a grown inputs array alone is invisible.
+    expect(getInputCount(node)).toBe(3);
+  });
+
+  it('records the connection the canvas draws, not just the compiler input', () => {
+    // A connection lives in graph.connections AND the target's inputs. Writing
+    // only the second renders correctly but leaves no wire on the canvas and
+    // nothing for save/load or undo to see.
+    const node = makeNode();
+    const graph = makeGraph([node]);
+    assignSurfaceFlow(graph, node, 0, '7');
+    expect(graph.connections).toEqual([
+      { from: { nodeId: '7', pin: 0 }, to: { nodeId: '12', pin: 0 } },
+    ]);
+  });
+
+  it('replaces the wire when a surface is re-fed rather than stacking them', () => {
+    const node = makeNode();
+    const graph = makeGraph([node]);
+    assignSurfaceFlow(graph, node, 0, '7');
+    assignSurfaceFlow(graph, node, 0, '9');
+    expect(graph.connections).toHaveLength(1);
+    expect(graph.connections[0].from.nodeId).toBe('9');
+    expect(node.inputs[0]).toBe('9');
+  });
+
+  it('leaves other surfaces\' wires alone', () => {
+    const node = makeNode();
+    const graph = makeGraph([node]);
+    assignSurfaceFlow(graph, node, 0, '7');
+    assignSurfaceFlow(graph, node, 1, '9');
+    expect(graph.connections).toHaveLength(2);
+    assignSurfaceFlow(graph, node, 0, null);
+    expect(graph.connections).toEqual([
+      { from: { nodeId: '9', pin: 0 }, to: { nodeId: '12', pin: 1 } },
+    ]);
   });
 
   it('clears a flow so the surface falls back to the composition', () => {
     const node = makeNode({ inputs: ['7'] });
-    expect(assignSurfaceFlow(node, 0, null)).toBe(true);
+    const graph = makeGraph([node]);
+    expect(assignSurfaceFlow(graph, node, 0, null)).toBe(true);
     expect(node.inputs[0]).toBeNull();
+    expect(graph.connections).toEqual([]);
   });
 
   it('reports when the wiring did not change', () => {
-    const node = makeNode({ inputs: ['7'] });
-    expect(assignSurfaceFlow(node, 0, '7')).toBe(false);
+    const node = makeNode({ inputs: ['7'], inputCount: 1 });
+    const graph = makeGraph([node]);
+    expect(assignSurfaceFlow(graph, node, 0, '7')).toBe(false);
+  });
+
+  it('still grows the pins when the input was already set but no pin showed it', () => {
+    // A project saved before the pin count was maintained would otherwise stay
+    // stuck with an invisible connection.
+    const node = makeNode({ inputs: [null, null, '7'] });
+    const graph = makeGraph([node]);
+    expect(assignSurfaceFlow(graph, node, 2, '7')).toBe(true);
+    expect(getInputCount(node)).toBe(3);
   });
 
   it('refuses a self-feeding cycle the compiler could not resolve', () => {
     const node = makeNode();
-    expect(assignSurfaceFlow(node, 0, '12')).toBe(false);
+    const graph = makeGraph([node]);
+    expect(assignSurfaceFlow(graph, node, 0, '12')).toBe(false);
     expect(node.inputs).toEqual([]);
+    expect(graph.connections).toEqual([]);
   });
 
   it('refuses a surface beyond what the node carries', () => {
     const node = makeNode();
-    expect(assignSurfaceFlow(node, MAX_MAPPED_SURFACES, '7')).toBe(false);
-    expect(assignSurfaceFlow(node, -1, '7')).toBe(false);
+    const graph = makeGraph([node]);
+    expect(assignSurfaceFlow(graph, node, MAX_MAPPED_SURFACES, '7')).toBe(false);
+    expect(assignSurfaceFlow(graph, node, -1, '7')).toBe(false);
+  });
+
+  it('works on a graph with no connection list', () => {
+    const node = makeNode();
+    expect(assignSurfaceFlow({ nodes: [node] }, node, 0, '7')).toBe(true);
+    expect(node.inputs[0]).toBe('7');
+  });
+});
+
+describe('flowLabel', () => {
+  it('uses the name the node shows in the graph, not its kind', () => {
+    expect(flowLabel({ id: '4', kind: 'ComputeNoise' })).toBe('Compute Noise');
+    expect(flowLabel({ id: '5', kind: 'ComputeGradient' })).toBe('Gradient');
+  });
+
+  it('prefers a node the user renamed', () => {
+    expect(flowLabel({ id: '4', kind: 'ComputeNoise', name: 'Backdrop' })).toBe('Backdrop');
+  });
+
+  it('falls back to the kind for a node with no definition', () => {
+    expect(flowLabel({ id: '4', kind: 'Mystery' })).toBe('Mystery');
+    expect(flowLabel(null)).toBe('');
   });
 });

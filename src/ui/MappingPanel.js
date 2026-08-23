@@ -32,6 +32,7 @@ import {
   ensureProjectionMapNode,
   assignSurfaceFlow,
   getSurfaceFlow,
+  flowLabel,
 } from '../mapping/projectionMapNode.js';
 
 /** How far past the output frame the stage shows, as a fraction of the frame. */
@@ -243,7 +244,7 @@ export class MappingPanel {
     const sourceId = getSurfaceFlow(this._node(), surfaceIndex);
     if (!sourceId) return null;
     const source = this._graph()?.nodes?.find((n) => String(n.id) === sourceId);
-    return { id: sourceId, label: source ? (source.name || source.kind) : `node ${sourceId}` };
+    return { id: sourceId, label: source ? flowLabel(source) : `node ${sourceId}` };
   }
 
   /** Wire (or clear) a surface's own flow and rebuild the shader. */
@@ -255,7 +256,11 @@ export class MappingPanel {
       ? this._node()
       : ensureProjectionMapNode(graph);
     if (!node) return false;
-    if (!assignSurfaceFlow(node, surfaceIndex, sourceNodeId)) return false;
+
+    const previousId = getSurfaceFlow(node, surfaceIndex);
+    if (!assignSurfaceFlow(graph, node, surfaceIndex, sourceNodeId)) return false;
+
+    this._afterWiring(graph, node, surfaceIndex, previousId, sourceNodeId);
 
     // A changed pin changes the shader's structure, so this one does rebuild.
     if (typeof window !== 'undefined' && typeof window.rebuild === 'function') {
@@ -264,6 +269,46 @@ export class MappingPanel {
     this._renderList();
     this._buildInspector();
     return true;
+  }
+
+  /**
+   * The editor-side follow-up a wire normally gets.
+   *
+   * Wiring a surface writes the same state a dragged wire does, but writing it
+   * is only half of what ConnectionManager does: it also records the change for
+   * undo, invalidates the canvas so the wire is drawn, and regenerates the
+   * target's thumbnail. Skipping that left a connection that rendered correctly
+   * while the canvas showed no wire and the node kept a stale preview.
+   *
+   * All of it is guarded — the panel has to work in tests with no editor at all.
+   */
+  _afterWiring(graph, node, index, previousId, nextId) {
+    if (typeof window === 'undefined') return;
+    const editor = window.editor;
+    const find = (id) => graph.nodes?.find((n) => String(n.id) === String(id)) || null;
+
+    try {
+      if (previousId && typeof window.onConnectionDeleted === 'function') {
+        window.onConnectionDeleted({
+          sourceNode: find(previousId),
+          targetNode: node,
+          targetInput: index,
+          sourceOutput: 0,
+        });
+      }
+      if (nextId && typeof window.onConnectionCreated === 'function') {
+        window.onConnectionCreated(String(nextId), node.id, index, 0);
+      }
+    } catch { /* undo history is not worth failing the drop over */ }
+
+    try {
+      editor?.previewIntegration?.generateNodePreview?.(node);
+    } catch { /* a stale thumbnail is better than a broken drop */ }
+
+    try {
+      editor?.markDirty?.('mapping-flow-changed');
+      editor?.draw?.();
+    } catch { /* ignore */ }
   }
 
   /**

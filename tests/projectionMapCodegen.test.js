@@ -12,7 +12,10 @@ function makeGraph(inputs, extraNodes = []) {
     nodes: [
       { id: '5', kind: 'Circle', params: { radius: 0.3 }, inputs: [] },
       ...extraNodes,
-      { id: '12', kind: 'ProjectionMap', params: {}, inputs },
+      // inputCount is what the canvas draws pins from and what the compiler
+      // reads; assignSurfaceFlow keeps the two in step, so a real node always
+      // carries it alongside its inputs.
+      { id: '12', kind: 'ProjectionMap', params: {}, inputs, inputCount: inputs.length },
       { id: '99', kind: 'OutputFinal', params: {}, inputs: ['12'] },
     ],
     connections: [],
@@ -146,6 +149,16 @@ describe('ProjectionMap codegen', () => {
     expect(wgsl.indexOf('// --- surface 1 ---')).toBeLessThan(wgsl.indexOf('// --- surface 2 ---'));
     expect(wgsl).toContain('map_rgb_12 = mix(map_rgb_12, texel_12_s0.rgb, a_12_s0)');
     expect(wgsl).toContain('map_rgb_12 = mix(map_rgb_12, texel_12_s1.rgb, a_12_s1)');
+  });
+
+  it('compiles only the surfaces the node shows a pin for', () => {
+    // A surface compiled past the pin count would reach the projector with no
+    // pin on the canvas to see or unwire it.
+    const graph = makeGraph(['5', '5']);
+    graph.nodes.find((n) => n.kind === 'ProjectionMap').inputCount = 1;
+    const wgsl = compile(graph);
+    expect(wgsl).toContain('// --- surface 1 ---');
+    expect(wgsl).not.toContain('// --- surface 2 ---');
   });
 
   it('never emits more surfaces than the node can carry', () => {

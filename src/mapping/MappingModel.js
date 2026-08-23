@@ -196,6 +196,12 @@ export class MappingModel {
    * @returns {object} the new surface
    */
   addSurface(opts = {}) {
+    // Named for the pin it will feed, not for a global counter. A surface added
+    // after another was deleted used to come out as "Surface 3" while sitting on
+    // the node's "Surface 1" pin, which makes a rig impossible to read.
+    if (!opts.name) {
+      opts = { ...opts, name: `Surface ${this.surfaces.length + 1}` };
+    }
     if (!opts.dst) {
       const step = Math.min(this.surfaces.length, 6) * 0.06;
       opts = { ...opts, dst: rectQuad(0.05 + step, 0.05 + step, 0.6, 0.6) };

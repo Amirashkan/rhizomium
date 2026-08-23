@@ -15,7 +15,8 @@
 
 import { surfaceMatrices } from './MappingCompositor.js';
 import { MAX_MAPPED_SURFACES } from '../data/nodes/UtilityNodes.js';
-import { makeNode, updateNodeIdCounter } from '../data/NodeDefs.js';
+import { makeNode, updateNodeIdCounter, NodeDefs } from '../data/NodeDefs.js';
+import { getInputCount, setInputCount } from '../data/nodeInputs.js';
 
 /** The identity mapping: the whole frame showing the whole flow. */
 const IDENTITY_MAT3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -181,26 +182,66 @@ export function getSurfaceFlow(node, index) {
 }
 
 /**
- * Give a surface its own flow, growing the pin list to reach it.
+ * The name a flow shows under, matching what is written on the node in the graph
+ * rather than its internal kind — a user who dropped "Gradient" should not be
+ * told the surface is showing "ComputeGradient".
  *
+ * @param {object} sourceNode
+ * @returns {string}
+ */
+export function flowLabel(sourceNode) {
+  if (!sourceNode) return '';
+  return sourceNode.name || NodeDefs[sourceNode.kind]?.label || sourceNode.kind || '';
+}
+
+/**
+ * Give a surface its own flow.
+ *
+ * A connection lives in TWO places: `graph.connections`, which is what draws the
+ * wire and what save/load and undo read, and the target's `inputs` array, which
+ * is what the compiler reads. Writing only the second leaves a mapping that
+ * renders correctly but has no wire on the canvas and no connection the rest of
+ * the editor can see — so both are written here, the way ConnectionManager does
+ * it for a dragged wire.
+ *
+ * The pin count is `node.inputCount`, not `inputs.length`: everything that
+ * draws, hit-tests or validates a pin reads it from there, and a connection
+ * landing past it is pruned as out of range.
+ *
+ * @param {object} graph the graph holding the connection list
  * @param {object} node the ProjectionMap node
  * @param {number} index surface to feed
  * @param {string|null} sourceId node to feed it from, or null to clear
  * @returns {boolean} whether the wiring changed
  */
-export function assignSurfaceFlow(node, index, sourceId) {
+export function assignSurfaceFlow(graph, node, index, sourceId) {
   if (!node || node.kind !== 'ProjectionMap') return false;
   if (!(index >= 0 && index < MAX_MAPPED_SURFACES)) return false;
   // A node feeding itself is a cycle the compiler cannot resolve.
-  if (sourceId !== null && String(sourceId) === String(node.id)) return false;
-
-  if (!Array.isArray(node.inputs)) node.inputs = [];
-  // Pins are positional, so reaching surface 3 means surfaces 1 and 2 exist as
-  // pins even while they are empty.
-  while (node.inputs.length <= index) node.inputs.push(null);
+  if (sourceId !== null && sourceId !== undefined && String(sourceId) === String(node.id)) {
+    return false;
+  }
 
   const next = sourceId === null || sourceId === undefined ? null : String(sourceId);
-  if (node.inputs[index] === next) return false;
+  if (!Array.isArray(node.inputs)) node.inputs = [];
+  if (node.inputs[index] === next && getInputCount(node) > index) return false;
+
+  // Grow (never shrink) so the pin exists to land on. Pins are positional, so
+  // reaching surface 3 means surfaces 1 and 2 exist as pins even while empty.
+  if (getInputCount(node) <= index) setInputCount(node, index + 1);
+
+  if (graph && Array.isArray(graph.connections)) {
+    graph.connections = graph.connections.filter(
+      (c) => !(c && c.to && String(c.to.nodeId) === String(node.id) && c.to.pin === index),
+    );
+    if (next !== null) {
+      graph.connections.push({
+        from: { nodeId: next, pin: 0 },
+        to: { nodeId: node.id, pin: index },
+      });
+    }
+  }
+
   node.inputs[index] = next;
   return true;
 }
