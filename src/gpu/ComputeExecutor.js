@@ -9,7 +9,7 @@
  * - Change detection: Only re-dispatches nodes when inputs or parameters change
  * - Flexible API: Supports both ComputeNodeBase (unified API) and legacy ComputeShaderManager
  *
- * Execution Flow:
+ * Execution Source:
  * 1. Initialize: Create fallback texture, load compute nodes, compute execution order
  * 2. Execute: Dispatch nodes in topological order, update output dictionary after each dispatch
  * 3. Propagate: Provide computed outputs (or fallbacks) to dependent nodes
@@ -744,12 +744,43 @@ export class ComputeExecutor {
     return consumers;
   }
 
+  /**
+   * Sources feeding a ProjectionMap node's surface pins.
+   *
+   * A mapping surface samples its source at the warped coordinate its quad
+   * implies, which only a TEXTURE can answer - so every pin that is not already
+   * a compute node is bridged through the fragment renderer, exactly as a field
+   * mapper's source is. Each pin is a separate surface, so unlike the mapper
+   * (whose source is pin 0) every pin is collected.
+   */
+  _projectionMapFragmentSources() {
+    const consumers = [];
+    const nodes = (typeof window !== 'undefined' && window.graph?.nodes) || [];
+    for (const node of nodes) {
+      if (!node || node.kind !== 'ProjectionMap') continue;
+      if (!Array.isArray(node.inputs)) continue;
+      for (const sourceId of node.inputs) {
+        if (sourceId === null || sourceId === undefined) continue;
+        if (this.computeManagers.has(sourceId)) continue; // real compute source
+        const sanitized = String(sourceId).replace(/[^a-zA-Z0-9_]/g, '_');
+        if (this.computeManagers.has(sanitized)) continue;
+        // A field mapper publishes its own output - never bridge over it.
+        const sourceNode = window.graph?.getNode?.(sourceId);
+        if (sourceNode && sourceNode.kind === 'ComputeFieldMapper') continue;
+        consumers.push({ node, sourceId });
+      }
+    }
+    return consumers;
+  }
+
   async _renderFragmentInputs(commandEncoder, time, audioContext) {
     if (!window.graph || !window.graph.nodes) {
       return;
     }
 
-    const mapperConsumers = this._fieldMapperFragmentSources();
+    // Both kinds of "consume ANY graph output" node bridge the same way.
+    const mapperConsumers = this._fieldMapperFragmentSources()
+      .concat(this._projectionMapFragmentSources());
 
     // PERFORMANCE: Early exit if no fragment inputs need rendering
     // This avoids expensive iteration when there are no fragment→compute connections
@@ -941,11 +972,14 @@ export class ComputeExecutor {
       return;
     }
 
-    // Field mappers with a fragment-node source need the auto-bridge below
-    // even when there isn't a single registered compute node in the graph
-    const mapperFragmentSources = this._fieldMapperFragmentSources();
+    // Field mappers and projection-mapping surfaces with a fragment-node source
+    // need the auto-bridge below even when there isn't a single registered
+    // compute node in the graph. Without this a mapped surface fed by a pure
+    // fragment source samples a texture nothing ever rendered into.
+    const bridgeOnlySources = this._fieldMapperFragmentSources()
+      .concat(this._projectionMapFragmentSources());
 
-    if ((!this.initialized || this.computeManagers.size === 0) && mapperFragmentSources.length === 0) {
+    if ((!this.initialized || this.computeManagers.size === 0) && bridgeOnlySources.length === 0) {
       return;
     }
 

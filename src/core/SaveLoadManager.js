@@ -379,6 +379,10 @@ exportProject(options = {}) {
       // OSC bindings
       oscBindings: this.exportOSCBindings(),
 
+      // Projection mapping: the surfaces the output is corner-pinned onto.
+      // Part of the artwork's staging, so it travels with the project.
+      projectionMapping: this.exportProjectionMapping(),
+
       // Editor state
       ...(includeViewport && {
         viewport: this.exportViewport(),
@@ -510,6 +514,16 @@ exportOSCBindings() {
   return null;
 }
 
+/**
+ * Export the projection-mapping surfaces
+ */
+exportProjectionMapping() {
+  if (window.mappingModel) {
+    return window.mappingModel.serialize();
+  }
+  return null;
+}
+
 
 async importProject(projectData, options = {}) {
   try {
@@ -601,6 +615,11 @@ async importProject(projectData, options = {}) {
     // Restore OSC bindings
     if (projectData.oscBindings) {
       this.importOSCBindings(projectData.oscBindings);
+    }
+
+    // Restore projection mapping
+    if (projectData.projectionMapping) {
+      this.importProjectionMapping(projectData.projectionMapping);
     }
 
     // Restore previews if requested
@@ -2512,6 +2531,25 @@ importConnections(connectionData) {
 
       window.errorHandler?.handleError(error, {
         component: 'osc-import'
+      });
+    }
+  }
+
+  /**
+   * Import the projection-mapping surfaces
+   */
+  importProjectionMapping(mappingData) {
+    try {
+      if (!window.mappingModel) {
+
+        return;
+      }
+
+      window.mappingModel.deserialize(mappingData);
+    } catch (error) {
+
+      window.errorHandler?.handleError(error, {
+        component: 'mapping-import'
       });
     }
   }

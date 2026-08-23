@@ -3,6 +3,92 @@
 /**
  * Utility node definitions for data manipulation and conversion
  */
+
+/**
+ * Surfaces a {@link UtilityNodes.ProjectionMap} node can carry. Matches the
+ * swatch/tint count the mapping panel and compositor colour surfaces with, so a
+ * surface has the same identity everywhere it is drawn.
+ */
+export const MAX_MAPPED_SURFACES = 6;
+
+/** Points a surface's mask may have; mirrors MAX_MASK_POINTS in MappingModel. */
+export const MAX_MASK_POINTS = 16;
+
+/** Identity 3x3, row-major: the whole frame showing the whole source. */
+const IDENTITY_MAT3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+
+/**
+ * Per-surface parameters for the ProjectionMap node.
+ *
+ * The shader needs MATRICES, not corners. Inverting a quad per fragment is an
+ * 8x8 solve, so the homographies are solved once on the CPU whenever a corner
+ * moves (see src/mapping/homography.js) and arrive here already inverted:
+ *   m0..m8  output space -> this surface's unit square
+ *   n0..n8  unit square  -> the crop of the source to show
+ * The corners themselves live in the MappingModel, which is what the panel edits
+ * and what the project file carries; these are the projection of that state onto
+ * what the GPU actually reads.
+ *
+ * They are `hidden` because the panel maintains them - nobody aligns a projector
+ * by typing matrix coefficients - and they are separate float params rather than
+ * one packed blob so each is uniform-backed individually, which is what keeps a
+ * corner drag a buffer write instead of a shader rebuild on every mousemove.
+ */
+function buildProjectionMapParams() {
+  const params = [];
+  // Setup visuals, drawn into the node's OWN output so they reach the projector.
+  // Aligning a rig means looking at the wall, not at the editor, so the outlines
+  // and the shape being drawn have to be visible on the physical object.
+  params.push({ name: "guides", type: "float", default: 0, hidden: true });
+  // How many surfaces the mapping actually holds. A surface with no source of
+  // its own has no PIN, so the pin count cannot stand in here: the outline of a
+  // surface is exactly what you need on the wall BEFORE deciding what to put on
+  // it. Read at compile time, like the mask counts, since it decides how much
+  // guide code is emitted.
+  params.push({ name: "sn", type: "float", default: 0, hidden: true });
+  // The axis lines, and where they are centred. They follow the POINTER, so a
+  // point can be lined up against something already on the object rather than
+  // only against the middle of the frame; with the pointer off the stage they
+  // fall back to the frame's centre. The position is a plain uniform, so
+  // tracking the hand never recompiles.
+  params.push({ name: "axes", type: "float", default: 0, hidden: true });
+  // The alignment grid, drawn in each surface's own space so it keystones with
+  // it. Structural: it decides whether the pattern is emitted at all.
+  params.push({ name: "grid", type: "float", default: 0, hidden: true });
+  params.push({ name: "axOn", type: "float", default: 0, hidden: true });
+  params.push({ name: "axx", type: "float", default: 0.5, hidden: true });
+  params.push({ name: "axy", type: "float", default: 0.5, hidden: true });
+  // The outline currently being drawn, and the point the next click would place.
+  // These are uniform-backed like everything else, so a half-finished shape
+  // follows the cursor on the projector without recompiling per click.
+  params.push({ name: "dn", type: "float", default: 0, hidden: true });
+  params.push({ name: "dcOn", type: "float", default: 0, hidden: true });
+  params.push({ name: "dcx", type: "float", default: 0, hidden: true });
+  params.push({ name: "dcy", type: "float", default: 0, hidden: true });
+  for (let k = 0; k < MAX_MASK_POINTS; k++) {
+    params.push({ name: `d${k}x`, type: "float", default: 0, hidden: true });
+    params.push({ name: `d${k}y`, type: "float", default: 0, hidden: true });
+  }
+  for (let i = 0; i < MAX_MAPPED_SURFACES; i++) {
+    for (let k = 0; k < 9; k++) {
+      params.push({ name: `s${i}m${k}`, type: "float", default: IDENTITY_MAT3[k], hidden: true });
+      params.push({ name: `s${i}n${k}`, type: "float", default: IDENTITY_MAT3[k], hidden: true });
+    }
+    params.push({ name: `s${i}opacity`, type: "float", default: 1.0, hidden: true });
+    params.push({ name: `s${i}soft`, type: "float", default: 0.0, hidden: true });
+    // Mask polygon, in the surface's own unit space. The count is structural —
+    // the shader unrolls the crossing test — so adding a point recompiles while
+    // dragging one stays a uniform write, which is the right way round: points
+    // are added a few at a time and moved continuously.
+    params.push({ name: `s${i}kn`, type: "float", default: 0, hidden: true });
+    for (let k = 0; k < MAX_MASK_POINTS; k++) {
+      params.push({ name: `s${i}k${k}x`, type: "float", default: 0, hidden: true });
+      params.push({ name: `s${i}k${k}y`, type: "float", default: 0, hidden: true });
+    }
+  }
+  return params;
+}
+
 export const UtilityNodes = {
   Expr: {
     label: "Expression",
@@ -100,6 +186,45 @@ export const UtilityNodes = {
         label: "Output Type"
       },
     ],
+  },
+
+  /**
+   * ProjectionMap - corner-pin each input onto its own quad of the frame.
+   *
+   * This is the projection-mapping surfaces represented IN THE GRAPH: one input
+   * pin per surface, so each surface can be fed its own source. It is what carries
+   * a mapping to the projector - the second-monitor window re-renders the
+   * editor's broadcast WGSL, so a mapping that lives in the shader arrives there
+   * (and in the floating preview, and in an export) with nothing mapping-shaped
+   * having to cross the wire.
+   *
+   * It does not replace the mapping panel's own compositor: the panel still
+   * warps interactively for editing, and a surface with no pin connected falls
+   * back to the composition the way it always did. The node adds the per-surface
+   * SOURCE, and the shader path that reaches the output.
+   *
+   * Inputs are sampled as textures, since a surface has to be read at the warped
+   * coordinate its quad implies rather than at the pixel being shaded.
+   *
+   * The corner params are maintained by the mapping panel - see
+   * buildProjectionMapParams above for why they look the way they do.
+   */
+  ProjectionMap: {
+    label: "Projection Map",
+    cat: "Utility",
+    inputs: 1,
+    pinsIn: [],
+    pinsOut: [{ label: "out", type: "vec4" }],
+    dynamicInputs: {
+      min: 1,
+      max: MAX_MAPPED_SURFACES,
+      labelStyle: "index1",
+      labelPrefix: "Surface ",
+    },
+    // Every corner is a live uniform: aligning a rig is a continuous drag, and a
+    // recompile per mousemove would make it unusable.
+    alwaysUniform: true,
+    params: buildProjectionMapParams(),
   },
 
   CustomGLSL: {

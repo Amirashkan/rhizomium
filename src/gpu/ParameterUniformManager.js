@@ -1,4 +1,5 @@
 import { getExternalReading } from '../parameters/ExternalParameterControl.js';
+import { NodeDefs } from '../data/NodeDefs.js';
 
 /**
  * Manages dynamic parameter uniforms for shader compilation
@@ -49,12 +50,17 @@ analyzeNode(node) {
       (midiBinding && midiBinding.shouldUseUniform(node.id, paramName)) ||
       (oscBinding && oscBinding.shouldUseUniform(node.id, paramName));
     const isComputeNode = node.kind && node.kind.startsWith('Compute');
+    // A node whose definition declares `alwaysUniform` keeps every parameter in
+    // the uniform buffer regardless of how it is driven. ProjectionMap needs this:
+    // its corner matrices change continuously while a projector is being aligned,
+    // and a baked value would mean recompiling the shader on every mousemove.
+    const alwaysUniform = !!NodeDefs[node.kind]?.alwaysUniform;
 
     // Exclude non-uniform parameters (metadata params that aren't sent to shaders)
     const nonUniformParams = ['resolution', 'mode']; // mode is baked into shader at compile time
     const isNonUniform = nonUniformParams.includes(paramName);
 
-    if ((isExternallyControlled || isComputeNode) && !isNonUniform) {
+    if ((isExternallyControlled || isComputeNode || alwaysUniform) && !isNonUniform) {
       const paramKey = `${node.id}.${paramName}`;
 
       // Convert value to numeric, handling booleans properly

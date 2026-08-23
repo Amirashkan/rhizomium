@@ -89,7 +89,7 @@ async function settle(n = 4) { for (let i = 0; i < n; i++) await flush(); }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('secondMonitorReceiver', () => {
-  let doc, win, rafCbs, gpuCanvas, fbCanvas, fbCtx, clock;
+  let doc, win, rafCbs, gpuCanvas, fbCanvas, mapCanvas, fbCtx, clock;
 
   beforeEach(() => {
     FakeBroadcastChannel.instances = [];
@@ -99,10 +99,17 @@ describe('secondMonitorReceiver', () => {
     fbCanvas = makeFakeCanvas();
     fbCtx = { fillStyle: '', fillRect: vi.fn(), drawImage: vi.fn() };
     fbCanvas.getContext = vi.fn(() => fbCtx);
+    mapCanvas = makeFakeCanvas();
+    mapCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1280, height: 720 });
+    // The render is letterboxed into the display; the mapping's 0..1 output
+    // space is that letterboxed rect.
+    gpuCanvas.getBoundingClientRect = () => ({ left: 160, top: 0, width: 960, height: 720 });
+    fbCanvas.getBoundingClientRect = () => ({ left: 160, top: 0, width: 960, height: 720 });
     doc = {
       getElementById: vi.fn((id) => {
         if (id === 'second-monitor-gpu') return gpuCanvas;
         if (id === 'second-monitor-output') return fbCanvas;
+        if (id === 'second-monitor-map') return mapCanvas;
         return null;
       }),
     };
@@ -1076,5 +1083,191 @@ describe('secondMonitorReceiver', () => {
 
     ch.emit({ type: MSG.MASTER_OPACITY, opacity: undefined });
     expect(gpuCanvas.style.opacity).toBe('1');
+  });
+
+  // --- projection mapping ---------------------------------------------------
+  //
+  // With a mapping in force the render is no longer what the display shows: it
+  // becomes the texture for a warp pass onto the full-display mapping canvas.
+
+  // A stand-in for MappingCompositor. The real one needs a WebGL2 context; what
+  // matters here is that the receiver feeds it the right source and geometry.
+  function makeFakeCompositor(ready = true) {
+    return {
+      ready,
+      resize: vi.fn(),
+      render: vi.fn(() => true),
+      dispose: vi.fn(),
+      isReady: () => ready,
+    };
+  }
+
+  const primeMapping = async (compositor, mapping) => {
+    const renderer = makeFakeRenderer();
+    const r = initSecondMonitorReceiver(doc, win, {
+      createRenderer: () => renderer,
+      createMappingCompositor: () => compositor,
+    });
+    const ch = FakeBroadcastChannel.instances[0];
+    ch.emit({ type: MSG.SHADER, wgsl: 'W' });
+    await flush();
+    ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([16 / 9, 0, 0, 0]),
+      globals: new Float32Array([1280, 720, 1, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+    if (mapping) ch.emit({ type: MSG.MAPPING, mapping });
+    // The mapping runtime is dynamically imported; wait for it to actually land
+    // rather than guessing at a number of ticks.
+    for (let i = 0; i < 20 && mapping && !r.mappingModel; i++) await flush();
+    await settle();
+    return { r, ch, renderer };
+  };
+
+  const oneSurface = (over = {}) => ({
+    enabled: true,
+    surfaces: [{
+      id: 'surface-1',
+      name: 'Wall',
+      enabled: true,
+      dst: [{ x: 0.1, y: 0.1 }, { x: 0.9, y: 0.2 }, { x: 0.85, y: 0.9 }, { x: 0.05, y: 0.8 }],
+      src: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }],
+      ...over,
+    }],
+  });
+
+  it('warps the native render onto the mapping surface and presents that instead', async () => {
+    const compositor = makeFakeCompositor();
+    const { r } = await primeMapping(compositor, oneSurface());
+
+    step();
+
+    expect(compositor.render).toHaveBeenCalled();
+    const [source, model, opts] = compositor.render.mock.calls.at(-1);
+    expect(source).toBe(gpuCanvas);            // the frame just rendered
+    expect(model.surfaces).toHaveLength(1);
+    expect(model.surfaces[0].name).toBe('Wall');
+    // 0..1 of the mapping is the render's LETTERBOXED rect on the display, so a
+    // corner pinned at 0.5 lands mid-composition, not mid-display.
+    expect(opts.frame).toMatchObject({ x: 160 / 1280, y: 0, w: 960 / 1280, h: 1 });
+    expect(mapCanvas.style.display).toBe('block');
+    expect(r.mappingShown).toBe(true);
+  });
+
+  it('warps the fallback pixel path too', async () => {
+    const compositor = makeFakeCompositor();
+    const { ch } = await primeMapping(compositor, oneSurface());
+    ch.emit({ type: MSG.CAPS, tier: TIER.FALLBACK });
+    await settle();
+
+    step();
+
+    expect(compositor.render.mock.calls.at(-1)[0]).toBe(fbCanvas);
+    expect(mapCanvas.style.display).toBe('block');
+  });
+
+  it('leaves the output untouched until a mapping is actually switched on', async () => {
+    const compositor = makeFakeCompositor();
+    await primeMapping(compositor, { enabled: false, surfaces: oneSurface().surfaces });
+
+    step();
+
+    expect(compositor.render).not.toHaveBeenCalled();
+    expect(mapCanvas.style.display).toBe('none');
+    expect(gpuCanvas.style.display).toBe('block');
+  });
+
+  it('stands down when every surface is hidden, even with mapping enabled', async () => {
+    const compositor = makeFakeCompositor();
+    await primeMapping(compositor, oneSurface({ enabled: false }));
+
+    step();
+
+    expect(compositor.render).not.toHaveBeenCalled();
+    expect(mapCanvas.style.display).toBe('none');
+  });
+
+  it('picks up a mapping edit mid-session and drops it again when switched off', async () => {
+    const compositor = makeFakeCompositor();
+    const { ch } = await primeMapping(compositor, oneSurface());
+    step();
+    expect(mapCanvas.style.display).toBe('block');
+
+    // A corner drag streams a fresh snapshot per edit.
+    ch.emit({ type: MSG.MAPPING, mapping: oneSurface({ dst: [
+      { x: 0.2, y: 0.2 }, { x: 0.9, y: 0.2 }, { x: 0.9, y: 0.9 }, { x: 0.2, y: 0.9 },
+    ] }) });
+    step();
+    expect(compositor.render.mock.calls.at(-1)[1].surfaces[0].dst[0]).toEqual({ x: 0.2, y: 0.2 });
+
+    ch.emit({ type: MSG.MAPPING, mapping: { enabled: false, surfaces: [] } });
+    step();
+    expect(mapCanvas.style.display).toBe('none');
+    expect(gpuCanvas.style.opacity).toBe('1'); // the render carries the output again
+  });
+
+  it('moves the master fade onto the warp surface, holding the render behind it transparent', async () => {
+    // The warp samples the render's PIXELS, which CSS opacity does not touch —
+    // so fading the render would not dim the projector at all, and leaving it
+    // visible behind a half-faded warp would show the unmapped output through.
+    const compositor = makeFakeCompositor();
+    const { ch } = await primeMapping(compositor, oneSurface());
+    step();
+
+    ch.emit({ type: MSG.MASTER_OPACITY, opacity: 0.4 });
+
+    expect(mapCanvas.style.opacity).toBe('0.4');
+    expect(gpuCanvas.style.opacity).toBe('0');
+    expect(fbCanvas.style.opacity).toBe('0');
+  });
+
+  it('keeps presenting the plain render when the compositor cannot start', async () => {
+    const compositor = makeFakeCompositor(false); // no WebGL2 on this display
+    const { r } = await primeMapping(compositor, oneSurface());
+
+    step();
+
+    expect(compositor.render).not.toHaveBeenCalled();
+    expect(mapCanvas.style.display).toBe('none');
+    expect(gpuCanvas.style.display).toBe('block');
+    expect(r.mappingShown).toBe(false);
+  });
+
+  it('sizes the warp surface to the whole display, not the letterboxed render', async () => {
+    const compositor = makeFakeCompositor();
+    await primeMapping(compositor, oneSurface());
+
+    step();
+
+    expect(compositor.resize).toHaveBeenCalledWith(1280, 720);
+    expect(mapCanvas.style.width).toBe('1280px');
+    expect(mapCanvas.style.height).toBe('720px');
+  });
+
+  it('holds a mapping that arrives before the runtime has loaded', async () => {
+    // MAPPING can land in the same tick as the first frame; the snapshot must
+    // survive the compositor's async construction.
+    const compositor = makeFakeCompositor();
+    const renderer = makeFakeRenderer();
+    initSecondMonitorReceiver(doc, win, {
+      createRenderer: () => renderer,
+      createMappingCompositor: () => compositor,
+    });
+    const ch = FakeBroadcastChannel.instances[0];
+    ch.emit({ type: MSG.MAPPING, mapping: oneSurface() });
+    ch.emit({ type: MSG.SHADER, wgsl: 'W' });
+    ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([16 / 9, 0, 0, 0]),
+      globals: new Float32Array([1280, 720, 1, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+    await settle();
+
+    step();
+
+    expect(compositor.render).toHaveBeenCalled();
+    expect(compositor.render.mock.calls.at(-1)[1].surfaces[0].name).toBe('Wall');
   });
 });

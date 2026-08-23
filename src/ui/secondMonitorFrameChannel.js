@@ -46,6 +46,7 @@ export const SecondMonitorMessage = Object.freeze({
   FRAME: 'frame',       // { bitmap, sw, sh }  — mirrored pixels (fallback path only)
   MASTER_OPACITY: 'master-opacity', // { opacity } — VJ master fader × any running scene transition, 0..1. The receiver renders its own frames, so the editor's canvas opacity means nothing to it; this carries the level across. Sent on change and on READY
   RENDER_RES: 'render-res', // { maxDim, displayMaxDim } — maxDim is the viewer's compute long edge and the editor always sends -1 (render the output format, so the viewer's sims match exactly); displayMaxDim caps the PRESENTATION surface's long edge in device px (0 = the display's own resolution). The render is letterboxed into the display either way
+  MAPPING: 'mapping', // { enabled, surfaces:[{id,name,enabled,locked,opacity,softEdge,dst,src}] } — projection-mapping surfaces (a MappingModel snapshot). The receiver warps its own rendered frame through these before presenting, so the output lands on the physical surfaces the projector is aimed at. Sent on every edit (a corner drag streams) and on READY
   FEEDBACK_RESET: 'feedback-reset', // { nodeId } — a Feedback node was reset in the editor (panel button or Reset pin); the receiver clears its own sim to match
   CLOSE: 'close',       // shut the window down
   // receiver → editor

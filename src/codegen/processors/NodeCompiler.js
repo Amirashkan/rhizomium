@@ -11,6 +11,7 @@ import { TypeConverter } from './TypeConverter.js';
 import { BlendNodes } from '../compilers/BlendNodes.js';
 import { GradientNodes } from '../compilers/GradientNodes.js';
 import { ComputeNodes } from '../compilers/ComputeNodes.js';
+import { ProjectionMapNodes } from '../compilers/ProjectionMapNodes.js';
 import { UnifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 import { buildParamRefMapping, guardedResolve } from '../../utils/paramReferences.js';
 
@@ -31,6 +32,7 @@ export class NodeCompiler {
       blend: new BlendNodes(),
       field: new FieldNodes(),
       compute: new ComputeNodes(),
+      projectionMap: new ProjectionMapNodes(),
     };
     
     // Give compilers access to uniform manager
@@ -399,6 +401,8 @@ export class NodeCompiler {
       result = this.compilers.texture.compile(node, getInput, getParam);
     } else if (this.compilers.compute.handles(kind)) {
       result = this.compilers.compute.compile(node, getInput, getParam);
+    } else if (this.compilers.projectionMap.handles(kind)) {
+      result = this.compilers.projectionMap.compile(node, getInput, getParam);
     } else if (this.compilers.utility.handles(kind)) {
       result = this.compilers.utility.compile(node, getInput, getParam);
     } else if (this.compilers.transform.handles(kind)) {

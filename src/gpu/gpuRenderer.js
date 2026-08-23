@@ -357,6 +357,23 @@ export class GPURenderer {
     await new Promise(resolve => setTimeout(resolve, 50));
   }
 
+  /**
+   * Shared sampler for bridged fragment textures, which arrive as a bare
+   * GPUTexture with no sampler of their own. Cached because this is reached
+   * once per binding per frame.
+   */
+  _bridgedTextureSampler() {
+    if (!this._cachedBridgedSampler) {
+      this._cachedBridgedSampler = this.device.createSampler({
+        magFilter: "linear",
+        minFilter: "linear",
+        addressModeU: "clamp-to-edge",
+        addressModeV: "clamp-to-edge",
+      });
+    }
+    return this._cachedBridgedSampler;
+  }
+
   // Create placeholder texture for optional bindings.
   createDummyTexture() {
     const texture = this.device.createTexture({
@@ -537,6 +554,31 @@ export class GPURenderer {
               : textureData;
             break;
           }
+        }
+      }
+
+      // A fragment subgraph bridged to a texture — for a projection-mapping
+      // surface, a field mapper, or any other consumer of an arbitrary graph
+      // output — is published in nodeOutputs and has NO computeTextures entry:
+      // that map holds real compute nodes only, and the lookups above use it to
+      // find a sampler. Without this the binding falls through to the 1x1 white
+      // dummy and the consumer shows flat white instead of its source.
+      if (!computeInfo) {
+        let bridged = currentOutputTexture;
+        if (!bridged && computeExecutor.nodeOutputs) {
+          for (const [nodeId, texture] of computeExecutor.nodeOutputs) {
+            // Match how TextureBindings built the name: sanitise, then drop a
+            // leading node_ prefix.
+            let candidate = String(nodeId).replace(/[^a-zA-Z0-9_]/g, "_");
+            if (candidate.startsWith('node_')) candidate = candidate.substring(5);
+            if (candidate === sanitizedIdToMatch) {
+              bridged = texture;
+              break;
+            }
+          }
+        }
+        if (bridged) {
+          computeInfo = { texture: bridged, sampler: this._bridgedTextureSampler() };
         }
       }
 

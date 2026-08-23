@@ -34,7 +34,28 @@ export class TextureBindings {
       }
     }
 
-    if (nodesToProcess.length === 0 && computeNodeIdsInUse.size === 0) {
+    // A ProjectionMap surface samples its source at a warped coordinate, which only
+    // a texture can answer, so ComputeExecutor bridges each pin's source through
+    // the fragment renderer and publishes it in nodeOutputs under the source's id
+    // (see _projectionMapFragmentSources). That is the same place a compute
+    // node's output lives, so these bind under the same compute_node_<id> name -
+    // the renderer resolves both by name and cannot tell them apart.
+    const bridgedIds = new Set();
+    for (const node of nodesToProcess) {
+      if (!node || node.kind !== 'ProjectionMap' || !Array.isArray(node.inputs)) continue;
+      for (const sourceId of node.inputs) {
+        if (sourceId === null || sourceId === undefined) continue;
+        const sourceNode = (graph.nodes || []).find(n => String(n.id) === String(sourceId));
+        // Nodes that already bind a texture of their own keep their own binding.
+        if (!sourceNode) continue;
+        if (sourceNode.kind === 'Texture2D' || sourceNode.kind === 'Text'
+            || sourceNode.kind === 'TextureCube'
+            || (sourceNode.kind && sourceNode.kind.startsWith('Compute'))) continue;
+        bridgedIds.add(sourceId);
+      }
+    }
+
+    if (nodesToProcess.length === 0 && computeNodeIdsInUse.size === 0 && bridgedIds.size === 0) {
       return bindingCode;
     }
 
@@ -105,6 +126,25 @@ export class TextureBindings {
 @group(0) @binding(${bindingIndex + 1}) var sampler_compute_node_${sanitizedId}: sampler;`;
       bindingIndex += 2;
       textureCount += 1; // Each compute texture counts as 1 texture
+    }
+
+    // Fragment subgraphs bridged to textures for ProjectionMap surfaces.
+    for (const nodeId of bridgedIds) {
+      if (textureCount >= MAX_TEXTURES) {
+        console.warn(`[TextureBindings] Warning: Reached maximum texture limit (${MAX_TEXTURES}). Skipping additional mapped surfaces.`);
+        break;
+      }
+
+      let sanitizedId = this.sanitize(nodeId);
+      if (sanitizedId.startsWith('node_')) {
+        sanitizedId = sanitizedId.substring(5);
+      }
+
+      bindingCode += `
+@group(0) @binding(${bindingIndex}) var compute_node_${sanitizedId}: texture_2d<f32>;
+@group(0) @binding(${bindingIndex + 1}) var sampler_compute_node_${sanitizedId}: sampler;`;
+      bindingIndex += 2;
+      textureCount += 1;
     }
 
     return bindingCode;
