@@ -4,323 +4,288 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rhizomium — Compose. Evolve. Perform.</title>
+  <meta name="description" content="Rhizomium is a modular GPU node environment for real-time generative visuals and evolving fields — synthesis, structure and growth in one canvas." />
   <link rel="icon" type="image/png" href="assets/logo.png" />
   <link rel="stylesheet" href="landing.css" />
-  <style>
-    /* Disabled button styles */
-    .btn.primary.disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      pointer-events: none;
-      position: relative;
-    }
-
-    /* Hover popup container */
-    .compatibility-popup {
-      position: absolute;
-      bottom: 100%;
-      left: 50%;
-      transform: translateX(-50%);
-      margin-bottom: 10px;
-      background: rgba(20, 20, 30, 0.98);
-      border: 1px solid rgba(163, 83, 46, 0.5);
-      border-radius: 8px;
-      padding: 16px 20px;
-      min-width: 300px;
-      max-width: 400px;
-      color: #EAE7E4;
-      font-size: 14px;
-      line-height: 1.6;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.2s ease;
-      z-index: 1000;
-    }
-
-    @media (max-width: 768px) {
-      .compatibility-popup {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: auto;
-        max-width: calc(100vw - 40px);
-        min-width: 280px;
-        margin-bottom: 0;
-        bottom: auto;
-      }
-    }
-
-    .compatibility-popup.show {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    .compatibility-popup::after {
-      content: '';
-      position: absolute;
-      top: 100%;
-      left: 50%;
-      transform: translateX(-50%);
-      border: 6px solid transparent;
-      border-top-color: rgba(20, 20, 30, 0.98);
-    }
-
-    @media (max-width: 768px) {
-      .compatibility-popup::after {
-        /* Position arrow to point to button on mobile - calculate dynamically */
-        top: 100%;
-        left: var(--arrow-left, 50%);
-        transform: translateX(-50%);
-      }
-    }
-
-    .compatibility-popup-title {
-      font-weight: 600;
-      color: #ff6b6b;
-      margin-bottom: 8px;
-      font-size: 16px;
-    }
-
-    .compatibility-popup-details {
-      margin: 12px 0;
-      padding: 12px;
-      background: rgba(0, 0, 0, 0.3);
-      border-radius: 4px;
-      font-size: 13px;
-    }
-
-    .compatibility-popup-details strong {
-      color: #A3532E;
-    }
-
-    .compatibility-popup-solutions {
-      margin-top: 12px;
-      font-size: 13px;
-    }
-
-    .compatibility-popup-solutions h4 {
-      margin: 0 0 8px 0;
-      font-size: 14px;
-      color: #A3532E;
-    }
-
-    .compatibility-popup-solutions ul {
-      margin: 0;
-      padding-left: 20px;
-    }
-
-    .compatibility-popup-solutions li {
-      margin: 4px 0;
-    }
-
-    /* Button wrapper for positioning popup */
-    .btn-wrapper {
-      position: relative;
-      display: flex;
-      align-items: stretch;
-    }
-    
-    .btn-wrapper .btn {
-      align-self: center;
-    }
-  </style>
 </head>
 
 <body>
-  <main>
-    <!-- Hero Section -->
-    <section id="hero">
-      <img src="assets/logo.png" alt="Rhizomium Logo" class="logo" />
-      <h1 class="tagline">Compose. Evolve. Perform.</h1>
+  <a class="skip-link" href="#top">Skip to content</a>
 
-      <div class="buttons">
-        <div class="btn-wrapper">
-          <a href="/studio" id="launch-studio-btn" class="btn primary">Launch Studio</a>
-          <div id="compatibility-popup" class="compatibility-popup"></div>
+  <!-- NAV -->
+  <nav class="nav">
+    <a class="nav-brand" href="#top">
+      <img src="assets/logo.png" alt="" aria-hidden="true" />
+      <span>RHIZOMIUM</span>
+    </a>
+    <div class="nav-right">
+      <div class="nav-links mono">
+        <a href="#about">about</a>
+        <a href="#features">features</a>
+        <a href="#showreel">showreel</a>
+        <a href="#controls">controls</a>
+        <a href="#pricing">pricing</a>
+      </div>
+      <div class="nav-actions mono">
+        <a class="nav-signup" href="#signup">sign up</a>
+        <a class="btn btn-outline btn-sm" href="/docs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>docs</a>
+        <span class="btn-wrapper">
+          <a class="btn btn-solid btn-sm" href="/studio" data-studio-link>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5 19 12 5 20.5z"/></svg>Launch Studio</a>
+        </span>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <!-- HERO -->
+    <header class="hero" id="top">
+      <div class="hero-field">
+        <!-- Flow field, painted in landing.js. Purely decorative: the page
+             reads identically with the canvas blank or JS disabled. -->
+        <canvas data-field aria-hidden="true"></canvas>
+      </div>
+      <img class="hero-ghost" src="assets/logo.png" alt="" aria-hidden="true" />
+      <div class="hero-scrim" aria-hidden="true"></div>
+
+      <!-- Live build telemetry, filled in by landing.js. -->
+      <div class="hero-telemetry mono" aria-hidden="true">
+        <span data-build>experimental build</span><br />
+        <span data-readout>fps —— · nodes —— · signal live</span>
+      </div>
+
+      <div class="hero-body">
+        <p class="eyebrow mono"><span class="dot"></span>WebGPU node environment</p>
+        <h1 class="hero-title">
+          <span class="hero-line"><span class="hero-num mono">01</span>Compose.</span>
+          <span class="hero-line hero-line-alt"><span class="hero-num mono">02</span>Evolve.</span>
+          <span class="hero-line hero-line-last"><span class="hero-num mono">03</span>Perform.</span>
+        </h1>
+        <p class="hero-lede">Real-time generative visuals, composed as living node fields — synthesis, structure, and growth in one canvas.</p>
+        <div class="hero-actions mono">
+          <span class="btn-wrapper">
+            <a class="btn btn-solid" href="/studio" id="launch-studio-btn" data-studio-link>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5 19 12 5 20.5z"/></svg>Launch Studio</a>
+            <div id="compatibility-popup" class="compat-popup" role="status"></div>
+          </span>
+          <a class="btn btn-outline btn-olive" href="/docs">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>documentation</a>
+          <span class="hero-note mono">Chrome · Edge · Opera · WebGPU required</span>
         </div>
-        <a href="/docs" class="btn ghost">Documentation</a>
+      </div>
+    </header>
+
+    <!-- ABOUT -->
+    <section class="section" id="about">
+      <h2 class="rule mono">/ about — 00</h2>
+      <div class="about-grid">
+        <p class="about-aside mono">A rhizome has no center and no fixed order. It grows from the middle, in every direction at once.</p>
+        <p class="about-lead">Rhizomium is a modular GPU node environment built for real-time generative visuals and evolving fields — a place where synthesis, structure, and growth coexist.</p>
       </div>
     </section>
 
-    <!-- About Section -->
-    <section id="about">
-      <h2>About</h2>
-      <p>
-        Rhizomium is a modular GPU node environment built for real-time
-        generative visuals and evolving fields — a place where synthesis,
-        structure, and growth coexist.
-      </p>
+    <!-- FEATURES -->
+    <section class="section" id="features">
+      <h2 class="rule mono">/ features — 03 modules</h2>
+
+      <div class="spec-row">
+        <div class="spec-mark mono">
+          <span>01</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 7V4M14 7V4M10 20v-3M14 20v-3M7 10H4M7 14H4M20 10h-3M20 14h-3"/></svg>
+        </div>
+        <div class="spec-body">
+          <h3>WebGPU Core</h3>
+          <p>Compute and render on the GPU. Thousands of nodes evaluated per frame, no dropped frames.</p>
+        </div>
+      </div>
+
+      <div class="spec-row">
+        <div class="spec-mark mono">
+          <span>02</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M7.6 7.7 11 16M16.4 7.7 13 16M8 6h8"/></svg>
+        </div>
+        <div class="spec-body">
+          <h3>Modular Nodes</h3>
+          <p>Patch signals into structure. Every node is a living, editable field you can rewire mid-flow.</p>
+        </div>
+      </div>
+
+      <div class="spec-row">
+        <div class="spec-mark mono">
+          <span>03</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12c2.5 0 2.5-6 5-6s2.5 12 5 12 2.5-6 5-6"/><path d="M3 17c2.5 0 2.5-4 5-4s2.5 8 5 8 2.5-4 5-4" opacity=".5"/></svg>
+        </div>
+        <div class="spec-body">
+          <h3>Real-time Fields</h3>
+          <p>Feedback, noise, and growth that evolve continuously as you perform — never the same frame twice.</p>
+        </div>
+      </div>
     </section>
 
-    <!-- Features Section -->
-    <section id="features">
-      <h2>Features</h2>
-      <div class="feature">WebGPU Core</div>
-      <div class="feature">Modular Nodes</div>
-      <div class="feature">Real-time Fields</div>
+    <!-- SHOWREEL -->
+    <section class="section" id="showreel">
+      <h2 class="rule mono">/ showreel</h2>
+      <div class="reel">
+        <div class="slot" data-label="Showreel poster / video still"></div>
+        <div class="reel-play" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+        <p class="reel-stamp mono">field_reel_2026 · 02:14</p>
+      </div>
+      <p class="section-note">A single continuous take of fields growing, feeding back and reacting in real time. Everything you see is composed from nodes and driven live — no pre-rendered frames.</p>
     </section>
 
-    <!-- Footer -->
-    <section id="footer">
-      <p>
-        © 2025 Rhizomium —
-        <a href="/docs">Docs</a> ·
-        <a href="https://github.com/yourrepo" target="_blank">GitHub</a>
-      </p>
+    <!-- CONTROLS -->
+    <section class="section" id="controls">
+      <h2 class="rule mono">/ controls — drive it live</h2>
+      <div class="controls-intro">
+        <p class="lead">Patch any signal to any parameter. Rhizomium listens to your hardware, your software and the room itself.</p>
+        <p class="muted">Map a knob to feedback gain, a fader to growth rate, or the low end of a track to node density. Controls are first-class inputs — bind them once and perform without touching a mouse.</p>
+      </div>
+
+      <div class="card-grid">
+        <article class="card">
+          <div class="card-media"><div class="slot" data-label="MIDI controller"></div></div>
+          <div class="card-body">
+            <p class="card-kicker mono">MIDI</p>
+            <h3>Hardware control</h3>
+            <p>Plug in any MIDI controller and learn a mapping in one click. Knobs, faders and pads bind straight to node parameters.</p>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-media"><div class="slot" data-label="OSC / network"></div></div>
+          <div class="card-body">
+            <p class="card-kicker mono">OSC</p>
+            <h3>Network messaging</h3>
+            <p>Send and receive OSC over the network. Drive fields from TouchOSC, Max, a phone or another machine on stage.</p>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-media"><div class="slot" data-label="Audio analyzer"></div></div>
+          <div class="card-body">
+            <p class="card-kicker mono">Audio Analyzer</p>
+            <h3>Sound-reactive fields</h3>
+            <p>FFT, beat and level analysis from any audio input. Route bands to any parameter so the visuals move with the music.</p>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-media"><div class="slot" data-label="VJ controller"></div></div>
+          <div class="card-body">
+            <p class="card-kicker mono">VJ Controller</p>
+            <h3>Live performance deck</h3>
+            <p>Cue scenes, crossfade fields and trigger presets from a dedicated VJ layout built for the stage, not the studio.</p>
+          </div>
+        </article>
+      </div>
+
+      <div class="strip">
+        <div class="strip-media"><div class="slot" data-label="Real-world setup — booth / stage"></div></div>
+        <p class="strip-stamp mono">in the field · controller + analyzer running live</p>
+      </div>
     </section>
-    <!-- The documentation is its own docsify page at /docs (docs/index.html);
-         the "Docs" links above go straight there. Nothing third-party is
-         requested from this landing page. -->
+
+    <!-- PRICING -->
+    <section class="section" id="pricing">
+      <h2 class="rule rule-split mono">
+        <span>/ pricing — 03 tiers</span>
+        <span class="rule-aside">provisional · subject to change</span>
+      </h2>
+      <div class="tier-grid">
+
+        <article class="tier">
+          <p class="tier-name mono">Free</p>
+          <p class="tier-price"><span class="tier-amount">$0</span><span class="mono">/ forever</span></p>
+          <p class="tier-blurb">Everything you need to compose and grow your first fields locally.</p>
+          <a class="btn btn-outline btn-block mono" href="/studio" data-studio-link>Launch Studio</a>
+          <ul class="tier-list">
+            <li><span class="tier-item"><span class="plus">+</span>RZ Core</span><span class="tier-detail">The full node engine and canvas runtime.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>AI Basic</span><span class="tier-detail">On-device assist for everyday patching.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>Patch Review</span><span class="tier-detail">Inline notes and diffs on your graphs.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>Patch Refactor</span><span class="tier-detail">Restructure node trees without breaking flow.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>Canvas Assist</span><span class="tier-detail">Guided layout and composition helpers.</span></li>
+          </ul>
+        </article>
+
+        <article class="tier tier-featured">
+          <p class="tier-badge mono">popular</p>
+          <p class="tier-name mono">Cloud</p>
+          <p class="tier-price"><span class="tier-amount">$—</span><span class="mono">/ month</span></p>
+          <p class="tier-blurb">Publish, collaborate and generate in the cloud. Placeholder pricing.</p>
+          <a class="btn btn-solid-olive btn-block mono" href="#signup">Start Cloud</a>
+          <p class="tier-inherit mono">everything in Free, plus</p>
+          <ul class="tier-list">
+            <li><span class="tier-item"><span class="plus">+</span>Web Viewer</span><span class="tier-detail">Share a live field via a browser link.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>Pro Artist Panel</span><span class="tier-detail">Advanced controls and performance metrics.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>Sellable Item Marketplace</span><span class="tier-detail">List and sell patches, nodes and presets.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>Collab Space</span><span class="tier-detail">Real-time multi-artist sessions on one canvas.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>AI Patch Generator</span><span class="tier-detail">Describe a look, get a working patch.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>AI Node Generator</span><span class="tier-detail">Synthesize new custom nodes from a prompt.</span></li>
+          </ul>
+        </article>
+
+        <article class="tier">
+          <p class="tier-name tier-name-rust mono">Cloud Plus</p>
+          <p class="tier-price"><span class="tier-amount">$—</span><span class="mono">/ month</span></p>
+          <p class="tier-blurb">Studio-grade output, rendering and storage for production work.</p>
+          <a class="btn btn-outline btn-block mono" href="#signup">Contact us</a>
+          <p class="tier-inherit mono">everything in Cloud, plus</p>
+          <ul class="tier-list">
+            <li><span class="tier-item"><span class="plus">+</span>NDI</span><span class="tier-detail">Stream fields over the network to any device.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>Multi-Screen Output</span><span class="tier-detail">Drive walls and multi-projector setups.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>Server-Side Rendering</span><span class="tier-detail">Offload heavy fields to remote GPUs.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>More Storage</span><span class="tier-detail">Expanded space for specimens and renders.</span></li>
+            <li><span class="tier-item"><span class="plus">+</span>AI Creative Director</span><span class="tier-detail">An agent that proposes directions and edits.</span></li>
+          </ul>
+        </article>
+
+      </div>
+      <p class="tier-footnote mono">// placeholder copy and pricing — replace with final tiers</p>
+    </section>
+
+    <!-- SIGNUP -->
+    <section class="section section-tight" id="signup">
+      <div class="join">
+        <div>
+          <p class="eyebrow eyebrow-olive mono">/ join</p>
+          <h2 class="join-title">Grow your first field.</h2>
+          <p class="join-lede">Sign up for build access and specimen drops. No noise, just new fields.</p>
+        </div>
+        <!-- No sign-up backend exists yet. landing.js POSTs to
+             data-signup-endpoint when one is set, and otherwise says so
+             instead of swallowing the address — set the attribute to wire
+             it up. -->
+        <form class="join-form mono" data-signup novalidate>
+          <label class="visually-hidden" for="join-email">Email address</label>
+          <input id="join-email" type="email" name="email" required autocomplete="email" placeholder="you@domain.com" />
+          <button type="submit">sign up →</button>
+          <p class="join-status" data-signup-status role="status"></p>
+        </form>
+      </div>
+    </section>
   </main>
-  <script>
-  // Fade-in as sections enter viewport
-  const observer = new IntersectionObserver(entries => {
-    for (const e of entries) {
-      if (e.isIntersecting) e.target.classList.add("visible");
-    }
-  }, { threshold: 0.2 });
 
-  document.querySelectorAll("section").forEach(s => observer.observe(s));
-</script>
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="footer-brand">
+      <img src="assets/logo.png" alt="" aria-hidden="true" />
+      <span class="mono">© 2025 Rhizomium</span>
+    </div>
+    <div class="footer-links mono">
+      <a href="/docs">docs</a>
+      <a href="#signup">sign up</a>
+      <a href="https://github.com/Amirashkan/glsl-node-editor" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.8a10.2 10.2 0 0 0-3.23 19.88c.51.1.7-.22.7-.49l-.01-1.9c-2.84.62-3.44-1.2-3.44-1.2-.47-1.18-1.14-1.5-1.14-1.5-.93-.63.07-.62.07-.62 1.03.07 1.57 1.06 1.57 1.06.91 1.57 2.4 1.12 2.99.86.09-.66.36-1.12.65-1.38-2.27-.26-4.65-1.13-4.65-5.04 0-1.12.4-2.03 1.05-2.74-.1-.26-.46-1.3.1-2.71 0 0 .86-.28 2.81 1.05a9.7 9.7 0 0 1 5.12 0c1.95-1.33 2.81-1.05 2.81-1.05.56 1.41.21 2.45.1 2.71.66.71 1.05 1.62 1.05 2.74 0 3.92-2.38 4.78-4.66 5.03.37.32.69.94.69 1.9l-.01 2.81c0 .27.19.6.71.49A10.2 10.2 0 0 0 12 1.8z"/></svg>github</a>
+    </div>
+  </footer>
 
-  <!-- Resolve the Launch Studio target for the current environment.
-       On the web, "/studio" is a Vercel rewrite to /editor. Tauri (and any
-       plain static host) has no such rewrite, so it must point at the real
-       editor file or it falls back to reloading this index page. -->
-  <script>
-    (function resolveStudioLink() {
-      var isTauri = '__TAURI_INTERNALS__' in window || '__TAURI__' in window ||
-        location.protocol === 'tauri:' || location.hostname === 'tauri.localhost';
-      if (isTauri) {
-        var btn = document.getElementById('launch-studio-btn');
-        if (btn) btn.setAttribute('href', 'editor/index.html');
-      }
-    })();
-  </script>
-
-  <!-- Device Compatibility Check -->
-  <script type="module">
-    import { DeviceDetector } from './src/utils/DeviceDetector.js';
-
-    async function checkCompatibility() {
-      const btn = document.getElementById('launch-studio-btn');
-      const popup = document.getElementById('compatibility-popup');
-      const wrapper = btn.parentElement;
-
-      const support = await DeviceDetector.checkSupport();
-
-      if (!support.supported) {
-        // Disable the button
-        btn.classList.add('disabled');
-        btn.href = '#';
-        btn.addEventListener('click', (e) => e.preventDefault());
-
-        // Build popup content
-        let title = 'Device Not Supported';
-        let details = '';
-        let solutions = '';
-
-        if (support.reason === 'mobile') {
-          title = 'Mobile Device Detected';
-          details = `
-            <strong>Device Type:</strong> ${support.details.deviceType}<br>
-            <strong>Browser:</strong> ${support.details.browser}<br>
-            <strong>WebGPU:</strong> ${support.details.webGPU ? 'Available' : 'Not Available'}
-          `;
-          solutions = `
-            <h4>To use this application:</h4>
-            <ul>
-              <li>Please use a desktop or laptop computer</li>
-              <li>Use Chrome 113+, Edge 113+, or Opera 99+</li>
-              <li>Ensure WebGPU is enabled in your browser</li>
-            </ul>
-          `;
-        } else if (support.reason === 'webgpu') {
-          title = 'WebGPU Not Available';
-          details = `
-            <strong>Browser:</strong> ${support.details.browser} ${support.details.browserVersion}<br>
-            <strong>Device Type:</strong> ${support.details.deviceType}<br>
-            <strong>Browser Supported:</strong> ${support.details.browserSupported ? 'Yes' : 'No'}
-          `;
-          solutions = `
-            <h4>To enable WebGPU:</h4>
-            <ul>
-              <li><strong>Chrome/Edge:</strong> Update to version 113 or later</li>
-              <li><strong>Chrome:</strong> Go to chrome://flags and enable "Unsafe WebGPU"</li>
-              <li><strong>Opera:</strong> Update to version 99 or later</li>
-              <li>Visit <a href="https://webgpu.io" target="_blank" style="color: #A3532E;">webgpu.io</a> to test WebGPU support</li>
-            </ul>
-          `;
-        } else if (support.reason === 'browser') {
-          title = 'Unsupported Browser';
-          details = `
-            <strong>Browser:</strong> ${support.details.browser} ${support.details.browserVersion}<br>
-            <strong>Device Type:</strong> ${support.details.deviceType}<br>
-            <strong>WebGPU:</strong> ${support.details.webGPU ? 'Available' : 'Not Available'}
-          `;
-          solutions = `
-            <h4>Recommended browsers:</h4>
-            <ul>
-              <li><strong>Chrome 113+</strong> (Recommended)</li>
-              <li><strong>Edge 113+</strong> (Recommended)</li>
-              <li><strong>Opera 99+</strong></li>
-              <li>Firefox and Safari have limited WebGPU support</li>
-            </ul>
-          `;
-        }
-
-        popup.innerHTML = `
-          <div class="compatibility-popup-title">${title}</div>
-          <div>This application requires a desktop browser with WebGPU support.</div>
-          <div class="compatibility-popup-details">${details}</div>
-          <div class="compatibility-popup-solutions">${solutions}</div>
-        `;
-
-        // Show popup on hover
-        const showPopup = () => {
-          popup.classList.add('show');
-          
-          // On mobile, calculate arrow position to point to button
-          if (window.innerWidth <= 768) {
-            const btnRect = btn.getBoundingClientRect();
-            const popupRect = popup.getBoundingClientRect();
-            const btnCenterX = btnRect.left + btnRect.width / 2;
-            const popupCenterX = popupRect.left + popupRect.width / 2;
-            const offsetX = btnCenterX - popupCenterX;
-            const arrowLeft = 50 + (offsetX / popupRect.width) * 100;
-            // Clamp arrow position to stay within reasonable bounds (20% to 80%)
-            const clampedArrowLeft = Math.max(20, Math.min(80, arrowLeft));
-            popup.style.setProperty('--arrow-left', `${clampedArrowLeft}%`);
-          }
-        };
-
-        wrapper.addEventListener('mouseenter', showPopup);
-        wrapper.addEventListener('touchstart', (e) => {
-          e.preventDefault();
-          showPopup();
-        });
-
-        wrapper.addEventListener('mouseleave', () => {
-          popup.classList.remove('show');
-        });
-
-        // Hide on touch outside
-        document.addEventListener('touchstart', (e) => {
-          if (!wrapper.contains(e.target) && !popup.contains(e.target)) {
-            popup.classList.remove('show');
-          }
-        });
-      }
-      // If compatible, do nothing - button works normally
-    }
-
-    // Run compatibility check
-    checkCompatibility().catch(error => {
-      console.error('Compatibility check failed:', error);
-    });
-  </script>
-
+  <!-- The documentation is its own docsify page at /docs (docs/index.html);
+       the "docs" links above go straight there. Nothing third-party is
+       requested from this landing page — the webfonts are self-hosted from
+       src/assets/fonts and the hero field is drawn locally on a canvas. -->
+  <script type="module" src="./src/landing/landing.js"></script>
 </body>
 </html>

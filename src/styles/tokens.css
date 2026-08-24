@@ -1,63 +1,8 @@
-/* --- Webfaces ------------------------------------------------------------
-   Self-hosted, because the editor's CSP is font-src 'self' data: and the
-   desktop build has no network — a CDN link would be blocked outright.
-   See src/assets/fonts/README.md for provenance and how to refresh them. */
-
-@font-face {
-  font-family: "Space Grotesk";
-  src: url("../assets/fonts/space-grotesk-latin-400-normal.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Space Grotesk";
-  src: url("../assets/fonts/space-grotesk-latin-500-normal.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Space Grotesk";
-  src: url("../assets/fonts/space-grotesk-latin-600-normal.woff2") format("woff2");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Space Grotesk";
-  src: url("../assets/fonts/space-grotesk-latin-700-normal.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("../assets/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("../assets/fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("../assets/fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
+/* The self-hosted Space Grotesk / JetBrains Mono faces. Shared with the
+   landing page, which imports the same file — see src/styles/fonts.css for
+   why they are self-hosted. Must stay first: @import is only legal before
+   any other rule. */
+@import url("./fonts.css");
 
 /**
  * RHIZOMIUM DESIGN TOKENS
