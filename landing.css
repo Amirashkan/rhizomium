@@ -1,137 +1,905 @@
-/* landing.css — Rhizomium Landing Page */
+/* landing.css — Rhizomium landing page.
+
+   Built from the "Rhizomium Landing" design canvas. The editor has its own
+   visual language (tokens.css, electric lime); this page is the warm,
+   print-plate side of the brand — charcoal ground, rust rules, olive as the
+   second voice. The two share only the typefaces, which both pull from
+   src/styles/fonts.css so they cannot drift onto different faces.
+
+   Must stay first: @import is only legal before any other rule. */
+@import url("./src/styles/fonts.css");
 
 :root {
-  --bg: #0E0E0E;
-  --fg: #EAE7E4;
-  --accent: #A3532E; /* نارنجی از لوگو */
-  --accent-hover: #C5643A;
-  --font-main: "Inter", "Helvetica Neue", Arial, sans-serif;
+  --bg: #0e0c0a;
+  --panel: #141008;
+  --fg: #ece5db;
+  --fg-bright: #f4ede2;
+  --fg-soft: rgba(236, 229, 219, 0.62);
+  --fg-faint: rgba(236, 229, 219, 0.42);
+
+  --rust: #a3532e;
+  --rust-hi: #c47a4a;
+  --rust-line: rgba(163, 83, 46, 0.28);
+  --rust-line-soft: rgba(163, 83, 46, 0.18);
+
+  --olive: #9bab5e;
+  --olive-hi: #b3c47a;
+  --olive-line: rgba(155, 171, 94, 0.35);
+
+  --font-ui: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* One measure for the page gutter and one for the column, so the nav,
+     every section and the footer align to the same two edges. */
+  --gutter: 34px;
+  --measure: 1180px;
 }
 
-html, body {
-  height: 100%;
+* { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  /* The nav is sticky, so an anchor jump would otherwise land under it. */
+  scroll-padding-top: 76px;
+}
+
+body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--font-main);
-  overflow-y: auto;
-  scroll-snap-type: y mandatory;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
-main {
-  height: 100%;
+a { color: var(--rust-hi); text-decoration: none; }
+a:hover { color: var(--rust-hi); }
+img { max-width: 100%; }
+::selection { background: rgba(163, 83, 46, 0.4); color: #fff; }
+
+.mono { font-family: var(--font-mono); }
+
+:where(a, button, input):focus-visible {
+  outline: 2px solid var(--olive);
+  outline-offset: 2px;
 }
 
-section {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  scroll-snap-align: start;
-  padding: 4vh 2vw;
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-#hero {
-  flex-direction: column;
-  gap: 2rem;
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--rust);
+  color: var(--bg);
+  padding: 10px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
 }
+.skip-link:focus { left: 0; }
 
-.logo {
-  width: clamp(140px, 22vw, 260px);
-  height: auto;
-  filter: brightness(0.92) saturate(1.1);
-  user-select: none;
-}
-
-.tagline {
-  font-size: clamp(1.3rem, 2.5vw, 2.8rem);
-  letter-spacing: 0.02em;
-  margin: 0.5rem 0 1.8rem;
-  font-weight: 400;
-}
-
-.buttons {
-  display: flex;
-  gap: 1.2rem;
-  flex-wrap: wrap;
-  justify-content: center;
-}
+/* --- Buttons ------------------------------------------------------------ */
 
 .btn {
-  text-decoration: none;
-  padding: 0.9rem 1.4rem;
-  border-radius: 8px;
-  font-weight: 500;
-  transition: all 0.25s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1;
+  padding: 14px 26px;
+  border: 1px solid transparent;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  white-space: nowrap;
 }
 
-.btn.primary {
-  background: var(--accent);
-  color: var(--bg);
+.btn svg { width: 16px; height: 16px; flex: none; }
+
+.btn-sm { font-size: 13px; padding: 9px 16px; }
+.btn-sm svg { width: 14px; height: 14px; }
+.btn-block { display: flex; width: 100%; padding: 12px 16px; font-size: 13px; }
+
+.btn-solid { background: var(--rust); color: var(--bg); font-weight: 500; }
+.btn-solid:hover { background: var(--rust-hi); color: var(--bg); }
+
+.btn-solid-olive { background: var(--olive); color: var(--bg); font-weight: 500; }
+.btn-solid-olive:hover { background: var(--olive-hi); color: var(--bg); }
+
+.btn-outline { border-color: rgba(163, 83, 46, 0.4); color: var(--fg); }
+.btn-outline:hover { border-color: var(--rust-hi); background: rgba(163, 83, 46, 0.1); color: var(--fg); }
+
+.btn-olive { border-color: rgba(155, 171, 94, 0.5); }
+.btn-olive:hover { border-color: var(--olive); background: rgba(155, 171, 94, 0.12); }
+
+/* --- Nav ---------------------------------------------------------------- */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px var(--gutter);
+  background: rgba(14, 12, 10, 0.72);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--rust-line);
 }
 
-.btn.primary:hover {
-  background: var(--accent-hover);
-}
-
-.btn.ghost {
-  border: 1px solid var(--accent);
-  color: var(--accent);
-}
-
-.btn.ghost:hover {
-  border-color: var(--accent-hover);
-  color: var(--accent-hover);
-}
-
-#about h2, #features h2 {
-  margin-bottom: 1.2rem;
-  font-size: 1.6rem;
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg);
   font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+.nav-brand:hover { color: var(--fg); }
+.nav-brand img { width: 26px; height: 26px; object-fit: contain; }
+
+.nav-right { display: flex; align-items: center; gap: 28px; }
+
+.nav-links {
+  display: flex;
+  gap: 22px;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}
+.nav-links a { color: rgba(236, 229, 219, 0.55); }
+.nav-links a:hover { color: var(--fg); }
+
+.nav-actions { display: flex; align-items: center; gap: 16px; font-size: 13px; }
+.nav-signup { color: rgba(236, 229, 219, 0.8); }
+.nav-signup:hover { color: var(--fg); }
+
+/* --- Hero --------------------------------------------------------------- */
+
+.hero {
+  position: relative;
+  min-height: calc(100vh - 59px);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  padding: 80px 0;
 }
 
-#about p {
-  max-width: 600px;
-  font-size: 1.1rem;
+.hero-field { position: absolute; inset: 0; z-index: 0; }
+.hero-field canvas { display: block; width: 100%; height: 100%; }
+
+.hero-ghost {
+  position: absolute;
+  z-index: 1;
+  right: -90px;
+  top: 50%;
+  transform: translateY(-52%);
+  width: min(58vw, 760px);
+  opacity: 0.07;
+  pointer-events: none;
+  filter: grayscale(0.1);
+}
+
+.hero-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(100deg, var(--bg) 26%, rgba(14, 12, 10, 0.4) 58%, transparent 100%);
+}
+
+.hero-telemetry {
+  position: absolute;
+  z-index: 3;
+  top: 26px;
+  right: var(--gutter);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(163, 83, 46, 0.7);
+  text-align: right;
+  line-height: 1.7;
+}
+
+.hero-body {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 34px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--rust-hi);
+}
+.eyebrow .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rust);
+  box-shadow: 0 0 10px var(--rust);
+}
+.eyebrow-olive { color: var(--olive); margin-bottom: 16px; }
+
+.hero-title {
+  margin: 0;
+  font-size: clamp(50px, 8.5vw, 120px);
+  line-height: 0.9;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  color: var(--fg-bright);
+}
+
+.hero-line {
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+  border-top: 1px solid rgba(163, 83, 46, 0.3);
+  padding-top: 6px;
+}
+.hero-line-alt { color: var(--olive); }
+.hero-line-last { border-bottom: 1px solid rgba(163, 83, 46, 0.3); padding-bottom: 6px; }
+
+.hero-num {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--rust);
+  letter-spacing: 0;
+}
+
+.hero-lede {
+  max-width: 480px;
+  margin: 30px 0 0;
+  font-size: 18px;
   line-height: 1.6;
+  color: rgba(236, 229, 219, 0.7);
 }
 
-#features {
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 36px;
+}
+
+.hero-note { font-size: 12px; color: var(--fg-faint); }
+
+/* --- Sections ----------------------------------------------------------- */
+
+.section {
+  position: relative;
+  z-index: 2;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 70px var(--gutter);
+}
+.section-tight { padding-bottom: 30px; }
+#about { padding-top: 110px; }
+
+.rule {
+  margin: 0 0 34px;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--rust);
+  border-bottom: 1px solid var(--rust-line);
+  padding-bottom: 14px;
+}
+.rule-split {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.rule-aside {
+  text-transform: none;
+  letter-spacing: 0.05em;
+  color: var(--fg-faint);
+}
+
+.section-note {
+  margin: 20px 0 0;
+  max-width: 640px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: rgba(236, 229, 219, 0.68);
+  text-wrap: pretty;
+}
+
+/* --- About -------------------------------------------------------------- */
+
+.about-grid {
   display: grid;
-  place-items: center;
+  grid-template-columns: 1fr 2.1fr;
+  gap: 56px;
+  align-items: start;
 }
 
-.feature {
-  font-size: 1.2rem;
-  margin: 0.8rem 0;
-  opacity: 0.85;
+.about-aside {
+  margin: 0;
+  max-width: 26ch;
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--fg-faint);
 }
 
-#footer {
-  font-size: 0.9rem;
-  opacity: 0.6;
+.about-lead {
+  margin: 0;
+  font-size: clamp(23px, 3vw, 34px);
+  line-height: 1.42;
+  letter-spacing: -0.01em;
+  color: #ede6db;
+  text-wrap: pretty;
 }
 
-#footer a {
-  color: var(--accent);
-  text-decoration: none;
+/* --- Feature spec rows -------------------------------------------------- */
+
+#features .rule { margin-bottom: 8px; }
+
+.spec-row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 0 30px;
+  align-items: start;
+  border-bottom: 1px solid var(--rust-line-soft);
+  padding: 30px 12px;
+  margin: 0 -12px;
+  transition: background 0.2s ease;
+}
+.spec-row:hover { background: rgba(163, 83, 46, 0.04); }
+
+.spec-mark {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--rust);
+  font-size: 12px;
+}
+.spec-mark svg { width: 26px; height: 26px; }
+
+.spec-body {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 30px;
+  align-items: baseline;
+}
+.spec-body h3 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 34px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg-bright);
+}
+.spec-body p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-soft);
 }
 
-#footer a:hover {
-  color: var(--accent-hover);
-}
-/* --- smooth scroll and fade effects --- */
-html {
-  scroll-behavior: smooth;
+/* --- Image slots --------------------------------------------------------
+
+   No artwork has been supplied for the showreel, the four control cards or
+   the setup strip yet. Rather than ship broken <img> tags, each slot draws
+   the plate hatch from the design and names what belongs there, so an empty
+   slot is legible on the page and obvious in review. Replace a slot with an
+   <img> when the asset exists. */
+
+.slot {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background:
+    repeating-linear-gradient(45deg, rgba(163, 83, 46, 0.16) 0 1px, transparent 1px 9px),
+    var(--panel);
 }
 
-section {
+.slot::after {
+  content: attr(data-label);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  color: rgba(236, 229, 219, 0.38);
+}
+
+/* --- Showreel ----------------------------------------------------------- */
+
+.reel {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border: 1px solid rgba(163, 83, 46, 0.3);
+  overflow: hidden;
+  background: var(--panel);
+}
+
+/* The play badge owns the middle of the reel, so its slot label sits above. */
+.reel .slot::after { align-items: flex-start; padding-top: 26px; }
+
+.reel-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.reel-play svg {
+  width: 78px;
+  height: 78px;
+  padding: 26px;
+  border-radius: 50%;
+  background: rgba(163, 83, 46, 0.9);
+  color: var(--bg);
+  box-shadow: 0 8px 40px rgba(14, 12, 10, 0.6);
+}
+
+.reel-stamp {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: rgba(236, 229, 219, 0.7);
+  pointer-events: none;
+}
+
+/* --- Controls ----------------------------------------------------------- */
+
+.controls-intro {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 44px;
+  align-items: start;
+  margin-bottom: 48px;
+}
+.controls-intro .lead {
+  margin: 0;
+  font-size: clamp(22px, 3vw, 32px);
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: #ede6db;
+  text-wrap: pretty;
+}
+.controls-intro .muted {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.7;
+  color: rgba(236, 229, 219, 0.6);
+  text-wrap: pretty;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(163, 83, 46, 0.24);
+  background: linear-gradient(180deg, rgba(163, 83, 46, 0.05), transparent);
+}
+
+.card-media {
+  aspect-ratio: 16 / 10;
+  border-bottom: 1px solid rgba(163, 83, 46, 0.2);
+}
+
+.card-body { padding: 22px 24px 26px; }
+
+/* Scoped past `.card-body p` below, which would otherwise win on specificity
+   and grey out the kicker. */
+.card-body .card-kicker {
+  margin: 0 0 10px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--olive);
+}
+.card-body h3 {
+  margin: 0 0 8px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg-bright);
+}
+.card-body p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(236, 229, 219, 0.6);
+}
+
+.strip { position: relative; border: 1px solid var(--rust-line); }
+.strip-media { aspect-ratio: 21 / 9; }
+.strip-stamp {
+  position: absolute;
+  left: 18px;
+  bottom: 16px;
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: rgba(236, 229, 219, 0.75);
+  background: rgba(14, 12, 10, 0.55);
+  padding: 5px 10px;
+  backdrop-filter: blur(4px);
+}
+
+/* --- Pricing ------------------------------------------------------------ */
+
+/* Cards stretch to a shared height — the tiers read as one table, and the
+   ragged bottom edge of auto-height cards never appears. */
+.tier-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.tier {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rust-line);
+  padding: 30px 26px 28px;
+}
+
+.tier-featured {
+  border-color: rgba(155, 171, 94, 0.5);
+  background: rgba(155, 171, 94, 0.04);
+}
+
+.tier-badge {
+  position: absolute;
+  top: -1px;
+  right: 22px;
+  transform: translateY(-50%);
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--bg);
+  background: var(--olive);
+  padding: 4px 10px;
+}
+
+.tier-name {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(236, 229, 219, 0.5);
+}
+.tier-featured .tier-name { color: var(--olive); }
+.tier-name-rust { color: var(--rust-hi); }
+
+.tier-price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 16px 0 4px;
+  font-size: 12px;
+  color: rgba(236, 229, 219, 0.45);
+}
+.tier-amount {
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--fg-bright);
+}
+
+.tier-blurb {
+  margin: 8px 0 22px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(236, 229, 219, 0.55);
+}
+
+.tier-inherit {
+  margin: 24px 0 0;
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+/* The Free tier has no "everything in …" line, so its list carries the gap. */
+.tier > .btn-block + .tier-list { margin-top: 24px; }
+
+.tier-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 14px 0 0;
+  padding: 20px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--rust-line-soft);
+}
+.tier-featured .tier-list { border-top-color: rgba(155, 171, 94, 0.2); }
+
+.tier-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  color: #ede6db;
+}
+.tier-item .plus { color: var(--rust); }
+.tier-featured .tier-item .plus { color: var(--olive); }
+
+.tier-detail {
+  display: block;
+  margin: 3px 0 0 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-faint);
+}
+
+.tier-footnote {
+  margin: 18px 0 0;
+  font-size: 11px;
+  color: rgba(236, 229, 219, 0.3);
+}
+
+/* --- Sign-up ------------------------------------------------------------ */
+
+.join {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 40px;
+  align-items: center;
+  border: 1px solid rgba(155, 171, 94, 0.3);
+  border-top-color: rgba(163, 83, 46, 0.4);
+  padding: 44px 38px;
+}
+
+.join-title {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 42px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
+  color: var(--fg-bright);
+}
+
+.join-lede {
+  margin: 14px 0 0;
+  max-width: 420px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--fg-soft);
+}
+
+.join-form { display: flex; flex-direction: column; gap: 12px; }
+
+.join-form input {
+  background: rgba(155, 171, 94, 0.06);
+  border: 1px solid var(--olive-line);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 14px 16px;
+  outline: none;
+}
+.join-form input::placeholder { color: rgba(236, 229, 219, 0.4); }
+.join-form input:focus-visible { border-color: var(--olive); }
+
+.join-form button {
+  cursor: pointer;
+  color: var(--bg);
+  font-weight: 500;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 14px 16px;
+  background: var(--rust);
+  border: none;
+  transition: background 0.2s ease;
+}
+.join-form button:hover { background: var(--rust-hi); }
+
+.join-status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--olive);
+}
+.join-status:empty { display: none; }
+.join-status[data-tone="error"] { color: var(--rust-hi); }
+
+/* --- Footer ------------------------------------------------------------- */
+
+.footer {
+  position: relative;
+  z-index: 2;
+  border-top: 1px solid var(--rust-line);
+  margin-top: 60px;
+  padding: 28px var(--gutter);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.footer-brand { display: flex; align-items: center; gap: 10px; }
+.footer-brand img { width: 20px; height: 20px; object-fit: contain; }
+.footer-brand span { font-size: 12px; color: rgba(236, 229, 219, 0.5); }
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 22px;
+  font-size: 12px;
+}
+.footer-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(236, 229, 219, 0.6);
+}
+.footer-links a:hover { color: var(--fg); }
+.footer-links svg { width: 14px; height: 14px; }
+
+/* --- WebGPU compatibility popup ----------------------------------------
+
+   The Launch Studio button is disabled when the device cannot run the
+   editor; this explains why, and how to fix it. */
+
+.btn-wrapper { position: relative; display: inline-flex; }
+
+.btn.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.compat-popup {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 10px;
+  width: max-content;
+  min-width: 300px;
+  max-width: min(400px, calc(100vw - 40px));
+  background: rgba(20, 16, 8, 0.98);
+  border: 1px solid rgba(163, 83, 46, 0.5);
+  padding: 16px 20px;
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.6;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   opacity: 0;
-  transform: translateY(30px);
-  transition: opacity 0.8s ease, transform 0.8s ease;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 50;
+}
+.compat-popup.is-open { opacity: 1; pointer-events: auto; }
+
+.compat-popup::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: rgba(163, 83, 46, 0.5);
 }
 
-section.visible {
-  opacity: 1;
-  transform: none;
+.compat-title {
+  margin: 0 0 8px;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--rust-hi);
+}
+.compat-popup p { margin: 0; }
+.compat-details {
+  margin: 12px 0;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.compat-details strong { color: var(--rust-hi); font-weight: 500; }
+.compat-fixes { margin-top: 12px; font-size: 13px; }
+.compat-fixes h4 { margin: 0 0 8px; font-size: 14px; color: var(--rust-hi); }
+.compat-fixes ul { margin: 0; padding-left: 20px; }
+.compat-fixes li { margin: 4px 0; }
+
+/* --- Responsive ---------------------------------------------------------
+
+   The design is drawn at desktop width. Below it the multi-column grids
+   collapse to one column in the same reading order, and the nav sheds its
+   section links (the sections are a short scroll away). */
+
+@media (max-width: 900px) {
+  :root { --gutter: 22px; }
+
+  .nav-links { display: none; }
+  .nav-right { gap: 16px; }
+
+  .hero { min-height: auto; padding: 90px 0 70px; }
+  .hero-telemetry { display: none; }
+  .hero-ghost { right: -30%; opacity: 0.05; }
+  .hero-scrim { background: linear-gradient(180deg, rgba(14, 12, 10, 0.72), rgba(14, 12, 10, 0.92)); }
+
+  .section, #about { padding-top: 60px; padding-bottom: 60px; }
+
+  .about-grid,
+  .controls-intro,
+  .card-grid,
+  .tier-grid,
+  .join { grid-template-columns: 1fr; gap: 28px; }
+
+  .about-aside { max-width: none; }
+  .spec-body { grid-template-columns: 1fr; gap: 12px; }
+  .join { padding: 32px 24px; }
+  .strip-media { aspect-ratio: 16 / 9; }
+}
+
+@media (max-width: 560px) {
+  /* Only the primary action survives in the bar at this width — "sign up" and
+     "docs" both still have their own reachable sections below. */
+  .nav-signup,
+  .nav-actions .btn-outline { display: none; }
+
+  .hero-title { letter-spacing: -0.03em; }
+  .hero-line { gap: 12px; }
+  .hero-actions { gap: 10px; }
+  .hero-actions .btn-wrapper,
+  .hero-actions .btn { width: 100%; }
+  .reel-play svg { width: 56px; height: 56px; padding: 18px; }
+
+  /* Too wide to hang off the button here, so it docks to the bottom of the
+     viewport. `width: auto` matters: the base rule's `max-content` would
+     otherwise beat left/right and push the page sideways. */
+  .compat-popup {
+    position: fixed;
+    left: 20px;
+    right: 20px;
+    bottom: 20px;
+    top: auto;
+    transform: none;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+  .compat-popup::after { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { transition-duration: 0.01ms !important; }
 }
