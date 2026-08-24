@@ -71,23 +71,30 @@ export class GPUPerformanceMonitor {
    * Setup enhanced keyboard shortcuts
    */
   _setupKeyboardShortcuts() {
+    // Developer keys, deliberately three-modifier: these used to sit on
+    // Ctrl+Shift+P/R/E, which the editor's own keymap already spends on
+    // Preview / Export Settings, Rebuild and Export WGSL — so one keystroke
+    // fired two unrelated things at once. Adding Alt keeps them out of the
+    // menu keymap's way (see src/ui/shortcuts.js).
     document.addEventListener('keydown', (e) => {
-      // Ctrl+Shift+P - Run performance tests
-      if (e.ctrlKey && e.shiftKey && e.key === 'P') {
+      if (!e.ctrlKey || !e.altKey || !e.shiftKey) return;
+
+      // Ctrl+Alt+Shift+P - Run performance tests
+      if (e.code === 'KeyP') {
         e.preventDefault();
         this.runTests();
       }
 
-      // Ctrl+Shift+R - Reset profiler
-      if (e.ctrlKey && e.shiftKey && e.key === 'R') {
+      // Ctrl+Alt+Shift+R - Reset profiler
+      if (e.code === 'KeyR') {
         e.preventDefault();
         if (this.profiler) {
           this.profiler.reset();
         }
       }
 
-      // Ctrl+Shift+E - Toggle profiler enabled/disabled
-      if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+      // Ctrl+Alt+Shift+E - Toggle profiler enabled/disabled
+      if (e.code === 'KeyE') {
         e.preventDefault();
         if (this.profiler) {
           const metrics = this.profiler.getMetrics();

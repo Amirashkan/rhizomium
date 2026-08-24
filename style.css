@@ -160,6 +160,49 @@ select optgroup {
   letter-spacing: 1.4px;
 }
 
+/* Shortcut hints on menu rows.
+   src/ui/shortcuts.js stamps the combo onto the row as data-shortcut and CSS
+   draws it — an attribute survives a row that rewrites its own label to show
+   state (the profiler's "✓"), where an appended element would be wiped.
+   The hint is a whisper next to the command, never a second label: mono, one
+   step down in size, and dimmer until the row is hovered. */
+.menu-dropdown button[data-shortcut],
+.menu-submenu button[data-shortcut],
+.submenu-toggle[data-shortcut] {
+  display: flex;
+  align-items: center;
+  /* A command and its key belong on one line: let the row push the dropdown
+     wider (it is absolutely positioned, so it sizes to its content) rather
+     than wrapping a long label around the hint. */
+  white-space: nowrap;
+}
+
+.menu-dropdown button[data-shortcut]::after,
+.menu-submenu button[data-shortcut]::after,
+.submenu-toggle[data-shortcut]::after {
+  content: attr(data-shortcut);
+  margin-left: auto;
+  padding-left: 20px;
+  font-family: var(--rz-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--rz-text-faint);
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.menu-dropdown button[data-shortcut]:hover::after,
+.menu-submenu button[data-shortcut]:hover::after,
+.submenu-toggle[data-shortcut]:hover::after {
+  color: var(--rz-text-3, var(--rz-text-2));
+}
+
+.menu-dropdown button[data-shortcut]:disabled::after,
+.menu-submenu button[data-shortcut]:disabled::after {
+  color: var(--rz-text-disabled);
+}
+
 .menu-dropdown select {
   width: calc(100% - 22px);
   margin: 4px 11px 8px;
@@ -1110,4 +1153,162 @@ body {
 .menu-caret {
   opacity: 0.55;
   vertical-align: 0;
+}
+
+/* --- Keymap dialog (Help → Shortcuts / Keymap) --------------------------- */
+/* Built by src/ui/shortcuts.js from the same table the menu hints come from,
+   so the printed keymap can never fall behind the menus. */
+.keymap-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  background: rgba(8, 6, 5, 0.62);
+  backdrop-filter: blur(6px);
+  animation: rzradial 0.18s cubic-bezier(0.2, 0.7, 0.3, 1);
+  font-family: var(--rz-font-ui);
+}
+
+.keymap-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(980px, 100%);
+  max-height: 100%;
+  background: linear-gradient(var(--rz-surface-raised), #141009);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 16px;
+  box-shadow: var(--rz-shadow-pop);
+  overflow: hidden;
+}
+
+.keymap-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--rz-line);
+}
+
+.keymap-title {
+  color: var(--rz-text);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.keymap-search {
+  margin-left: auto;
+  width: 220px;
+  padding: 7px 10px;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line);
+  border-radius: var(--rz-r-field);
+  color: var(--rz-text);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.keymap-search:focus {
+  outline: none;
+  border-color: var(--rz-accent-30);
+  box-shadow: 0 0 0 3px var(--rz-accent-10);
+}
+
+.keymap-close {
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--rz-text-3);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.keymap-close:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+/* Columns, so the whole keymap is one glance rather than one long scroll. */
+.keymap-body {
+  overflow-y: auto;
+  padding: 6px 18px 14px;
+  columns: 2;
+  column-gap: 28px;
+}
+
+@media (max-width: 720px) {
+  .keymap-body {
+    columns: 1;
+  }
+}
+
+.keymap-section {
+  break-inside: avoid;
+  display: inline-block;
+  width: 100%;
+  padding: 10px 0 4px;
+}
+
+.keymap-section h3 {
+  margin: 0 0 6px;
+  color: var(--rz-text-faint);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+}
+
+.keymap-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 6px;
+  border-radius: var(--rz-r-field);
+}
+
+.keymap-row:hover {
+  background: var(--rz-hover);
+}
+
+.keymap-name {
+  color: #ece5da;
+  font-size: 13px;
+}
+
+.keymap-keys {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.keymap-keys kbd {
+  padding: 2px 7px;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  color: var(--rz-text-2);
+  font-family: var(--rz-font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.keymap-or {
+  color: var(--rz-text-faint);
+  font-size: 10px;
+}
+
+.keymap-foot {
+  padding: 11px 18px;
+  border-top: 1px solid var(--rz-line);
+  color: var(--rz-text-faint);
+  font-size: 11px;
 }

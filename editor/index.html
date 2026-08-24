@@ -256,10 +256,12 @@
       <div class="menu-section">
         <button class="menu-button" id="menu-edit">Edit <svg class="rz-icon menu-caret" width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-chevron-down"/></svg></button>
         <div class="menu-dropdown" id="dropdown-edit">
-          <button id="btn-undo" title="Undo last action (Ctrl+Z)" disabled>
+          <!-- Titles carry the description only; src/ui/shortcuts.js appends the
+               key combo, so the shortcut is stated in exactly one place. -->
+          <button id="btn-undo" title="Undo last action" disabled>
             <svg class="rz-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-undo"/></svg> Undo
           </button>
-          <button id="btn-redo" title="Redo last action (Ctrl+Y)" disabled>
+          <button id="btn-redo" title="Redo last action" disabled>
             <svg class="rz-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-redo"/></svg> Redo
           </button>
           <div class="menu-separator"></div>
@@ -284,7 +286,7 @@
             <div class="menu-submenu">
               <button id="btn-toggle-param-panel" class="submenu-button">Toggle ParamPanel</button>
               <button id="btn-toggle-preview-panel" class="submenu-button">Toggle Preview Panel</button>
-              <button id="btn-toggle-3d-viewport" class="submenu-button" title="Ctrl+3">Toggle 3D Viewport</button>
+              <button id="btn-toggle-3d-viewport" class="submenu-button">Toggle 3D Viewport</button>
             </div>
           </div>
           
@@ -302,11 +304,13 @@
           <div class="menu-item-with-submenu">
             <button class="menu-submenu-trigger">Grid <svg class="rz-icon menu-caret" width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-chevron-right"/></svg></button>
             <div class="menu-submenu">
-              <label class="submenu-toggle">
+              <!-- The row carries the id the keymap prints its shortcut on
+                   (src/ui/shortcuts.js); the shortcut fires the checkbox. -->
+              <label class="submenu-toggle" id="row-view-show-grid">
                 <input type="checkbox" id="view-show-grid" />
                 Show Grid
               </label>
-              <label class="submenu-toggle">
+              <label class="submenu-toggle" id="row-snap-toggle">
                 <input type="checkbox" id="snap-toggle" />
                 Snap to Grid
               </label>
@@ -327,7 +331,7 @@
                (see main.js, where the render loop syncs the profiler's enabled
                flag to this panel's visibility). Without this entry Ctrl+Alt+P
                was the only way to reach it at all. -->
-          <button id="btn-toggle-profiler" title="Compute profiler overlay (Ctrl+Alt+P) — costs performance while open">Compute Profiler</button>
+          <button id="btn-toggle-profiler" title="Compute profiler overlay — costs performance while open">Compute Profiler</button>
           <!-- Second-monitor full-screen viewer. Hidden by default; revealed
                only in the Vite/desktop build (see main.js / isViteBuild.js). -->
           <div class="menu-separator" id="sep-second-monitor" style="display:none"></div>

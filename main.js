@@ -72,6 +72,11 @@ import { TextNodeProcessor } from "./src/core/TextNodeProcessor.js";
 import { setupTauriFileAssociation } from "./src/core/tauriFileOpen.js";
 import { startCompositionFormatSync } from "./src/core/CompositionFormatSync.js";
 import { makeDraggable } from "./src/ui/utils/draggable.js";
+import {
+  applyMenuShortcutHints,
+  installShortcutDispatcher,
+  showShortcutsDialog,
+} from "./src/ui/shortcuts.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -1768,6 +1773,17 @@ function setupUIEventHandlers() {
 
   // Setup new Rhizomium menu structure handlers
   setupRhizomiumMenu();
+
+  // Print every shortcut on its own menu row, and install the dispatcher that
+  // fires those rows from the keyboard. Both read src/ui/shortcuts.js, so the
+  // key a menu advertises is by construction the key that runs it. This must
+  // come after setupRhizomiumMenu(), which is what puts the click handlers the
+  // dispatcher reuses on those rows.
+  applyMenuShortcutHints();
+  installShortcutDispatcher({
+    shouldIgnore: (event) =>
+      shouldIgnoreShortcutTarget(event) || modalManager.isModalOpen(),
+  });
 }
 
 
@@ -1936,11 +1952,15 @@ function setupRhizomiumMenu() {
     newProjectBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Implement new project functionality
-      if (typeof createNewProject === "function") {
-        createNewProject();
-      } else {
+      if (typeof createNewProject !== "function") {
         console.warn("createNewProject function not available");
+        return;
+      }
+      // Ask first — this throws the current graph away. The confirmation used
+      // to live only on the Ctrl+N path; now that the shortcut fires this row,
+      // it belongs here, where both routes go through it.
+      if (confirm("Create new project? Unsaved changes will be lost.")) {
+        createNewProject();
       }
     });
   }
@@ -2465,16 +2485,14 @@ function setupRhizomiumMenu() {
     });
   }
 
-  // Shortcuts
+  // Shortcuts — the whole keymap, printed from the same table the menu rows are
+  // annotated from (src/ui/shortcuts.js).
   const shortcutsBtn = document.getElementById("btn-shortcuts");
   if (shortcutsBtn) {
     shortcutsBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Show shortcuts/keymap dialog
-      if (typeof updateStatus === "function") {
-        updateStatus("Shortcuts: Feature coming soon");
-      }
+      showShortcutsDialog();
     });
   }
 
@@ -2687,74 +2705,17 @@ function setupKeyboardShortcuts() {
     // AltGr character ran them.
     if (e.altKey) return;
 
+    // Only the shortcuts with no menu row of their own live here. Everything
+    // the menu bar offers is dispatched from src/ui/shortcuts.js by clicking
+    // the row itself — Ctrl+S, Ctrl+O, Ctrl+N, Ctrl+D, Ctrl+B, Ctrl+P, Ctrl+3
+    // and the rest used to be duplicated in this switch, which meant two places
+    // to keep in step and a shortcut that could quietly do something other than
+    // the menu item it was printed next to.
     switch (e.key.toLowerCase()) {
-      case "s":
-        e.preventDefault();
-        if (e.shiftKey) {
-          // Ctrl/Cmd+Shift+S -> Save As (pick a new location/name)
-          saveLoadManager?.saveProjectAs?.();
-        } else {
-          // Ctrl/Cmd+S -> Save (write back to the bound file)
-          saveLoadManager?.saveProject?.();
-        }
-        break;
-
-      case "o": {
-        e.preventDefault();
-        if (typeof triggerFileLoad === "function") {
-          triggerFileLoad();
-          break;
-        }
-        const fileInput = document.getElementById("file-import");
-        if (fileInput) {
-          fileInput.value = "";
-          fileInput.click();
-        }
-        break;
-      }
-
       case "l":
         if (e.shiftKey) {
           e.preventDefault();
           saveLoadManager?.loadFromLocal?.();
-        }
-        break;
-
-      case "d":
-        e.preventDefault();
-        if (!duplicateSelection()) {
-          updateStatus("Select nodes to duplicate", "warning");
-        }
-        break;
-
-      case "p":
-        e.preventDefault();
-        if (!togglePreviewVisibility()) {
-          updateStatus("Preview unavailable", "warning");
-        }
-        break;
-
-      case "v":
-        e.preventDefault();
-        if (vjControlPanel && typeof vjControlPanel.toggle === 'function') {
-          vjControlPanel.toggle();
-          updateStatus(vjControlPanel.visible ? "VJ Control opened" : "VJ Control closed");
-        } else {
-          updateStatus("VJ Control panel unavailable", "warning");
-        }
-        break;
-
-      case "n":
-        e.preventDefault();
-        if (confirm("Create new project? Unsaved changes will be lost.")) {
-          createNewProject();
-        }
-        break;
-
-      case "b":
-        e.preventDefault();
-        if (backupDialog) {
-          backupDialog.show();
         }
         break;
 
@@ -2767,13 +2728,6 @@ function setupKeyboardShortcuts() {
         }
         break;
 
-      case "r":
-        if (e.shiftKey) {
-          e.preventDefault();
-          updateShaderFromGraph();
-        }
-        break;
-
       case "c":
         if (e.shiftKey) {
           e.preventDefault();
@@ -2783,16 +2737,6 @@ function setupKeyboardShortcuts() {
           } else {
             updateStatus("Compute shader test not available", "warning");
           }
-        }
-        break;
-
-      case "3":
-        e.preventDefault();
-        if (viewportPanel) {
-          viewportPanel.toggle();
-          updateStatus(viewportPanel.isVisible ? "3D Viewport opened" : "3D Viewport closed");
-        } else {
-          updateStatus("3D Viewport not available", "warning");
         }
         break;
 
@@ -3036,15 +2980,9 @@ function frameSelection() {
   return fitted;
 }
 
-function togglePreviewVisibility() {
-  if (!floatingPreview || typeof floatingPreview.toggle !== "function") {
-    return false;
-  }
-
-  floatingPreview.toggle();
-  updateStatus(floatingPreview.isVisible ? "Preview shown" : "Preview hidden");
-  return true;
-}
+// Toggling the preview window now runs through View → Panels → Toggle Preview
+// Panel, which Ctrl/Cmd+2 (and Ctrl/Cmd+P) click — one code path for the menu
+// row and its shortcut.
 
 function openQuickNodeSearch() {
   if (!editor?.menu?.showCreateMenu || !editor?.viewport || !editor?.canvas) {
