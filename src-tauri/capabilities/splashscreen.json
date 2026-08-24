@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "splashscreen",
+  "description": "Permissions for the launch window. It only has to draw itself — the handoff to the editor is driven from the editor's side, so this deliberately grants nothing beyond the Tauri baseline.",
+  "windows": ["splashscreen"],
+  "permissions": ["core:default"]
+}

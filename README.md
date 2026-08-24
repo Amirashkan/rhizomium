@@ -33,9 +33,12 @@ Navigate to: **http://127.0.0.1:5000/studio**
 
 ## 🖥️ Desktop App (Tauri)
 
-The editor can run as a native desktop app via [Tauri](https://tauri.app). Unlike
-the web build there is no server doing URL rewrites, so the app is wired to load
-the editor's real entry (`editor/index.html`) directly.
+The editor can run as a native desktop app via [Tauri](https://tauri.app). It
+opens straight into the editor: the landing page is a web thing, so the desktop
+build leaves it out of the bundle entirely and shows a small loading window
+(`splash.html`) while the editor boots hidden behind it. See
+[DESKTOP_APP.md](DESKTOP_APP.md) for how that handoff works, and for what code
+signing, auto-updates and releasing still need.
 
 ### Prerequisites (one time)
 
@@ -57,8 +60,8 @@ npm run tauri icon assets/logo.png
 npm run tauri:dev
 ```
 
-This starts the Vite dev server on `http://localhost:5173` and opens the Tauri
-window pointing at it. Click **Launch Studio** to open the editor.
+This starts the Vite dev server on `http://localhost:5173`, shows the loading
+window, and opens the editor once it has booted.
 
 ### Build a distributable
 
@@ -66,11 +69,15 @@ window pointing at it. Click **Launch Studio** to open the editor.
 npm run tauri:build
 ```
 
-Installers/binaries are written to `src-tauri/target/release/bundle/`.
+Installers/binaries are written to `src-tauri/target/release/bundle/`. Pushing a
+`v*` tag builds macOS and Windows bundles in CI and attaches them to a draft
+release (`.github/workflows/desktop-release.yml`).
 
-> **Note:** Tauri uses the OS WebView (WebView2 on Windows, WebKitGTK on Linux,
-> WKWebView on macOS). WebGPU — which this app requires — is best supported by
-> WebView2, so Windows is the most reliable target today.
+> **Note:** Tauri renders in the OS WebView (WebView2 on Windows, WKWebView on
+> macOS, WebKitGTK on Linux), so WebGPU support is the OS's, not Tauri's:
+> Windows works, macOS needs 26 or later, and WebKitGTK has none — which is why
+> Linux is not in the release matrix. Details and the per-platform check are in
+> [DESKTOP_APP.md](DESKTOP_APP.md).
 
 ### Second-Monitor Viewer (Vite/desktop build only)
 

@@ -19,6 +19,7 @@ import { FpsMeter } from './src/ui/FpsMeter.js';
 import { TauriSecondMonitorViewer } from "./src/ui/TauriSecondMonitorViewer.js";
 import { isViteBuild } from "./src/utils/isViteBuild.js";
 import { isTauri } from "./src/utils/isTauri.js";
+import { signalAppReady } from "./src/core/tauriSplash.js";
 import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
@@ -735,6 +736,12 @@ async function initialize() {
     }, 2000);
   } catch (error) {
     errorHandler.handleError(error, { component: 'initialization' });
+  } finally {
+    // Desktop only: swap the launch window for the editor window. In the
+    // `finally` rather than at the end of the `try` on purpose — a boot that
+    // threw still has to put the editor on screen, because the error it needs
+    // to show is in that window.
+    signalAppReady();
   }
 }
 
@@ -4071,6 +4078,10 @@ function startWhenDeviceCheckReady() {
   // Check if device check failed
   if (window.__deviceCheckFailed) {
     console.warn('App initialization skipped due to unsupported device');
+    // The editor never boots on this machine, but the desktop app must still
+    // reveal its window: the device-warning overlay is rendered inside it, and
+    // leaving the splash up instead would hide the one thing worth reading.
+    signalAppReady();
     return;
   }
   // Wait a bit for device check to complete if it's still running
@@ -4081,6 +4092,7 @@ function startWhenDeviceCheckReady() {
         clearInterval(checkInterval);
         clearTimeout(fallbackTimeout);
         console.warn('App initialization skipped due to unsupported device');
+        signalAppReady();
       } else if (window.__deviceCheckPassed) {
         clearInterval(checkInterval);
         clearTimeout(fallbackTimeout);
@@ -4092,6 +4104,10 @@ function startWhenDeviceCheckReady() {
       clearInterval(checkInterval);
       if (!window.__deviceCheckFailed) {
         startAppOnce();
+      } else {
+        // Failed between the last poll and this timeout — same as above, the
+        // desktop window still has to appear so the warning can be read.
+        signalAppReady();
       }
     }, 2000);
   } else {

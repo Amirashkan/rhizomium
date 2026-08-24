@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <!--
+      Desktop launch window.
+      ======================
+      The desktop app does not have a landing page: `npm run build:desktop`
+      leaves index.html out of the bundle entirely and Tauri opens the editor
+      (editor/index.html) as the main window. That window is created hidden,
+      because the editor takes a second or two to request a GPU adapter,
+      compile the first shader and lay the panels out, and an empty white
+      rectangle sitting there while it happens reads as a hung app.
+
+      So this page is what the artist sees instead: a small, borderless,
+      always-on-top window that says the app is starting. It goes away the
+      moment the editor calls the `app_ready` command, which is also what
+      reveals the main window (see src-tauri/src/lib.rs).
+
+      Deliberately self-contained — no stylesheet, no module, no Tauri API.
+      It is the one page that has to render before anything else works, so it
+      must not depend on anything else working.
+    -->
+    <title>Starting Rhizomium</title>
+    <link rel="icon" type="image/png" href="assets/logo.png" />
+    <style>
+      /* Palette lifted from landing.css. Hard-coded rather than imported:
+         see the note above about depending on nothing. */
+      :root {
+        --bg: #0e0c0a;
+        --fg: #ece5db;
+        --fg-soft: rgba(236, 229, 219, 0.62);
+        --fg-faint: rgba(236, 229, 219, 0.38);
+        --rust: #a3532e;
+        --rust-hi: #c47a4a;
+        --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --ui: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 24px 28px 20px;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--ui);
+        /* The window is borderless, so the frame has to be drawn here or the
+           splash bleeds into whatever is behind it on a dark desktop. */
+        border: 1px solid rgba(163, 83, 46, 0.34);
+        overflow: hidden;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      /* A slow rust wash behind the content, so the window looks alive even
+         when boot stalls for a moment. Purely decorative. */
+      body::before {
+        content: "";
+        position: absolute;
+        inset: -40%;
+        background: radial-gradient(
+          circle at 30% 40%,
+          rgba(163, 83, 46, 0.22),
+          transparent 55%
+        );
+        animation: drift 9s ease-in-out infinite alternate;
+        pointer-events: none;
+      }
+
+      @keyframes drift {
+        from { transform: translate3d(-6%, -4%, 0) scale(1); }
+        to   { transform: translate3d(6%, 5%, 0) scale(1.15); }
+      }
+
+      .brand,
+      .foot {
+        position: relative; /* above the wash */
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand img {
+        width: 40px;
+        height: 40px;
+        object-fit: contain;
+        opacity: 0.92;
+      }
+
+      .wordmark {
+        font-family: var(--mono);
+        font-size: 19px;
+        letter-spacing: 0.34em;
+        text-transform: uppercase;
+        color: var(--fg);
+      }
+
+      .tagline {
+        margin-top: 4px;
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--fg-faint);
+      }
+
+      /* Indeterminate bar: the editor reports "ready", not "42% ready", so a
+         percentage here would be invented. A sweep says "working" honestly. */
+      .track {
+        position: relative;
+        height: 2px;
+        margin: 22px 0 14px;
+        background: rgba(236, 229, 219, 0.1);
+        overflow: hidden;
+      }
+
+      .track::after {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 38%;
+        background: linear-gradient(90deg, transparent, var(--rust-hi), transparent);
+        animation: sweep 1.5s ease-in-out infinite;
+      }
+
+      @keyframes sweep {
+        from { transform: translateX(-100%); }
+        to   { transform: translateX(363%); }
+      }
+
+      .foot {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        color: var(--fg-soft);
+      }
+
+      #status {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .version {
+        color: var(--fg-faint);
+        flex: none;
+      }
+
+      /* Respect the OS setting: with reduced motion the window is simply a
+         static card, which still communicates "starting". */
+      @media (prefers-reduced-motion: reduce) {
+        body::before,
+        .track::after {
+          animation: none;
+        }
+        .track::after {
+          width: 100%;
+          opacity: 0.5;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="brand">
+      <img src="assets/logo.png" alt="" />
+      <div>
+        <div class="wordmark">Rhizomium</div>
+        <div class="tagline">WebGPU node environment</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="track" role="progressbar" aria-label="Starting Rhizomium"></div>
+      <div class="foot">
+        <span id="status" role="status">Starting the studio…</span>
+        <span class="version" id="version"></span>
+      </div>
+    </div>
+
+    <!-- type="module" so Vite processes the block and substitutes
+         __APP_VERSION__; a classic script is copied through untouched. -->
+    <script type="module">
+      // Two honest pieces of state, and nothing else.
+      //
+      // 1. The version, so a tester can tell at a glance which build launched.
+      //    __APP_VERSION__ is substituted by Vite from package.json.
+      // 2. A "slower than usual" line. The editor is a GPU app: on a cold
+      //    shader cache, or behind a driver that is spinning up a discrete
+      //    card, boot legitimately takes a while. Saying so beats a silent box
+      //    — and if it never resolves at all, the Rust side gives up on the
+      //    splash after SPLASH_TIMEOUT and shows the editor window anyway, so
+      //    the app can still be closed the normal way.
+      document.getElementById("version").textContent = "v" + __APP_VERSION__;
+
+      setTimeout(() => {
+        const status = document.getElementById("status");
+        if (status) status.textContent = "Still starting — warming up the GPU…";
+      }, 8000);
+    </script>
+  </body>
+</html>

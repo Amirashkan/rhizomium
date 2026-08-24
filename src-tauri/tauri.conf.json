@@ -6,15 +6,35 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm run build:web",
+    "beforeBuildCommand": "npm run build:desktop",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
+        "label": "splashscreen",
+        "url": "splash.html",
+        "title": "Starting Rhizomium",
+        "width": 460,
+        "height": 196,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "decorations": false,
+        "center": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true
+      },
+      {
+        "label": "main",
+        "url": "editor/index.html",
         "title": "Rhizomium",
         "width": 1600,
-        "height": 900
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "center": true,
+        "visible": false
       }
     ],
     "security": {
@@ -24,6 +44,19 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Rhizomium",
+    "category": "GraphicsAndDesign",
+    "copyright": "© Rhizomium",
+    "shortDescription": "GPU node environment for real-time generative visuals",
+    "longDescription": "Rhizomium is a modular WebGPU node environment for composing real-time generative visuals — synthesis, structure and growth in one canvas, with projection mapping and a second-monitor output for live performance.",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      }
+    },
     "fileAssociations": [
       {
         "ext": ["rz"],
