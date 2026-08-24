@@ -4,10 +4,15 @@
  * Usage:
  *   makeDraggable(panel, dragHandle);
  *
+ * Positions are clamped through windowBounds so a panel can't be parked under
+ * the top menu bar, which would swallow the very header it is dragged by.
+ *
  * @param {HTMLElement} panel - The element to make draggable
  * @param {HTMLElement} dragHandle - The element that triggers dragging (e.g., header)
  * @returns {Function} cleanup function to remove event listeners
  */
+import { clampPanelPosition, keepPanelInBounds } from './windowBounds.js';
+
 export function makeDraggable(panel, dragHandle) {
   if (!panel || !dragHandle) {
 
@@ -82,14 +87,15 @@ export function makeDraggable(panel, dragHandle) {
     const newX = e.clientX - initialX;
     const newY = e.clientY - initialY;
 
-    // Allow dragging anywhere on screen - keep the entire window within viewport
-    // This allows dragging to bottom half of screen
-    const maxX = window.innerWidth - panelWidth;
-    const maxY = window.innerHeight - panelHeight;
-
-    // Clamp to viewport bounds - this allows dragging to bottom of screen
-    currentX = Math.max(0, Math.min(newX, maxX));
-    currentY = Math.max(0, Math.min(newY, maxY));
+    // Keep the whole window within the viewport, and its header below the top
+    // menu bar - dropped under the bar the panel loses the header it is
+    // dragged and closed by.
+    const bounded = clampPanelPosition(newX, newY, {
+      width: panelWidth,
+      height: panelHeight,
+    });
+    currentX = bounded.left;
+    currentY = bounded.top;
 
     // Update position immediately for responsive feel
     panel.style.left = currentX + 'px';
@@ -111,6 +117,14 @@ export function makeDraggable(panel, dragHandle) {
     document.body.style.userSelect = '';
   };
 
+  // A panel dropped near an edge is left off screen when the window shrinks
+  // under it - and one near the top ends up inside the menu bar. Only panels
+  // actually parked at pixel coordinates are touched; the rest are still
+  // anchored by their stylesheet and follow the viewport on their own.
+  const onWindowResize = () => {
+    keepPanelInBounds(panel);
+  };
+
   // Set initial cursor style
   dragHandle.style.cursor = 'grab';
 
@@ -118,12 +132,14 @@ export function makeDraggable(panel, dragHandle) {
   dragHandle.addEventListener('mousedown', onMouseDown);
   document.addEventListener('mousemove', onMouseMove);
   document.addEventListener('mouseup', onMouseUp);
+  window.addEventListener('resize', onWindowResize);
 
   // Return cleanup function
   return () => {
     dragHandle.removeEventListener('mousedown', onMouseDown);
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
+    window.removeEventListener('resize', onWindowResize);
     dragHandle.style.cursor = '';
   };
 }
