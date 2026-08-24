@@ -1,16 +1,20 @@
 // Shared IndexedDB handle for the "rhizomium" database.
 //
-// Backups and the autosave both live here because their payloads embed full
-// texture dataUrls, which blow past the ~5MB localStorage quota. Both stores
-// are created from one place so a version bump can never leave the two
-// openers disagreeing about DB_VERSION (which would fail with VersionError
-// for whichever one opened second).
+// Backups, the autosave and the editor's handoff to the web viewer all live
+// here because their payloads embed full texture dataUrls, which blow past the
+// ~5MB localStorage quota. Every store is created from one place so a version
+// bump can never leave two openers disagreeing about DB_VERSION (which would
+// fail with VersionError for whichever one opened second).
 
 const DB_NAME = "rhizomium";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const BACKUPS_STORE = "backups";
 export const AUTOSAVE_STORE = "autosave";
+// Patches the editor hands to the web viewer in another tab. Same database
+// for the same reason: a patch carries its textures inline and does not fit
+// in localStorage.
+export const VIEWER_HANDOFF_STORE = "viewerHandoff";
 
 let dbPromise = null;
 
@@ -33,6 +37,9 @@ export function openRhizomiumDB() {
       }
       if (!db.objectStoreNames.contains(AUTOSAVE_STORE)) {
         db.createObjectStore(AUTOSAVE_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(VIEWER_HANDOFF_STORE)) {
+        db.createObjectStore(VIEWER_HANDOFF_STORE, { keyPath: "id" });
       }
     };
 

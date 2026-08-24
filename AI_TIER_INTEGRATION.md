@@ -25,6 +25,7 @@ that were made along the way.
 | `src/ai/patchContext.js` | Trims the project down to the graph before it leaves the machine. |
 | `src/ai/applyResult.js` | Puts a generated node or patch onto the canvas. |
 | `src/ai/outputGating.js` | The unmetered `output.*` flags. |
+| `src/viewer/viewerGate.js` | The unmetered `viewer.web` flag — and the one gate that refuses where outputGating allows. |
 | `src/ui/AIPanel.js` | The panel — Tools → AI Assistant… |
 | `src/styles/ai-panel.css` | Its styles, on the app's own tokens. |
 
@@ -44,6 +45,11 @@ that were made along the way.
 covering the catalogue, the client's error mapping and free-tier fallback, the
 grant verifier against grants signed exactly as the gallery signs them, and the
 endpoint's refusal ordering.
+
+`tests/viewerGate.test.js` covers the web viewer's gate, including the
+asymmetry: the same degraded entitlements that let `output.multiscreen` through
+refuse `viewer.web`, and both directions are asserted in one test so a change
+that made them agree has to say so.
 
 ---
 
@@ -133,6 +139,18 @@ The catalogue text is byte-identical on every request and sits behind a
 `cache_control` breakpoint, so those ~4,000 tokens are billed once per cache
 window rather than once per call.
 
+### The web viewer is now an editor surface too
+
+`viewer.web` is catalogued with `surface: 'gallery'`, and it still is one — the
+gallery decides which published works offer a live view. But the page that runs
+the patch ships from this project, at `/viewer`, because this is where the
+codegen and the renderer live. See [docs/web-viewer.md](docs/web-viewer.md).
+
+The `surface` field is untouched: it is the gallery's word for whose UI lists
+the feature, and the AI panel filters on `surface === 'editor'` to build itself.
+A viewer page that appeared in that panel would be wrong. The editor's one entry
+point to it — File → Open in Web Viewer — is a menu row, not a catalogue row.
+
 ### The unmetered output flags fail *open*, deliberately
 
 Everywhere else, not knowing means falling back to the free tier — wrong in the
@@ -146,6 +164,14 @@ safe direction, because guessing the other way gives away paid model calls.
 Allowing wrongly means someone sees a feature they have not paid for while
 offline. Refusing wrongly means a paying artist's second screen goes dark in
 front of an audience. Only a confident, live "no" refuses.
+
+`viewer.web` is unmetered too and goes the other way — it refuses when the
+lookup fails. The trade is not the same one: the viewer is a web page that has
+just fetched a patch over the network, so a failed entitlements call means the
+network is down or the visitor is not signed in, which are the two cases the
+gate exists for. Nobody is on stage waiting for it. The cost is that a viewer
+served from `localhost` refuses until `/api/entitlements` is stubbed or the
+gallery trusts the local origin, which docs/web-viewer.md says out loud.
 
 ### Multi-screen output was already built here, and is now gated
 
@@ -220,7 +246,8 @@ the six features still needs exercising once, since no feature has yet produced
 a real result.
 
 **`upgradeUrl` points at `/pricing`, which does not exist yet.** Locked features
-link there today.
+link there today — including the web viewer's upsell, which is the first paid
+surface a signed-out visitor is likely to meet.
 
 ## 6. Adding a feature
 

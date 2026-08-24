@@ -9,6 +9,7 @@
   * [Node System](nodes.md)
   * [Working with Audio](audio-web.md)
   * [Saving Your Work](save-load-web.md)
+  * [Web Patch Viewer](web-viewer.md)
   * [Working with Textures](textures.md)
   * [Compute Nodes](compute-nodes.md)
   * [3D Field Visualization](field-visualization.md)
