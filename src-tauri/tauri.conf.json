@@ -43,20 +43,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "nsis"],
     "publisher": "Rhizomium",
     "category": "GraphicsAndDesign",
     "copyright": "© Rhizomium",
     "shortDescription": "GPU node environment for real-time generative visuals",
     "longDescription": "Rhizomium is a modular WebGPU node environment for composing real-time generative visuals — synthesis, structure and growth in one canvas, with projection mapping and a second-monitor output for live performance.",
-    "macOS": {
-      "minimumSystemVersion": "10.15"
-    },
-    "linux": {
-      "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
-      }
-    },
     "fileAssociations": [
       {
         "ext": ["rz"],

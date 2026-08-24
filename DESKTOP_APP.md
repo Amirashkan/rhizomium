@@ -1,8 +1,11 @@
 # Rhizomium as a desktop app
 
-The Tauri shell in `src-tauri/` turns the editor into an installable
+The Tauri shell in `src-tauri/` turns the editor into an installable Windows
 application. This is what it does today, how to run and build it, and what is
 still between it and something you can hand to a stranger.
+
+**Windows only, for now.** See [Why Windows only](#why-windows-only) for the
+reason and what it would take to add the others back.
 
 ---
 
@@ -62,18 +65,9 @@ Coverage: `tests/desktopLaunch.test.js`.
 
 ### Prerequisites
 
-Rust, plus your platform's native webview toolchain:
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-- **macOS** — Xcode Command Line Tools: `xcode-select --install`
-- **Windows** — [Microsoft C++ Build Tools] with the "Desktop development with
-  C++" workload. WebView2 ships with Windows 10 (recent) and 11.
-- **Linux** — `libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev
-  libssl-dev libayatana-appindicator3-dev librsvg2-dev` (Debian/Ubuntu names).
-  Read the WebGPU section below before spending time here.
+- [Rust](https://rustup.rs)
+- [Microsoft C++ Build Tools] with the "Desktop development with C++" workload
+- WebView2 — already present on Windows 11 and on up-to-date Windows 10
 
 [Microsoft C++ Build Tools]: https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
@@ -88,14 +82,18 @@ Vite starts on :5173, Tauri opens the splash and the hidden editor window
 against it, and edits to the frontend hot-reload as usual. DevTools open
 automatically in debug builds.
 
-### Building installers locally
+`tauri:dev` works on macOS and Linux too — it is only *bundling* that is
+Windows-only — but the editor itself will not run there (see below).
+
+### Building installers
 
 ```bash
 npm run tauri:build
 ```
 
-Output lands in `src-tauri/target/release/bundle/`: `.dmg` and `.app` on macOS,
-`.msi` and `.exe` (NSIS) on Windows, `.deb`/`.rpm`/`.AppImage` on Linux.
+Produces `.msi` and `.exe` (NSIS) in `src-tauri/target/release/bundle/`.
+`bundle.targets` is pinned to `["msi", "nsis"]`, so running this on macOS or
+Linux fails rather than quietly producing an installer that cannot run the app.
 
 This runs `npm run build:desktop` first — the mode that produces the splash and
 omits the landing page. Do not point it at `build:web`: the app would open on a
@@ -103,85 +101,71 @@ omits the landing page. Do not point it at `build:web`: the app would open on a
 
 ---
 
-## The one thing that decides whether this ships: WebGPU
+## Why Windows only
 
 Rhizomium is a WebGPU application, and Tauri renders in the **operating
-system's** webview rather than a bundled Chromium. So desktop support is not a
+system's** webview rather than a bundled Chromium. So platform support is not a
 question of Tauri — it is a question of whether that webview has WebGPU.
 
 | Platform | Webview | WebGPU |
 | --- | --- | --- |
 | Windows 10/11 | WebView2 (Chromium) | **Yes.** Chromium has shipped WebGPU by default since 113. |
-| macOS 26+ | WKWebView (Safari 26) | **Yes**, on by default. |
-| macOS 15 and earlier | WKWebView | **No.** WebGPU is opt-in there, and [Safari's feature flags do not apply to WKWebView][apple-forum] — an embedded webview only gets a feature once it is on by default. |
-| Linux | WebKitGTK | **No** usable support. |
+| macOS 26+ | WKWebView (Safari 26) | Yes, on by default. |
+| macOS 15 and earlier | WKWebView | No. WebGPU is opt-in there, and [Safari's feature flags do not apply to WKWebView][apple-forum] — an embedded webview only gets a feature once it is on by default. |
+| Linux | WebKitGTK | No usable support. |
 
 [apple-forum]: https://developer.apple.com/forums/thread/770862
 
-Consequences, stated plainly:
+Windows is the one platform where the app simply works, so it is the one
+platform being built. On the others the installer would succeed, the app would
+launch, and the editor would show its "no GPU device" screen.
 
-- **Windows is the solid target.** Ship it.
-- **macOS works on Tahoe (26) and later.** On earlier macOS the app installs,
-  launches, and shows the device-warning overlay. `bundle.macOS.minimumSystemVersion`
-  is currently `10.15`, which lets those users install something that cannot
-  run. Raising it to `26.0` would stop that at the installer instead — a
-  product call worth making deliberately, not by leaving the default.
-- **Linux is not shippable as-is**, which is why it is absent from the release
-  workflow's matrix. The realistic options are to wait for WebKitGTK, or to
-  ship the Linux build against a Chromium-based webview instead (Tauri's Servo
-  and CEF work, or an Electron shell for that platform only). Do not add a
-  Linux row to the matrix without testing the result on a real machine.
+To bring them back later:
 
-**Verify before every release.** Install the bundle on the actual OS version
-you intend to support and confirm the editor reaches its canvas rather than the
-warning overlay. Everything else in this document is packaging; this is the
-part that decides whether there is an app.
+- **macOS** — requires a Developer ID certificate and notarisation (see the
+  Apple docs for `tauri-action`'s `APPLE_*` secrets), plus a decision about
+  `bundle.macOS.minimumSystemVersion`: leaving Tauri's default lets pre-Tahoe
+  users install something that cannot run, so it wants pinning to `26.0`.
+  Add `"app"`/`"dmg"` to `bundle.targets` and a `macos-latest` job to
+  `desktop-release.yml`.
+- **Linux** — needs a Chromium-based webview instead of WebKitGTK (Tauri's
+  Servo and CEF work, or an Electron shell for that platform only). Not a
+  packaging change; do not add it back without testing on a real machine.
+
+The `.rz` file-association code in `lib.rs` keeps its macOS branch either way —
+it is `cfg`-gated and costs nothing on Windows.
+
+**Verify before every release.** Install the `.msi` on a real Windows machine
+and confirm the editor reaches its canvas rather than the warning overlay.
+Everything below is packaging; this is the part that decides whether there is
+an app.
 
 ---
 
 ## From "it builds" to "it ships"
 
-### 1. Code signing — macOS
-
-Unsigned, Gatekeeper tells the user the app is damaged and offers to move it to
-the trash. Signing and notarisation are not optional for distribution outside
-the App Store.
-
-1. Join the Apple Developer Program ($99/yr).
-2. Create a **Developer ID Application** certificate, export it as `.p12`.
-3. Create an app-specific password at appleid.apple.com for notarisation.
-4. Add these repository secrets:
-
-   | Secret | Value |
-   | --- | --- |
-   | `APPLE_CERTIFICATE` | the `.p12`, base64: `base64 -i cert.p12 \| pbcopy` |
-   | `APPLE_CERTIFICATE_PASSWORD` | the password you set on export |
-   | `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID)` |
-   | `APPLE_ID` | your Apple ID email |
-   | `APPLE_PASSWORD` | the app-specific password |
-   | `APPLE_TEAM_ID` | 10-character team ID |
-
-`.github/workflows/desktop-release.yml` already reads all six. Adding them is
-the whole change — signing and stapling then happen on the next tag.
-
-If you add a hardened-runtime entitlement later (camera, microphone — Rhizomium
-uses audio input), it goes in `bundle.macOS.entitlements`.
-
-### 2. Code signing — Windows
+### 1. Code signing
 
 Unsigned, SmartScreen shows "Windows protected your PC" on every install until
-the binary builds reputation.
+the binary builds reputation. Two routes:
 
-- **Azure Trusted Signing** is the cheap current route (~$10/mo, no hardware
-  token) and works from CI via `bundle.windows.signCommand`.
-- **An OV/EV certificate** from a CA is the traditional route; EV requires a
+- **Azure Trusted Signing** — the cheap current option (~$10/mo, no hardware
+  token) and the one that works from CI, via `bundle.windows.signCommand`.
+- **An OV or EV certificate** from a CA — the traditional route. EV requires a
   hardware token, which CI cannot use directly.
 
-Then set `bundle.windows.certificateThumbprint`, `digestAlgorithm: "sha256"`
-and a `timestampUrl` — a timestamp is what keeps already-shipped installers
-valid after the certificate expires.
+Then set, under `bundle.windows`:
 
-### 3. Auto-updates
+```jsonc
+"certificateThumbprint": "…",
+"digestAlgorithm": "sha256",
+"timestampUrl": "http://timestamp.digicert.com"
+```
+
+The timestamp is what keeps already-shipped installers valid after the
+certificate expires — do not skip it.
+
+### 2. Auto-updates
 
 Without this, every fix means asking users to go and download a new installer.
 
@@ -195,32 +179,29 @@ Then:
   `plugins.updater.endpoints` (a GitHub release `latest.json` is the usual
   choice);
 - set `bundle.createUpdaterArtifacts: true`;
-- add the **private** key as `TAURI_SIGNING_PRIVATE_KEY` — the release workflow
-  already passes it through.
+- add the **private** key as the `TAURI_SIGNING_PRIVATE_KEY` repository secret
+  — the release workflow already passes it through.
 
 The private key is the thing that lets you push code to every installed copy.
 Treat it accordingly: it never goes in the repository.
 
-### 4. Releasing
+### 3. Releasing
 
 ```bash
 npm version 0.9.0        # updates package.json; keep tauri.conf.json in step
 git push && git push --tags
 ```
 
-`desktop-release.yml` builds macOS (universal) and Windows and attaches the
-bundles to a **draft** release. Check the artefacts, then publish.
+`.github/workflows/desktop-release.yml` builds the installers and attaches them
+to a **draft** release. Check the artefacts, then publish.
 
 Note the two version numbers: `package.json` feeds the splash and the editor's
-about box, `src-tauri/tauri.conf.json` feeds the installer and the OS "about"
-panel. They are not currently linked — bump both.
+about box, `src-tauri/tauri.conf.json` feeds the installer and the Windows
+"Apps & features" entry. They are not currently linked — bump both.
 
-### 5. Loose ends
+### 4. Loose ends
 
-- **Application menu.** There is no native menu bar, so on macOS the app has no
-  Rhizomium menu and no ⌘Q. The editor's own menu bar covers File/Edit/View
-  inside the window, but the OS-level one is worth adding.
-- **Help → Documentation.** Opens `/docs/`, a docsify site that loads docsify
+- **Help → Documentation** opens `/docs/`, a docsify site that loads docsify
   itself from a CDN — which the app's CSP blocks. In the desktop app it opens
   blank. Either vendor docsify into the bundle or point the menu item at the
   hosted documentation.

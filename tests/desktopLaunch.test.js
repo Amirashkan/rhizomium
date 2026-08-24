@@ -71,6 +71,13 @@ describe('tauri.conf.json launch windows', () => {
     // leave splash.html out, so the window above would open on a 404.
     expect(conf.build.beforeBuildCommand).toBe('npm run build:desktop');
   });
+
+  it('bundles for Windows only', () => {
+    // Not a preference — WebView2 is the only OS webview with WebGPU, so a
+    // macOS or Linux bundle installs fine and then shows the editor's "no GPU
+    // device" screen. `"all"` here would start producing those again silently.
+    expect(conf.bundle.targets).toEqual(['msi', 'nsis']);
+  });
 });
 
 describe('signalAppReady', () => {

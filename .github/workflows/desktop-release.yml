@@ -1,4 +1,4 @@
-# Builds the installers and attaches them to a draft GitHub release.
+# Builds the Windows installers and attaches them to a draft GitHub release.
 #
 # Triggered by pushing a version tag (`git tag v0.9.0 && git push --tags`), or
 # by hand from the Actions tab. The release is created as a DRAFT: nothing is
@@ -8,10 +8,12 @@
 # useful from day one, and adding a certificate later changes nothing here.
 # See DESKTOP_APP.md for what each secret is and how to produce it.
 #
-# Linux is not in the matrix. Tauri renders through WebKitGTK there, which has
-# no usable WebGPU, so a Linux bundle installs cleanly and then shows the
-# editor's "no GPU device" screen. Adding a row for it would mean shipping a
-# build that cannot run the app. DESKTOP_APP.md has the detail.
+# Windows only, on purpose. Tauri renders in the operating system's webview,
+# so WebGPU support is the OS's to give: WebView2 is Chromium and has it,
+# WKWebView only from macOS 26, and WebKitGTK not at all. Building for the
+# other two would mean shipping installers that run and then show the editor's
+# "no GPU device" screen. DESKTOP_APP.md has the detail and what it would take
+# to add them back.
 
 name: Desktop release
 
@@ -23,22 +25,8 @@ on:
 
 jobs:
   bundle:
-    name: Bundle ${{ matrix.label }}
-    strategy:
-      # One platform failing should not throw away a good build of the other.
-      fail-fast: false
-      matrix:
-        include:
-          - label: macOS (universal)
-            platform: macos-latest
-            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            args: --target universal-apple-darwin
-          - label: Windows
-            platform: windows-latest
-            rust-targets: ''
-            args: ''
-
-    runs-on: ${{ matrix.platform }}
+    name: Bundle Windows
+    runs-on: windows-latest
 
     permissions:
       contents: write # tauri-action creates the release and uploads to it
@@ -54,8 +42,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-targets }}
 
       # A cold Rust build of the Tauri dependency tree is several minutes;
       # cached it is well under one.
@@ -72,29 +58,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-          # --- macOS signing and notarisation ------------------------------
-          # Unset until the Apple secrets are added, at which point
-          # tauri-action signs and staples without any further change here.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-          # --- Updater signing ---------------------------------------------
-          # Only meaningful once the updater plugin is wired up; harmless
-          # before that. See DESKTOP_APP.md, "Auto-updates".
+          # Updater signing. Only meaningful once the updater plugin is wired
+          # up; harmless before that. See DESKTOP_APP.md, "Auto-updates".
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Rhizomium ${{ github.ref_name }}
           releaseBody: |
-            Desktop builds of Rhizomium ${{ github.ref_name }}.
+            Windows build of Rhizomium ${{ github.ref_name }}.
 
-            Requires a machine with WebGPU in the system webview — see
-            DESKTOP_APP.md for the current platform support.
+            Requires Windows 10 or 11 with WebView2 — see DESKTOP_APP.md.
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}

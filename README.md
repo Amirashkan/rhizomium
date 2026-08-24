@@ -33,12 +33,13 @@ Navigate to: **http://127.0.0.1:5000/studio**
 
 ## 🖥️ Desktop App (Tauri)
 
-The editor can run as a native desktop app via [Tauri](https://tauri.app). It
-opens straight into the editor: the landing page is a web thing, so the desktop
-build leaves it out of the bundle entirely and shows a small loading window
-(`splash.html`) while the editor boots hidden behind it. See
-[DESKTOP_APP.md](DESKTOP_APP.md) for how that handoff works, and for what code
-signing, auto-updates and releasing still need.
+The editor can run as a native desktop app via [Tauri](https://tauri.app),
+**shipped for Windows**. It opens straight into the editor: the landing page is
+a web thing, so the desktop build leaves it out of the bundle entirely and shows
+a small loading window (`splash.html`) while the editor boots hidden behind it.
+See [DESKTOP_APP.md](DESKTOP_APP.md) for how that handoff works, why Windows is
+the only bundled platform, and what code signing, auto-updates and releasing
+still need.
 
 ### Prerequisites (one time)
 
@@ -69,15 +70,14 @@ window, and opens the editor once it has booted.
 npm run tauri:build
 ```
 
-Installers/binaries are written to `src-tauri/target/release/bundle/`. Pushing a
-`v*` tag builds macOS and Windows bundles in CI and attaches them to a draft
-release (`.github/workflows/desktop-release.yml`).
+The `.msi` and NSIS `.exe` are written to `src-tauri/target/release/bundle/`.
+Pushing a `v*` tag builds them in CI and attaches them to a draft release
+(`.github/workflows/desktop-release.yml`).
 
-> **Note:** Tauri renders in the OS WebView (WebView2 on Windows, WKWebView on
-> macOS, WebKitGTK on Linux), so WebGPU support is the OS's, not Tauri's:
-> Windows works, macOS needs 26 or later, and WebKitGTK has none — which is why
-> Linux is not in the release matrix. Details and the per-platform check are in
-> [DESKTOP_APP.md](DESKTOP_APP.md).
+> **Note:** Tauri renders in the OS WebView, so WebGPU support is the OS's, not
+> Tauri's — and WebView2 on Windows is the only one that reliably has it today.
+> That is why Windows is the only platform bundled; `tauri:dev` still runs
+> anywhere. Details in [DESKTOP_APP.md](DESKTOP_APP.md).
 
 ### Second-Monitor Viewer (Vite/desktop build only)
 
