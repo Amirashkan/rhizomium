@@ -41,6 +41,14 @@ const REQUIRED_ORIGINS = [
   ['frame stream server', 'ws://127.0.0.1:8766'],
   ['OSC bridge', 'ws://127.0.0.1:8767'],
   ['OSC bridge', 'ws://localhost:8767'],
+
+  // The account. Both are same-origin-or-better on the web and neither is in
+  // the desktop app, where every page is served from tauri://localhost: the
+  // gallery holds the session and the tier (src/ai/entitlements.js), and the
+  // editor's own deployment holds the AI backend, which src/ai/aiClient.js has
+  // to name by origin rather than by path once it is not the page's own host.
+  ['gallery entitlements', 'https://art.tenderworld.org'],
+  ['AI backend', 'https://studio.tenderworld.org'],
 ];
 
 describe('editor CSP allows the sockets the editor opens', () => {

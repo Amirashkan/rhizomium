@@ -8,6 +8,8 @@
  */
 
 import { modalManager } from './ModalManager.js';
+import { openExternal } from '../utils/openExternal.js';
+import { signInToGallery } from './accountSession.js';
 import { resolveResolution } from './OutputFormat.js';
 import { serializePatch, patchFilename, checkPatchSize } from '../core/patchSerializer.js';
 import { APP_VERSION } from '../utils/appVersion.js';
@@ -191,7 +193,18 @@ export async function uploadArtwork(blob, filename, onProgress, patch) {
 function openPublishPage(data) {
   const url = data?.publishUrl
     || `${GALLERY_ORIGIN}/gallery/publish?url=${encodeURIComponent(data?.url || '')}`;
-  window.open(url, '_blank');
+  // Not window.open(): the desktop webview refuses it and the artist would be
+  // told their work was published with no page to finish publishing it on.
+  openExternal(url, { label: 'gallery-publish', title: 'Rhizomium — Publish' })
+    .then((page) => {
+      if (page) return;
+      modalManager.toast(
+        `The publish page could not be opened. It is at ${url}`,
+        'warning',
+        'Publish',
+      );
+    })
+    .catch((error) => console.warn('[publish] Could not open the publish page:', error));
 }
 
 async function handleUploadError(err, sizeHint) {
@@ -202,7 +215,16 @@ async function handleUploadError(err, sizeHint) {
       'You need to sign in to share your work.\n\nWould you like to go to the gallery and sign in?',
       'Sign In Required'
     );
-    if (shouldSignIn) window.open(`${GALLERY_ORIGIN}/login`, '_blank');
+    if (!shouldSignIn) return;
+
+    // Goes through the account flow rather than opening a link, because in the
+    // desktop app a link is not a route to a session: the sign-in has to happen
+    // in a window this application owns for the cookie to be one the editor can
+    // use. See accountSession.js.
+    const signedIn = await signInToGallery();
+    if (signedIn) {
+      modalManager.toast('Signed in. Publish again to share this work.', 'success', 'Account');
+    }
     return;
   }
 

@@ -22,7 +22,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://art.tenderworld.org ws://localhost:8765 http://localhost:8765 ws://127.0.0.1:8766 ws://localhost:8767 ws://127.0.0.1:8767; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://art.tenderworld.org https://studio.tenderworld.org ws://localhost:8765 http://localhost:8765 ws://127.0.0.1:8766 ws://localhost:8767 ws://127.0.0.1:8767; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
     />
     <title>GLSL Node Editor</title>
     <!-- tokens.css declares the design variables every other stylesheet reads,
@@ -386,6 +386,7 @@
       <div class="menu-section">
         <button class="menu-button" id="menu-tools">Tools <svg class="rz-icon menu-caret" width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-chevron-down"/></svg></button>
         <div class="menu-dropdown" id="dropdown-tools">
+          <button id="btn-account">Account…</button>
           <button id="btn-ai-panel">AI Assistant…</button>
           <div class="menu-separator"></div>
           <button id="btn-script-editor">Script Editor / Python Console</button>

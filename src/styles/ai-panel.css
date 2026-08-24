@@ -100,6 +100,15 @@
   background: var(--rz-warn-soft);
 }
 
+/* The sign-in prompt is a note with a control in it: the sentence, then the way
+   to act on it on its own line rather than trailing off the end of the text. */
+.ai-panel-note.signin {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+}
+
 .ai-feature {
   border: 1px solid var(--rz-line);
   border-radius: 6px;
@@ -151,6 +160,37 @@
 
 .ai-upgrade-link:hover {
   text-decoration: underline;
+}
+
+/* Some of these are buttons rather than anchors — the sign-in prompt, where
+   there is an action to run and not just an address to go to. Strip the UA
+   button chrome so the two read as the same control. */
+button.ai-upgrade-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.ai-upgrade-link:disabled {
+  opacity: 0.6;
+  cursor: default;
+  text-decoration: none;
+}
+
+/* Tools → Account… — see src/ui/accountSession.js. */
+.account-dialog .account-status {
+  margin: 0 0 8px;
+  font-weight: 500;
+  color: var(--rz-text);
+}
+
+.account-dialog .account-detail {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--rz-text-faint);
 }
 
 .ai-feature-action {

@@ -61,6 +61,63 @@ Coverage: `tests/desktopLaunch.test.js`.
 
 ---
 
+## The account
+
+The gallery (`art.tenderworld.org`) owns accounts and tiers; the editor asks it
+who you are. On the web that needs nothing special — the artist signs in on the
+gallery in another tab and the editor's credentialed requests carry the session
+cookie. See `AI_TIER_INTEGRATION.md` for the contract.
+
+The desktop app has no other tab, and three separate things stopped it having
+an account at all. None of them announced itself, which is why the symptom was
+always the same unhelpful sentence: *"could not reach the gallery"*.
+
+| What was wrong | Why it only happened here | Fixed by |
+| --- | --- | --- |
+| No route to a sign-in page | `window.open()` is refused by the OS webview — it returns null and nothing appears. Every link out of the editor was a dead control. | `src/utils/openExternal.js` opens a real `WebviewWindow` instead. |
+| Nowhere to *be* signed in | The app's pages are served from `tauri://localhost` (`http://tauri.localhost` on Windows): a cookie jar that has never visited the gallery. | `src/ui/accountSession.js` — sign in inside the app. Tauri's webviews share one cookie store, so the session lands where the editor can use it. |
+| The AI backend was unreachable | `/api/ai/run` is a relative path. There is no `/api` inside the bundle, so it resolved to a missing asset — *after* the grant had already spent the artist's quota. | `src/ai/aiClient.js` names `studio.tenderworld.org` when `isTauri()`. |
+
+The route is **Tools → Account…** (`Ctrl/⌘+Alt+L`). It opens the gallery's own
+sign-in page in a window this application owns, polls the entitlements while
+that window is open, and stops the moment they come back authenticated. Signing
+*out* is the gallery's page too: the editor has no route to the gallery's
+sign-out and guessing one would be a guess, so whatever the artist does in that
+window, closing it re-reads the entitlements.
+
+The sign-in window is deliberately **not** listed in
+`src-tauri/capabilities/default.json`. The remote page it loads therefore has no
+Tauri commands available to it — it is a browser tab, not part of the app.
+
+Coverage: `tests/desktopAccount.test.js`, and the CSP origins in
+`tests/editorCspEndpoints.test.js`.
+
+### The one part that is not in this repository
+
+The editor's requests to the gallery are cross-origin from `tauri://localhost`,
+so **the gallery has to name that origin in its CORS allow-list** — exactly as
+it already does for `studio.tenderworld.org`, which is how the web editor
+reaches it today. Both spellings are needed, because they differ by platform:
+
+```
+tauri://localhost        macOS, Linux
+http://tauri.localhost   Windows
+```
+
+Until that is set, signing in succeeds and the editor still sees a signed-out
+free tier, because a CORS rejection reaches JavaScript as an opaque network
+error — indistinguishable, from the inside, from the gallery being down. The
+editor cannot detect this, so it says both: `DESKTOP_ORIGIN_HINT` in
+`accountSession.js` is shown wherever the desktop app reports a degraded
+account, and names it as a deployment setting rather than something the artist
+did wrong.
+
+The session cookie also has to be `SameSite=None; Secure` to travel cross-site.
+It already is — otherwise the web editor at `studio.tenderworld.org` could not
+read it either.
+
+---
+
 ## Running it
 
 ### Prerequisites

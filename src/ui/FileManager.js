@@ -1,6 +1,8 @@
 // src/ui/FileManager.js - Cloud File Manager for TenderWorld
 import { modalManager } from './ModalManager.js';
 import { iconMarkup } from './iconSprite.js';
+import { isTauri } from '../utils/isTauri.js';
+import { signInToGallery } from './accountSession.js';
 
 export class FileManager {
   constructor(saveLoadManager) {
@@ -536,12 +538,19 @@ export class FileManager {
     const infoEl = this.dialog.querySelector("#file-manager-info");
 
     try {
-      // Check if we're on a domain that can access TenderWorld API
+      // Check if we're on a domain that can access TenderWorld API.
+      //
+      // The desktop app passes on the 'localhost' arm — its origin is
+      // tauri://localhost (http://tauri.localhost on Windows) — which is the
+      // answer we want, but by accident rather than on purpose. Say so, so a
+      // later tightening of this test does not silently remove the cloud files
+      // from the desktop build.
       const currentOrigin = window.location.origin;
-      const isTenderWorldDomain = currentOrigin.includes('tenderworld.org') || 
+      const isTenderWorldDomain = isTauri() ||
+                                   currentOrigin.includes('tenderworld.org') ||
                                    currentOrigin.includes('localhost') ||
                                    currentOrigin.includes('127.0.0.1');
-      
+
       if (!isTenderWorldDomain) {
         // CORS will block this request, show helpful message
         userInfoEl.textContent = 'Cloud file manager unavailable';
@@ -981,8 +990,27 @@ export class FileManager {
     }
   }
 
+  /**
+   * Sign in, then show the files that appear once there is a session.
+   *
+   * This used to be a bare window.open() at the gallery's login page, with a
+   * redirect back to wherever the editor was. That is the web's flow and it has
+   * no meaning in the desktop app: window.open() is refused by the OS webview,
+   * and there is no URL to redirect back *to*. accountSession.js opens the same
+   * page in a way both builds can use and waits for the session to appear.
+   */
   handleLogin() {
-    window.open(`${this.tenderworldBaseUrl}/login?redirect=${encodeURIComponent(window.location.href)}`, '_blank');
+    signInToGallery({
+      onStatus: (message) => {
+        if (typeof window.updateStatus === 'function') window.updateStatus(message);
+      },
+    })
+      .then((signedIn) => {
+        // Only reload on success: a failed sign-in would otherwise redraw the
+        // same "please sign in" state and read as the button having done nothing.
+        if (signedIn && this.isOpen) this.checkAuthAndLoadFiles();
+      })
+      .catch((error) => console.warn('[FileManager] Sign-in failed:', error));
   }
 
   refreshFiles() {
