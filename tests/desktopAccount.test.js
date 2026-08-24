@@ -109,6 +109,67 @@ describe('openExternal', () => {
     expect(await openExternal('https://example.test/x')).toBeNull();
   });
 
+  it('replaces a window under the same label that is showing another page', async () => {
+    setTauri(true);
+
+    const closed = [];
+    const created = [];
+    let existing = null;
+
+    class FakeWebviewWindow {
+      constructor(label, options) {
+        this.label = label;
+        this.options = options;
+        created.push(options.url);
+        existing = this;
+        // The real one emits this once the webview is up.
+        setTimeout(() => this._createdHandler?.(), 0);
+      }
+      static async getByLabel() {
+        return existing;
+      }
+      async setFocus() {
+        this.focused = true;
+      }
+      async close() {
+        closed.push(this.options?.url ?? 'existing');
+        existing = null;
+      }
+      async once(event, handler) {
+        if (event === 'tauri://created') this._createdHandler = handler;
+        return () => {};
+      }
+    }
+
+    vi.doMock('@tauri-apps/api/webviewWindow', () => ({ WebviewWindow: FakeWebviewWindow }));
+    vi.doMock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => null }));
+
+    const { openExternal } = await import('../src/utils/openExternal.js');
+
+    await openExternal('https://gallery.test/login', { label: 'gallery-account' });
+    expect(created).toEqual(['https://gallery.test/login']);
+
+    // Same URL again: focus what is already there, do not stack another.
+    await openExternal('https://gallery.test/login', { label: 'gallery-account' });
+    expect(created).toHaveLength(1);
+    expect(existing.focused).toBe(true);
+
+    // A different page under that label. Tauri has no navigate(), so focusing
+    // the old window would show the artist the wrong page — which is exactly
+    // what left a stale /gallery window standing in for the pairing page.
+    await openExternal('https://gallery.test/desktop?code=RZXK-4M7P', {
+      label: 'gallery-account',
+    });
+    expect(closed).toHaveLength(1);
+    expect(created).toEqual([
+      'https://gallery.test/login',
+      'https://gallery.test/desktop?code=RZXK-4M7P',
+    ]);
+
+    vi.doUnmock('@tauri-apps/api/webviewWindow');
+    vi.doUnmock('@tauri-apps/api/window');
+  });
+
   it('never calls window.open in the desktop app', async () => {
     setTauri(true);
     const { openExternal } = await import('../src/utils/openExternal.js');

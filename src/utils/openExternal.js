@@ -31,6 +31,18 @@ import { isTauri } from './isTauri.js';
 /** Labels have to be unique per window; anonymous opens get a fresh one. */
 let anonymousCount = 0;
 
+/**
+ * The URL each label was last opened with.
+ *
+ * Tauri 2.11 has no `navigate()` — a webview window shows the URL it was
+ * created with for as long as it lives. So a label that is already open can
+ * only be *reused* when it is already showing the page being asked for;
+ * reusing it for a different one focuses a window showing the wrong thing,
+ * which is what happened to the pairing page when a sign-in window from
+ * earlier in the session was still up under the same label.
+ */
+const openedUrls = new Map();
+
 /** How long to wait for the webview to report itself created. */
 const CREATE_TIMEOUT_MS = 5000;
 
@@ -51,8 +63,9 @@ const CREATE_TIMEOUT_MS = 5000;
  *
  * @param {string} url
  * @param {Object} [options]
- * @param {string} [options.label]  Tauri window label. Reuse one and a second
- *   call focuses the window already open instead of stacking another.
+ * @param {string} [options.label]  Tauri window label. Reusing one focuses the
+ *   window already open when it is showing this same URL, and replaces it when
+ *   it is showing a different one — a webview cannot be renavigated.
  * @param {string} [options.title]
  * @param {number} [options.width]
  * @param {number} [options.height]
@@ -105,12 +118,18 @@ async function openInTauri(url, options) {
     ]);
 
     // A second click on the same link should raise the window the artist
-    // already has open, not deal them another copy of it.
+    // already has open, not deal them another copy of it — but only when it is
+    // the same link. A window cannot be renavigated (see openedUrls), so one
+    // showing a different page has to be replaced rather than focused.
     try {
       const existing = await WebviewWindow.getByLabel(label);
       if (existing) {
-        await existing.setFocus();
-        return tauriPage(existing);
+        if (openedUrls.get(label) === url) {
+          await existing.setFocus();
+          return tauriPage(existing);
+        }
+        await existing.close();
+        openedUrls.delete(label);
       }
     } catch {
       /* getByLabel is best-effort; fall through and create one */
@@ -137,6 +156,8 @@ async function openInTauri(url, options) {
       );
       setTimeout(() => done(reject, new Error('window creation timed out')), CREATE_TIMEOUT_MS);
     });
+
+    openedUrls.set(label, url);
 
     // A top-level window outlives the editor's own, which on Windows leaves the
     // application running with no editor in it. Close it with the editor, the
