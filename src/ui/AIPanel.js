@@ -17,6 +17,9 @@
 
 import { modalManager } from './ModalManager.js';
 import { iconMarkup } from './iconSprite.js';
+import { openExternal } from '../utils/openExternal.js';
+import { isTauri } from '../utils/isTauri.js';
+import { DESKTOP_ORIGIN_HINT, signInToGallery } from './accountSession.js';
 import { entitlements } from '../ai/entitlements.js';
 import { runFeature, AIRequestError, GrantError } from '../ai/aiClient.js';
 import { buildPatchContext, EmptyPatchError, PatchTooLargeError } from '../ai/patchContext.js';
@@ -105,13 +108,11 @@ export class AIPanel {
     const body = this.dialog.querySelector('#ai-panel-body');
     body.textContent = '';
 
-    if (state.degraded) {
-      body.appendChild(
-        note(
-          'Could not reach the gallery, so this shows the free tier. Sign in on the gallery and reopen this panel if you have a plan.',
-          'warning'
-        )
-      );
+    // Signed out is not an error, but it is the difference between a third of
+    // the free allowance and all of it — and on the desktop it is the state the
+    // app starts in every time, so the way out belongs here.
+    if (state.degraded || !state.authenticated) {
+      body.appendChild(signInPrompt(state));
     }
 
     const rows = entitlements.editorCatalog();
@@ -195,18 +196,7 @@ export class AIPanel {
     text.textContent = `Needs ${label}`;
     wrap.appendChild(text);
 
-    const link = document.createElement('a');
-    link.className = 'ai-upgrade-link';
-    link.href = entitlements.upgradeUrl;
-    link.target = '_blank';
-    link.rel = 'noopener';
-    link.textContent = `Upgrade to ${label}`;
-    // The allowance and the tier both change on the gallery, so re-read when
-    // the artist comes back rather than leaving a stale "Needs Cloude".
-    link.addEventListener('click', () => {
-      setTimeout(() => entitlements.refresh(), 1000);
-    });
-    wrap.appendChild(link);
+    wrap.appendChild(upgradeLink(entitlements.upgradeUrl, `Upgrade to ${label}`));
 
     return wrap;
   }
@@ -437,6 +427,74 @@ function note(text, type = 'info') {
   return el;
 }
 
+/**
+ * A link out to the gallery.
+ *
+ * Kept as an <a> for its styling and for the address it shows on hover, but the
+ * navigation is ours: in the desktop app the webview refuses a target="_blank"
+ * outright, so the upsell link was a dead control there — the one control an
+ * artist who wants to pay would click.
+ */
+function upgradeLink(url, text) {
+  const link = document.createElement('a');
+  link.className = 'ai-upgrade-link';
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.textContent = text;
+
+  link.addEventListener('click', (event) => {
+    event.preventDefault();
+    openExternal(url, { label: 'gallery-upgrade', title: 'Rhizomium — Plans' })
+      .catch((error) => console.warn('[AIPanel] Could not open', url, error));
+    // The allowance and the tier both change on the gallery, so re-read when
+    // the artist comes back rather than leaving a stale "Needs Cloude".
+    setTimeout(() => entitlements.refresh(), 1000);
+  });
+
+  return link;
+}
+
+/**
+ * The row the panel shows when the artist is not signed in, or when the gallery
+ * did not answer at all.
+ *
+ * Both used to be one sentence telling the artist to "sign in on the gallery",
+ * which on the desktop was advice with nowhere to follow it: there is no other
+ * tab, and the editor had no route to a sign-in page. The button is that route.
+ */
+function signInPrompt(state) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ai-panel-note warning signin';
+
+  const text = document.createElement('span');
+  if (state.degraded) {
+    text.textContent = isTauri()
+      ? `Could not reach the gallery, so this shows the free tier. ${DESKTOP_ORIGIN_HINT}`
+      : 'Could not reach the gallery, so this shows the free tier. Sign in and reopen this panel if you have a plan.';
+  } else {
+    text.textContent =
+      'You are signed out, so this is a third of the free allowance. Signing in is free and raises it.';
+  }
+  wrap.appendChild(text);
+
+  const button = document.createElement('button');
+  button.className = 'ai-upgrade-link';
+  button.type = 'button';
+  button.textContent = state.degraded ? 'Try signing in' : 'Sign in';
+  button.addEventListener('click', () => {
+    button.disabled = true;
+    signInToGallery()
+      .catch((error) => console.warn('[AIPanel] Sign-in failed:', error))
+      .finally(() => {
+        button.disabled = false;
+      });
+  });
+  wrap.appendChild(button);
+
+  return wrap;
+}
+
 /** 402: the artist is who they say they are, the feature just costs more. */
 function showUpsell(error) {
   const label = error.requiredTierLabel || TIER_LABELS[error.requiredTier] || 'Cloude';
@@ -446,13 +504,7 @@ function showUpsell(error) {
   text.textContent = error.message;
   body.appendChild(text);
 
-  const link = document.createElement('a');
-  link.href = error.upgradeUrl;
-  link.target = '_blank';
-  link.rel = 'noopener';
-  link.className = 'ai-upgrade-link';
-  link.textContent = `See what ${label} includes`;
-  body.appendChild(link);
+  body.appendChild(upgradeLink(error.upgradeUrl, `See what ${label} includes`));
 
   modalManager.showModal(
     modalManager.createModal({

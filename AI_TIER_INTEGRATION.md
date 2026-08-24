@@ -18,7 +18,10 @@ that were made along the way.
 |---|---|
 | `src/ai/tiers.js` | The tier catalogue, mirrored from the gallery's `lib/tiers.ts`. Decides **what to draw**, never what to do. |
 | `src/ai/entitlements.js` | `GET /api/entitlements` (cached for the session) and `POST /api/entitlements/grant` (per action). Maps 402/429/503 to distinct, typed errors. |
-| `src/ai/aiClient.js` | Grant → backend → result, in that order. |
+| `src/ai/aiClient.js` | Grant → backend → result, in that order. Addresses the backend by path on the web and by origin in the desktop app. |
+| `src/ui/accountSession.js` | Signing in from inside the editor. Two flows: the cookie on the web, a paired bearer token on the desktop. Tools → Account… |
+| `src/ai/desktopToken.js` | The desktop app's own credential, and the header it rides in. Inert on the web. |
+| `src/utils/openExternal.js` | Opening a gallery page. `window.open()` is refused by the desktop webview. |
 | `src/ai/patchContext.js` | Trims the project down to the graph before it leaves the machine. |
 | `src/ai/applyResult.js` | Puts a generated node or patch onto the canvas. |
 | `src/ai/outputGating.js` | The unmetered `output.*` flags. |
@@ -155,6 +158,31 @@ ungated. Wiring the check means existing users on a lower tier lose it.
 `requireOutputFeature` block restores the old behaviour. Closing an already-open
 viewer is never gated, so a tier that lapses mid-show cannot strand a window on
 a projector.
+
+### The desktop app is a cross-origin client, and the gallery has to know it
+
+Everything above assumes the editor and the gallery are two origins that
+already trust each other — they are, and that is how `studio.tenderworld.org`
+reads a session held by `art.tenderworld.org`.
+
+The desktop app is a third origin: `tauri://localhost`, or
+`http://tauri.localhost` on Windows — and, unlike the other two, a different
+*site*, so the gallery's session cookie is never sent on its requests. It
+authenticates with a bearer token obtained by a pairing handshake instead. The
+CORS allow-list needs both origins either way. `DESKTOP_APP.md` §The account
+has the flow, and the gallery's `GLSL_EDITOR_TIER_INTEGRATION.md` §3.5 has its
+half of the contract.
+
+Two things follow for anyone reading this file to debug a desktop install:
+
+- **The AI backend is named, not derived.** `/api/ai/run` does not exist inside
+  the bundle. `aiClient.js` uses `STUDIO_ORIGIN` when `isTauri()`, and
+  `src-tauri/tauri.conf.json` has to list that origin in `connect-src`.
+  `tests/desktopAccount.test.js` holds the two together.
+- **The output flags failing open matters more here.** `output.ndi` and
+  `output.multiscreen` allow on an unreachable gallery (see below), which is
+  what keeps a desktop install usable at a venue — and what kept the missing
+  CORS entry from taking the second monitor down with it.
 
 ### Replay tracking is in-process
 

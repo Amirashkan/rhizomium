@@ -17,6 +17,7 @@
  * AI_TIER_INTEGRATION.md §Security.
  */
 
+import { desktopAuthHeaders, clearDesktopToken, getDesktopToken } from './desktopToken.js';
 import {
   FEATURES,
   FEATURE_KEYS,
@@ -180,8 +181,10 @@ export class EntitlementsClient {
     try {
       const res = await this.fetchImpl(`${this.baseUrl}/api/entitlements`, {
         method: 'GET',
+        // The cookie carries the web session. The header carries the desktop
+        // one, and is absent everywhere else — see desktopToken.js.
         credentials: 'include',
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', ...desktopAuthHeaders() },
       });
 
       if (!res.ok) {
@@ -190,7 +193,20 @@ export class EntitlementsClient {
       }
 
       const payload = await res.json();
-      return normalizeEntitlements(payload);
+      const normalized = normalizeEntitlements(payload);
+
+      // A desktop token the gallery no longer honours — revoked, or issued by
+      // a deployment that has since been reset — comes back as a perfectly
+      // ordinary anonymous answer, because the endpoint never 401s. Left
+      // alone, the app would hold a dead credential and offer to "re-check"
+      // forever. Drop it, so the next thing the artist does is offered a real
+      // sign-in instead.
+      if (getDesktopToken() && !normalized.authenticated) {
+        console.warn('The stored desktop sign-in is no longer valid; forgetting it.');
+        clearDesktopToken();
+      }
+
+      return normalized;
     } catch (error) {
       // Offline, CORS, or the editor running somewhere the gallery does not
       // trust. All three mean the same thing here: draw the free tier.
@@ -260,7 +276,11 @@ export class EntitlementsClient {
       res = await this.fetchImpl(`${this.baseUrl}/api/entitlements/grant`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...desktopAuthHeaders(),
+        },
         body: JSON.stringify({ feature }),
       });
     } catch {

@@ -7,6 +7,7 @@ import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { FileManager } from "./src/ui/FileManager.js";
 import { getAIPanel } from "./src/ui/AIPanel.js";
+import { showAccountDialog } from "./src/ui/accountSession.js";
 import { entitlements } from "./src/ai/entitlements.js";
 import { requireOutputFeature } from "./src/ai/outputGating.js";
 import { WelcomeWindow } from "./src/ui/WelcomeWindow.js";
@@ -2345,6 +2346,19 @@ function setupRhizomiumMenu() {
   }
 
   // ========== TOOLS MENU ==========
+
+  // Account — who the gallery thinks you are, and the way to change it. The
+  // desktop app has no second tab to sign in from, so this is its only route.
+  const accountBtn = document.getElementById("btn-account");
+  if (accountBtn) {
+    accountBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showAccountDialog().catch((error) => {
+        console.warn("[main.js] Account dialog failed:", error);
+      });
+    });
+  }
 
   // AI Assistant
   const aiPanelBtn = document.getElementById("btn-ai-panel");

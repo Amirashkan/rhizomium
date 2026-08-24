@@ -207,6 +207,7 @@ export const SHORTCUT_SECTIONS = [
   {
     title: "Tools",
     items: [
+      { id: "btn-account", label: "Account…", keys: "Mod+Alt+L" },
       { id: "btn-ai-panel", label: "AI Assistant…", keys: "Mod+Shift+A" },
       {
         id: "btn-script-editor",

@@ -13,9 +13,31 @@
  */
 
 import { entitlements, GrantError } from './entitlements.js';
+import { isTauri } from '../utils/isTauri.js';
 
-/** Same origin as the editor: the backend ships with it. */
-const AI_ENDPOINT = '/api/ai/run';
+/**
+ * The editor's own deployment, which is where the AI backend lives.
+ *
+ * Only the desktop app needs it spelled out; see aiEndpoint().
+ */
+export const STUDIO_ORIGIN = 'https://studio.tenderworld.org';
+
+/**
+ * Where to POST a feature run.
+ *
+ * On the web the backend ships with the page, so a relative path is the right
+ * answer and follows preview deployments and local servers without being told.
+ *
+ * The desktop app is the exception. Its pages are bundled files served from
+ * `tauri://localhost` (`http://tauri.localhost` on Windows), where there is no
+ * `/api` at all — the relative path resolved to a missing asset, which is why
+ * every AI feature failed in the desktop build the moment its grant succeeded.
+ * There the deployment has to be named. `src-tauri/tauri.conf.json` lists this
+ * origin in `connect-src`; the two have to move together.
+ */
+function aiEndpoint() {
+  return isTauri() ? `${STUDIO_ORIGIN}/api/ai/run` : '/api/ai/run';
+}
 
 /** A model call that started but did not produce a usable answer. */
 export class AIRequestError extends Error {
@@ -50,7 +72,7 @@ export async function runFeature(feature, input = {}) {
   // Steps 2 and 3.
   let res;
   try {
-    res = await fetch(AI_ENDPOINT, {
+    res = await fetch(aiEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ grant: grant.grant, feature, input }),
