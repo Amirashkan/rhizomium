@@ -193,7 +193,15 @@ async function pairDesktop({ onStatus }) {
     }
     pairing = await res.json();
   } catch {
-    onStatus?.('Could not reach the gallery. Check your connection and try again.');
+    // A CORS rejection and an offline machine are the same TypeError here, and
+    // the origin is what tells them apart — it is the thing the gallery has to
+    // be told to accept, and it differs between a dev run (localhost:5173) and
+    // an installed one (tauri.localhost). Put it in the message so the answer
+    // is on screen rather than in devtools.
+    onStatus?.(
+      `Could not reach the gallery from ${window.location.origin}. ` +
+      'Either this machine is offline, or the gallery does not accept that origin yet.'
+    );
     return false;
   }
 
@@ -417,17 +425,51 @@ export async function showAccountDialog() {
   paint();
   const unsubscribe = entitlements.onChange(paint);
 
+  // Progress goes on the detail line, and pins there: signing in is a
+  // multi-step conversation with another window — start a pairing, approve a
+  // code, wait for it — and every step can fail in a way worth reading. This
+  // dialog used to close on the click and report none of it, so a sign-in that
+  // failed in its first millisecond was indistinguishable from one that never
+  // started.
+  let pinned = null;
+  const say = (message) => {
+    pinned = message;
+    detail.textContent = message;
+  };
+  const repaint = () => {
+    if (pinned) detail.textContent = pinned;
+    else paint();
+  };
+  unsubscribe();
+  const unsubscribeStatus = entitlements.onChange(repaint);
+
   const buttons = [
     {
       label: entitlements.authenticated ? 'Manage on the gallery' : 'Sign in',
       primary: true,
       onClick: () => {
-        // Fire and forget: the dialog closes, the window opens, and the
-        // entitlements refresh on their own when the artist is done. Someone
-        // already signed in is not signing in again — they want the gallery.
-        const open = entitlements.authenticated ? openGalleryAccount() : signInToGallery();
-        open.catch((error) => console.warn('[account] Could not open the gallery:', error));
-        return true;
+        // Someone already signed in is not signing in again — they want the
+        // gallery, and that window is theirs to close.
+        if (entitlements.authenticated) {
+          openGalleryAccount().catch((error) =>
+            console.warn('[account] Could not open the gallery:', error)
+          );
+          return true;
+        }
+
+        // Stay open and narrate. The artist has another window to attend to
+        // and will come back to this one.
+        signInToGallery({ onStatus: say })
+          .then((signedIn) => {
+            if (!signedIn) return;
+            pinned = null;
+            paint();
+          })
+          .catch((error) => {
+            console.warn('[account] Sign-in failed:', error);
+            say('Sign-in failed. The console has the details.');
+          });
+        return false;
       },
     },
     {
@@ -456,6 +498,6 @@ export async function showAccountDialog() {
   try {
     await modalManager.custom({ title: 'Account', body, buttons });
   } finally {
-    unsubscribe();
+    unsubscribeStatus();
   }
 }
