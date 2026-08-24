@@ -9,7 +9,11 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { clampPanelPosition, topChromeBottom } from '../src/ui/utils/windowBounds.js';
+import {
+  clampPanelPosition,
+  keepPanelInBounds,
+  topChromeBottom,
+} from '../src/ui/utils/windowBounds.js';
 import { makeDraggable } from '../src/ui/utils/draggable.js';
 import { FloatingGPUPreview } from '../src/ui/FloatingGPUPreview.js';
 
@@ -35,6 +39,27 @@ function mountPanel({ width = 400, height = 300, left = 20, top = 200 } = {}) {
   });
   document.body.appendChild(panel);
   return panel;
+}
+
+/** A panel whose measured rect follows the left/top actually written to it. */
+function mountLivePanel({ width = 400, height = 300, left = 20, top = 200 } = {}) {
+  const panel = document.createElement('div');
+  panel.style.position = 'fixed';
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+  panel.getBoundingClientRect = () => {
+    const l = parseFloat(panel.style.left) || 0;
+    const t = parseFloat(panel.style.top) || 0;
+    return { left: l, top: t, right: l + width, bottom: t + height, width, height };
+  };
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function resizeViewport(width, height) {
+  window.innerWidth = width;
+  window.innerHeight = height;
+  window.dispatchEvent(new window.Event('resize'));
 }
 
 function drag(handle, from, to) {
@@ -102,6 +127,68 @@ describe('floating windows stay clear of the top menu bar', () => {
     });
   });
 
+  describe('keepPanelInBounds', () => {
+    it('pulls a panel back on screen after the viewport shrinks', () => {
+      mountTopMenuBar();
+      const panel = mountLivePanel({ width: 400, height: 300, left: 1000, top: 560 });
+
+      window.innerWidth = 800;
+      window.innerHeight = 600;
+      expect(keepPanelInBounds(panel)).toEqual({ left: 400, top: 300 });
+      expect(panel.style.left).toBe('400px');
+      expect(panel.style.top).toBe('300px');
+    });
+
+    it('pushes a panel out from under a bar that grew taller', () => {
+      mountTopMenuBar(80);
+      const panel = mountLivePanel({ top: 50 });
+
+      expect(keepPanelInBounds(panel)).toEqual({ left: 20, top: 80 });
+    });
+
+    it('leaves a panel that is already inside its bounds untouched', () => {
+      mountTopMenuBar();
+      const panel = mountLivePanel({ left: 100, top: 200 });
+
+      expect(keepPanelInBounds(panel)).toBeNull();
+      expect(panel.style.top).toBe('200px');
+    });
+
+    it('leaves a stylesheet-anchored panel to follow the viewport itself', () => {
+      mountTopMenuBar();
+      const panel = mountLivePanel({ left: 1000, top: 560 });
+      panel.style.left = 'auto';
+      panel.style.right = '16px';
+
+      window.innerWidth = 800;
+      expect(keepPanelInBounds(panel)).toBeNull();
+      expect(panel.style.right).toBe('16px');
+    });
+
+    it('leaves a window centred by a translate alone', () => {
+      mountTopMenuBar();
+      const panel = mountLivePanel({ left: 1000, top: 10 });
+      panel.style.transform = 'translate(-50%, -50%)';
+
+      expect(keepPanelInBounds(panel)).toBeNull();
+    });
+
+    it('still re-clamps a panel that is merely scaled', () => {
+      mountTopMenuBar();
+      const panel = mountLivePanel({ top: 10 });
+      panel.style.transform = 'scale(0.95)';
+
+      expect(keepPanelInBounds(panel)).toEqual({ left: 20, top: BAR_HEIGHT });
+    });
+
+    it('leaves a hidden panel alone (it measures as 0x0)', () => {
+      mountTopMenuBar();
+      const panel = mountLivePanel({ width: 0, height: 0, left: 5000, top: 5000 });
+
+      expect(keepPanelInBounds(panel)).toBeNull();
+    });
+  });
+
   it('makeDraggable will not park a panel under the bar', () => {
     mountTopMenuBar();
     const panel = mountPanel({ top: 200 });
@@ -132,5 +219,66 @@ describe('floating windows stay clear of the top menu bar', () => {
 
     expect(preview.position.y).toBe(BAR_HEIGHT);
     expect(parseFloat(container.style.top)).toBe(BAR_HEIGHT);
+  });
+
+  describe('shrinking the viewport', () => {
+    it('brings a makeDraggable panel back into view', () => {
+      mountTopMenuBar();
+      const panel = mountLivePanel({ width: 400, height: 300, left: 1000, top: 560 });
+      const header = document.createElement('div');
+      panel.appendChild(header);
+      makeDraggable(panel, header);
+
+      resizeViewport(800, 600);
+
+      expect(panel.style.left).toBe('400px');
+      expect(panel.style.top).toBe('300px');
+    });
+
+    it('stops listening once the panel is cleaned up', () => {
+      mountTopMenuBar();
+      const panel = mountLivePanel({ left: 1000, top: 560 });
+      const header = document.createElement('div');
+      panel.appendChild(header);
+
+      makeDraggable(panel, header)();
+      resizeViewport(800, 600);
+
+      expect(panel.style.left).toBe('1000px');
+    });
+
+    it('brings the floating preview back into view and syncs its position', () => {
+      mountTopMenuBar();
+      const preview = new FloatingGPUPreview(document.createElement('canvas'));
+      const container = mountLivePanel({ width: 644, height: 401, left: 1300, top: 800 });
+      const header = document.createElement('div');
+      header.className = 'preview-header';
+      container.appendChild(header);
+      preview.container = container;
+      preview._setupDragging();
+
+      resizeViewport(800, 600);
+
+      // 200x150 of the panel has to stay reachable.
+      expect(preview.position).toEqual({ x: 600, y: 450 });
+      expect(container.style.left).toBe('600px');
+      expect(container.style.top).toBe('450px');
+    });
+
+    it('leaves the fullscreen preview to its own geometry', () => {
+      mountTopMenuBar();
+      const preview = new FloatingGPUPreview(document.createElement('canvas'));
+      const container = mountLivePanel({ width: 1440, height: 900, left: 0, top: 0 });
+      const header = document.createElement('div');
+      header.className = 'preview-header';
+      container.appendChild(header);
+      preview.container = container;
+      preview._setupDragging();
+      preview.isFullscreen = true;
+
+      resizeViewport(800, 600);
+
+      expect(container.style.top).toBe('0px');
+    });
   });
 });

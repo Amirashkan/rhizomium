@@ -82,3 +82,83 @@ export function clampPanelPosition(left, top, options = {}) {
     top: clamp(top, minTop, Math.max(minTop, maxTop)),
   };
 }
+
+/**
+ * Whether this element's position is ours to rewrite.
+ *
+ * Only a window already parked at explicit pixel left/top qualifies. One still
+ * anchored by its stylesheet — `right: 16px`, or the `left: 50%` plus centring
+ * translate the settings windows open with — tracks the viewport on its own,
+ * and writing viewport pixels over that would fight the anchor or double up
+ * with the translate.
+ */
+function isPinnedToPixels(el) {
+  if (!/px$/.test(el.style.left || '') || !/px$/.test(el.style.top || '')) {
+    return false;
+  }
+  if (typeof getComputedStyle !== 'function') return true;
+  return !hasTranslation(getComputedStyle(el).transform);
+}
+
+/**
+ * Whether a transform shifts the element away from its left/top.
+ *
+ * A scale doesn't (the panels open at `scale(0.95)`), a translate does — and
+ * the settings windows centre themselves with one, which is exactly the case
+ * that must not have viewport pixels written over it.
+ */
+function hasTranslation(transform) {
+  if (!transform || transform === 'none') return false;
+
+  // Browsers resolve to matrix(a, b, c, d, tx, ty) or matrix3d(...12, tx, ty, tz, 1).
+  const matrix = /^matrix(3d)?\(([^)]*)\)/.exec(transform);
+  if (matrix) {
+    const values = matrix[2].split(',').map((value) => Number(value.trim()));
+    const [tx, ty] = matrix[1] ? [values[12], values[13]] : [values[4], values[5]];
+    return tx !== 0 || ty !== 0;
+  }
+
+  // A specified value rather than a computed matrix (happy-dom hands back what
+  // was written): only the translate functions move the element.
+  return /translate/i.test(transform);
+}
+
+/**
+ * Put a window that is already on screen back inside its allowed area — after
+ * the viewport is resized, which can leave it hanging off the new right or
+ * bottom edge, or (on a page whose menu bar has grown taller) inside the top
+ * chrome.
+ *
+ * Takes the same `options` as clampPanelPosition; the window's own measured
+ * size fills in what isn't given. A hidden window is left alone: it measures
+ * as 0x0, and it is re-clamped by whichever drag or show path positions it
+ * next anyway.
+ *
+ * @param {HTMLElement} panel - the window to reposition
+ * @param {object} [options] - clampPanelPosition options
+ * @returns {{left: number, top: number}|null} the new position, or null if the
+ *   window was left untouched
+ */
+export function keepPanelInBounds(panel, options = {}) {
+  if (!panel || !panel.style || !isPinnedToPixels(panel)) return null;
+
+  const rect = panel.getBoundingClientRect?.();
+  if (!rect || (!rect.width && !rect.height)) return null;
+
+  const bounded = clampPanelPosition(rect.left, rect.top, {
+    width: rect.width,
+    height: rect.height,
+    ...options,
+  });
+
+  if (
+    Math.round(bounded.left) === Math.round(rect.left) &&
+    Math.round(bounded.top) === Math.round(rect.top)
+  ) {
+    return null;
+  }
+
+  panel.style.left = `${bounded.left}px`;
+  panel.style.top = `${bounded.top}px`;
+  return bounded;
+}

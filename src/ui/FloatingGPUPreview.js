@@ -8,7 +8,7 @@ import { PRIORITY } from '../core/UnifiedRAFManager.js';
 import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
 import { getPresentedFps } from '../core/presentedFrameRate.js';
 import { setIcon } from './iconSprite.js';
-import { clampPanelPosition } from './utils/windowBounds.js';
+import { clampPanelPosition, keepPanelInBounds } from './utils/windowBounds.js';
 
 // Panel chrome: the header strip plus the 1px border on each edge. The canvas
 // area is whatever is left, and the render is fitted into it.
@@ -729,6 +729,12 @@ async show() {
       this._visibilityHandler = null;
     }
 
+    // The next show() builds a fresh container and re-registers this.
+    if (this._viewportResizeHandler) {
+      window.removeEventListener('resize', this._viewportResizeHandler);
+      this._viewportResizeHandler = null;
+    }
+
     const originalContainer = document.querySelector(".canvas-wrapper");
     if (originalContainer && this.gpuCanvas) {
       originalContainer.appendChild(this.gpuCanvas);
@@ -1415,6 +1421,38 @@ canvasWrapper.style.cssText = `
     };
 
     header.addEventListener("mousedown", onMouseDown);
+    this._setupViewportResizeClamp();
+  }
+
+  /**
+   * Bring the panel back inside the viewport when the window is resized —
+   * shrinking the browser under a panel parked near an edge would otherwise
+   * strand it off screen, or leave one near the top inside the menu bar.
+   *
+   * Fullscreen and docked mode own the panel's geometry (fullscreen pins it to
+   * the whole viewport with !important, and hides the menu bar while it does),
+   * so the clamp stands aside for both.
+   */
+  _setupViewportResizeClamp() {
+    if (this._viewportResizeHandler) {
+      window.removeEventListener("resize", this._viewportResizeHandler);
+    }
+
+    this._viewportResizeHandler = () => {
+      if (!this.container || this.isFullscreen || this.isDocked) return;
+
+      const bounded = keepPanelInBounds(this.container, {
+        keepVisibleX: 200,
+        keepVisibleY: 150,
+      });
+      if (!bounded) return;
+
+      // Keep the mirror the drag code reads on mousedown in step.
+      this.position.x = bounded.left;
+      this.position.y = bounded.top;
+    };
+
+    window.addEventListener("resize", this._viewportResizeHandler);
   }
 
 

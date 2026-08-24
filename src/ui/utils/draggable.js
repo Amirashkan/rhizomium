@@ -11,7 +11,7 @@
  * @param {HTMLElement} dragHandle - The element that triggers dragging (e.g., header)
  * @returns {Function} cleanup function to remove event listeners
  */
-import { clampPanelPosition } from './windowBounds.js';
+import { clampPanelPosition, keepPanelInBounds } from './windowBounds.js';
 
 export function makeDraggable(panel, dragHandle) {
   if (!panel || !dragHandle) {
@@ -117,6 +117,14 @@ export function makeDraggable(panel, dragHandle) {
     document.body.style.userSelect = '';
   };
 
+  // A panel dropped near an edge is left off screen when the window shrinks
+  // under it - and one near the top ends up inside the menu bar. Only panels
+  // actually parked at pixel coordinates are touched; the rest are still
+  // anchored by their stylesheet and follow the viewport on their own.
+  const onWindowResize = () => {
+    keepPanelInBounds(panel);
+  };
+
   // Set initial cursor style
   dragHandle.style.cursor = 'grab';
 
@@ -124,12 +132,14 @@ export function makeDraggable(panel, dragHandle) {
   dragHandle.addEventListener('mousedown', onMouseDown);
   document.addEventListener('mousemove', onMouseMove);
   document.addEventListener('mouseup', onMouseUp);
+  window.addEventListener('resize', onWindowResize);
 
   // Return cleanup function
   return () => {
     dragHandle.removeEventListener('mousedown', onMouseDown);
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
+    window.removeEventListener('resize', onWindowResize);
     dragHandle.style.cursor = '';
   };
 }
