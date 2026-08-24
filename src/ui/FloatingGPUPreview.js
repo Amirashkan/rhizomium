@@ -8,6 +8,7 @@ import { PRIORITY } from '../core/UnifiedRAFManager.js';
 import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
 import { getPresentedFps } from '../core/presentedFrameRate.js';
 import { setIcon } from './iconSprite.js';
+import { clampPanelPosition } from './utils/windowBounds.js';
 
 // Panel chrome: the header strip plus the 1px border on each edge. The canvas
 // area is whatever is left, and the render is fitted into it.
@@ -1393,16 +1394,15 @@ canvasWrapper.style.cssText = `
       const deltaX = e.clientX - startX;
       const deltaY = e.clientY - startY;
 
-      const newLeft = Math.max(
-        0,
-        Math.min(window.innerWidth - 200, startLeft + deltaX),
+      // Keep 200x150 of the panel reachable, and its header clear of the top
+      // menu bar: the bar paints above the panel, so a header dragged into it
+      // is gone - no grab handle, no close button, and the clicks land on
+      // File / Edit / View instead.
+      this._pendingDragPosition = clampPanelPosition(
+        startLeft + deltaX,
+        startTop + deltaY,
+        { keepVisibleX: 200, keepVisibleY: 150 },
       );
-      const newTop = Math.max(
-        0,
-        Math.min(window.innerHeight - 150, startTop + deltaY),
-      );
-
-      this._pendingDragPosition = { left: newLeft, top: newTop };
       this._scheduleDragPositionFlush();
     };
 

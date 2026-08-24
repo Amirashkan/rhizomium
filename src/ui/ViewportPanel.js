@@ -1,5 +1,7 @@
 // src/ui/ViewportPanel.js
 
+import { clampPanelPosition } from './utils/windowBounds.js';
+
 /**
  * ViewportPanel - Manages 3D viewport display and controls
  * Integrates Viewport3D with the editor UI
@@ -458,8 +460,14 @@ export class ViewportPanel {
     document.addEventListener('mousemove', (e) => {
       if (!isDragging) return;
       e.preventDefault();
-      currentX = e.clientX - initialX;
-      currentY = e.clientY - initialY;
+      // Clamped so the panel can't be dragged off screen, or under the top
+      // menu bar - which paints above it and would swallow this very header.
+      const bounded = clampPanelPosition(e.clientX - initialX, e.clientY - initialY, {
+        keepVisibleX: 200,
+        keepVisibleY: 120,
+      });
+      currentX = bounded.left;
+      currentY = bounded.top;
       this.panelElement.style.left = currentX + 'px';
       this.panelElement.style.top = currentY + 'px';
       this.panelElement.style.right = 'auto';
