@@ -210,8 +210,12 @@ async function pairDesktop({ onStatus }) {
     return false;
   }
 
+  // `pairing`, not `code`. `code` is what Supabase names its OAuth callback
+  // parameter, and the gallery mounts a handler on every page that looks for
+  // it — it redeemed the pairing code as an auth code and navigated the
+  // approval page away to /gallery a second after it drew.
   const page = await openExternal(
-    `${GALLERY_ORIGIN}/desktop?code=${encodeURIComponent(pairing.userCode)}`,
+    `${GALLERY_ORIGIN}/desktop?pairing=${encodeURIComponent(pairing.userCode)}`,
     { label: WINDOW_LABEL, title: 'Rhizomium — Connect', width: 720, height: 720 }
   );
   if (!page) {

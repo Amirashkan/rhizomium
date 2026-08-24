@@ -98,7 +98,7 @@ it solves — no callback URL of its own:
     │
     ├─ POST /api/desktop/pair/start ──► { pairingId, userCode }
     │
-    ├─ opens art.tenderworld.org/desktop?code=USERCODE
+    ├─ opens art.tenderworld.org/desktop?pairing=USERCODE
     │     └─ the artist approves it there, signed in to the gallery
     │
     └─ GET /api/desktop/pair/poll?pairingId=… (every 3s)
@@ -110,6 +110,11 @@ it solves — no callback URL of its own:
 The code is prefilled, but the gallery still waits for a click — a prefilled
 code arriving by link is exactly the shape a phishing attempt would take, and
 a human reading what approval does is the only boundary there is.
+
+The parameter is `pairing` and not `code` for a reason worth keeping: `code` is
+what Supabase names its OAuth callback parameter, and the gallery mounts a
+handler on every page that scans for it. It read the pairing code as an auth
+code and navigated the approval page to `/gallery` a second after it drew.
 
 **Signing out is real here**, unlike on the web: the credential is ours, so the
 Account dialog forgets it and the app is signed out at once. The token is left
@@ -125,8 +130,8 @@ Coverage: `tests/desktopAccount.test.js`, and the CSP origins in
 
 ### What the gallery deployment needs
 
-The editor half is inert until the gallery has its half (implemented on the
-`claude/desktop-token-flow` branch of `tenderworld-gallery`):
+The editor half is inert without the gallery's half, which lives in
+`tenderworld-gallery`:
 
 - the `/api/desktop/pair/*` routes and the `/desktop` approval page,
 - `supabase_migrations/add_desktop_tokens.sql` run against the database,
@@ -134,9 +139,22 @@ The editor half is inert until the gallery has its half (implemented on the
   without it the pairing endpoints answer `503 not_configured`,
 - the two Tauri origins in the CORS allow-list (`lib/fileManagerUtils.ts`).
 
-Until then the app reports it plainly rather than looking signed out for no
+Until it is there, the app says so rather than looking signed out for no
 reason — `DESKTOP_ORIGIN_HINT` in `accountSession.js` names it as a deployment
 setting.
+
+**`npm run tauri:dev` needs one more thing.** It points the webview at the Vite
+dev server rather than serving from the Tauri scheme, so the origin is
+`http://localhost:5173` and none of the allow-list entries match it — every
+account call fails as a CORS rejection, which arrives as an indistinguishable
+`TypeError: Failed to fetch`. Set `DESKTOP_DEV_ORIGINS=http://localhost:5173`
+on the gallery deployment while developing, and unset it after; it is empty by
+default because a localhost origin in a production allow-list is a real
+widening.
+
+Note that a dev run and an installed build are different origins, so the token
+— kept in `localStorage` — does not carry between them. Pairing once in each is
+correct behaviour, not a bug, though it looks like the app forgetting you.
 
 ---
 
