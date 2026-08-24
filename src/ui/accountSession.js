@@ -4,34 +4,37 @@
 //
 // The gallery (art.tenderworld.org) owns accounts and tiers; the editor is a
 // client that asks it who you are (see src/ai/entitlements.js). On the web that
-// works without anything here: the artist signs in on the gallery in another
-// tab and the editor's credentialed fetches carry the session cookie.
+// needs almost nothing: the artist signs in on the gallery and the editor's
+// credentialed fetches carry the session cookie, because studio.tenderworld.org
+// and art.tenderworld.org are the same site.
 //
-// The desktop app has no other tab. Its pages are served from
-// `tauri://localhost` (`http://tauri.localhost` on Windows), which is a fresh
-// cookie jar that has never visited the gallery, and `window.open()` — the one
-// route the editor had to a sign-in page — is blocked in the OS webview. So the
-// desktop build could only ever be signed out, and said so as "could not reach
-// the gallery", which is not what was wrong.
+// The desktop app is not the same site. Its pages are served from
+// `tauri://localhost` (`http://tauri.localhost` on Windows), so the gallery's
+// cookie is never sent on its requests — signing in inside the app succeeds and
+// leaves the editor window anonymous. Sharing the cookie would mean making the
+// gallery's session a third-party cookie for every visitor on the website, to
+// serve one client, so it carries its own credential instead.
 //
-// This module is the missing route:
+// Two flows, then, behind one `signInToGallery()`:
 //
-//   1. Open the gallery's own sign-in page in a real webview window
-//      (openExternal.js). Tauri's webviews share one cookie store, so the
-//      session that lands there is a session the editor window can use.
-//   2. Poll the entitlements endpoint while that window is open, and stop the
-//      moment it answers `authenticated`.
-//   3. Say plainly what happened — including the one failure that is neither
-//      the artist's fault nor a network problem. See DESKTOP_ORIGIN_HINT.
+//   web      open the gallery's sign-in page, poll until the entitlements come
+//            back authenticated. The cookie is the credential.
 //
-// Signing out is the gallery's own page too: the editor never had a route to
-// the gallery's sign-out and guessing one would be a guess. Whatever the artist
-// does in that window, closing it re-reads the entitlements.
+//   desktop  pair for a bearer token (`pairDesktop`), modelled on the OAuth
+//            device flow: open a pairing, have the artist approve its code on
+//            the gallery's /desktop page, poll for the token, store it. See
+//            ../ai/desktopToken.js and the gallery's /api/desktop/pair/*.
+//
+// Signing out differs the same way. On the web it is the gallery's own page —
+// the editor never had a route to the gallery's sign-out and guessing one would
+// be a guess. On the desktop the credential is ours, so forgetting it is the
+// sign-out, and it is immediate.
 
 import { modalManager } from './ModalManager.js';
 import { openExternal } from '../utils/openExternal.js';
 import { isTauri } from '../utils/isTauri.js';
 import { entitlements, GALLERY_ORIGIN } from '../ai/entitlements.js';
+import { clearDesktopToken, getDesktopToken, setDesktopToken } from '../ai/desktopToken.js';
 import { TIER_LABELS } from '../ai/tiers.js';
 
 /** The gallery's sign-in page. */
@@ -47,22 +50,22 @@ const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 4 * 60 * 1000;
 
 /**
- * What a still-degraded payload means in the desktop app, specifically.
+ * What a still-degraded or still-anonymous answer means in the desktop app.
  *
- * The editor's requests to the gallery are cross-origin from
- * `tauri://localhost`, so the gallery has to name that origin in its CORS
- * allow-list for the browser to hand us the response — exactly as it already
- * does for studio.tenderworld.org. Until it does, every account call fails in
- * the same way an outage does, and the editor cannot tell the two apart from
- * the inside: a CORS rejection reaches JavaScript as an opaque network error.
+ * The desktop app does not fail the way the web one does. It is not waiting on
+ * a cookie, so "sign in on the gallery and come back" is not advice that helps
+ * here; what it needs is a pairing, and the thing that can be missing is the
+ * gallery's end of it. A deployment without the /api/desktop/pair/* routes, or
+ * without SUPABASE_SERVICE_ROLE_KEY set, refuses every pairing — and from the
+ * inside that is indistinguishable from being signed out.
  *
- * So say both. An artist who has just signed in and is still being told they
- * are not deserves to know this is the deployment's problem and not theirs.
+ * So name it. An artist who has just approved a code and is still being told
+ * they are signed out deserves to know it is the deployment and not them.
  */
 export const DESKTOP_ORIGIN_HINT =
-  'The desktop app talks to the gallery from a different origin than the web ' +
-  'editor does. If this keeps happening after signing in, the gallery has not ' +
-  'been told to accept the desktop app yet — that is a deployment setting, not ' +
+  'The desktop app signs in with its own credential rather than a browser ' +
+  'session. If this keeps happening, the gallery deployment may not have the ' +
+  'desktop pairing endpoints yet — that is a deployment setting, not ' +
   'something to fix here.';
 
 /**
@@ -127,6 +130,14 @@ export async function signInToGallery({ onStatus } = {}) {
     return true;
   }
 
+  // On the web the cookie is the credential and opening the sign-in page is
+  // the whole flow. The desktop app cannot use that cookie at all — it is a
+  // different site — so it pairs for a token instead.
+  return isTauri() ? pairDesktop({ onStatus }) : signInWithCookie({ onStatus });
+}
+
+/** The web flow: sign in on the gallery, and the cookie does the rest. */
+async function signInWithCookie({ onStatus }) {
   const page = await openGalleryWindow();
   if (!page) {
     onStatus?.('Could not open the sign-in page.');
@@ -146,6 +157,137 @@ export async function signInToGallery({ onStatus } = {}) {
 
   onStatus?.('Still signed out.');
   return false;
+}
+
+/**
+ * The desktop flow: pair with the gallery and collect a bearer token.
+ *
+ * Three steps, modelled on the OAuth device flow because the desktop app has
+ * the same problem it solves — no callback URL of its own to be redirected to:
+ *
+ *   1. open a pairing and get an id (ours) and a short code (the artist's),
+ *   2. open /desktop with that code so they can approve it while signed in,
+ *   3. poll until the token appears, then store it.
+ *
+ * The approval is deliberately theirs to make. We prefill the code but the
+ * gallery still waits for a click, because a prefilled code arriving by link
+ * is exactly what a phishing attempt looks like.
+ */
+async function pairDesktop({ onStatus }) {
+  onStatus?.('Starting sign-in…');
+
+  let pairing;
+  try {
+    const res = await fetch(`${GALLERY_ORIGIN}/api/desktop/pair/start`, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      onStatus?.(
+        body.code === 'not_configured'
+          ? 'The gallery is not set up for desktop sign-in yet.'
+          : `Could not start sign-in (${res.status}).`
+      );
+      return false;
+    }
+    pairing = await res.json();
+  } catch {
+    onStatus?.('Could not reach the gallery. Check your connection and try again.');
+    return false;
+  }
+
+  if (!pairing?.pairingId || !pairing?.userCode) {
+    onStatus?.('The gallery did not return a pairing code.');
+    return false;
+  }
+
+  const page = await openExternal(
+    `${GALLERY_ORIGIN}/desktop?code=${encodeURIComponent(pairing.userCode)}`,
+    { label: WINDOW_LABEL, title: 'Rhizomium — Connect', width: 720, height: 720 }
+  );
+  if (!page) {
+    onStatus?.('Could not open the approval page.');
+    return false;
+  }
+
+  onStatus?.(`Approve the code ${pairing.userCode} in the window that opened…`);
+  const token = await waitForToken(pairing.pairingId, page);
+
+  if (!token) {
+    onStatus?.('Sign-in was not completed.');
+    return false;
+  }
+
+  setDesktopToken(token);
+  await entitlements.refresh().catch(() => {});
+  await page.close();
+  onStatus?.('Signed in.');
+  return true;
+}
+
+/**
+ * Poll for the token until it appears, the artist closes the window, or the
+ * wait runs out.
+ *
+ * A closed window ends the wait but is checked once more first: approving and
+ * immediately closing is the normal way to finish, and the poll that would
+ * have collected the token may not have come round yet.
+ */
+function waitForToken(pairingId, page) {
+  return new Promise((resolve) => {
+    let finished = false;
+    let timer = null;
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+    const finish = (value) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+
+    const check = async () => {
+      if (finished) return null;
+      try {
+        const res = await fetch(
+          `${GALLERY_ORIGIN}/api/desktop/pair/poll?pairingId=${encodeURIComponent(pairingId)}`,
+          { headers: { Accept: 'application/json' } }
+        );
+        if (!res.ok) return null;
+
+        const body = await res.json();
+        if (body.status === 'approved' && body.token) {
+          finish(body.token);
+          return body.token;
+        }
+        // 'expired' and 'unknown' are both dead ends: the code will never be
+        // approved now, so stop rather than poll a pairing that cannot answer.
+        if (body.status === 'expired' || body.status === 'unknown') finish(null);
+      } catch {
+        // Keep waiting. The artist may be mid-approval and one failed poll
+        // says nothing about the next.
+      }
+      return null;
+    };
+
+    const poll = async () => {
+      await check();
+      if (finished) return;
+      if (Date.now() >= deadline) {
+        finish(null);
+        return;
+      }
+      timer = setTimeout(poll, POLL_INTERVAL_MS);
+    };
+
+    page.onClosed(async () => {
+      await check();
+      finish(null);
+    });
+
+    timer = setTimeout(poll, POLL_INTERVAL_MS);
+  });
 }
 
 /**
@@ -204,6 +346,27 @@ function waitForSession(page) {
 
     timer = setTimeout(poll, POLL_INTERVAL_MS);
   });
+}
+
+/**
+ * Sign out.
+ *
+ * On the desktop the credential is a token we hold, so forgetting it is the
+ * whole sign-out and it takes effect at once. The token is left valid on the
+ * gallery rather than revoked: revoking needs an endpoint that a stolen token
+ * could also call, and "this machine forgets" is what the artist asked for.
+ *
+ * On the web there is nothing here to forget — the cookie is the gallery's,
+ * and its own page is where it is dropped.
+ *
+ * @returns {Promise<boolean>} true when the editor signed itself out.
+ */
+export async function signOut() {
+  if (!isTauri() || !getDesktopToken()) return false;
+
+  clearDesktopToken();
+  await entitlements.refresh().catch(() => {});
+  return true;
 }
 
 /**
@@ -276,6 +439,19 @@ export async function showAccountDialog() {
     },
     { label: 'Close', onClick: () => true },
   ];
+
+  // Only the desktop app holds a credential of its own, so it is the only one
+  // with something to sign out of. Offering the button on the web would be
+  // offering to forget a cookie we do not own.
+  if (isTauri() && getDesktopToken()) {
+    buttons.splice(1, 0, {
+      label: 'Sign out',
+      onClick: () => {
+        signOut().catch((error) => console.warn('[account] Sign-out failed:', error));
+        return false;
+      },
+    });
+  }
 
   try {
     await modalManager.custom({ title: 'Account', body, buttons });

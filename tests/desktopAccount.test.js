@@ -1,11 +1,22 @@
 // The account in the desktop app.
 //
-// Three things were broken there, and none of them announced itself: the AI
-// backend was addressed by a path that does not exist inside Tauri, links out
-// of the editor were refused by the OS webview, and there was no route to a
-// sign-in page at all. Each has a test here, because each failed silently — a
-// dead button, a "could not reach the gallery", a request that 404'd into a
-// bundled asset — and a silent failure is exactly what a regression looks like.
+// Four things stood between the desktop build and a signed-in account, and
+// none of them announced itself:
+//
+//   - window.open() is refused by the OS webview, so every link out of the
+//     editor was a dead control,
+//   - the AI backend was addressed by a relative path that resolves to a
+//     missing asset inside the bundle,
+//   - there was no route to a sign-in page,
+//   - and once there was, the session cookie it produced could not be used:
+//     the app is served from tauri://localhost, a different site from the
+//     gallery, so the cookie is never sent. It carries a bearer token from
+//     the pairing handshake instead.
+//
+// Each has a test here, because each failed silently — a dead button, a
+// "could not reach the gallery", a request that 404'd into a bundled asset,
+// a sign-in that succeeded and changed nothing — and a silent failure is
+// exactly what a regression looks like.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -114,7 +125,7 @@ describe('openExternal', () => {
   });
 });
 
-describe('the sign-in flow', () => {
+describe('the web sign-in flow', () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -208,14 +219,140 @@ describe('the sign-in flow', () => {
     expect(openExternal).not.toHaveBeenCalled();
   });
 
-  it('reports the origin problem the editor cannot tell apart from an outage', async () => {
+  it('names the deployment when the desktop app cannot pair', async () => {
     const { account } = await loadWithPage(fakePage());
 
-    // A CORS rejection reaches JavaScript as an opaque network error, so a
-    // gallery that has not been told to accept the desktop app looks exactly
-    // like a gallery that is down. The hint is what stops an artist debugging
-    // their own wifi over a deployment setting.
+    // A gallery without the pairing endpoints refuses every sign-in, and from
+    // inside the app that is indistinguishable from being signed out. The hint
+    // is what stops an artist debugging their own wifi over a deployment
+    // setting.
     expect(account.DESKTOP_ORIGIN_HINT).toMatch(/deployment setting/i);
+  });
+});
+
+describe('the desktop pairing flow', () => {
+  beforeEach(() => vi.resetModules());
+
+  afterEach(() => {
+    setTauri(false);
+    vi.unstubAllGlobals();
+    vi.doUnmock('../src/utils/openExternal.js');
+    try {
+      window.localStorage.clear();
+    } catch {
+      /* no storage in this environment */
+    }
+  });
+
+  /** A gallery that approves the pairing on the Nth poll. */
+  function galleryStub({ approveAfter = 1, startStatus = 200, startBody = null } = {}) {
+    let polls = 0;
+    return vi.fn(async (url, init) => {
+      if (String(url).includes('/api/desktop/pair/start')) {
+        return {
+          ok: startStatus === 200,
+          status: startStatus,
+          json: async () =>
+            startBody ?? { pairingId: 'pair-1', userCode: 'RZXK-4M7P', expiresAt: 'later' },
+        };
+      }
+      if (String(url).includes('/api/desktop/pair/poll')) {
+        polls += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () =>
+            polls >= approveAfter
+              ? { status: 'approved', token: 'tok-secret' }
+              : { status: 'pending' },
+        };
+      }
+      if (String(url).includes('/api/entitlements')) {
+        // Signed in exactly when the token is being sent.
+        const authed = Boolean(init?.headers?.Authorization);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ authenticated: authed, tier: 'free', features: [], catalog: [] }),
+        };
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+  }
+
+  async function loadDesktop(fetchImpl, page) {
+    setTauri(true);
+    vi.stubGlobal('fetch', fetchImpl);
+    vi.doMock('../src/utils/openExternal.js', () => ({
+      openExternal: vi.fn().mockResolvedValue(page),
+    }));
+    return {
+      account: await import('../src/ui/accountSession.js'),
+      token: await import('../src/ai/desktopToken.js'),
+    };
+  }
+
+  function fakePage() {
+    const page = { handler: null, close: vi.fn().mockResolvedValue(undefined) };
+    page.onClosed = (cb) => { page.handler = cb; };
+    return page;
+  }
+
+  it('pairs, stores the token, and sends it as a bearer header afterwards', async () => {
+    const fetchImpl = galleryStub({ approveAfter: 1 });
+    const { account, token } = await loadDesktop(fetchImpl, fakePage());
+
+    await expect(account.signInToGallery()).resolves.toBe(true);
+    expect(token.getDesktopToken()).toBe('tok-secret');
+
+    // The point of the whole exercise: the editor's own gallery calls now
+    // carry a credential, which a cookie could never have done from here.
+    //
+    // The *last* such call, not the first: signInToGallery reads the
+    // entitlements before it pairs, to see whether there is anything to do, and
+    // that read necessarily predates the token.
+    const entitlementsCalls = fetchImpl.mock.calls.filter((call) =>
+      String(call[0]).includes('/api/entitlements')
+    );
+    const afterPairing = entitlementsCalls.at(-1);
+    expect(afterPairing?.[1]?.headers?.Authorization).toBe('Bearer tok-secret');
+  });
+
+  it('keeps polling while the gallery says pending', async () => {
+    const fetchImpl = galleryStub({ approveAfter: 3 });
+    const { account } = await loadDesktop(fetchImpl, fakePage());
+
+    await expect(account.signInToGallery()).resolves.toBe(true);
+    const polls = fetchImpl.mock.calls.filter((call) =>
+      String(call[0]).includes('/pair/poll')
+    );
+    expect(polls.length).toBeGreaterThanOrEqual(3);
+  }, 20000);
+
+  it('says so plainly when the gallery has no pairing endpoints', async () => {
+    const fetchImpl = galleryStub({
+      startStatus: 503,
+      startBody: { error: 'nope', code: 'not_configured' },
+    });
+    const { account, token } = await loadDesktop(fetchImpl, fakePage());
+
+    const said = [];
+    await expect(account.signInToGallery({ onStatus: (m) => said.push(m) })).resolves.toBe(false);
+    expect(said.join(' ')).toMatch(/not set up for desktop sign-in/i);
+    // Nothing stored on a failed pairing — a half-signed-in app is worse than
+    // a signed-out one, because only one of them offers you a way in.
+    expect(token.getDesktopToken()).toBeNull();
+  });
+
+  it('signs out by forgetting the token', async () => {
+    const fetchImpl = galleryStub({ approveAfter: 1 });
+    const { account, token } = await loadDesktop(fetchImpl, fakePage());
+
+    await account.signInToGallery();
+    expect(token.getDesktopToken()).toBe('tok-secret');
+
+    await expect(account.signOut()).resolves.toBe(true);
+    expect(token.getDesktopToken()).toBeNull();
   });
 });
 

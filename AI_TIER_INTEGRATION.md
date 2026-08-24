@@ -19,7 +19,8 @@ that were made along the way.
 | `src/ai/tiers.js` | The tier catalogue, mirrored from the gallery's `lib/tiers.ts`. Decides **what to draw**, never what to do. |
 | `src/ai/entitlements.js` | `GET /api/entitlements` (cached for the session) and `POST /api/entitlements/grant` (per action). Maps 402/429/503 to distinct, typed errors. |
 | `src/ai/aiClient.js` | Grant → backend → result, in that order. Addresses the backend by path on the web and by origin in the desktop app. |
-| `src/ui/accountSession.js` | Signing in from inside the editor, which is the desktop app's only route to a session. Tools → Account… |
+| `src/ui/accountSession.js` | Signing in from inside the editor. Two flows: the cookie on the web, a paired bearer token on the desktop. Tools → Account… |
+| `src/ai/desktopToken.js` | The desktop app's own credential, and the header it rides in. Inert on the web. |
 | `src/utils/openExternal.js` | Opening a gallery page. `window.open()` is refused by the desktop webview. |
 | `src/ai/patchContext.js` | Trims the project down to the graph before it leaves the machine. |
 | `src/ai/applyResult.js` | Puts a generated node or patch onto the canvas. |
@@ -165,11 +166,12 @@ already trust each other — they are, and that is how `studio.tenderworld.org`
 reads a session held by `art.tenderworld.org`.
 
 The desktop app is a third origin: `tauri://localhost`, or
-`http://tauri.localhost` on Windows. Adding both to the gallery's CORS
-allow-list is the whole of what it needs, and it is the one part of this
-integration that is not in this repository. `DESKTOP_APP.md` §The account has
-the detail, including why the editor cannot detect the omission and says so
-instead.
+`http://tauri.localhost` on Windows — and, unlike the other two, a different
+*site*, so the gallery's session cookie is never sent on its requests. It
+authenticates with a bearer token obtained by a pairing handshake instead. The
+CORS allow-list needs both origins either way. `DESKTOP_APP.md` §The account
+has the flow, and the gallery's `GLSL_EDITOR_TIER_INTEGRATION.md` §3.5 has its
+half of the contract.
 
 Two things follow for anyone reading this file to debug a desktop install:
 

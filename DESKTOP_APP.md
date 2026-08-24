@@ -75,15 +75,46 @@ always the same unhelpful sentence: *"could not reach the gallery"*.
 | What was wrong | Why it only happened here | Fixed by |
 | --- | --- | --- |
 | No route to a sign-in page | `window.open()` is refused by the OS webview — it returns null and nothing appears. Every link out of the editor was a dead control. | `src/utils/openExternal.js` opens a real `WebviewWindow` instead. |
-| Nowhere to *be* signed in | The app's pages are served from `tauri://localhost` (`http://tauri.localhost` on Windows): a cookie jar that has never visited the gallery. | `src/ui/accountSession.js` — sign in inside the app. Tauri's webviews share one cookie store, so the session lands where the editor can use it. |
+| The session could not be used | The app's pages are served from `tauri://localhost` (`http://tauri.localhost` on Windows). That is a **different site** from the gallery, so the gallery's cookie is never sent on the editor's requests — signing in inside the app succeeded and changed nothing. | A bearer token: `src/ai/desktopToken.js` and the pairing flow in `src/ui/accountSession.js`. |
 | The AI backend was unreachable | `/api/ai/run` is a relative path. There is no `/api` inside the bundle, so it resolved to a missing asset — *after* the grant had already spent the artist's quota. | `src/ai/aiClient.js` names `studio.tenderworld.org` when `isTauri()`. |
 
-The route is **Tools → Account…** (`Ctrl/⌘+Alt+L`). It opens the gallery's own
-sign-in page in a window this application owns, polls the entitlements while
-that window is open, and stops the moment they come back authenticated. Signing
-*out* is the gallery's page too: the editor has no route to the gallery's
-sign-out and guessing one would be a guess, so whatever the artist does in that
-window, closing it re-reads the entitlements.
+### Why a token and not a cookie
+
+Making the gallery's session cookie `SameSite=None` would have let the editor
+window use it, and was rejected. It would make that session a third-party
+cookie for every visitor to the website on every route, to serve one client,
+and it would have to be applied consistently across the 21 files in the gallery
+that construct a Supabase client — on live auth, where getting it wrong signs
+everyone out. The token is the narrower change: nothing about the browser path
+moves.
+
+### The pairing flow
+
+Modelled on the OAuth device flow, because the desktop app has the same problem
+it solves — no callback URL of its own:
+
+```
+  Tools → Account… → Sign in
+    │
+    ├─ POST /api/desktop/pair/start ──► { pairingId, userCode }
+    │
+    ├─ opens art.tenderworld.org/desktop?code=USERCODE
+    │     └─ the artist approves it there, signed in to the gallery
+    │
+    └─ GET /api/desktop/pair/poll?pairingId=… (every 3s)
+          └─ { status: 'approved', token } — once; the pairing is then deleted
+                │
+                └─ stored by desktopToken.js, sent as Authorization: Bearer
+```
+
+The code is prefilled, but the gallery still waits for a click — a prefilled
+code arriving by link is exactly the shape a phishing attempt would take, and
+a human reading what approval does is the only boundary there is.
+
+**Signing out is real here**, unlike on the web: the credential is ours, so the
+Account dialog forgets it and the app is signed out at once. The token is left
+valid on the gallery rather than revoked — revoking would need an endpoint a
+stolen token could also call, and "this machine forgets" is what was asked for.
 
 The sign-in window is deliberately **not** listed in
 `src-tauri/capabilities/default.json`. The remote page it loads therefore has no
@@ -92,29 +123,20 @@ Tauri commands available to it — it is a browser tab, not part of the app.
 Coverage: `tests/desktopAccount.test.js`, and the CSP origins in
 `tests/editorCspEndpoints.test.js`.
 
-### The one part that is not in this repository
+### What the gallery deployment needs
 
-The editor's requests to the gallery are cross-origin from `tauri://localhost`,
-so **the gallery has to name that origin in its CORS allow-list** — exactly as
-it already does for `studio.tenderworld.org`, which is how the web editor
-reaches it today. Both spellings are needed, because they differ by platform:
+The editor half is inert until the gallery has its half (implemented on the
+`claude/desktop-token-flow` branch of `tenderworld-gallery`):
 
-```
-tauri://localhost        macOS, Linux
-http://tauri.localhost   Windows
-```
+- the `/api/desktop/pair/*` routes and the `/desktop` approval page,
+- `supabase_migrations/add_desktop_tokens.sql` run against the database,
+- `SUPABASE_SERVICE_ROLE_KEY` set — both tables are RLS-on with no policies, so
+  without it the pairing endpoints answer `503 not_configured`,
+- the two Tauri origins in the CORS allow-list (`lib/fileManagerUtils.ts`).
 
-Until that is set, signing in succeeds and the editor still sees a signed-out
-free tier, because a CORS rejection reaches JavaScript as an opaque network
-error — indistinguishable, from the inside, from the gallery being down. The
-editor cannot detect this, so it says both: `DESKTOP_ORIGIN_HINT` in
-`accountSession.js` is shown wherever the desktop app reports a degraded
-account, and names it as a deployment setting rather than something the artist
-did wrong.
-
-The session cookie also has to be `SameSite=None; Secure` to travel cross-site.
-It already is — otherwise the web editor at `studio.tenderworld.org` could not
-read it either.
+Until then the app reports it plainly rather than looking signed out for no
+reason — `DESKTOP_ORIGIN_HINT` in `accountSession.js` names it as a deployment
+setting.
 
 ---
 
