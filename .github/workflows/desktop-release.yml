@@ -1,0 +1,73 @@
+# Builds the Windows installers and attaches them to a draft GitHub release.
+#
+# Triggered by pushing a version tag (`git tag v0.9.0 && git push --tags`), or
+# by hand from the Actions tab. The release is created as a DRAFT: nothing is
+# published until someone opens it, checks the artefacts and presses publish.
+#
+# Unsigned until the secrets below exist. That is deliberate — the workflow is
+# useful from day one, and adding a certificate later changes nothing here.
+# See DESKTOP_APP.md for what each secret is and how to produce it.
+#
+# Windows only, on purpose. Tauri renders in the operating system's webview,
+# so WebGPU support is the OS's to give: WebView2 is Chromium and has it,
+# WKWebView only from macOS 26, and WebKitGTK not at all. Building for the
+# other two would mean shipping installers that run and then show the editor's
+# "no GPU device" screen. DESKTOP_APP.md has the detail and what it would take
+# to add them back.
+
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    name: Bundle Windows
+    runs-on: windows-latest
+
+    permissions:
+      contents: write # tauri-action creates the release and uploads to it
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # A cold Rust build of the Tauri dependency tree is several minutes;
+      # cached it is well under one.
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # Updater signing. Only meaningful once the updater plugin is wired
+          # up; harmless before that. See DESKTOP_APP.md, "Auto-updates".
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Rhizomium ${{ github.ref_name }}
+          releaseBody: |
+            Windows build of Rhizomium ${{ github.ref_name }}.
+
+            Requires Windows 10 or 11 with WebView2 — see DESKTOP_APP.md.
+          releaseDraft: true
+          prerelease: false

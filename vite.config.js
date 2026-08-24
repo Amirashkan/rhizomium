@@ -38,44 +38,63 @@ function copyDocs() {
 }
 
 // Tauri serves the built `dist/` as static assets and has no server-side
-// rewrites, so the editor must be a real page in the output. Build both the
-// landing page and the editor as multi-page entries.
-export default defineConfig({
-  clearScreen: false,
-  plugins: [copyDocs(), oscBridge()],
-  define: {
-    __APP_VERSION__: JSON.stringify(appVersion),
-  },
-  server: {
-    port: 5173,
-    strictPort: true,
-    watch: {
-      ignored: ['**/src-tauri/**'],
+// rewrites, so the editor must be a real page in the output.
+//
+// The two targets want different front doors, which is what `--mode desktop`
+// (npm run build:desktop) selects between:
+//
+//   web     - index.html, the landing page, with the editor behind its
+//             "Launch Studio" button.
+//   desktop - splash.html, the borderless launch window. The landing page is
+//             left out of the bundle entirely: an installed application does
+//             not market itself to the person who just double-clicked it, it
+//             opens. Tauri points its hidden main window straight at the
+//             editor and the splash covers the boot (see src-tauri/src/lib.rs).
+//
+// Both build the editor and the second-monitor viewer, which are the pages
+// that actually do the work.
+export default defineConfig(({ mode }) => {
+  const isDesktop = mode === 'desktop'
+
+  return {
+    clearScreen: false,
+    plugins: [copyDocs(), oscBridge()],
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
     },
-  },
-  build: {
-    target: 'chrome105',
-    rollupOptions: {
-      input: {
-        main: resolve(__dirname, 'index.html'),
-        editor: resolve(__dirname, 'editor/index.html'),
-        'second-monitor': resolve(__dirname, 'editor/second-monitor.html'),
+    server: {
+      port: 5173,
+      strictPort: true,
+      watch: {
+        ignored: ['**/src-tauri/**'],
       },
     },
-    // The editor entry lands around 1.4 MB (~340 kB gzipped) and trips
-    // Rollup's default 500 kB advisory. That default targets apps with a
-    // deferrable route/vendor split; this one has neither. `main.js` wires up
-    // every subsystem - GPU, WGSL codegen, 3D scene, MIDI/OSC/audio, the whole
-    // panel set - during boot, so there is no import to move behind a dynamic
-    // import() without changing startup behaviour, and there is no third-party
-    // dependency of any size to peel off into a vendor chunk. Forcing a split
-    // with `manualChunks` actively hurt: grouping by source directory pulled
-    // the whole app into shared chunks and inflated the deliberately-lean
-    // second-monitor viewer page from ~100 kB to the full bundle, because
-    // Rollup's automatic per-entry splitting is what keeps those entries
-    // apart. Raise the threshold so the advisory reports real growth instead
-    // of firing on every build; lowering it again is the checkpoint if the
-    // editor boot path ever does get split.
-    chunkSizeWarningLimit: 1500,
-  },
+    build: {
+      target: 'chrome105',
+      rollupOptions: {
+        input: {
+          ...(isDesktop
+            ? { splash: resolve(__dirname, 'splash.html') }
+            : { main: resolve(__dirname, 'index.html') }),
+          editor: resolve(__dirname, 'editor/index.html'),
+          'second-monitor': resolve(__dirname, 'editor/second-monitor.html'),
+        },
+      },
+      // The editor entry lands around 1.4 MB (~340 kB gzipped) and trips
+      // Rollup's default 500 kB advisory. That default targets apps with a
+      // deferrable route/vendor split; this one has neither. `main.js` wires up
+      // every subsystem - GPU, WGSL codegen, 3D scene, MIDI/OSC/audio, the whole
+      // panel set - during boot, so there is no import to move behind a dynamic
+      // import() without changing startup behaviour, and there is no third-party
+      // dependency of any size to peel off into a vendor chunk. Forcing a split
+      // with `manualChunks` actively hurt: grouping by source directory pulled
+      // the whole app into shared chunks and inflated the deliberately-lean
+      // second-monitor viewer page from ~100 kB to the full bundle, because
+      // Rollup's automatic per-entry splitting is what keeps those entries
+      // apart. Raise the threshold so the advisory reports real growth instead
+      // of firing on every build; lowering it again is the checkpoint if the
+      // editor boot path ever does get split.
+      chunkSizeWarningLimit: 1500,
+    },
+  }
 })

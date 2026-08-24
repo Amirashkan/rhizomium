@@ -1,5 +1,10 @@
 // Desktop entry point.
 //
+// The desktop app has no landing page: the main window is the editor itself,
+// created hidden, and a small borderless splash window covers the second or two
+// the editor spends acquiring a GPU adapter and compiling its first shader. The
+// handoff between the two is the `app_ready` command below.
+//
 // Beyond opening the editor window, this handles the OS file association for
 // `.rz`: double-clicking a Rhizomium patch (or passing one on the command line)
 // must open it in the editor. The path arrives one of two ways depending on the
@@ -11,10 +16,29 @@
 //     app is already running. That variant only exists on Apple platforms, so
 //     everything touching it is cfg-gated.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 /// Path waiting to be opened by the frontend, if any.
 struct PendingOpen(Mutex<Option<String>>);
+
+/// The editor. Configured hidden in tauri.conf.json; revealed by `app_ready`.
+const MAIN_WINDOW: &str = "main";
+
+/// The borderless launch window (splash.html).
+const SPLASH_WINDOW: &str = "splashscreen";
+
+/// How long the splash is allowed to stand in for the editor.
+///
+/// The frontend calls `app_ready` on every exit from its boot path, including
+/// the failure ones, so under normal operation this never fires. It exists for
+/// the case the frontend cannot report at all — a bundle that fails to parse,
+/// a webview that dies during startup. Without it the app would be a splash
+/// screen with no title bar, no menu and no way to close it short of the task
+/// manager; with it the editor window appears and the user can at least read
+/// the error and quit.
+const SPLASH_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Event emitted when a patch is opened while the editor is already running.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -111,6 +135,48 @@ fn clear_autosave(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
+/// Whether the splash has already handed over to the editor.
+///
+/// The handoff must happen exactly once. It has two possible callers — the
+/// frontend and the `SPLASH_TIMEOUT` thread — and the frontend itself reaches
+/// it from more than one place, so this is what makes a second call harmless.
+/// Not merely redundant: `reveal_editor` focuses the editor window, and doing
+/// that again twenty seconds into a session would yank focus off whatever the
+/// artist had switched to.
+static REVEALED: AtomicBool = AtomicBool::new(false);
+
+/// Hand the screen over from the splash window to the editor.
+///
+/// Order matters: show the editor first, then close the splash. Closing first
+/// leaves a frame or two with neither window on screen, which on macOS also
+/// bounces focus to whatever application is behind Rhizomium.
+fn reveal_editor(app: &tauri::AppHandle) {
+    use tauri::Manager;
+
+    if REVEALED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    if let Some(main) = app.get_webview_window(MAIN_WINDOW) {
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+    if let Some(splash) = app.get_webview_window(SPLASH_WINDOW) {
+        let _ = splash.close();
+    }
+}
+
+/// The editor reporting that it has finished booting.
+///
+/// Called from src/core/tauriSplash.js once initialize() has run to completion
+/// — or failed, or been skipped because the device check rejected the GPU. All
+/// three want the same thing: the splash gone and the editor on screen, either
+/// showing the graph or showing why it cannot.
+#[tauri::command]
+fn app_ready(app: tauri::AppHandle) {
+    reveal_editor(&app);
+}
+
 /// macOS delivers file-association opens as an event rather than as arguments,
 /// both on a cold launch and while the editor is already open.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -148,14 +214,25 @@ pub fn run() {
             read_project_file,
             write_autosave,
             read_autosave,
-            clear_autosave
+            clear_autosave,
+            app_ready
         ])
-        .setup(|_app| {
+        .setup(|app| {
+            // Dead man's switch for the splash — see SPLASH_TIMEOUT.
+            // AppHandle is Send + Sync and the window methods dispatch to the
+            // runtime themselves, so a plain sleeping thread is enough here.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(SPLASH_TIMEOUT);
+                reveal_editor(&handle);
+            });
+
             #[cfg(debug_assertions)]
             {
                 use tauri::Manager;
-                let window = _app.get_webview_window("main").unwrap();
-                window.open_devtools();
+                if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+                    window.open_devtools();
+                }
             }
             Ok(())
         })
