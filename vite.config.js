@@ -37,6 +37,29 @@ function copyDocs() {
   }
 }
 
+
+// The web viewer is `viewer/index.html`, reached at `/viewer`. Both deployments
+// route that path explicitly — Vercel with a rewrite, the Python server with a
+// route — but Vite's dev server does not: an extensionless path it cannot
+// resolve falls through to the root index.html, so `/viewer` quietly served the
+// landing page while only `/viewer/` worked. The editor's "Open in Web Viewer"
+// link is built from the former, so map it here and keep the three servers
+// answering the same URL.
+function viewerRoute() {
+  return {
+    name: 'rhizomium-viewer-route',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        if (req.url === '/viewer' || req.url?.startsWith('/viewer?')) {
+          req.url = `/viewer/index.html${req.url.slice('/viewer'.length)}`
+        }
+        next()
+      })
+    },
+  }
+}
+
 // Tauri serves the built `dist/` as static assets and has no server-side
 // rewrites, so the editor must be a real page in the output.
 //
@@ -44,21 +67,21 @@ function copyDocs() {
 // (npm run build:desktop) selects between:
 //
 //   web     - index.html, the landing page, with the editor behind its
-//             "Launch Studio" button.
+//             "Launch Studio" button, plus the web patch viewer.
 //   desktop - splash.html, the borderless launch window. The landing page is
 //             left out of the bundle entirely: an installed application does
 //             not market itself to the person who just double-clicked it, it
 //             opens. Tauri points its hidden main window straight at the
 //             editor and the splash covers the boot (see src-tauri/src/lib.rs).
 //
-// Both build the editor and the second-monitor viewer, which are the pages
-// that actually do the work.
+// Both build the editor, the second-monitor viewer and the web patch viewer,
+// which are the pages that actually do the work.
 export default defineConfig(({ mode }) => {
   const isDesktop = mode === 'desktop'
 
   return {
     clearScreen: false,
-    plugins: [copyDocs(), oscBridge()],
+    plugins: [copyDocs(), oscBridge(), viewerRoute()],
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
     },
@@ -75,7 +98,19 @@ export default defineConfig(({ mode }) => {
         input: {
           ...(isDesktop
             ? { splash: resolve(__dirname, 'splash.html') }
-            : { main: resolve(__dirname, 'index.html') }),
+            : {
+                main: resolve(__dirname, 'index.html'),
+                // The web patch viewer (/viewer). Its own entry so Rollup keeps
+                // it lean: it shares the codegen and the renderer with the
+                // editor but none of the editor's UI, and the whole point of
+                // the page is that it boots fast on someone else's link.
+                //
+                // Web-only, like the landing page. It opens in a second tab,
+                // and the OS WebView the desktop app renders in blocks
+                // window.open() outright — the desktop app's own full-screen
+                // surface is the second-monitor viewer.
+                viewer: resolve(__dirname, 'viewer/index.html'),
+              }),
           editor: resolve(__dirname, 'editor/index.html'),
           'second-monitor': resolve(__dirname, 'editor/second-monitor.html'),
         },

@@ -57,6 +57,7 @@ import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindo
 import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
 import { exportPNG, exportAnimation } from './src/ui/exportRender.js';
 import { publishImage, publishAnimation } from './src/ui/publish.js';
+import { openInWebViewer } from './src/ui/openInWebViewer.js';
 import { modalManager } from './src/ui/ModalManager.js';
 import { PreviewPerfMonitor } from "./src/utils/PreviewPerfMonitor.js";
 import { getPerfProbe } from "./src/utils/PerfProbe.js";
@@ -2030,6 +2031,24 @@ function setupRhizomiumMenu() {
       e.stopPropagation();
       updateStatus("Publishing animation to TenderWorld…");
       await publishAnimation();
+    });
+  }
+
+  // Open in Web Viewer - this patch, running on its own page. Gated on
+  // viewer.web inside openInWebViewer(), which also does the upsell.
+  const webViewerBtn = document.getElementById("btn-web-viewer");
+  if (webViewerBtn && isTauri()) {
+    // The desktop app renders in the OS WebView, which blocks window.open()
+    // outright, and its bundle does not carry the viewer page at all (see
+    // vite.config.js). Second Monitor Viewer is the desktop equivalent.
+    webViewerBtn.style.display = "none";
+  } else if (webViewerBtn) {
+    webViewerBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await openInWebViewer({
+        onStatus: (message, type = "info") => updateStatus(message, type),
+      });
     });
   }
 

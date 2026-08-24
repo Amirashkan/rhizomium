@@ -4,24 +4,26 @@ import { BackupStore } from './BackupStore.js';
 import { createAutosaveStore, parseAutosaveEntry } from './AutosaveStore.js';
 import { migrateProjectData, SAVE_FORMAT_VERSION } from './projectMigrations.js';
 import { modalManager } from '../ui/ModalManager.js';
+import { hydrateNodes, hydrateConnections } from './graphHydration.js';
+import { dataUrlToBlob } from './dataUrl.js';
+import { restorePatchTextures, restoreImageTexture, restoreVideoTexture } from './patchTextures.js';
+
+// Re-exported: this module was the decoder's home before the web viewer
+// needed it without the rest of the save/load stack.
+export { dataUrlToBlob };
 
 /**
- * Decode a base64 data: URL into a Blob. Done by hand rather than with fetch() because the only
- * caller is restoring a patch's inlined media, and a decode should not look like a network
- * request to anything watching (CSP, service workers, or a reader of this code).
+ * Editor-only side effects of a restored texture. An open second-monitor viewer
+ * keeps its own texture copies, so a project load has to be re-broadcast there
+ * (the same hook FileInputHandler uses for a fresh upload).
+ *
+ * A module constant rather than a method: the texture methods are exercised
+ * against a stub `this` in the tests, and a helper on the prototype would make
+ * them depend on the rest of the class again.
  */
-export function dataUrlToBlob(dataUrl) {
-  const comma = dataUrl.indexOf(',');
-  if (comma < 0) throw new Error('Malformed data: URL');
-  const header = dataUrl.slice(5, comma); // between "data:" and the comma
-  if (!header.includes(';base64')) throw new Error('Only base64 data: URLs are supported');
-  const mime = header.split(';')[0] || 'application/octet-stream';
-
-  const binary = atob(dataUrl.slice(comma + 1));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
+const TEXTURE_HOOKS = {
+  onTextureChanged: (nodeId) => window.secondMonitorViewer?.onTextureChanged?.(nodeId),
+};
 
 export class SaveLoadManager {
   constructor(editor, graph, updateCallback) {
@@ -189,151 +191,25 @@ export class SaveLoadManager {
       return null;
     }
   }
-// ADD THESE THREE METHODS to your SaveLoadManager class
-// Put them after your export methods, before the file operations section
-
 /**
- * Restore textures from saved data
+ * Restore a saved project's textures onto the GPU.
+ *
+ * The work itself lives in patchTextures.js, shared with the read-only web
+ * viewer, so both restore a patch's media by the same rules — inline data:
+ * URLs only, one bad texture never costing the rest of the patch.
  */
 async restoreTextures(textureData) {
-  if (!textureData || !this.textureManager) {
-    return;
-  }
-
-  const restorePromises = [];
-
-  for (const [nodeId, texInfo] of Object.entries(textureData)) {
-    if (!texInfo.dataUrl) continue; // e.g. a video too large to inline - the node keeps its name
-    const promise = texInfo.isVideo || /^data:video\//i.test(String(texInfo.dataUrl).trim())
-      ? this.loadVideoFromDataUrl(nodeId, texInfo.dataUrl, texInfo.filename)
-      : this.loadTextureFromDataUrl(nodeId, texInfo.dataUrl, texInfo.filename);
-    restorePromises.push(promise);
-  }
-
-  if (restorePromises.length > 0) {
-    // One unusable texture should not cost the artist the rest of the patch —
-    // a rejected or refused source leaves that node without its image and the
-    // graph still opens.
-    const results = await Promise.allSettled(restorePromises);
-    for (const result of results) {
-      if (result.status === 'rejected') {
-        console.warn('Skipped a texture while restoring patch:', result.reason?.message ?? result.reason);
-      }
-    }
-  }
+  await restorePatchTextures(this.textureManager, textureData, TEXTURE_HOOKS);
 }
 
-/**
- * Load texture from data URL and register it.
- *
- * The field is named dataUrl but it arrives from a patch file, and patches are
- * downloaded from the gallery and opened by other people. Nothing stopped a
- * patch from putting `https://attacker.example/x.png` here, and assigning that
- * to img.src fires an outbound request on open — enough to log the viewer's IP
- * and tell the author their patch was opened, before any pixel is drawn. The
- * inlined payload that makes a patch self-contained is always a data: URL, so
- * anything else is refused rather than fetched.
- */
-/**
- * Restore a video texture from a patch.
- *
- * Same rule as the image path and for the same reason: only an inline data: URL is accepted, so
- * opening someone else's patch never fires a request at a URL its author chose. The decoded bytes
- * are handed back to TextureManager as a File, which puts the node through the normal upload path.
- */
 async loadVideoFromDataUrl(nodeId, dataUrl, filename) {
-  if (typeof dataUrl !== 'string' || !/^data:video\//i.test(dataUrl.trim())) {
-    throw new Error('Video source must be an inline data: video URL');
-  }
-  if (!this.textureManager) return;
-
-  const blob = dataUrlToBlob(dataUrl);
-  const file = typeof File === 'function'
-    ? new File([blob], filename || 'video', { type: blob.type })
-    : Object.assign(blob, { name: filename || 'video' });
-
-  // Pass the data URL straight back through so the restored node can be saved again without
-  // re-encoding the same bytes.
-  await this.textureManager.uploadVideo(nodeId, file, { dataUrl });
-
-  window.secondMonitorViewer?.onTextureChanged?.(nodeId);
+  return restoreVideoTexture(this.textureManager, nodeId, dataUrl, filename, TEXTURE_HOOKS);
 }
 
 async loadTextureFromDataUrl(nodeId, dataUrl, filename) {
-  return new Promise((resolve, reject) => {
-    if (typeof dataUrl !== 'string' || !/^data:image\//i.test(dataUrl.trim())) {
-      reject(new Error('Texture source must be an inline data: image URL'));
-      return;
-    }
-
-    const img = new Image();
-
-    img.onload = async () => {
-      try {
-        const bitmap = await createImageBitmap(img);
-        
-        if (this.textureManager && this.textureManager.device) {
-          // Store in textures map
-          const textureInfo = {
-            bitmap: bitmap,
-            width: img.width,
-            height: img.height,
-            filename: filename,
-            dataUrl: dataUrl
-          };
-          this.textureManager.textures.set(nodeId, textureInfo);
-          
-          // Create GPU texture
-          const gpuTexture = this.textureManager.device.createTexture({
-            size: [img.width, img.height, 1],
-            format: 'rgba8unorm',
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
-          });
-
-          // Upload bitmap to GPU
-          this.textureManager.device.queue.copyExternalImageToTexture(
-            { source: bitmap },
-            { texture: gpuTexture },
-            [img.width, img.height]
-          );
-
-          // Create sampler
-          const sampler = this.textureManager.device.createSampler({
-            magFilter: 'linear',
-            minFilter: 'linear',
-            addressModeU: 'repeat',
-            addressModeV: 'repeat',
-          });
-
-          // Store in gpuTextures map (this is what the renderer checks!)
-          if (!this.textureManager.gpuTextures) {
-            this.textureManager.gpuTextures = new Map();
-          }
-          this.textureManager.gpuTextures.set(nodeId, {
-            texture: gpuTexture,
-            sampler: sampler
-          });
-
-          // Invalidate bind group since we have new textures
-          this.textureManager.bindGroup = null;
-
-          // An open second-monitor viewer keeps its own texture copies — re-broadcast
-          // the restored texture so a project load shows up there too (same hook
-          // FileInputHandler uses for a fresh upload).
-          window.secondMonitorViewer?.onTextureChanged?.(nodeId);
-        }
-
-        resolve();
-      } catch (err) {
-
-        reject(err);
-      }
-    };
-    
-    img.onerror = () => reject(new Error('Failed to load texture image'));
-    img.src = dataUrl;
-  });
+  return restoreImageTexture(this.textureManager, nodeId, dataUrl, filename, TEXTURE_HOOKS);
 }
+
   // =============================================================================
   // CORE SAVE/LOAD FUNCTIONALITY
   // =============================================================================
@@ -2379,98 +2255,30 @@ async reinitializeWebGPU() {
   // DATA IMPORT HELPERS
   // =============================================================================
 
+/**
+ * Rebuild the graph's nodes from saved records.
+ *
+ * The reconstruction itself lives in graphHydration.js, shared with the
+ * read-only web viewer, so a patch hydrates identically in both places.
+ */
 async importNodes(nodeData) {
   try {
-    // Create an ID mapping to preserve connections
-    const idMap = new Map();
-
-    this.graph.nodes = (nodeData || []).map((data) => {
-      // PRESERVE ORIGINAL IDs - don't regenerate them!
-      // This ensures node references like "=node_14" keep working
-      const nodeId = String(data.id);
-      idMap.set(nodeId, nodeId);  // Map to itself since we're not changing IDs
-
-      const node = {
-        id: nodeId,  // Use the ORIGINAL ID
-        type: data.kind || "Unknown",
-        kind: data.kind || "Unknown",
-        x: data.position?.x || data.x || 0,
-        y: data.position?.y || data.y || 0,
-        w: data.size?.width || data.w || 180,
-        h: data.size?.height || data.h || 60,
-        inputs: [],
-        outputs: [],
-      };
-
-      // ... rest of property restoration
-      if (data.value !== undefined) node.value = data.value;
-      if (data.xv !== undefined) node.xv = data.xv;
-      if (data.yv !== undefined) node.yv = data.yv;
-      if (data.expr !== undefined) node.expr = data.expr;
-      if (data.props !== undefined) node.props = { ...data.props };
-
-      const parameterKeys = ['min', 'max', 'step', 'default', 'label', 'units', 'precision'];
-      for (const key of parameterKeys) {
-        if (data[key] !== undefined) {
-          node[key] = data[key];
-        }
-      }
-
-      for (const [key, value] of Object.entries(data)) {
-        if (!['id', 'kind', 'position', 'size', 'inputs', 'outputs'].includes(key) && 
-            !Object.hasOwn(node, key)) {
-          node[key] = value;
-        }
-      }
-
-      const inputCount = data.inputs?.length || 0;
-      node.inputs = new Array(inputCount).fill(null);
-
-      return node;
-    });
-
-    // Store the ID map for use in importConnections
-    this._importIdMap = idMap;
+    this.graph.nodes = hydrateNodes(nodeData);
   } catch (error) {
-    window.errorHandler?.handleError(error, { 
+    window.errorHandler?.handleError(error, {
       component: 'node-import',
       nodeDataLength: nodeData?.length || 0
     });
     this.graph.nodes = [];
   }
 }
+
+/** Rebuild the connections and wire them into each target node's input slots. */
 importConnections(connectionData) {
   try {
-    const idMap = this._importIdMap || new Map();
-    
-    this.graph.connections = (connectionData || []).map(conn => ({
-      from: {
-        nodeId: idMap.get(String(conn.from.nodeId)) || String(conn.from.nodeId),
-        pin: conn.from.pin || 0,
-      },
-      to: {
-        nodeId: idMap.get(String(conn.to.nodeId)) || String(conn.to.nodeId),
-        pin: conn.to.pin || 0,
-      },
-    }));
-
-    const nodeMap = new Map(this.graph.nodes.map(n => [n.id, n]));
-    
-    for (const conn of this.graph.connections) {
-      const toNode = nodeMap.get(conn.to.nodeId);
-      if (toNode) {
-        const toPin = conn.to.pin || 0;
-        while (toNode.inputs.length <= toPin) {
-          toNode.inputs.push(null);
-        }
-        toNode.inputs[toPin] = conn.from.nodeId;
-      }
-    }
-
-    // Clean up the temporary ID map
-    delete this._importIdMap;
+    this.graph.connections = hydrateConnections(connectionData, this.graph.nodes);
   } catch (error) {
-    window.errorHandler?.handleError(error, { 
+    window.errorHandler?.handleError(error, {
       component: 'connection-import',
       connectionDataLength: connectionData?.length || 0
     });

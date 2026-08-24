@@ -108,8 +108,26 @@ output surface. The build is detected at runtime via `import.meta.env`, which
 Vite injects but the raw deployments do not (see `src/utils/isViteBuild.js`);
 the desktop path additionally checks for the Tauri globals (`src/utils/isTauri.js`).
 
+### Web Patch Viewer (`/viewer`)
+
+A published patch, running live in a browser with no editor around it — the page
+a link to your work leads to. **File → Open in Web Viewer** (`Ctrl/⌘+Shift+W`)
+opens the patch you are editing there in a second tab, handed over through
+IndexedDB rather than through the gallery, so looking at your own work does not
+mean publishing it first.
+
+The viewer is a **Cloude** entitlement (`viewer.web`): free and signed-out
+visitors get an upsell rather than a render, and unlike the live-output features
+it refuses when the gallery cannot be reached instead of allowing. Audio, MIDI,
+OSC and the 3D field visualisers do not travel with a patch, and the page says
+so under the render. Details in [docs/web-viewer.md](docs/web-viewer.md).
+
+Web only: the desktop app's WebView blocks `window.open()`, and the
+second-monitor viewer is its full-screen surface.
+
 ## 📖 Documentation
 
+- **[docs/web-viewer.md](docs/web-viewer.md)** - The web patch viewer, and the tier gate on it
 - **[docs/frame-rate.md](docs/frame-rate.md)** - **Frame rate & display refresh — read this if the fps readout is lower than your monitor's refresh rate**
 - **[QUICKSTART.md](QUICKSTART.md)** - Get started in 3 steps
 - **[RHIZOMIUM_VIEWER_SETUP.md](RHIZOMIUM_VIEWER_SETUP.md)** - External viewer setup
@@ -127,6 +145,7 @@ the desktop path additionally checks for the Tauri globals (`src/utils/isTauri.j
 - **MIDI Control** - Map hardware controllers to any parameter
 - **OSC Control** - Map TouchOSC, Max, SuperCollider and friends to any parameter
 - **Save/Load** - Project management with backups
+- **Web Viewer** - Published patches running live in the browser (Cloude)
 
 ## 🎛️ OSC Control
 

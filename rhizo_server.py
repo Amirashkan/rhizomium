@@ -67,6 +67,12 @@ def editor():
     return send_file(os.path.join(BASE_DIR, 'editor', 'index.html'))
 
 
+@app.route('/viewer')
+def viewer():
+    """Serve the web patch viewer page."""
+    return send_file(os.path.join(BASE_DIR, 'viewer', 'index.html'))
+
+
 @app.route('/<path:path>')
 def serve_static(path):
     """Serve static files from the project root.
@@ -254,7 +260,7 @@ def status():
             'url': f'ws://localhost:{OSC_WS_PORT}/ws'
         },
         'endpoints': {
-            'static': ['/', '/studio', '/editor', '/viewer.html'],
+            'static': ['/', '/studio', '/editor', '/viewer'],
             'api': ['/api/health', '/api/status', '/api/stream-frame']
         }
     }), 200

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      The viewer opens patches other people wrote, from a link other people
+      sent. connect-src is the gallery (entitlements, and the published patch
+      itself) and this origin, and nothing else — see src/viewer/patchSource.js
+      for why the patch URL is allowlisted rather than followed. img/media allow
+      data: and blob: because a patch's textures are inlined as data URLs.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://art.tenderworld.org; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
+    <title>Rhizomium viewer</title>
+    <link rel="icon" href="../favicon.ico" />
+    <link rel="stylesheet" href="./viewer.css" />
+  </head>
+  <body data-state="checking">
+    <!-- The output. Renders at the patch's authored size; CSS scales it. -->
+    <canvas id="viewer-canvas"></canvas>
+
+    <!-- Everything that is not the artwork lives in here, and is hidden the
+         moment the patch starts playing. -->
+    <div id="viewer-overlay" role="status" aria-live="polite">
+      <div class="viewer-card">
+        <h1 id="viewer-overlay-title">One moment</h1>
+        <p id="viewer-overlay-message">Checking your plan…</p>
+        <p id="viewer-overlay-detail" hidden></p>
+        <div id="viewer-overlay-actions"></div>
+      </div>
+    </div>
+
+    <!-- What this patch asked for that a viewer cannot give it (audio, MIDI,
+         the 3D viewport). Shown under the render, not instead of it. -->
+    <ul id="viewer-notes" hidden></ul>
+
+    <input id="viewer-file" type="file" accept=".rz,application/json" hidden />
+
+    <script type="module" src="../src/viewer/viewerMain.js"></script>
+  </body>
+</html>

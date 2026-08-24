@@ -1,0 +1,175 @@
+/* viewer.css — the web patch viewer.
+ *
+ * Deliberately standalone rather than built on the editor's token sheet: this
+ * page ships to visitors who have never seen the editor, loads on its own, and
+ * should stay a handful of kilobytes. The palette is the editor's dark ground
+ * so the two read as one product.
+ */
+
+:root {
+  --viewer-bg: #08080a;
+  --viewer-panel: rgba(20, 20, 24, 0.92);
+  --viewer-border: rgba(255, 255, 255, 0.12);
+  --viewer-text: #f2f2f4;
+  --viewer-muted: rgba(242, 242, 244, 0.62);
+  --viewer-accent: #7cc4ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--viewer-bg);
+  color: var(--viewer-text);
+  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+}
+
+body {
+  display: grid;
+  place-items: center;
+}
+
+/* The render. Letterboxed by the browser: the canvas keeps the patch's own
+   aspect ratio and grows to whichever window edge it meets first.
+ *
+ * The element box is sized to that ratio rather than filled and cropped with
+ * object-fit, so the box and the bitmap always coincide — which is what keeps
+ * a patch that reads the mouse pointing where the visitor is actually pointing.
+ * viewerMain.js writes the two ratio components once the patch is loaded. */
+#viewer-canvas {
+  --viewer-ar-w: 16;
+  --viewer-ar-h: 9;
+  display: none;
+  aspect-ratio: var(--viewer-ar-w) / var(--viewer-ar-h);
+  width: min(100vw, calc(100vh * var(--viewer-ar-w) / var(--viewer-ar-h)));
+  height: auto;
+  background: #000;
+}
+
+body[data-state="playing"] #viewer-canvas {
+  display: block;
+}
+
+body[data-state="playing"] {
+  cursor: none;
+}
+
+/* ---------------------------------------------------------------- overlay */
+
+#viewer-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(120% 90% at 50% 0%, #16161c 0%, var(--viewer-bg) 70%);
+}
+
+body[data-state="playing"] #viewer-overlay {
+  display: none;
+}
+
+.viewer-card {
+  max-width: 34rem;
+  text-align: center;
+  padding: 32px;
+  border: 1px solid var(--viewer-border);
+  border-radius: 14px;
+  background: var(--viewer-panel);
+}
+
+.viewer-card h1 {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.viewer-card p {
+  margin: 0 0 8px;
+}
+
+#viewer-overlay-detail {
+  color: var(--viewer-muted);
+  font-size: 0.92rem;
+}
+
+#viewer-overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.viewer-action {
+  appearance: none;
+  display: inline-block;
+  padding: 9px 16px;
+  border: 1px solid var(--viewer-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--viewer-text);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.viewer-action:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.viewer-action-primary {
+  border-color: transparent;
+  background: var(--viewer-accent);
+  color: #08080a;
+  font-weight: 600;
+}
+
+.viewer-action-primary:hover {
+  background: #a3d6ff;
+}
+
+/* A drop target only needs to say it is one. */
+body.is-dropping .viewer-card {
+  border-color: var(--viewer-accent);
+}
+
+/* ------------------------------------------------------------------ notes */
+
+/* What the patch asked for that the viewer cannot supply. Sits under the
+   render, faint, and fades out — it is a footnote, not a warning. */
+#viewer-notes {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 8px 14px;
+  list-style: none;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--viewer-muted);
+  font-size: 0.82rem;
+  text-align: center;
+  pointer-events: none;
+  animation: viewer-note-fade 1s ease-in 8s forwards;
+}
+
+@keyframes viewer-note-fade {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #viewer-notes {
+    animation: none;
+  }
+}
