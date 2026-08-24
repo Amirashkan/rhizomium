@@ -1,6 +1,8 @@
 # Keyboard Shortcuts
 
-Master Rhizomium with these keyboard shortcuts for faster workflow.
+Every command in the menu bar has a key, and the menu prints it next to the
+command — you never have to come here to find one. **Help → Shortcuts / Keymap**
+(`Ctrl+/`) shows this same table inside the app, with a filter box.
 
 ---
 
@@ -9,34 +11,115 @@ Master Rhizomium with these keyboard shortcuts for faster workflow.
 - **Windows/Linux**: Use `Ctrl` key
 - **Mac**: Use `Cmd` (⌘) key
 
-When shortcuts list `Ctrl`, Mac users should use `Cmd` instead.
+When shortcuts list `Ctrl`, Mac users should use `Cmd` instead. Where a
+shortcut adds `Alt`, that is `Option` (⌥) on a Mac.
+
+Shortcuts pause while you are typing in a text field, and while a modal dialog
+is open.
 
 ---
 
-## Essential Shortcuts
-
-### Project Management
+## File
 
 | Shortcut | Action | Description |
 |----------|--------|-------------|
-| `Ctrl+S` | Save Project | Save to browser storage |
-| `Ctrl+Shift+S` | Save to Local | Alternative save method |
-| `Ctrl+O` | Open File | Open import dialog |
-| `Ctrl+N` | New Project | Create new project (prompts to confirm) |
-| `Ctrl+L` | Load from Local | Load from browser storage |
+| `Ctrl+N` | New Project | Starts a fresh graph (asks first) |
+| `Ctrl+O` | Open Project… | Open a `.rz` / `.json` patch |
+| `Ctrl+S` | Save | Write back to the bound file |
+| `Ctrl+Shift+S` | Save As… | Pick a new name / location |
+| `Ctrl+Shift+O` | File Manager | Browse saved projects |
+| `Ctrl+Shift+X` | Export | Open the export window |
+| `Ctrl+Shift+U` | Publish Image… | Share the render to the TenderWorld gallery |
+| `Ctrl+Alt+U` | Publish Animation… | Share an animation to the gallery |
+| `Ctrl+B` | Backups | Open the backup dialog |
+| `Ctrl+Alt+Q` | Exit | |
+| `Ctrl+Shift+L` | Load from browser storage | Restores this browser's autosave |
 
-### Editing
+## Edit
 
 | Shortcut | Action | Description |
 |----------|--------|-------------|
 | `Ctrl+Z` | Undo | Undo last action |
-| `Ctrl+Y` | Redo | Redo last undone action |
-| `Ctrl+Shift+Z` | Redo (Alt) | Alternative redo shortcut |
-| `Ctrl+C` | Copy | Copy selected nodes |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo | Redo last undone action |
+| `Ctrl+X` | Cut | Cut selected nodes |
+| `Ctrl+C` | Copy | Copy selected nodes (preserves connections) |
 | `Ctrl+V` | Paste | Paste copied nodes |
-| `Ctrl+D` | Duplicate | Duplicate selected nodes |
-| `Delete` | Delete | Delete selected nodes |
-| `Backspace` | Delete (Alt) | Alternative delete key |
+| `Delete` / `Backspace` | Delete | Delete selected nodes |
+| `Ctrl+Shift+R` | Rebuild Shader | Recompile from the current graph |
+| `Ctrl+,` | Preferences… | |
+| `Ctrl+E` | Edit expression | Focus the expression field of the open parameter |
+| `F2` | Rename node | With exactly one node selected |
+
+## View
+
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `Ctrl+1` | Toggle ParamPanel | |
+| `Ctrl+2` / `Ctrl+P` | Toggle Preview Panel | The floating preview window |
+| `Ctrl+3` | Toggle 3D Viewport | |
+| `Ctrl+Shift+P` | Preview / Export Settings | Render resolution and format |
+| `Ctrl+=` | Zoom In | `Ctrl++` works too |
+| `Ctrl+-` | Zoom Out | |
+| `Ctrl+0` | Reset Zoom | Back to 100%, centred |
+| `Ctrl+Shift+G` | Show Grid | |
+| `Ctrl+G` | Snap to Grid | |
+| `` Ctrl+` `` | Console | The generated WGSL panel |
+| `Ctrl+Alt+T` | Timeline | |
+| `Ctrl+Shift+V` | VJ Control | |
+| `Ctrl+Alt+P` | Compute Profiler | Per-frame GPU timing; costs performance while open |
+| `Ctrl+Shift+2` | Second Monitor Viewer | Desktop / Vite build only |
+
+## Node
+
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `Ctrl+Space` | Create Node… | Search palette at the centre of the canvas |
+| `Tab` | Create Node… (on a wire) | While dragging a wire, drops the new node onto it |
+| `Delete` | Delete Node | |
+| `Ctrl+D` | Duplicate Node | |
+| `Ctrl+K` | Connect Pins | |
+| `Ctrl+Shift+K` | Disconnect Pins | |
+| `Ctrl+I` | Node Settings / Params… | |
+
+## Tools
+
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `Ctrl+Shift+A` | AI Assistant… | |
+| `Ctrl+Alt+S` | Script Editor / Python Console | |
+| `Ctrl+Alt+C` | Shader Compiler | |
+| `Ctrl+Alt+G` | GLSL Utilities | |
+| `Ctrl+Shift+M` | Projection Mapping… | |
+| `Ctrl+Alt+A` | Audio Settings | |
+| `Ctrl+Alt+M` | MIDI Settings | |
+| `Ctrl+Alt+O` | OSC Receiver | |
+
+## Window
+
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `Ctrl+Alt+1` | Layout: Default | |
+| `Ctrl+Alt+2` | Layout: Custom | |
+| `Ctrl+Alt+3` | Layout: Minimal | |
+| `Ctrl+Alt+F` | Floating Windows | |
+| `Ctrl+Alt+0` | Reset Layout | |
+
+## Help
+
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `F1` | Documentation | Opens this site |
+| `Ctrl+/` | Shortcuts / Keymap | The in-app keymap (`?` works too) |
+| `Ctrl+Alt+W` | Welcome | |
+| `Ctrl+Alt+I` | About | |
+
+## Canvas
+
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `F` | Frame Selection | Fits the selection — or the whole graph — to the view |
+| `H` | Show / hide previews | Toggles the thumbnails of every selected node |
+| `Esc` | Close menu / panel | Also cancels a wire drag |
 
 ### Selection
 
@@ -81,28 +164,23 @@ When shortcuts list `Ctrl`, Mac users should use `Cmd` instead.
 
 ---
 
-## Tools & Panels
+## WGSL Console
 
-### UI Controls
-
-| Shortcut | Action | Description |
-|----------|--------|-------------|
-| `Ctrl+P` | Toggle Preview | Show/hide the floating preview window |
-| `Ctrl+Alt+P` | Toggle Profiler | Show/hide the compute profiler overlay, also under View ▸ Compute Profiler (hidden by default; showing it turns on per-frame GPU timing, which costs performance) |
-| `Ctrl+Shift+P` | Run Performance Tests | Runs the GPU performance test suite and logs results to the console |
-| `Ctrl+Space` | Quick Node Search | Open node search (if available) |
-| `Ctrl+B` | Backups | Open backup dialog |
-| `Ctrl+V` | VJ Control | Toggle VJ Control panel |
-| `Esc` | Close Menu/Panel | Close context menu or parameter panel |
-| Double-Click | Edit Parameters | Open parameter panel for node |
-
-### Export & Debug
+The generated-shader panel (`` Ctrl+` ``) has its own commands, live while it is
+open:
 
 | Shortcut | Action | Description |
 |----------|--------|-------------|
-| `Ctrl+E` | Focus Expression | Focus expression editor (in params) |
-| `Ctrl+Shift+E` | Export WGSL | Export shader as WGSL file |
-| `Ctrl+L` | Toggle Debug | Toggle debug overlay |
+| `Ctrl+Shift+E` | Export WGSL | Save the generated shader to a file |
+| `Ctrl+Alt+E` | Select All Code | |
+| `Ctrl+Alt+Y` | Copy Code | |
+
+### Other
+
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `Ctrl+Shift+C` | Compute shader test | Developer toggle |
+| Double-Click | Edit Parameters | Open the parameter panel for a node |
 
 ---
 
@@ -153,12 +231,11 @@ When shortcuts list `Ctrl`, Mac users should use `Cmd` instead.
 
 ## Grid & Snapping
 
-### Grid Controls
+Under **View → Grid**:
 
-These live in the menu bar, not on the keyboard:
-
-- **Snap Toggle** - Enable/disable snap-to-grid
-- **Grid Size** - Adjust grid spacing (2-512)
+- **Show Grid** (`Ctrl+Shift+G`) - Draw the grid behind the graph
+- **Snap to Grid** (`Ctrl+G`) - Enable/disable snap-to-grid
+- **Grid Size** - Adjust grid spacing (2-512); menu only
 
 When snap is enabled, arrow key movement uses grid size.
 
@@ -195,11 +272,10 @@ When parameter panel is open:
 
 | Shortcut | Action | Description |
 |----------|--------|-------------|
-| `Ctrl+T` | Toggle Timeline | Open/close timeline panel |
+| `Ctrl+Alt+T` | Toggle Timeline | Open/close timeline panel |
 | `K` | Add Keyframe | Add keyframe at current time |
 | `Space` | Play/Pause | Start/stop timeline playback |
 | `←` `→` | Move Playhead | Step timeline left/right |
-| `Ctrl+Shift+R` | Reset Timeline | Reset to start |
 
 **When timeline panel is open:**
 - **Keyframe Controls** - Use timeline UI
@@ -211,9 +287,12 @@ When parameter panel is open:
 | Shortcut | Action | Description |
 |----------|--------|-------------|
 | `Ctrl+Alt+P` | Toggle Profiler | Show/hide performance overlay (also View ▸ Compute Profiler) |
-| `Ctrl+Shift+P` | Run Tests | Execute performance tests |
-| `Ctrl+Shift+R` | Reset Profiler | Clear profiler statistics |
-| `Ctrl+Shift+E` | Toggle Profiling | Enable/disable profiling |
+| `Ctrl+Alt+Shift+P` | Run Tests | Execute performance tests |
+| `Ctrl+Alt+Shift+R` | Reset Profiler | Clear profiler statistics |
+| `Ctrl+Alt+Shift+E` | Toggle Profiling | Enable/disable profiling |
+
+The three developer keys carry `Alt` so they stay clear of the editor's own
+`Ctrl+Shift+P` / `R` / `E`.
 
 **In profiler overlay:**
 - **+** - Expand to show detailed breakdown
@@ -286,8 +365,9 @@ See [Performance Profiler Guide](profiler.md) for details.
 | Duplicate | `Ctrl+D` |
 | Delete | `Delete` |
 | Frame Selection | `F` |
-| Toggle Preview | `Ctrl+P` |
+| Toggle Preview Panel | `Ctrl+2` |
 | Open File | `Ctrl+O` |
+| Keymap | `Ctrl+/` |
 
 ### Canvas Navigation
 
@@ -347,12 +427,16 @@ See [Performance Profiler Guide](profiler.md) for details.
 
 ## Customizing Shortcuts
 
-Currently, keyboard shortcuts are **not customizable** in Rhizomium. They are hard-coded in the application.
+Shortcuts are **not customizable** from the UI yet — the keymap ships with the
+application.
 
-If you need different shortcuts, you would need to:
+All of it lives in one file, `src/ui/shortcuts.js`. That table is what prints
+the hints in the menus, what fires the commands, and what the Help → Shortcuts
+dialog shows, so changing a key there changes all three at once:
+
 1. Clone the repository
-2. Modify `main.js` (setupKeyboardShortcuts function)
-3. Run locally
+2. Edit the entry's `keys` in `src/ui/shortcuts.js`
+3. Run locally (`npm run dev`)
 
 ---
 
@@ -364,18 +448,23 @@ Print or bookmark this page for quick reference!
 ┌─────────────── RHIZOMIUM SHORTCUTS ───────────────┐
 │                                                    │
 │  ESSENTIAL                                         │
-│  Ctrl+S = Save    Ctrl+Z = Undo    Ctrl+C = Copy │
-│  Ctrl+O = Open    Ctrl+Y = Redo    Ctrl+V = Paste│
-│  Ctrl+D = Duplicate               Delete = Delete │
+│  Ctrl+S = Save      Ctrl+Z = Undo   Ctrl+C = Copy │
+│  Ctrl+O = Open      Ctrl+Y = Redo   Ctrl+V = Paste│
+│  Ctrl+D = Duplicate                Delete = Delete│
 │                                                    │
 │  NAVIGATION                                        │
-│  Middle-Drag = Pan       Wheel = Zoom             │
-│  F = Frame Selection     Arrows = Move Nodes      │
+│  Middle-Drag = Pan        Wheel = Zoom            │
+│  F = Frame Selection      Arrows = Move Nodes     │
+│  Ctrl+0 = Reset Zoom      Ctrl+G = Snap to Grid   │
+│                                                    │
+│  PANELS                                            │
+│  Ctrl+1 = Params    Ctrl+2 = Preview   Ctrl+3 = 3D│
+│  Ctrl+` = Console   Ctrl+Alt+T = Timeline         │
 │                                                    │
 │  TOOLS                                             │
-│  Ctrl+P = Preview        Ctrl+B = Backups         │
-│  Ctrl+V = VJ Control     Esc = Close Menu         │
-│  Double-Click = Edit     Right-Click = Add Node   │
+│  Ctrl+Space = Add Node    Ctrl+B = Backups        │
+│  Ctrl+Shift+V = VJ        Esc = Close Menu        │
+│  Ctrl+/ = Full Keymap     Right-Click = Add Node  │
 │                                                    │
 └────────────────────────────────────────────────────┘
 ```
