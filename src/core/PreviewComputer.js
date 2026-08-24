@@ -206,7 +206,11 @@ export class PreviewComputer {
           ? val.values
           : null;
       if (channels) {
-        context[`node_${id}`] = channels;
+        // A vector binds bare as the whole vector; a node whose outputs are independent scalar
+        // pins (Audio Analysis) binds bare as pin 0, the value the compiler emits for the same
+        // reference. Binding the pin list there made a bare `=node_<audio>` evaluate to a
+        // non-number, so a parameter driven by one fell back to its default and never moved.
+        context[`node_${id}`] = val?.scalarPins ? (channels[0] ?? 0) : channels;
         channels.forEach((v, i) => {
           if (comps[i]) context[`node_${id}_${comps[i]}`] = v;
           context[`node_${id}_${i}`] = v;
@@ -350,6 +354,9 @@ export class PreviewComputer {
       // (level) stays the node's on-canvas readout.
       result = {
         type: 'split',
+        // Independent scalar outputs, not a vector's channels: a bare `=node_<id>` reference
+        // resolves to pin 0 (level) rather than to the whole list. See _addNodeRefsToContext.
+        scalarPins: true,
         values: AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i)),
       };
       break;

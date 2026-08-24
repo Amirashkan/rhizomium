@@ -29,6 +29,84 @@ import { controlInputPinIndices } from '../data/NodeDefs.js';
 import { getDynamicInputSpec, getInputCount } from '../data/nodeInputs.js';
 import { MAX_SIM_EDGE, fitToLongEdge, resolveResolution } from '../ui/OutputFormat.js';
 
+// Node kinds whose output moves every frame on its own, with nothing wired in. The clock-driven
+// Input nodes, plus Audio Analysis: its meters follow the live signal and are advanced on the CPU
+// each frame by AudioAnalysisProcessor. This is the set Editor._hasIntrinsicTimeNodes keeps the
+// render loop alive for, and a compute node that reads one from a parameter has to keep
+// dispatching for the same reason — its uniforms are only re-evaluated when it dispatches, so an
+// undispatched node renders whatever the reference held when something else last marked it dirty.
+const LIVE_INPUT_KINDS = new Set(['Time', 'Wave', 'RandomValue', 'AudioAnalysis']);
+
+/**
+ * Find a node by id. computeNodeRegistry only holds COMPUTE nodes, so anything else — the Input
+ * nodes a parameter reference exists to reach — has to come from the graph.
+ */
+function resolveGraphNode(nodeId) {
+  const id = String(nodeId);
+  return window.computeNodeRegistry?.get(id)?.node
+    || window.graph?.getNode?.(id)
+    || window.editor?.graph?.nodes?.find((n) => String(n?.id) === id)
+    || null;
+}
+
+/** Ids this node's parameter expressions reference (`=node_5`, `=clamp(node_5_1 * 20, 1, 40)`). */
+function extractParamNodeReferences(node) {
+  const ids = new Set();
+  if (!node?.params) return ids;
+  for (const value of Object.values(node.params)) {
+    if (typeof value !== 'string') continue;
+    for (const match of value.matchAll(/\bnode_(\d+)/g)) {
+      ids.add(match[1]);
+    }
+  }
+  return ids;
+}
+
+/** Does this node carry an expression that reads the clock or the audio envelope? */
+function hasTimeDependentParams(node) {
+  if (!node?.params) return false;
+  for (const value of Object.values(node.params)) {
+    if (typeof value === 'string' && /time|audioEnvelope/i.test(value.trim())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Does this node's output move on its own between frames?
+ *
+ * Answered for the whole upstream chain, not just the node itself: a Pattern whose scale is
+ * `=node_<remap>` where that Remap is *wired* from an Audio Analysis is exactly as live as one
+ * referencing the analysis directly, and the wire is invisible to a params-only check. Reference
+ * cycles and feedback loops are guarded by `visited`.
+ */
+function isNodeLive(node, visited = new Set()) {
+  if (!node) return false;
+  const id = String(node.id);
+  if (visited.has(id)) return false;
+  visited.add(id);
+
+  if (LIVE_INPUT_KINDS.has(node.kind)) return true;
+  if (ComputeExecutor.SELF_ANIMATED_KINDS.has(node.kind)) return true;
+  if (hasTimeDependentParams(node)) return true;
+
+  // Wired upstream: anything fed by a live node is live.
+  if (Array.isArray(node.inputs)) {
+    for (const inputId of node.inputs) {
+      if (inputId === null || inputId === undefined) continue;
+      if (isNodeLive(resolveGraphNode(inputId), visited)) return true;
+    }
+  }
+
+  // Referenced upstream: the same question one parameter expression further up.
+  for (const refId of extractParamNodeReferences(node)) {
+    if (isNodeLive(resolveGraphNode(refId), visited)) return true;
+  }
+
+  return false;
+}
+
 export class ComputeExecutor {
   constructor(device) {
     this.device = device;
@@ -1186,20 +1264,7 @@ export class ComputeExecutor {
    * @returns {boolean} True if node has time-dependent parameters
    */
   hasTimeDependentParameters(node) {
-    if (!node || !node.params) return false;
-
-    // Check all parameter values for time-dependent expressions
-    for (const [, value] of Object.entries(node.params)) {
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        // Check if parameter contains time or audio envelope references
-        if (/time|audioEnvelope/i.test(trimmed)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
+    return hasTimeDependentParams(node);
   }
 
   /**
@@ -1235,20 +1300,10 @@ export class ComputeExecutor {
    * @returns {boolean} True if node has node reference parameters
    */
   hasNodeReferenceParameters(node) {
-    if (!node || !node.params) return false;
-
-    // Check all parameter values for node reference expressions
-    for (const value of Object.values(node.params)) {
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        // Check if parameter contains node reference (=node_X or =node_X.component)
-        if (/=\s*node_\d+/.test(trimmed)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
+    // Anywhere in the expression, not only immediately after the `=`: mapping an audio meter onto
+    // a parameter is usually written as a formula around the reference ("=clamp(node_28_1 * 20, 1,
+    // 40)"), and an `=\s*node_` test sees no reference at all in one of those.
+    return extractParamNodeReferences(node).size > 0;
   }
 
   /**
@@ -1256,58 +1311,12 @@ export class ComputeExecutor {
    * This helps avoid unnecessary dispatches when referenced values are static
    */
   hasTimeDependentReferencedNodes(node) {
-    if (!node || !node.params) return false;
-
-    // Extract node IDs from parameter expressions
-    const referencedNodeIds = new Set();
-    for (const value of Object.values(node.params)) {
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        // Match =node_X or =node_X.component patterns
-        const matches = trimmed.match(/=\s*node_(\d+)/g);
-        if (matches) {
-          for (const match of matches) {
-            const nodeId = match.replace(/=\s*node_/, '');
-            referencedNodeIds.add(nodeId);
-          }
-        }
-      }
-    }
-
-    // Check if any referenced nodes are time-dependent
+    const referencedNodeIds = extractParamNodeReferences(node);
     if (referencedNodeIds.size === 0) return false;
 
-    // Check if any referenced node is time-dependent
+    const visited = new Set();
     for (const refNodeId of referencedNodeIds) {
-      const refNodeData = window.computeNodeRegistry?.get(refNodeId);
-      // computeNodeRegistry only holds COMPUTE nodes, so a reference to anything else resolved to
-      // nothing here and was judged static. That is wrong for the clock-driven Input nodes below,
-      // whose whole purpose is to be referenced from a parameter: fall back to the graph so a
-      // compute node driven by `=node_<wave>` is actually seen as animated.
-      const refNode = refNodeData?.node
-        || window.graph?.getNode?.(refNodeId)
-        || window.editor?.graph?.nodes?.find(n => String(n.id) === String(refNodeId));
-      if (refNode) {
-        // Input nodes that advance from the wall clock alone, with nothing wired in — the same set
-        // Editor._hasIntrinsicTimeNodes keeps the render loop alive for. Their value moves every
-        // frame without any param edit, so a compute node referencing one must keep dispatching.
-        const CLOCK_DRIVEN_INPUT_NODES = ['Time', 'Wave', 'RandomValue'];
-        if (refNode.kind && CLOCK_DRIVEN_INPUT_NODES.includes(refNode.kind)) {
-          return true;
-        }
-        // Check if referenced node has time-dependent parameters
-        if (this.hasTimeDependentParameters(refNode)) {
-          return true;
-        }
-        // Check if referenced node is a time-dependent compute node type
-        const TIME_DEPENDENT_NODES = [
-          'ComputeNoise', 'ComputeReactionDiffusion', 'ComputeFeedback',
-          'ComputeFeedbackField', 'ComputeFluidSim', 'ComputeParticles'
-        ];
-        if (refNode.kind && TIME_DEPENDENT_NODES.includes(refNode.kind)) {
-          return true;
-        }
-      }
+      if (isNodeLive(resolveGraphNode(refNodeId), visited)) return true;
     }
 
     return false;
