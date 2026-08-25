@@ -206,6 +206,16 @@ Two things follow for anyone reading this file to debug a desktop install:
   the bundle. `aiClient.js` uses `STUDIO_ORIGIN` when `isTauri()`, and
   `src-tauri/tauri.conf.json` has to list that origin in `connect-src`.
   `tests/desktopAccount.test.js` holds the two together.
+- **Our own backend needs an allow-list too, not just the gallery's.** Naming
+  the origin makes the AI call cross-origin, and its JSON body makes it
+  preflighted: the browser sends `OPTIONS` first and will not send the `POST`
+  at all unless the answer names its origin. `api/_lib/cors.js` holds that
+  list — the three `tauri://`/`tauri.localhost` origins, any loopback address
+  (so `npm run dev` and `tauri dev` on :5173 can work against a real backend),
+  whatever domain the deployment itself answers on, and anything in
+  `AI_ALLOWED_ORIGINS` for a self-hosted studio. `api/ai/run.js` applies it
+  before every path out, so a 401 or a 503 is readable rather than arriving as
+  a CORS failure. It is not the gate — the signed grant is; see §Security.
 - **The output flags failing open matters more here.** `output.ndi` and
   `output.multiscreen` allow on an unreachable gallery (see below), which is
   what keeps a desktop install usable at a venue — and what kept the missing

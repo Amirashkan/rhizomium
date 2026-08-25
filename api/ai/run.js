@@ -17,6 +17,7 @@
 
 import OpenAI from 'openai';
 import { verifyGrant, grantsConfigured, claimGrantId } from '../_lib/grant.js';
+import { applyCors } from '../_lib/cors.js';
 import { featureConfig, buildUserMessage, BadInputError } from '../_lib/features.js';
 import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
 
@@ -72,6 +73,14 @@ function openai() {
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'private, no-store');
 
+  // Before every other path out, so that an error the browser is entitled to
+  // read does not come back as a CORS failure instead. The desktop app and a
+  // local dev server both call this endpoint cross-origin; see _lib/cors.js.
+  applyCors(req, res);
+
+  // The preflight. It answers 204 either way — a browser whose origin was not
+  // allowed sees the missing header and refuses to send the POST, which is the
+  // outcome we want and the one it reports.
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST, OPTIONS');
