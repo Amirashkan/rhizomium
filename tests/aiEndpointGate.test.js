@@ -11,10 +11,10 @@ import { createHmac, randomUUID } from 'node:crypto';
 
 const streamMock = vi.fn();
 
-vi.mock('@anthropic-ai/sdk', () => ({
+vi.mock('openai', () => ({
   default: class {
     constructor() {
-      this.messages = { stream: streamMock };
+      this.responses = { stream: streamMock };
     }
   },
 }));
@@ -41,15 +41,26 @@ function mockRes() {
   return res;
 }
 
-/** A model answer that returns `input` through the feature's tool. */
-function mockModelAnswer(toolName, input) {
+/** A model answer that returns `input` as the feature's structured output. */
+function mockModelAnswer(input) {
   streamMock.mockReturnValue({
-    finalMessage: async () => ({
-      stop_reason: 'tool_use',
-      content: [{ type: 'tool_use', name: toolName, input }],
-      usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 4000 },
+    finalResponse: async () => ({
+      status: 'completed',
+      output_text: JSON.stringify(input),
+      output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(input) }] }],
+      usage: {
+        input_tokens: 100,
+        output_tokens: 50,
+        input_tokens_details: { cached_tokens: 4000 },
+        output_tokens_details: { reasoning_tokens: 900 },
+      },
     }),
   });
+}
+
+/** A call that fails inside the SDK, the way an APIError arrives. */
+function mockModelFailure(error) {
+  streamMock.mockReturnValue({ finalResponse: async () => { throw error; } });
 }
 
 async function post(body) {
@@ -61,7 +72,8 @@ async function post(body) {
 describe('POST /api/ai/run', () => {
   beforeEach(() => {
     process.env.TIER_GRANT_SECRET = SECRET;
-    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    process.env.OPENAI_API_KEY = 'sk-test';
+    delete process.env.OPENAI_MODEL;
     streamMock.mockReset();
     resetClaimedGrants();
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -70,7 +82,8 @@ describe('POST /api/ai/run', () => {
 
   afterEach(() => {
     delete process.env.TIER_GRANT_SECRET;
-    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_MODEL;
     vi.restoreAllMocks();
   });
 
@@ -156,7 +169,7 @@ describe('POST /api/ai/run', () => {
     });
 
     it('refuses when the model key is missing, rather than failing mid-call', async () => {
-      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
       const res = await post({ grant: signGrant() });
 
       expect(res.statusCode).toBe(503);
@@ -166,7 +179,7 @@ describe('POST /api/ai/run', () => {
 
   describe('with a valid grant', () => {
     it('runs the feature named in the grant and returns its result', async () => {
-      mockModelAnswer('report_review', { summary: 'Fine.', findings: [] });
+      mockModelAnswer({ summary: 'Fine.', findings: [] });
 
       const res = await post({
         grant: signGrant({ feature: 'ai.patch_review' }),
@@ -180,28 +193,74 @@ describe('POST /api/ai/run', () => {
       expect(streamMock).toHaveBeenCalledTimes(1);
     });
 
-    it('forces the feature\'s own tool and caches the catalogue prefix', async () => {
-      mockModelAnswer('report_review', { summary: '', findings: [] });
+    it('asks for the feature\'s own schema, and keeps the prompt cacheable', async () => {
+      mockModelAnswer({ summary: '', findings: [] });
       await post({ grant: signGrant(), input: { patch: {} } });
 
       const request = streamMock.mock.calls[0][0];
-      expect(request.model).toBe('claude-opus-5');
-      expect(request.tool_choice).toEqual({ type: 'tool', name: 'report_review' });
-      expect(request.thinking).toEqual({ type: 'adaptive' });
-      expect(request.system[0].cache_control).toEqual({ type: 'ephemeral' });
+      expect(request.model).toBe('gpt-5.5');
+      expect(request.text.format.type).toBe('json_schema');
+      expect(request.text.format.name).toBe('patch_review');
+      expect(request.text.format.strict).toBe(true);
+      expect(request.reasoning).toEqual({ effort: 'high' });
+
+      // The catalogue must sit in `instructions`, the stable prefix OpenAI
+      // caches, rather than being folded into the user turn with the patch.
+      expect(request.instructions).toContain('Rhizomium');
+      expect(request.input).toEqual([{ role: 'user', content: expect.any(String) }]);
+
+      // An artist's patch is not ours to leave on someone else's server.
+      expect(request.store).toBe(false);
+    });
+
+    it('lets the operator name the model, and clamps effort to what every model takes', async () => {
+      process.env.OPENAI_MODEL = 'gpt-5.4';
+      mockModelAnswer({ reading: '', directions: [] });
+
+      await post({
+        grant: signGrant({ feature: 'ai.creative_director', tier: 'cloude_plus' }),
+        input: { patch: {}, brief: 'go' },
+      });
+
+      const request = streamMock.mock.calls[0][0];
+      expect(request.model).toBe('gpt-5.4');
+      // The feature asks for `xhigh`; not every model accepts it, and a
+      // rejected effort value would fail the call outright.
+      expect(request.reasoning).toEqual({ effort: 'high' });
+    });
+
+    it('leaves room for reasoning on top of the answer budget', async () => {
+      mockModelAnswer({ summary: '', findings: [] });
+      await post({ grant: signGrant(), input: { patch: {} } });
+
+      // Reasoning is spent out of max_output_tokens, so the 16000-token answer
+      // budget patch review declares cannot be the whole allowance.
+      expect(streamMock.mock.calls[0][0].max_output_tokens).toBeGreaterThan(16000);
     });
 
     it('never lets the body choose the prompt', async () => {
-      mockModelAnswer('report_review', { summary: '', findings: [] });
+      mockModelAnswer({ summary: '', findings: [] });
 
       // No `feature` in the body at all — the grant is the only authority.
       await post({ grant: signGrant({ feature: 'ai.patch_review' }), input: { patch: {} } });
 
-      expect(streamMock.mock.calls[0][0].tools[0].name).toBe('report_review');
+      expect(streamMock.mock.calls[0][0].text.format.name).toBe('patch_review');
+    });
+
+    it('reports usage, including what the cached prefix saved', async () => {
+      mockModelAnswer({ summary: '', findings: [] });
+      const res = await post({ grant: signGrant(), input: { patch: {} } });
+
+      expect(res.body.usage).toEqual({
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 4000,
+        reasoningTokens: 900,
+      });
     });
 
     it('validates a generated patch before handing it back', async () => {
-      mockModelAnswer('emit_patch', {
+      mockModelAnswer({
         title: 'Test',
         notes: '',
         patch: {
@@ -223,7 +282,7 @@ describe('POST /api/ai/run', () => {
     });
 
     it('refuses to hand over a patch that would not open', async () => {
-      mockModelAnswer('emit_patch', {
+      mockModelAnswer({
         title: 'Broken',
         notes: '',
         patch: { nodes: [{ id: '1', kind: 'NotAThing', x: 0, y: 0, params: {} }], connections: [] },
@@ -240,10 +299,10 @@ describe('POST /api/ai/run', () => {
 
     it('reports a refusal as its own thing, not a server error', async () => {
       streamMock.mockReturnValue({
-        finalMessage: async () => ({
-          stop_reason: 'refusal',
-          stop_details: { type: 'refusal', category: 'cyber', explanation: 'no' },
-          content: [],
+        finalResponse: async () => ({
+          status: 'completed',
+          output_text: '',
+          output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'no' }] }],
           usage: {},
         }),
       });
@@ -251,37 +310,72 @@ describe('POST /api/ai/run', () => {
       const res = await post({ grant: signGrant(), input: { patch: {} } });
       expect(res.statusCode).toBe(422);
       expect(res.body.code).toBe('refused');
+      expect(res.body.detail).toBe('no');
     });
 
-    it('names an unpaid model bill as an operator problem, not a random failure', async () => {
-      // The real shape the SDK throws, from a production log: a 400
-      // invalid_request_error whose only distinguishing mark is the message.
-      const error = new Error(
-        '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}'
-      );
-      error.status = 400;
+    it('treats an answer cut short as a failed call, not a partial result', async () => {
+      // Half a patch is not a patch. The budget is ours to raise, so this is
+      // reported as our failure rather than handed over as a result.
+      streamMock.mockReturnValue({
+        finalResponse: async () => ({
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_output_tokens' },
+          output_text: '{"summary": "it was going we',
+          output: [],
+          usage: {},
+        }),
+      });
+
+      const res = await post({
+        grant: signGrant({ feature: 'ai.patch_generator', tier: 'cloude' }),
+        input: { prompt: 'something' },
+      });
+
+      expect(res.statusCode).toBe(502);
+      expect(res.body.code).toBe('answer_truncated');
+    });
+
+    it('does not try to parse an answer that is not JSON', async () => {
+      streamMock.mockReturnValue({
+        finalResponse: async () => ({
+          status: 'completed',
+          output_text: 'Sure! Here is your review:',
+          output: [],
+          usage: {},
+        }),
+      });
+
+      const res = await post({ grant: signGrant(), input: { patch: {} } });
+      expect(res.statusCode).toBe(502);
+      expect(res.body.code).toBe('no_answer');
+    });
+
+    it('names an unpaid model bill as an operator problem, not a busy service', async () => {
+      // The trap: OpenAI reports an exhausted account as a 429, the same
+      // status as a rate limit. Telling an artist to try again in a moment
+      // would be wrong for as long as the bill goes unpaid.
+      const error = new Error('429 You exceeded your current quota, please check your plan and billing details.');
+      error.status = 429;
+      error.code = 'insufficient_quota';
       error.error = {
-        type: 'error',
-        error: {
-          type: 'invalid_request_error',
-          message:
-            'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.',
-        },
+        message: 'You exceeded your current quota, please check your plan and billing details.',
+        type: 'insufficient_quota',
+        code: 'insufficient_quota',
       };
-      streamMock.mockReturnValue({ finalMessage: async () => { throw error; } });
+      mockModelFailure(error);
 
       const res = await post({ grant: signGrant(), input: { patch: {} } });
 
-      // Not a 500 "try again": retrying cannot fix an unpaid bill.
+      // Not "busy, try again": retrying cannot fix an unpaid bill.
       expect(res.statusCode).toBe(503);
       expect(res.body.code).toBe('not_configured');
     });
 
     it('separates a request we built wrongly from a billing problem', async () => {
-      const error = new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"tools.0.input_schema: unexpected keyword"}}');
+      const error = new Error('400 Invalid schema for response_format');
       error.status = 400;
-      error.error = { error: { message: 'tools.0.input_schema: unexpected keyword' } };
-      streamMock.mockReturnValue({ finalMessage: async () => { throw error; } });
+      error.error = { message: "Invalid schema for response_format 'patch_review'.", type: 'invalid_request_error' };
+      mockModelFailure(error);
 
       const res = await post({ grant: signGrant(), input: { patch: {} } });
 
@@ -289,10 +383,23 @@ describe('POST /api/ai/run', () => {
       expect(res.body.code).toBe('bad_model_request');
     });
 
+    it('names a model this deployment cannot use as a configuration problem', async () => {
+      const error = new Error('404 The model `gpt-9` does not exist');
+      error.status = 404;
+      error.error = { message: 'The model `gpt-9` does not exist or you do not have access to it.' };
+      mockModelFailure(error);
+
+      const res = await post({ grant: signGrant(), input: { patch: {} } });
+
+      expect(res.statusCode).toBe(503);
+      expect(res.body.code).toBe('not_configured');
+    });
+
     it('turns a model rate limit into a retryable answer', async () => {
-      const error = new Error('rate limited');
+      const error = new Error('429 Rate limit reached for requests');
       error.status = 429;
-      streamMock.mockReturnValue({ finalMessage: async () => { throw error; } });
+      error.code = 'rate_limit_exceeded';
+      mockModelFailure(error);
 
       const res = await post({ grant: signGrant(), input: { patch: {} } });
       expect(res.statusCode).toBe(503);
@@ -301,14 +408,14 @@ describe('POST /api/ai/run', () => {
     });
 
     it('never lets a model answer be cached by a proxy', async () => {
-      mockModelAnswer('report_review', { summary: '', findings: [] });
+      mockModelAnswer({ summary: '', findings: [] });
       const res = await post({ grant: signGrant(), input: { patch: {} } });
 
       expect(res.headers['Cache-Control']).toBe('private, no-store');
     });
 
     it('spends an expensive grant exactly once', async () => {
-      mockModelAnswer('direct', { reading: '', directions: [] });
+      mockModelAnswer({ reading: '', directions: [] });
       const grant = signGrant({ feature: 'ai.creative_director', tier: 'cloude_plus' });
 
       const first = await post({ grant, input: { patch: {}, brief: 'go' } });
@@ -321,7 +428,7 @@ describe('POST /api/ai/run', () => {
     });
 
     it('lets a cheap grant be used without replay tracking getting in the way', async () => {
-      mockModelAnswer('suggest', { suggestions: [] });
+      mockModelAnswer({ suggestions: [] });
       const grant = signGrant({ feature: 'ai.canvas_assist' });
 
       const first = await post({ grant, input: { patch: {} } });

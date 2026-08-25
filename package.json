@@ -30,7 +30,7 @@
     "vitest": "^2.1.8"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.120.0",
-    "@tauri-apps/api": "^2.0.0"
+    "@tauri-apps/api": "^2.0.0",
+    "openai": "^7.5.0"
   }
 }

@@ -10,12 +10,12 @@
  *      for patch review must not buy a creative director session.
  *   3. Only then call the model.
  *
- * The browser never sees ANTHROPIC_API_KEY, and the editor cannot talk itself
+ * The browser never sees OPENAI_API_KEY, and the editor cannot talk itself
  * into a tier it does not have: the tier in the payload was written by the
  * gallery, which read it from the database.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { verifyGrant, grantsConfigured, claimGrantId } from '../_lib/grant.js';
 import { featureConfig, buildUserMessage, BadInputError } from '../_lib/features.js';
 import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
@@ -26,11 +26,46 @@ import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
  */
 const MAX_INPUT_BYTES = 512 * 1024;
 
-const MODEL = 'claude-opus-5';
+/**
+ * The model, overridable per deployment.
+ *
+ * Every feature here wants reasoning and Structured Outputs, so this has to
+ * name a GPT-5-class reasoning model. `OPENAI_MODEL` exists so that moving to
+ * the next one is an environment change rather than a deploy — and so a
+ * deployment on a different account can name a model it actually has access
+ * to. A model this account cannot reach comes back as a 404 and is reported
+ * as a configuration problem, not as a failure the artist did anything about.
+ */
+const DEFAULT_MODEL = 'gpt-5.5';
+
+function modelName() {
+  return process.env.OPENAI_MODEL || DEFAULT_MODEL;
+}
+
+/**
+ * Reasoning tokens are spent out of `max_output_tokens`, unlike the answer
+ * budgets in features.js, which describe the answer alone. Without headroom a
+ * feature that thinks hard runs out of budget mid-sentence and comes back
+ * `incomplete` — a spent call and nothing to show for it.
+ */
+const REASONING_HEADROOM = 16000;
+
+/**
+ * The effort vocabulary in features.js, mapped to what a GPT-5-class model
+ * accepts. `xhigh` lands on `high`: OpenAI's ceiling varies by model, `high`
+ * is the deepest setting every one of them takes, and a rejected effort value
+ * would fail the whole call for the sake of a marginal gain.
+ */
+const EFFORT = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'high',
+};
 
 let client = null;
-function anthropic() {
-  if (!client) client = new Anthropic();
+function openai() {
+  if (!client) client = new OpenAI();
   return client;
 }
 
@@ -54,8 +89,8 @@ export default async function handler(req, res) {
     });
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error('ANTHROPIC_API_KEY is not set on the AI backend; refusing every request.');
+  if (!process.env.OPENAI_API_KEY) {
+    console.error('OPENAI_API_KEY is not set on the AI backend; refusing every request.');
     return res.status(503).json({
       error: 'AI features are not configured on this deployment.',
       code: 'not_configured',
@@ -145,53 +180,110 @@ export default async function handler(req, res) {
 }
 
 /**
- * One model call, answered through a strict tool so the result is data rather
- * than prose to be parsed.
+ * One model call, answered through a Structured Outputs schema so the result
+ * is data rather than prose to be parsed.
  *
  * Streaming throughout: the generative features write whole patches, and a
- * non-streaming request with a large max_tokens is how you meet an HTTP
- * timeout instead of an answer.
+ * non-streaming request with a large max_output_tokens is how you meet an HTTP
+ * timeout instead of an answer. Nothing is streamed on to the browser — the
+ * editor wants a whole patch or nothing — but the connection stays alive.
+ *
+ * The system prompt goes in `instructions`, where it is the stable prefix of
+ * every request for a feature. OpenAI caches long prefixes automatically, so
+ * the node catalogue that makes up most of its bulk is not paid for in full on
+ * every call; there is nothing to mark, and nothing to keep in sync.
  */
 async function callModel(config, userMessage) {
-  const stream = anthropic().messages.stream({
-    model: MODEL,
-    max_tokens: config.maxTokens,
-    thinking: { type: 'adaptive' },
-    output_config: { effort: config.effort },
-    system: [
-      {
-        type: 'text',
-        text: config.system(),
-        // The node registry makes up most of this and is identical on every
-        // request, so it is billed once per window rather than once per call.
-        cache_control: { type: 'ephemeral' },
+  const stream = openai().responses.stream({
+    model: modelName(),
+    instructions: config.system(),
+    input: [{ role: 'user', content: userMessage }],
+    reasoning: { effort: EFFORT[config.effort] || 'medium' },
+    max_output_tokens: config.maxTokens + REASONING_HEADROOM,
+    text: {
+      format: {
+        type: 'json_schema',
+        name: config.format.name,
+        description: config.format.description,
+        schema: config.format.schema,
+        strict: Boolean(config.strict),
       },
-    ],
-    tools: [config.strict ? { ...config.tool, strict: true } : config.tool],
-    tool_choice: { type: 'tool', name: config.tool.name },
-    messages: [{ role: 'user', content: userMessage }],
+    },
+    // Artists' patches are their work. There is no reason for this deployment
+    // to leave copies of them on someone else's server for 30 days.
+    store: false,
   });
 
-  const message = await stream.finalMessage();
+  const response = await stream.finalResponse();
 
-  if (message.stop_reason === 'refusal') {
+  const refusal = findRefusal(response);
+  if (refusal !== null) {
     const error = new Error('The model declined this request.');
-    error.refusal = message.stop_details?.explanation || null;
+    error.refusal = refusal || null;
     error.code = 'refused';
     throw error;
   }
 
-  const toolUse = message.content.find(
-    (block) => block.type === 'tool_use' && block.name === config.tool.name
-  );
+  if (response.status === 'incomplete') {
+    const reason = response.incomplete_details?.reason;
 
-  if (!toolUse) {
-    const error = new Error('The model did not return a usable answer.');
-    error.code = 'no_tool_use';
+    if (reason === 'content_filter') {
+      const error = new Error('The model declined this request.');
+      error.code = 'refused';
+      error.refusal = null;
+      throw error;
+    }
+
+    // Ran out of budget mid-answer. Half a patch is not a patch, so this is a
+    // failed call rather than a partial result — and it is ours to fix, by
+    // raising the feature's budget in features.js.
+    console.error(
+      `${config.label}: answer did not finish (${reason || 'unknown'}) within ` +
+        `${config.maxTokens + REASONING_HEADROOM} output tokens.`
+    );
+    const error = new Error('The model ran out of room before finishing its answer.');
+    error.code = 'answer_truncated';
     throw error;
   }
 
-  return { input: toolUse.input, usage: message.usage };
+  const text = typeof response.output_text === 'string' ? response.output_text.trim() : '';
+  if (!text) {
+    const error = new Error('The model did not return a usable answer.');
+    error.code = 'no_answer';
+    throw error;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Structured Outputs makes this close to impossible — but "close to" is
+    // not "never", and a JSON.parse throwing inside the handler would read as
+    // a server bug rather than as a bad answer.
+    const error = new Error('The model did not return a usable answer.');
+    error.code = 'no_answer';
+    throw error;
+  }
+
+  return { input: parsed, usage: response.usage };
+}
+
+/**
+ * The model's refusal text, or null when it did not refuse.
+ *
+ * With Structured Outputs a refusal arrives as a content part in the output
+ * message rather than as a status on the response, so it has to be looked for.
+ * An empty string is a refusal with no explanation, which is why this returns
+ * null rather than a falsy string for "did not refuse".
+ */
+function findRefusal(response) {
+  for (const item of response.output || []) {
+    if (item.type !== 'message') continue;
+    for (const part of item.content || []) {
+      if (part.type === 'refusal') return part.refusal ?? '';
+    }
+  }
+  return null;
 }
 
 /**
@@ -203,7 +295,8 @@ function shapeResult(feature, { input, usage }) {
     usage: {
       inputTokens: usage?.input_tokens ?? null,
       outputTokens: usage?.output_tokens ?? null,
-      cacheReadTokens: usage?.cache_read_input_tokens ?? null,
+      cacheReadTokens: usage?.input_tokens_details?.cached_tokens ?? null,
+      reasoningTokens: usage?.output_tokens_details?.reasoning_tokens ?? null,
     },
   };
 
@@ -251,35 +344,55 @@ function handleModelError(error, res, config) {
     });
   }
 
-  if (error?.code === 'no_tool_use') {
-    return res.status(502).json({ error: error.message, code: 'no_tool_use' });
+  if (error?.code === 'answer_truncated') {
+    return res.status(502).json({
+      error: 'The AI ran out of room before finishing. Try again, or with a smaller patch.',
+      code: 'answer_truncated',
+    });
+  }
+
+  if (error?.code === 'no_answer') {
+    return res.status(502).json({ error: error.message, code: 'no_answer' });
   }
 
   const status = error?.status;
 
-  // A 400 from the model API is never the artist's doing, and it is not
-  // something retrying fixes. The two cases below read very differently to
-  // whoever has to act on them, so they are separated here rather than both
-  // landing in the generic 500 — which is where they used to land, and which
-  // told an operator with an unpaid bill exactly as much as a random failure.
-  if (status === 400) {
-    if (isBillingProblem(error)) {
-      console.error(
-        'Anthropic refused the call for billing reasons — the deployment needs credit:',
-        modelErrorMessage(error)
-      );
-      return res.status(503).json({
-        error: 'AI features are unavailable on this deployment right now. An operator needs to look at it.',
-        code: 'not_configured',
-      });
-    }
+  // An unpaid bill arrives as a 429 with `insufficient_quota`, which is the
+  // one 429 that retrying cannot fix. Checked before the rate-limit branch,
+  // and separately, because "the service is busy, try again" is exactly the
+  // wrong thing to tell an artist whose operator needs to top up an account.
+  if (isBillingProblem(error)) {
+    console.error(
+      'OpenAI refused the call for quota reasons — the deployment needs credit:',
+      modelErrorMessage(error)
+    );
+    return res.status(503).json({
+      error: 'AI features are unavailable on this deployment right now. An operator needs to look at it.',
+      code: 'not_configured',
+    });
+  }
 
-    // Our own request was malformed: a schema this backend built, not anything
-    // the artist typed. Loud in the log, honest to the caller.
+  // A 400 is never the artist's doing and is not something retrying fixes: our
+  // own request was malformed — a schema this backend built, not anything the
+  // artist typed. Loud in the log, honest to the caller.
+  if (status === 400 || status === 422) {
     console.error(`${config.label}: the model rejected our request:`, modelErrorMessage(error));
     return res.status(502).json({
       error: 'The AI service rejected this request. That is a problem with the editor, not with what you asked for.',
       code: 'bad_model_request',
+    });
+  }
+
+  // The named model does not exist, or this account cannot reach it. Only ever
+  // a misconfigured OPENAI_MODEL, so name the value in the log — that is the
+  // one thing whoever reads it needs.
+  if (status === 404) {
+    console.error(
+      `The AI backend is configured for a model it cannot use: ${modelName()} — ${modelErrorMessage(error)}`
+    );
+    return res.status(503).json({
+      error: 'AI features are not configured correctly on this deployment.',
+      code: 'not_configured',
     });
   }
 
@@ -291,7 +404,7 @@ function handleModelError(error, res, config) {
     });
   }
   if (status === 401 || status === 403) {
-    console.error('Anthropic rejected our credentials:', error.message);
+    console.error('OpenAI rejected our credentials:', error.message);
     return res.status(503).json({
       error: 'AI features are not configured correctly on this deployment.',
       code: 'not_configured',
@@ -319,17 +432,22 @@ function handleModelError(error, res, config) {
  * SDK version, and neither is guaranteed.
  */
 function modelErrorMessage(error) {
-  return error?.error?.error?.message || error?.message || 'no message';
+  return error?.error?.message || error?.error?.error?.message || error?.message || 'no message';
 }
 
 /**
- * Whether a 400 is the account being out of credit rather than a bad request.
+ * Whether a failure is the account being out of credit rather than a bad
+ * request.
  *
- * Matched on the message because the API returns both as
- * `invalid_request_error`, with no field that separates them.
+ * `insufficient_quota` is the field that says so; the message is checked too
+ * because the code has moved between the top level and the error body across
+ * SDK versions, and a billing failure misread as a rate limit sends the
+ * operator looking at traffic instead of at their bill.
  */
 function isBillingProblem(error) {
-  return /credit balance|plans & billing|billing/i.test(modelErrorMessage(error));
+  const code = error?.code || error?.error?.code || error?.error?.type;
+  if (code === 'insufficient_quota' || code === 'billing_hard_limit_reached') return true;
+  return /insufficient_quota|exceeded your current quota|billing/i.test(modelErrorMessage(error));
 }
 
 /** Vercel parses JSON bodies, but be explicit — a string body is still valid JSON. */
