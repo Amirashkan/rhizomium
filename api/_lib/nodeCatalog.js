@@ -68,8 +68,18 @@ function describeNode(kind, def) {
 /**
  * The whole registry as one block of prompt text, grouped by category.
  * Deterministic: categories and kinds are both sorted.
+ *
+ * Built once per process. The registry cannot change under a running
+ * deployment, and rebuilding it per request risked the one thing the prefix
+ * cache cannot survive: a byte that moves between calls.
  */
+let catalogText = null;
 export function nodeCatalogText() {
+  if (catalogText === null) catalogText = buildCatalogText();
+  return catalogText;
+}
+
+function buildCatalogText() {
   const byCategory = new Map();
   for (const kind of Object.keys(NodeDefs).sort()) {
     const def = NodeDefs[kind];
@@ -90,6 +100,26 @@ export function isKnownKind(kind) {
 
 export function nodeDef(kind) {
   return NodeDefs[kind] || null;
+}
+
+/**
+ * Whether a parameter is sitting at the value the registry gives it.
+ *
+ * The catalogue above already tells the model every default, so a patch that
+ * repeats them is paying twice for the same fact — on a parameter-heavy patch
+ * that is most of the payload. Anything the artist actually moved still travels.
+ *
+ * Compared as JSON so that colours and vectors, which arrive as arrays, are
+ * compared by value rather than by identity.
+ */
+export function isDefaultParamValue(kind, name, value) {
+  const def = NodeDefs[kind];
+  if (!def) return false;
+
+  const spec = (def.params || []).find((param) => param.name === name);
+  if (!spec || spec.default === undefined) return false;
+
+  return JSON.stringify(spec.default) === JSON.stringify(value);
 }
 
 /**

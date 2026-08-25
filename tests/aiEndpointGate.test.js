@@ -74,6 +74,7 @@ describe('POST /api/ai/run', () => {
     process.env.TIER_GRANT_SECRET = SECRET;
     process.env.OPENAI_API_KEY = 'sk-test';
     delete process.env.OPENAI_MODEL;
+    delete process.env.OPENAI_REASONING;
     streamMock.mockReset();
     resetClaimedGrants();
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -84,6 +85,7 @@ describe('POST /api/ai/run', () => {
     delete process.env.TIER_GRANT_SECRET;
     delete process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_MODEL;
+    delete process.env.OPENAI_REASONING;
     vi.restoreAllMocks();
   });
 
@@ -227,6 +229,27 @@ describe('POST /api/ai/run', () => {
       // The feature asks for `xhigh`; not every model accepts it, and a
       // rejected effort value would fail the call outright.
       expect(request.reasoning).toEqual({ effort: 'high' });
+    });
+
+    it('keys the cache by feature, so a warm prefix is found rather than hoped for', async () => {
+      mockModelAnswer({ summary: '', findings: [] });
+      await post({ grant: signGrant(), input: { patch: {} } });
+
+      expect(streamMock.mock.calls[0][0].prompt_cache_key).toBe('patch_review');
+    });
+
+    it('drops reasoning for a model that has none, rather than failing every call', async () => {
+      // An operator naming a model without a reasoning mode should get a
+      // working editor, not a 400 on every button.
+      process.env.OPENAI_REASONING = 'off';
+      mockModelAnswer({ summary: '', findings: [] });
+
+      await post({ grant: signGrant(), input: { patch: {} } });
+
+      const request = streamMock.mock.calls[0][0];
+      expect(request.reasoning).toBeUndefined();
+      // Nothing is thinking out loud, so the answer is the whole budget.
+      expect(request.max_output_tokens).toBe(16000);
     });
 
     it('leaves room for reasoning on top of the answer budget', async () => {
