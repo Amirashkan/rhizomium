@@ -160,10 +160,52 @@ describe('feature configuration', () => {
   it('gives every feature a closed schema unless it carries free-form params', () => {
     for (const key of IMPLEMENTED_FEATURES) {
       const config = featureConfig(key);
-      expect(config.tool.input_schema.additionalProperties).toBe(false);
-      // Only the two patch-bearing tools opt out of strict mode.
+      expect(config.format.schema.additionalProperties).toBe(false);
+      // Only the two patch-bearing features opt out of strict mode.
       const expectStrict = key !== 'ai.patch_refactor' && key !== 'ai.patch_generator';
       expect(config.strict).toBe(expectStrict);
+    }
+  });
+
+  it('keeps every strict schema inside what Structured Outputs accepts', () => {
+    // Strict mode is not just `additionalProperties: false` at the root: every
+    // object at every depth must be closed, and every property must be listed
+    // in `required`. A schema that breaks either rule is rejected by the API
+    // with a 400 — which is a whole feature dead on the next deploy, and not
+    // something any amount of retrying recovers.
+    const violations = [];
+
+    function walk(node, path) {
+      if (!node || typeof node !== 'object') return;
+
+      if (node.type === 'object') {
+        if (node.additionalProperties !== false) violations.push(`${path} is not closed`);
+        const declared = Object.keys(node.properties || {});
+        const required = node.required || [];
+        for (const property of declared) {
+          if (!required.includes(property)) violations.push(`${path}.${property} is not required`);
+        }
+        for (const [property, child] of Object.entries(node.properties || {})) {
+          walk(child, `${path}.${property}`);
+        }
+      }
+
+      if (node.type === 'array') walk(node.items, `${path}[]`);
+    }
+
+    for (const key of IMPLEMENTED_FEATURES) {
+      const config = featureConfig(key);
+      if (!config.strict) continue;
+      walk(config.format.schema, key);
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('names every response format in the character set the API allows', () => {
+    for (const key of IMPLEMENTED_FEATURES) {
+      const { name } = featureConfig(key).format;
+      expect(name).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
     }
   });
 

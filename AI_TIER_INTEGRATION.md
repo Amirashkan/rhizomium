@@ -35,7 +35,7 @@ that were made along the way.
 |---|---|
 | `api/ai/run.js` | `POST /api/ai/run`. The one door to the model. |
 | `api/_lib/grant.js` | HMAC verification, expiry, replay tracking. |
-| `api/_lib/features.js` | Per-feature system prompts and tool schemas. |
+| `api/_lib/features.js` | Per-feature system prompts and response schemas. |
 | `api/_lib/nodeCatalog.js` | The real node registry as prompt text, and as a validator. |
 
 ### Tests
@@ -61,13 +61,14 @@ as server-side environment variables. Neither is ever exposed to the browser —
 worth repeating after any change to `api/`:
 
 ```sh
-grep -r "ANTHROPIC_API_KEY\|TIER_GRANT_SECRET\|anthropic-ai" dist/   # must find nothing
+grep -r "OPENAI_API_KEY\|TIER_GRANT_SECRET\|sk-proj-" dist/   # must find nothing
 ```
 
 | Variable | Value |
 |---|---|
 | `TIER_GRANT_SECRET` | **The same value as the gallery's.** Generated with `openssl rand -hex 32`. Get it from whoever runs the gallery deployment. |
-| `ANTHROPIC_API_KEY` | An Anthropic API key. Server-side only. |
+| `OPENAI_API_KEY` | An OpenAI API key. Server-side only. |
+| `OPENAI_MODEL` | *Optional.* Overrides the model. Defaults to `gpt-5.5`. Must name a GPT-5-class reasoning model — every feature asks for reasoning and Structured Outputs. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
 
 Without either, `/api/ai/run` answers `503 not_configured` on every request and
 says so plainly rather than failing as an invalid grant.
@@ -238,12 +239,13 @@ upgrade is a Redis or Postgres set behind the same function.
   checks run before anything else, so a `401` from the grant check proves they
   passed.
 
-**Not yet verified: any model output.** The first live calls failed with
-`400 invalid_request_error` — *"Your credit balance is too low to access the
-Anthropic API"*. The wiring is correct and the request reaches Anthropic
-authenticated; the account simply has no credit. Once credit is added, each of
-the six features still needs exercising once, since no feature has yet produced
-a real result.
+**Not yet verified: any model output.** The backend now calls OpenAI (see §7),
+and no live call has been made since the switch — the last calls under the
+previous provider failed on an account with no credit, so no feature has ever
+produced a real result here. Once `OPENAI_API_KEY` is set on a funded account,
+each of the six features needs exercising once. The failure to expect from an
+unfunded account is a `429 insufficient_quota`, which this backend reports as
+`503 not_configured` rather than as "the service is busy".
 
 **`upgradeUrl` points at `/pricing`, which does not exist yet.** Locked features
 link there today — including the web viewer's upsell, which is the first paid
@@ -253,10 +255,69 @@ surface a signed-out visitor is likely to meet.
 
 1. Add the key to `src/ai/tiers.js` — **after** it exists in the gallery's
    `lib/tiers.ts`; the keys are permanent and end up in signed grants.
-2. Add an entry to `api/_lib/features.js` with its system prompt and tool
-   schema, and a `case` in `buildUserMessage`.
+2. Add an entry to `api/_lib/features.js` with its system prompt and response
+   schema, and a `case` in `buildUserMessage`. Keep `strict: true` unless the
+   shape genuinely needs an open map — see §7.
 3. If it needs typed input, add it to `PROMPTED` in `src/ui/AIPanel.js`; if it
    applies a result to the canvas, handle it in `presentResult`.
 
 The panel draws itself from `catalog`, so a feature the gallery adds appears —
 locked, with the tier it needs — without a release here.
+
+---
+
+## 7. How the model is called
+
+`api/ai/run.js` talks to **OpenAI's Responses API** through the `openai`
+package. One call per feature, one shape to it, and nothing about the provider
+reaches the browser — `aiClient.js` posts to `/api/ai/run` and reads a result.
+
+**The answer is JSON, not prose.** Each feature declares a `format` in
+`features.js` — an OpenAI [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs)
+response format. The model answers inside that schema or the call fails; there
+is no prose to parse and no "the model replied in the wrong shape" path to
+handle in the editor.
+
+`strict: true` is the default and four of the six features use it: the platform
+then guarantees the shape, at the cost of a schema subset — every property must
+be `required`, and every object must set `additionalProperties: false`.
+
+The two patch-writing features run `strict: false`, and the reason is worth
+knowing before anyone "fixes" it. A patch's `params` is an open map: parameter
+names and value types come from the node registry and differ per node kind,
+which no closed schema can express. Strict mode forbids exactly that. So those
+two are validated after the fact instead — `validateGeneratedPatch()` in
+`nodeCatalog.js` drops any parameter the node does not declare and refuses a
+patch that would not open, and the endpoint answers `502 unusable_answer`
+rather than putting a broken document on someone's canvas.
+
+**Reasoning.** Each feature declares an `effort`, mapped in `run.js` to what
+the Responses API takes. `xhigh` — which only `ai.creative_director` asks for —
+lands on `high`: OpenAI's ceiling varies by model, `high` is the deepest
+setting every GPT-5-class model accepts, and a rejected effort value fails the
+whole call for a marginal gain. Raise it in the `EFFORT` map if the deployment
+pins a model that takes more.
+
+**Budgets.** Reasoning tokens are spent out of `max_output_tokens`, so
+`maxTokens` in `features.js` describes the *answer* and `run.js` adds
+`REASONING_HEADROOM` on top. Without it a feature that thinks hard runs out
+mid-sentence and comes back `incomplete` — a spent call with nothing to show.
+That case is reported as `502 answer_truncated`, not handed over as a partial
+result, because half a patch is not a patch.
+
+**Caching is automatic.** The system prompt goes in `instructions`, where it is
+the stable prefix of every request for a feature; the node catalogue is most of
+its ~22KB and never varies within a deploy. OpenAI caches long prefixes on its
+own, so there is nothing to mark and nothing to keep in sync. `usage.cacheReadTokens`
+in the response says what it saved.
+
+**Requests are not stored.** `store: false` on every call. Artists' patches are
+their work, and there is no reason to leave copies of them on someone else's
+server for 30 days.
+
+**Failures worth separating.** An unpaid bill arrives as a `429` with
+`insufficient_quota` — the same status as a rate limit, and the one 429 that
+retrying cannot fix. It is checked first and answered `503 not_configured`, so
+an artist is not told to try again in a moment while an operator needs to top
+up an account. A `404` means `OPENAI_MODEL` names a model this account cannot
+reach; the log names the value.

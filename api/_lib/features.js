@@ -2,14 +2,16 @@
  * features.js - what each AI feature asks the model for.
  *
  * One entry per metered feature key. Each carries the system prompt, the
- * strict tool schema the answer must fit, and how much effort the call is
- * worth. Keeping them together means adding a feature is one object here plus
- * one button in the editor — and that the feature key from the signed grant is
- * the only thing that chooses a prompt.
+ * response schema the answer must fit, and how much effort the call is worth.
+ * Keeping them together means adding a feature is one object here plus one
+ * button in the editor — and that the feature key from the signed grant is the
+ * only thing that chooses a prompt.
  *
- * Every schema is `strict: true` with `additionalProperties: false`, so the
- * model's answer either fits the shape the editor expects or the call fails
- * loudly. Prose is never parsed.
+ * `format` is an OpenAI Structured Outputs response format: the model answers
+ * as JSON in that shape rather than as prose to be parsed. Where `strict` is
+ * true the platform guarantees the shape — every property required, every
+ * object closed — so the answer either fits what the editor expects or the
+ * call fails loudly. Prose is never parsed.
  */
 
 import { nodeCatalogText } from './nodeCatalog.js';
@@ -18,10 +20,11 @@ import { nodeCatalogText } from './nodeCatalog.js';
  * The patch shape the editor speaks, shared by generator and refactor.
  *
  * `params` is deliberately open: parameter names and value types come from the
- * node registry and differ per kind, which a closed schema cannot express. The
- * two tools carrying this schema therefore run without `strict`, and
+ * node registry and differ per kind, which a closed schema cannot express.
+ * Strict Structured Outputs forbids exactly that — an open `additionalProperties`
+ * map — so the two features carrying this schema run with `strict: false`, and
  * validateGeneratedPatch() in nodeCatalog.js is what actually guarantees the
- * shape — it drops any parameter the node does not declare. Every other
+ * shape: it drops any parameter the node does not declare. Every other
  * feature's schema is closed and runs strict.
  */
 const PATCH_SCHEMA = {
@@ -84,7 +87,10 @@ const PATCH_SCHEMA = {
 
 /**
  * What every feature needs to know about the editor it is working in.
- * Deterministic, and identical across requests, so it caches.
+ *
+ * Deterministic, and identical across requests, so it sits at the front of the
+ * prompt where OpenAI's automatic prefix caching can find it. The node
+ * catalogue is most of its bulk and never varies within a deploy.
  */
 function sharedContext() {
   return `You are working inside Rhizomium, a node-based GLSL/WGSL shader editor for live visual art.
@@ -120,10 +126,10 @@ Your task is to review a patch an artist has already built and report what is wr
 Read the graph as a whole before judging any node. Look for: nodes whose output reaches no Output node (dead branches), inputs left unconnected where the node needs one, wiring that is plainly not what the artist meant, parameter values that will render black or blow out, redundant chains, and costs that will not hold 60fps.
 
 Be specific and short. Every finding names the nodes it is about and says what to do. Report only things you can point at in this patch — do not pad the list, and do not restate what the patch does. An empty findings list is a fine answer for a clean patch.`,
-    tool: {
-      name: 'report_review',
-      description: 'Report what is wrong with this patch.',
-      input_schema: {
+    format: {
+      name: 'patch_review',
+      description: 'A review of what is wrong with this patch.',
+      schema: {
         type: 'object',
         properties: {
           summary: {
@@ -172,10 +178,10 @@ This is the whole constraint: the output must look the same. Remove dead branche
 Do not change the render. If a change would alter a single pixel, do not make it — describe it in your summary as something the artist might want instead. When in doubt, leave it alone: an artist who asked for tidying and got a different image has lost work.
 
 Return the complete patch, not a diff. Every node that should survive must appear in your answer, including the ones you did not touch.`,
-    tool: {
-      name: 'propose_refactor',
-      description: 'Return the tidied patch and say what changed.',
-      input_schema: {
+    format: {
+      name: 'refactor_proposal',
+      description: 'The tidied patch, and what changed in it.',
+      schema: {
         type: 'object',
         properties: {
           summary: { type: 'string', description: 'What you changed, in a sentence or two.' },
@@ -218,10 +224,10 @@ Your task is to suggest small improvements to what the artist is working on righ
 You are looking over their shoulder, not redesigning their work. Suggest node names that say what a node does, a wire that is obviously missing, a parameter that is at a value that cannot be intended. Prefer the suggestion the artist would accept in one click.
 
 At most four suggestions, fewer when there is less to say, none when the patch is fine. Never suggest a rebuild, never suggest something you cannot point at a node for, and never explain what a node does — the artist knows.`,
-    tool: {
-      name: 'suggest',
-      description: 'Offer small, immediately actionable suggestions.',
-      input_schema: {
+    format: {
+      name: 'canvas_suggestions',
+      description: 'Small, immediately actionable suggestions.',
+      schema: {
         type: 'object',
         properties: {
           suggestions: {
@@ -265,10 +271,10 @@ Rules that make the difference between a patch that opens and one that wastes th
 - Keep it live: this runs every frame, so prefer the cheaper node when two would look the same.
 
 Say in your notes what the artist should reach for first to make it their own.`,
-    tool: {
-      name: 'emit_patch',
-      description: 'Return the finished patch.',
-      input_schema: {
+    format: {
+      name: 'generated_patch',
+      description: 'The finished patch.',
+      schema: {
         type: 'object',
         properties: {
           title: { type: 'string', description: 'A short name for this patch.' },
@@ -303,10 +309,10 @@ The rules of that body:
 - It runs per pixel per frame. No loops over large ranges, no unbounded work.
 
 Name the inputs for what they carry, not input0. Keep the code short enough to read at a glance — an artist is going to open it.`,
-    tool: {
-      name: 'emit_node',
-      description: 'Return the custom node definition.',
-      input_schema: {
+    format: {
+      name: 'custom_node',
+      description: 'The custom node definition.',
+      schema: {
         type: 'object',
         properties: {
           name: { type: 'string', description: 'What this node is called on the canvas.' },
@@ -354,10 +360,10 @@ The artist has a work in progress and a brief. Think about the piece as somethin
 Give direction that is specific to this patch — which parameters carry the movement, where it repeats when it should develop, what the piece is currently promising and not paying off. Name the nodes. An artist should be able to act on each direction in the next session without asking you what you meant.
 
 Be honest about what is not working. Encouragement that avoids the real problem wastes the sitting.`,
-    tool: {
-      name: 'direct',
-      description: 'Give direction on the piece as a whole.',
-      input_schema: {
+    format: {
+      name: 'piece_direction',
+      description: 'Direction on the piece as a whole.',
+      schema: {
         type: 'object',
         properties: {
           reading: {

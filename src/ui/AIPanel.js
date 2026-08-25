@@ -407,13 +407,15 @@ export class AIPanel {
 /**
  * Backend failures the artist could not have caused and cannot fix by trying
  * again: an unconfigured deployment, an unpaid model bill, a request this
- * editor built wrongly, or the model service being down.
+ * editor built wrongly, the model service being down, an answer that came back
+ * unusable, or one that ran past a budget this editor sets.
  */
 const OPERATOR_FAULT_CODES = new Set([
   'not_configured',
   'bad_model_request',
   'model_unavailable',
-  'no_tool_use',
+  'no_answer',
+  'answer_truncated',
 ]);
 
 function needsPatch(feature) {
