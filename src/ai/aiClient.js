@@ -39,6 +39,20 @@ function aiEndpoint() {
   return isTauri() ? `${STUDIO_ORIGIN}/api/ai/run` : '/api/ai/run';
 }
 
+/**
+ * How long to wait for an answer before giving up on one.
+ *
+ * The backend stops itself first and answers with a reason (see
+ * api/ai/run.js MODEL_DEADLINE_MS), which is the message worth showing; this
+ * is the backstop for when that answer never arrives — a request lost on the
+ * way out, a gateway that gave up on its own — and it is deliberately longer
+ * than the backend's deadline so the honest error wins whenever there is one.
+ *
+ * Without it the editor waits forever on a request nothing will ever answer,
+ * with a spinner and no way to tell the artist what happened.
+ */
+const REQUEST_TIMEOUT_MS = 305_000;
+
 /** A model call that started but did not produce a usable answer. */
 export class AIRequestError extends Error {
   constructor(message, details = {}) {
@@ -70,18 +84,38 @@ export async function runFeature(feature, input = {}) {
   const grant = await entitlements.requestGrant(feature);
 
   // Steps 2 and 3.
+  const controller = new AbortController();
+  const giveUp = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   let res;
   try {
     res = await fetch(aiEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ grant: grant.grant, feature, input }),
+      signal: controller.signal,
     });
   } catch {
+    if (controller.signal.aborted) {
+      throw new AIRequestError(
+        'The AI did not answer in time and the editor stopped waiting. Large patches take ' +
+          'the longest — try it on a smaller one.',
+        { code: 'timed_out', quotaSpent: true }
+      );
+    }
+
+    // Everything else fetch refuses to explain, for the same reason it refuses
+    // to explain any of them: the browser will not tell a page why a
+    // cross-origin request failed. Worth knowing when reading a report of one —
+    // a gateway that answers without CORS headers (a timeout at the edge, a
+    // deployment that is not up) lands here too, and the console calls it a
+    // CORS error even though the allow-list is fine.
     throw new AIRequestError(
       'Could not reach the AI service. Check your connection and try again.',
       { code: 'network', quotaSpent: true }
     );
+  } finally {
+    clearTimeout(giveUp);
   }
 
   let body = {};

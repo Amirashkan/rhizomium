@@ -28,6 +28,36 @@ import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
 const MAX_INPUT_BYTES = 512 * 1024;
 
 /**
+ * How long the platform lets this function run, in seconds.
+ *
+ * It has to be the same number as `functions` → `maxDuration` in vercel.json;
+ * tests/aiRequestTimeout.test.js reads both and fails if they drift. What
+ * makes it worth knowing here is what happens when it is reached: the platform
+ * kills the invocation and answers 504 itself, from outside this file — with
+ * none of the CORS headers applyCors() put on the response. The browser is
+ * then handed a reply it is not allowed to read, and reports the whole thing
+ * as
+ *
+ *   No 'Access-Control-Allow-Origin' header is present on the requested resource
+ *
+ * which sends whoever debugs it into the CORS configuration, where nothing is
+ * wrong. That is exactly what a review of a real, loaded patch looked like:
+ * the default graph answers in a few seconds, and a patch with a canvas full
+ * of nodes did not fit in the 60 seconds this function used to be given.
+ */
+export const FUNCTION_BUDGET_SECONDS = 300;
+
+/**
+ * When to give up on the model ourselves.
+ *
+ * Inside the platform's limit by enough to still write an answer. An honest
+ * 504 that says the call ran long — with the CORS headers on it, so the editor
+ * can read it and tell the artist — beats one from the platform that the
+ * browser turns into a CORS error.
+ */
+export const MODEL_DEADLINE_MS = (FUNCTION_BUDGET_SECONDS - 15) * 1000;
+
+/**
  * The model most features run on.
  *
  * Luna is the cost-efficient tier of the GPT-5.6 family: $0.20 per million
@@ -238,32 +268,66 @@ async function callModel(config, userMessage) {
   const thinks = reasoningEnabled();
   const outputBudget = config.maxTokens + (thinks ? REASONING_HEADROOM : 0);
 
-  const stream = openai().responses.stream({
-    model: modelName(config),
-    instructions: config.system(),
-    input: [{ role: 'user', content: userMessage }],
-    ...(thinks ? { reasoning: { effort: EFFORT[config.effort] || 'medium' } } : {}),
-    // Reasoning is spent out of this budget; without it the answer is the whole
-    // of it, and the headroom would only be an invitation to ramble.
-    max_output_tokens: outputBudget,
-    // Every call for a feature shares one prefix — the whole node registry —
-    // and prefix caching only pays when the request lands where that prefix is
-    // already warm. Keying by feature is what makes that likely under load
-    // rather than lucky. It steers routing; it is not part of the prompt.
-    prompt_cache_key: config.format.name,
-    text: {
-      format: {
-        type: 'json_schema',
-        name: config.format.name,
-        description: config.format.description,
-        schema: config.format.schema,
-        strict: Boolean(config.strict),
+  // Our own deadline, always shorter than the platform's, so that a call that
+  // runs long ends as an answer rather than as a killed invocation the browser
+  // cannot read. See FUNCTION_BUDGET_SECONDS.
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), MODEL_DEADLINE_MS);
+
+  try {
+    return await streamAnswer(config, userMessage, {
+      thinks,
+      outputBudget,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      console.error(
+        `${config.label}: no answer within ${Math.round(MODEL_DEADLINE_MS / 1000)}s — gave up.`
+      );
+      const timeout = new Error('The AI did not finish in time.');
+      timeout.code = 'timed_out';
+      throw timeout;
+    }
+    throw error;
+  } finally {
+    // A timer still pending keeps the invocation alive after the answer is
+    // written, and is billed for.
+    clearTimeout(deadline);
+  }
+}
+
+/** The call itself, run under callModel()'s deadline. */
+async function streamAnswer(config, userMessage, { thinks, outputBudget, signal }) {
+  const stream = openai().responses.stream(
+    {
+      model: modelName(config),
+      instructions: config.system(),
+      input: [{ role: 'user', content: userMessage }],
+      ...(thinks ? { reasoning: { effort: EFFORT[config.effort] || 'medium' } } : {}),
+      // Reasoning is spent out of this budget; without it the answer is the whole
+      // of it, and the headroom would only be an invitation to ramble.
+      max_output_tokens: outputBudget,
+      // Every call for a feature shares one prefix — the whole node registry —
+      // and prefix caching only pays when the request lands where that prefix is
+      // already warm. Keying by feature is what makes that likely under load
+      // rather than lucky. It steers routing; it is not part of the prompt.
+      prompt_cache_key: config.format.name,
+      text: {
+        format: {
+          type: 'json_schema',
+          name: config.format.name,
+          description: config.format.description,
+          schema: config.format.schema,
+          strict: Boolean(config.strict),
+        },
       },
+      // Artists' patches are their work. There is no reason for this deployment
+      // to leave copies of them on someone else's server for 30 days.
+      store: false,
     },
-    // Artists' patches are their work. There is no reason for this deployment
-    // to leave copies of them on someone else's server for 30 days.
-    store: false,
-  });
+    { signal }
+  );
 
   const response = await stream.finalResponse();
 
@@ -385,6 +449,19 @@ function handleModelError(error, res, config) {
   if (error?.message && /patch|node kind|output node/i.test(error.message) && !error.status) {
     console.warn(`${config.label}: unusable answer — ${error.message}`);
     return res.status(502).json({ error: error.message, code: 'unusable_answer' });
+  }
+
+  // Stopped at our own deadline. Not the artist's doing, but not something an
+  // operator can fix either — the honest advice is a smaller patch, and saying
+  // so is the whole reason this branch exists rather than a platform 504 the
+  // browser reports as a CORS failure.
+  if (error?.code === 'timed_out') {
+    return res.status(504).json({
+      error:
+        `The AI was still working after ${Math.round(MODEL_DEADLINE_MS / 1000)} seconds and was stopped. ` +
+        'Large patches take the longest — try it on a smaller one, or on part of this one.',
+      code: 'timed_out',
+    });
   }
 
   if (error?.code === 'refused') {
