@@ -68,7 +68,7 @@ grep -r "OPENAI_API_KEY\|TIER_GRANT_SECRET\|sk-proj-" dist/   # must find nothin
 |---|---|
 | `TIER_GRANT_SECRET` | **The same value as the gallery's.** Generated with `openssl rand -hex 32`. Get it from whoever runs the gallery deployment. |
 | `OPENAI_API_KEY` | An OpenAI API key. Server-side only. |
-| `OPENAI_MODEL` | *Optional.* Overrides the model. Defaults to `gpt-5.5`. Must name a model on the Responses API that supports Structured Outputs — every feature answers through a JSON schema. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
+| `OPENAI_MODEL` | *Optional.* Puts every feature on one model, overriding both the default and any model a feature names for itself. Defaults to `gpt-5.6-luna`, except `ai.creative_director`, which asks for `gpt-5.6-terra`. Must name a model on the Responses API that supports Structured Outputs — every feature answers through a JSON schema. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
 | `OPENAI_REASONING` | *Optional.* Set to `off` when `OPENAI_MODEL` names a model with no reasoning mode: the `reasoning` parameter is then left off the request, which such a model would otherwise reject outright. Off also removes the 16k-token reasoning headroom from each call's output budget. Anything else, or unset, keeps reasoning on. |
 
 Without either, `/api/ai/run` answers `503 not_configured` on every request and
@@ -302,6 +302,15 @@ two are validated after the fact instead — `validateGeneratedPatch()` in
 `nodeCatalog.js` drops any parameter the node does not declare and refuses a
 patch that would not open, and the endpoint answers `502 unusable_answer`
 rather than putting a broken document on someone's canvas.
+
+**Which model runs what.** `DEFAULT_MODEL` in `run.js` is `gpt-5.6-luna` —
+$0.20 per million input tokens and $1.20 output, against gpt-5.5's $5.00 and
+$30.00. Every feature that reads a graph and reports on it runs there. A
+feature that needs more names its own `model` in `features.js`, which today
+is only `ai.creative_director` on `gpt-5.6-terra`: it is sold on Cloude Plus as
+judgement about a piece, and an artist who paid for that and got the
+cost-efficient tier has been sold something else. `OPENAI_MODEL` overrides
+both.
 
 **Reasoning.** Each feature declares an `effort`, mapped in `run.js` to what
 the Responses API takes. `xhigh` — which only `ai.creative_director` asks for —

@@ -385,6 +385,19 @@ Name the inputs for what they carry, not input0. Keep the code short enough to r
     maxTokens: 32000,
     // One call is minutes of model time. Worth remembering the grant id.
     singleUse: true,
+    /**
+     * The one feature that does not run on the cheap model.
+     *
+     * Everything else here reads a graph and reports on it, which the Luna tier
+     * does well. This one is sold on the Cloude Plus tier as direction on a
+     * piece — judgement about what a work is promising and not paying off — and
+     * an artist who paid for that and got the cost-efficient model has been
+     * sold something else. Terra is still $2 per million input against
+     * gpt-5.5's $5, so the premium feature got cheaper too.
+     *
+     * `OPENAI_MODEL` overrides this, as it overrides everything.
+     */
+    model: 'gpt-5.6-terra',
     system: () => `${sharedContext()}
 
 Your task is to direct a whole piece, not to fix a patch.

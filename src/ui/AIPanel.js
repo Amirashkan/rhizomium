@@ -45,12 +45,40 @@ const PROMPTED = {
   },
 };
 
+/**
+ * Features whose result is something to read rather than something applied.
+ *
+ * Only these are worth remembering. Running one twice on an unchanged canvas
+ * produces the same answer for a second charge, so the second run is waste.
+ * The generative features are the opposite: they change the canvas, and asking
+ * again is how an artist asks for a different idea, so they always run.
+ */
+const ANSWER_ONLY_FEATURES = new Set([
+  'ai.patch_review',
+  'ai.canvas_assist',
+  'ai.creative_director',
+]);
+
+/**
+ * What makes two runs the same run: the feature, and everything sent with it.
+ *
+ * Any edit to the graph moves the patch and so moves this, which is what makes
+ * it safe to answer from memory — a stale answer is one the artist could not
+ * have changed the inputs to.
+ */
+function answerFingerprint(feature, payload) {
+  if (!ANSWER_ONLY_FEATURES.has(feature)) return null;
+  return `${feature}:${JSON.stringify(payload)}`;
+}
+
 export class AIPanel {
   constructor() {
     this.dialog = null;
     this.isOpen = false;
     this.busyFeature = null;
     this.unsubscribe = null;
+    /** The last answer-only result, and whether a repeat has been offered. */
+    this.lastAnswer = null;
   }
 
   async show() {
@@ -263,11 +291,33 @@ export class AIPanel {
       }
     }
 
+    // A second click with nothing changed buys the same answer twice. The
+    // gallery spends the artist's quota when the grant is issued, before the
+    // model is called at all, so this has to be caught here — in front of
+    // runFeature() — or the action is already gone.
+    //
+    // It defers rather than refuses: the repeat is offered once, and clicking
+    // through it runs for real. An artist who wants a second opinion gets one;
+    // an artist who clicked twice wondering whether it worked does not pay for
+    // wondering.
+    const fingerprint = answerFingerprint(feature, payload);
+    if (fingerprint && this.lastAnswer?.fingerprint === fingerprint && !this.lastAnswer.offered) {
+      this.lastAnswer.offered = true;
+      modalManager.toast(
+        'Nothing has changed since this ran, so here is the same answer again. Click once more for a fresh one.',
+        'info',
+        this.lastAnswer.label
+      );
+      await this.presentResult(feature, this.lastAnswer.label, this.lastAnswer.result, this.lastAnswer.warnings);
+      return;
+    }
+
     this.busyFeature = feature;
     this.renderBody();
 
     try {
       const { result, warnings, label } = await runFeature(feature, payload);
+      if (fingerprint) this.lastAnswer = { fingerprint, label, result, warnings, offered: false };
       await this.presentResult(feature, label, result, warnings);
     } catch (error) {
       this.presentError(error);
