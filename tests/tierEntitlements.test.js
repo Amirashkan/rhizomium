@@ -264,6 +264,44 @@ describe('EntitlementsClient', () => {
     expect(error.code).toBe('not_configured');
   });
 
+  it('surfaces a 500 as the gallery falling over, not as a refusal', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(LIVE_ENTITLEMENTS))
+      .mockResolvedValueOnce(jsonResponse({}, 500));
+
+    await client.load();
+    const error = await client.requestGrant('ai.patch_review').catch((e) => e);
+
+    expect(error).toBeInstanceOf(GrantError);
+    // Not 'grant_failed': that reads as "the gallery considered it and said
+    // no", and the panel words a considered no as the artist's problem.
+    expect(error.code).toBe('server_error');
+    expect(error.status).toBe(500);
+    expect(error.message).toMatch(/not yours/);
+  });
+
+  it('keeps 503 apart from the other 5xx', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(LIVE_ENTITLEMENTS))
+      .mockResolvedValueOnce(jsonResponse({}, 503));
+
+    await client.load();
+    const error = await client.requestGrant('ai.patch_review').catch((e) => e);
+    expect(error.code).toBe('not_configured');
+  });
+
+  it("still prefers the gallery's own code and message on a 5xx", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(LIVE_ENTITLEMENTS))
+      .mockResolvedValueOnce(jsonResponse({ code: 'grant_store_unavailable', error: 'the quota store is down' }, 500));
+
+    await client.load();
+    const error = await client.requestGrant('ai.patch_review').catch((e) => e);
+
+    expect(error.code).toBe('grant_store_unavailable');
+    expect(error.message).toBe('the quota store is down');
+  });
+
   it('does not treat a network failure as a refusal', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(LIVE_ENTITLEMENTS))

@@ -37,8 +37,9 @@ const DEFAULT_UPGRADE_URL = `${GALLERY_ORIGIN}/pricing`;
  *
  * `code` is the gallery's own machine-readable reason, so callers can tell an
  * upsell (402 `tier_required`) from an exhausted allowance (429
- * `quota_exceeded`) from an operator problem (503) without parsing prose.
- * Showing one "something went wrong" for all three is the thing to avoid.
+ * `quota_exceeded`) from an operator problem (503 `not_configured`, 5xx
+ * `server_error`) without parsing prose. Showing one "something went wrong"
+ * for all four is the thing to avoid.
  */
 export class GrantError extends Error {
   constructor(message, details = {}) {
@@ -188,7 +189,13 @@ export class EntitlementsClient {
       });
 
       if (!res.ok) {
-        console.warn(`Entitlements unavailable (${res.status}); assuming free tier.`);
+        // Same reasoning as the grant call below: name the credential, because
+        // whether this read fails too is what separates "the gallery does not
+        // like this origin" from "the grant route alone is broken".
+        console.warn(
+          `Entitlements unavailable (${res.status}); assuming free tier. ` +
+            `(auth: ${getDesktopToken() ? 'desktop bearer token' : 'cookie or anonymous'})`
+        );
         return fallbackEntitlements(`http_${res.status}`);
       }
 
@@ -305,6 +312,21 @@ export class EntitlementsClient {
       return body;
     }
 
+    // A refusal is the endpoint working — 402 and 429 are answers, and the
+    // panel already says them in words. A 5xx is the gallery falling over, and
+    // the one report of it anybody gets is this console line, so make it carry
+    // what a person debugging it will ask for first: which credential the
+    // request went out with. The desktop app sends a bearer token where the
+    // web sends a cookie, and "only on the desktop" is the shape of bug that
+    // difference produces.
+    if (res.status >= 500) {
+      console.error(
+        `Gallery grant failed: ${res.status} for ${feature} ` +
+          `(auth: ${getDesktopToken() ? 'desktop bearer token' : 'cookie or anonymous'}).`,
+        body
+      );
+    }
+
     throw new GrantError(body.error || grantFallbackMessage(res.status, feature), {
       code: body.code || codeForStatus(res.status),
       status: res.status,
@@ -341,6 +363,11 @@ function codeForStatus(status) {
   if (status === 429) return 'quota_exceeded';
   if (status === 503) return 'not_configured';
   if (status === 400) return 'bad_request';
+  // Any other 5xx is the gallery falling over rather than refusing: nothing
+  // the artist chose caused it and nothing they can change fixes it. Kept
+  // apart from 503, which is the gallery deliberately saying "not switched
+  // on", so the panel can word the two differently.
+  if (status >= 500) return 'server_error';
   return 'grant_failed';
 }
 
@@ -350,6 +377,9 @@ function grantFallbackMessage(status, feature) {
   if (status === 429) return `You have used your ${label} allowance for now.`;
   if (status === 503) {
     return 'AI features are not configured on the gallery right now. This is an operator problem, not yours.';
+  }
+  if (status >= 500) {
+    return `The gallery hit an internal error (${status}) asking for ${label}. This is an operator problem, not yours.`;
   }
   return `${label} could not be started (${status}).`;
 }
