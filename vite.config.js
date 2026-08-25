@@ -91,6 +91,22 @@ export default defineConfig(({ mode }) => {
       watch: {
         ignored: ['**/src-tauri/**'],
       },
+      // `/api/ai/run` is a serverless function that only exists on the
+      // deployment, and on the web the editor asks for it by relative path
+      // (see src/ai/aiClient.js). In dev that path is this server, which has
+      // no such route, so every AI feature 404s locally.
+      //
+      // Forward it instead. The hop is server-side, so the browser sees a
+      // same-origin request and CORS never comes into it; the backend still
+      // demands a grant the gallery signed, exactly as in production. Point
+      // API_PROXY at a preview deployment or a `vercel dev` on another port to
+      // develop against those instead.
+      proxy: {
+        '/api': {
+          target: process.env.API_PROXY || 'https://studio.tenderworld.org',
+          changeOrigin: true,
+        },
+      },
     },
     build: {
       target: 'chrome105',
