@@ -39,6 +39,7 @@ const { default: handler, FUNCTION_BUDGET_SECONDS, MODEL_DEADLINE_MS } = await i
   '../api/ai/run.js'
 );
 const { runFeature, AIRequestError } = await import('../src/ai/aiClient.js');
+const { featureConfig } = await import('../api/_lib/features.js');
 
 const SECRET = 'a'.repeat(64);
 const b64url = (input) =>
@@ -83,12 +84,93 @@ describe('the function budget', () => {
   });
 });
 
+/** A patch of `count` nodes, the last of which renders. */
+function patchOf(count) {
+  const nodes = Array.from({ length: count }, (_, i) => ({
+    id: `n${i}`,
+    kind: i === count - 1 ? 'OutputFinal' : 'ComputeNoise',
+    x: i * 220,
+    y: 0,
+    params: {},
+  }));
+  const connections = nodes.slice(1).map((node, i) => ({
+    from: { nodeId: `n${i}`, pin: 0 },
+    to: { nodeId: node.id, pin: 0 },
+  }));
+  return { nodes, connections };
+}
+
+describe('what a call is allowed to write', () => {
+  beforeEach(() => {
+    process.env.TIER_GRANT_SECRET = SECRET;
+    process.env.OPENAI_API_KEY = 'sk-test';
+    streamMock.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    // The refactor hands the patch back, so its answer has to pass the
+    // validator before any of this is reached.
+    streamMock.mockImplementation(() => ({
+      finalResponse: async () => ({
+        status: 'completed',
+        output_text: JSON.stringify({
+          summary: 'Tidied.',
+          changes: [],
+          patch: { nodes: [{ id: 'n1', kind: 'OutputFinal', x: 0, y: 0, params: {} }], connections: [] },
+        }),
+        output: [],
+        usage: {},
+      }),
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.TIER_GRANT_SECRET;
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  const refactor = (nodes) => ({
+    method: 'POST',
+    headers: { origin: 'http://localhost:5173', host: 'studio.tenderworld.org' },
+    body: {
+      grant: signGrant('ai.patch_refactor'),
+      feature: 'ai.patch_refactor',
+      input: { patch: patchOf(nodes) },
+    },
+  });
+
+  /**
+   * The refactor returns everything it was given, so its budget is the one
+   * that has to follow the input — and a budget is also permission to spend
+   * time, which is why a ten-node tidy must not be allowed a four-hundred-node
+   * one's allowance.
+   */
+  it('sizes the refactor to the patch it was actually given', async () => {
+    await handler(refactor(6), mockRes());
+    const small = streamMock.mock.calls[0][0].max_output_tokens;
+
+    streamMock.mockClear();
+    await handler(refactor(200), mockRes());
+    const large = streamMock.mock.calls[0][0].max_output_tokens;
+
+    expect(small).toBeLessThan(large / 3);
+  });
+
+  it('never asks for more than the ceiling the feature sets, whatever the patch', async () => {
+    await handler(refactor(400), mockRes());
+
+    const asked = streamMock.mock.calls[0][0].max_output_tokens;
+    const config = featureConfig('ai.patch_refactor');
+    expect(asked).toBe(config.maxTokens + config.reasoningTokens);
+  });
+});
+
 describe('a model call that runs past the deadline', () => {
   beforeEach(() => {
     process.env.TIER_GRANT_SECRET = SECRET;
     process.env.OPENAI_API_KEY = 'sk-test';
     streamMock.mockReset();
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.useFakeTimers();
   });
 
@@ -126,6 +208,21 @@ describe('a model call that runs past the deadline', () => {
     // The advice has to be actionable: this is the one failure an artist can do
     // something about themselves.
     expect(res.body.error).toMatch(/smaller/i);
+  });
+
+  it('holds a review to a deadline of its own, short of the platform ceiling', async () => {
+    // Every feature waits in proportion to what it was allowed to write. A
+    // review is allowed nine thousand tokens; it has no business sitting there
+    // for as long as the largest possible refactor.
+    modelThatNeverAnswers();
+
+    const res = mockRes();
+    const pending = handler(reviewRequest(), res);
+    await vi.advanceTimersByTimeAsync(MODEL_DEADLINE_MS);
+    await pending;
+
+    const seconds = Number(res.body.error.match(/after (\d+) seconds/)[1]);
+    expect(seconds).toBeLessThan(MODEL_DEADLINE_MS / 1000);
   });
 
   it('answers the timeout with the CORS headers, so the caller can read it', async () => {

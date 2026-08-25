@@ -18,7 +18,12 @@
 import OpenAI from 'openai';
 import { verifyGrant, grantsConfigured, claimGrantId } from '../_lib/grant.js';
 import { applyCors } from '../_lib/cors.js';
-import { featureConfig, buildUserMessage, BadInputError } from '../_lib/features.js';
+import {
+  featureConfig,
+  buildUserMessage,
+  answerBudget,
+  BadInputError,
+} from '../_lib/features.js';
 import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
 
 /**
@@ -48,12 +53,16 @@ const MAX_INPUT_BYTES = 512 * 1024;
 export const FUNCTION_BUDGET_SECONDS = 300;
 
 /**
- * When to give up on the model ourselves.
+ * The latest any call may still be running, whatever it is.
  *
  * Inside the platform's limit by enough to still write an answer. An honest
  * 504 that says the call ran long — with the CORS headers on it, so the editor
  * can read it and tell the artist — beats one from the platform that the
  * browser turns into a CORS error.
+ *
+ * This is the ceiling, not the setting: each call gets a deadline of its own,
+ * sized from what it was allowed to write (see deadlineFor). Only the largest
+ * refactor of the largest patch ever comes near this one.
  */
 export const MODEL_DEADLINE_MS = (FUNCTION_BUDGET_SECONDS - 15) * 1000;
 
@@ -102,12 +111,46 @@ function reasoningEnabled() {
 }
 
 /**
+ * Room to think, for a feature that has not said how much it needs.
+ *
  * Reasoning tokens are spent out of `max_output_tokens`, unlike the answer
  * budgets in features.js, which describe the answer alone. Without headroom a
  * feature that thinks hard runs out of budget mid-sentence and comes back
- * `incomplete` — a spent call and nothing to show for it.
+ * `incomplete` — a spent call and nothing to show for it. Every feature names
+ * its own `reasoningTokens`; this is only the floor under a new one that
+ * forgets to.
  */
-const REASONING_HEADROOM = 16000;
+const DEFAULT_REASONING_TOKENS = 6000;
+
+/**
+ * How fast to assume the model writes, for turning a token budget into a
+ * deadline.
+ *
+ * Deliberately pessimistic — roughly half of what these models decode at in
+ * practice. A deadline that is too generous costs us nothing except a longer
+ * wait in the rare case where a call has genuinely hung; one that is too tight
+ * throws away calls that were about to answer, and bills the artist for them.
+ * Every completed call logs its tokens and its seconds (see logCall), so this
+ * can be calibrated from real numbers rather than adjusted by feel.
+ */
+const ASSUMED_TOKENS_PER_SECOND = 50;
+
+/** Nothing is given less than this, however small its budget. */
+const MIN_DEADLINE_MS = 30 * 1000;
+
+/**
+ * When to give up on a call whose budget is this many tokens.
+ *
+ * The point of deriving it rather than fixing it: a canvas-assist call that is
+ * allowed 3,500 tokens has no business taking four minutes, and a refactor of
+ * four hundred nodes cannot be held to seventy seconds. Each feature waits in
+ * proportion to what it was allowed to write, and none of them waits longer
+ * than the platform will (see MODEL_DEADLINE_MS).
+ */
+function deadlineFor(tokens) {
+  const derived = (tokens / ASSUMED_TOKENS_PER_SECOND) * 1000;
+  return Math.min(MODEL_DEADLINE_MS, Math.max(MIN_DEADLINE_MS, Math.round(derived)));
+}
 
 /**
  * The effort vocabulary in features.js, mapped to what the model accepts.
@@ -235,9 +278,13 @@ export default async function handler(req, res) {
     throw error;
   }
 
+  const started = Date.now();
+
   try {
-    const result = await callModel(config, userMessage);
+    const result = await callModel(config, userMessage, input);
     const payload = shapeResult(feature, result);
+
+    logCall(config, result, Date.now() - started);
 
     return res.status(200).json({
       feature,
@@ -248,6 +295,26 @@ export default async function handler(req, res) {
   } catch (error) {
     return handleModelError(error, res, config);
   }
+}
+
+/**
+ * One line per completed call: what it cost, and how long it took.
+ *
+ * The budgets in features.js and ASSUMED_TOKENS_PER_SECOND above are estimates
+ * of numbers nobody had measured — which is how a review came to be allowed
+ * 32,000 output tokens and then ran past the function's time limit. This is
+ * where the real ones come from. Read a few of these before changing either.
+ */
+function logCall(config, { usage, budget }, elapsedMs) {
+  const reasoning = usage?.output_tokens_details?.reasoning_tokens;
+  const answer = (usage?.output_tokens ?? 0) - (reasoning ?? 0);
+  const cached = usage?.input_tokens_details?.cached_tokens ?? 0;
+
+  console.log(
+    `${config.label}: ${(elapsedMs / 1000).toFixed(1)}s, ` +
+      `${reasoning ?? '?'} reasoning + ${answer} answer of ${budget} allowed, ` +
+      `${usage?.input_tokens ?? '?'} in (${cached} cached).`
+  );
 }
 
 /**
@@ -264,29 +331,36 @@ export default async function handler(req, res) {
  * the node catalogue that makes up most of its bulk is not paid for in full on
  * every call; there is nothing to mark, and nothing to keep in sync.
  */
-async function callModel(config, userMessage) {
+async function callModel(config, userMessage, input) {
   const thinks = reasoningEnabled();
-  const outputBudget = config.maxTokens + (thinks ? REASONING_HEADROOM : 0);
+  const reasoningRoom = config.reasoningTokens ?? DEFAULT_REASONING_TOKENS;
+  const outputBudget = answerBudget(config, input) + (thinks ? reasoningRoom : 0);
 
   // Our own deadline, always shorter than the platform's, so that a call that
   // runs long ends as an answer rather than as a killed invocation the browser
-  // cannot read. See FUNCTION_BUDGET_SECONDS.
+  // cannot read. Sized from the budget: this call cannot write more than
+  // `outputBudget` tokens, so waiting longer than those tokens could take is
+  // waiting for something that is not coming. See FUNCTION_BUDGET_SECONDS.
+  const deadlineMs = deadlineFor(outputBudget);
   const controller = new AbortController();
-  const deadline = setTimeout(() => controller.abort(), MODEL_DEADLINE_MS);
+  const deadline = setTimeout(() => controller.abort(), deadlineMs);
 
   try {
-    return await streamAnswer(config, userMessage, {
+    const answered = await streamAnswer(config, userMessage, {
       thinks,
       outputBudget,
       signal: controller.signal,
     });
+    return { ...answered, budget: outputBudget };
   } catch (error) {
     if (controller.signal.aborted) {
       console.error(
-        `${config.label}: no answer within ${Math.round(MODEL_DEADLINE_MS / 1000)}s — gave up.`
+        `${config.label}: no answer within ${Math.round(deadlineMs / 1000)}s ` +
+          `(budget ${outputBudget} tokens) — gave up.`
       );
       const timeout = new Error('The AI did not finish in time.');
       timeout.code = 'timed_out';
+      timeout.deadlineMs = deadlineMs;
       throw timeout;
     }
     throw error;
@@ -456,9 +530,10 @@ function handleModelError(error, res, config) {
   // so is the whole reason this branch exists rather than a platform 504 the
   // browser reports as a CORS failure.
   if (error?.code === 'timed_out') {
+    const seconds = Math.round((error.deadlineMs ?? MODEL_DEADLINE_MS) / 1000);
     return res.status(504).json({
       error:
-        `The AI was still working after ${Math.round(MODEL_DEADLINE_MS / 1000)} seconds and was stopped. ` +
+        `The AI was still working after ${seconds} seconds and was stopped. ` +
         'Large patches take the longest — try it on a smaller one, or on part of this one.',
       code: 'timed_out',
     });

@@ -69,10 +69,45 @@ grep -r "OPENAI_API_KEY\|TIER_GRANT_SECRET\|sk-proj-" dist/   # must find nothin
 | `TIER_GRANT_SECRET` | **The same value as the gallery's.** Generated with `openssl rand -hex 32`. Get it from whoever runs the gallery deployment. |
 | `OPENAI_API_KEY` | An OpenAI API key. Server-side only. |
 | `OPENAI_MODEL` | *Optional.* Puts every feature on one model, overriding both the default and any model a feature names for itself. Defaults to `gpt-5.6-luna`, except `ai.creative_director`, which asks for `gpt-5.6-terra`. Must name a model on the Responses API that supports Structured Outputs — every feature answers through a JSON schema. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
-| `OPENAI_REASONING` | *Optional.* Set to `off` when `OPENAI_MODEL` names a model with no reasoning mode: the `reasoning` parameter is then left off the request, which such a model would otherwise reject outright. Off also removes the 16k-token reasoning headroom from each call's output budget. Anything else, or unset, keeps reasoning on. |
+| `OPENAI_REASONING` | *Optional.* Set to `off` when `OPENAI_MODEL` names a model with no reasoning mode: the `reasoning` parameter is then left off the request, which such a model would otherwise reject outright. Off also removes each feature's reasoning headroom from its output budget, leaving the answer the whole allowance. Anything else, or unset, keeps reasoning on. |
 
 Without either, `/api/ai/run` answers `503 not_configured` on every request and
 says so plainly rather than failing as an invalid grant.
+
+### What a call is allowed to spend
+
+The input is not what costs the time. A review sends about 7,000 tokens —
+5,800 of catalogue and instructions, cached across calls, and roughly a
+thousand of patch — and prefilling that is a moment. Everything after it is
+decode, so three settings in `features.js` decide how long a feature takes:
+
+| | what it does |
+|---|---|
+| `effort` | How many reasoning tokens the model spends before answering. The only setting that changes how long a call *takes* rather than how long it is *allowed* to take. Every feature but the creative director now runs at `medium` or below. |
+| `maxTokens` | The answer. Sized from what the feature's schema actually produces — a review's summary and eight findings is under 2,000 tokens — because the sum below is a hard stop: a call that reaches it comes back `incomplete`, which is a wasted action. |
+| `reasoningTokens` | Room to think, on top of the answer. |
+
+`maxTokens + reasoningTokens` is `max_output_tokens`, and it is also the worst
+case anybody can be made to wait for: `run.js` derives that call's deadline
+from it at `ASSUMED_TOKENS_PER_SECOND`. A canvas-assist call allowed 3,500
+tokens is held to well under a minute; only the largest refactor of the largest
+patch approaches the function's own limit.
+
+`ai.patch_refactor` is the one feature whose budget is sized per call, by
+`answerBudget()`: it hands back the whole patch it was given, so a ten-node
+tidy and a four-hundred-node one need allowances an order of magnitude apart.
+
+Every completed call logs one line — seconds, reasoning tokens, answer tokens,
+input and cached tokens. **Read a few of those before changing any of the
+numbers above**; they were estimates until that line existed, which is how a
+review came to be allowed 32,000 output tokens and then ran past the function's
+time limit.
+
+Two things keep the model from re-deriving what is already known:
+`api/_lib/patchFacts.js` computes reachability, empty input pins and broken
+wires in JavaScript and hands them over as stated facts, and the prompt tells
+the model they are exact. On a large graph that traversal was the bulk of the
+reasoning — and the part a model gets wrong.
 
 **`maxDuration` is set to 300s** in `vercel.json`, and `FUNCTION_BUDGET_SECONDS`
 in `api/ai/run.js` is the same number — `tests/aiRequestTimeout.test.js` reads

@@ -15,6 +15,7 @@
  */
 
 import { nodeCatalogText, isDefaultParamValue } from './nodeCatalog.js';
+import { patchFacts } from './patchFacts.js';
 
 /**
  * The patch shape the editor speaks, shared by generator and refactor.
@@ -135,8 +136,39 @@ Reading the values:
 - Values are bare where they can be; anything else is JSON, so a quoted string
   follows JSON rules and \\n inside one is a line break.
 
+After the wires you may be given a short block of facts worked out from them:
+which nodes reach an Output node, which input pins have nothing wired in. Those
+are computed, not observed, and they are exact. Use them. Tracing the graph
+yourself to check them is the most expensive thing you can do with this budget,
+and on a large patch it is also the least reliable.
+
 Refer to nodes by these ids in your answer. Write your answer as JSON in the
 schema you were given, never in this line format.`;
+
+/**
+ * What `effort`, `maxTokens` and `reasoningTokens` buy, and what they cost.
+ *
+ * All three are wall-clock settings as much as quality settings, and that is
+ * worth stating once because a patch review used to run past the function's
+ * time limit and come back to the browser as a phantom CORS error.
+ *
+ * The input is not what costs the time. The whole prompt for a review is about
+ * 7,000 tokens — 5,800 of catalogue and instructions, cached, and a thousand
+ * of patch — and prefill of that is a moment. Everything else is decode:
+ *
+ *   `effort` decides how many reasoning tokens the model spends before it
+ *   answers. It is the one setting that changes how long a call takes rather
+ *   than how long it is allowed to take, and it is the first thing to reach
+ *   for. High effort on a task that is mostly reading a graph and reporting
+ *   what is wrong with it was buying a good deal less than it cost.
+ *
+ *   `maxTokens` is the answer, and `reasoningTokens` the room to think before
+ *   it. Their sum is `max_output_tokens`, which is a hard stop: a call that
+ *   reaches it comes back `incomplete`, which is a wasted action. So they are
+ *   sized from what a feature's answer actually needs, with margin — not
+ *   generously, because the sum is also the worst case anyone can be made to
+ *   wait for, and run.js derives the deadline from it.
+ */
 
 /** Severity vocabulary shared by review and canvas assist. */
 const SEVERITY = {
@@ -149,8 +181,16 @@ export const AI_FEATURES = {
   'ai.patch_review': {
     strict: true,
     label: 'Patch review',
-    effort: 'high',
-    maxTokens: 16000,
+    // Medium, not high. The graph arrives with its reachability and its empty
+    // pins already worked out (see patchFacts.js), so what is left is
+    // judgement about a few dozen lines of text — and high effort on that was
+    // what took a loaded patch past the function's time limit.
+    effort: 'medium',
+    // A summary and a handful of findings. Twelve findings at their most
+    // verbose is under 2,000 tokens; the old 16,000 was room to ramble that
+    // nothing was asking for.
+    maxTokens: 3000,
+    reasoningTokens: 6000,
     /** Expensive enough to be worth replay protection? No — cheap and frequent. */
     singleUse: false,
     system: () => `${sharedContext()}
@@ -159,7 +199,7 @@ Your task is to review a patch an artist has already built and report what is wr
 
 Read the graph as a whole before judging any node. Look for: nodes whose output reaches no Output node (dead branches), inputs left unconnected where the node needs one, wiring that is plainly not what the artist meant, parameter values that will render black or blow out, redundant chains, and costs that will not hold 60fps.
 
-Be specific and short. Every finding names the nodes it is about and says what to do. Report only things you can point at in this patch — do not pad the list, and do not restate what the patch does. An empty findings list is a fine answer for a clean patch.`,
+Be specific and short. Every finding names the nodes it is about and says what to do. Report only things you can point at in this patch — do not pad the list, and do not restate what the patch does. At most eight findings: if there are more, the eight worth an artist's next half hour. An empty findings list is a fine answer for a clean patch.`,
     format: {
       name: 'patch_review',
       description: 'A review of what is wrong with this patch.',
@@ -200,8 +240,18 @@ Be specific and short. Every finding names the nodes it is about and says what t
   'ai.patch_refactor': {
     strict: false,
     label: 'Patch refactor',
-    effort: 'high',
+    effort: 'medium',
+    /**
+     * The one feature whose answer is as large as its input: it returns the
+     * whole patch, so a ten-node patch and a four-hundred-node one need budgets
+     * an order of magnitude apart. This is the ceiling for the largest patch
+     * the editor will send; answerBudget() sizes each call from what it was
+     * actually given, which is what keeps a small refactor from being allowed
+     * to take as long as the biggest possible one.
+     */
     maxTokens: 32000,
+    scaleWithPatch: true,
+    reasoningTokens: 8000,
     singleUse: false,
     system: () => `${sharedContext()}
 
@@ -249,7 +299,9 @@ Return the complete patch, not a diff. Every node that should survive must appea
     label: 'Canvas assist',
     // Fires while the artist works, so it is tuned for latency over depth.
     effort: 'low',
-    maxTokens: 4000,
+    // Four suggestions of a sentence each. It was budgeted for a small essay.
+    maxTokens: 1500,
+    reasoningTokens: 2000,
     singleUse: false,
     system: () => `${sharedContext()}
 
@@ -289,8 +341,13 @@ At most four suggestions, fewer when there is less to say, none when the patch i
   'ai.patch_generator': {
     strict: false,
     label: 'Patch generator',
-    effort: 'high',
-    maxTokens: 32000,
+    effort: 'medium',
+    // A generated patch is meant to be the smallest graph that does the job —
+    // forty nodes and their wires is around 5,000 tokens of JSON. This leaves
+    // room for twice that and stops well short of the old ceiling, which was
+    // sized for a patch nobody should be generating.
+    maxTokens: 12000,
+    reasoningTokens: 8000,
     singleUse: false,
     system: () => `${sharedContext()}
 
@@ -327,8 +384,11 @@ Say in your notes what the artist should reach for first to make it their own.`,
   'ai.node_generator': {
     strict: true,
     label: 'Node generator',
-    effort: 'high',
-    maxTokens: 16000,
+    effort: 'medium',
+    // A shader body short enough for an artist to read at a glance, which the
+    // prompt below asks for outright, plus its pins and a note.
+    maxTokens: 3000,
+    reasoningTokens: 5000,
     singleUse: false,
     system: () => `${sharedContext()}
 
@@ -381,8 +441,11 @@ Name the inputs for what they carry, not input0. Keep the code short enough to r
   'ai.creative_director': {
     strict: true,
     label: 'AI creative director',
+    // The one feature where the thinking is the product, and the artist is
+    // told to expect a wait. It keeps its effort; nothing else needed it.
     effort: 'xhigh',
-    maxTokens: 32000,
+    maxTokens: 6000,
+    reasoningTokens: 16000,
     // One call is minutes of model time. Worth remembering the grant id.
     singleUse: true,
     /**
@@ -444,6 +507,32 @@ Be honest about what is not working. Encouragement that avoids the real problem 
   },
 };
 
+/**
+ * Tokens for a feature's answer on this particular call.
+ *
+ * Static for every feature but the refactor, which hands back the whole patch
+ * it was given: a ten-node patch needs a fraction of what four hundred nodes
+ * need, and a budget sized for the largest possible patch is also permission
+ * to spend the largest possible amount of time. Sizing it from the input keeps
+ * a small refactor quick and still lets a big one finish.
+ *
+ * ~120 tokens a node covers the node's own JSON and the wires that reach it,
+ * measured against the schema these features answer in; the floor is there so
+ * that a two-node patch still has room for the summary and the change list.
+ *
+ * @param {Object} config - the feature, from AI_FEATURES.
+ * @param {Object} input - the request payload, whose `patch` may be absent.
+ * @returns {number} tokens for the answer alone, reasoning not included.
+ */
+export function answerBudget(config, input = {}) {
+  if (!config?.scaleWithPatch) return config.maxTokens;
+
+  const nodes = Array.isArray(input?.patch?.nodes) ? input.patch.nodes.length : 0;
+  const needed = nodes * 120 + 2500;
+
+  return Math.max(3000, Math.min(config.maxTokens, needed));
+}
+
 export function featureConfig(feature) {
   return Object.prototype.hasOwnProperty.call(AI_FEATURES, feature) ? AI_FEATURES[feature] : null;
 }
@@ -460,7 +549,10 @@ export const IMPLEMENTED_FEATURES = Object.keys(AI_FEATURES);
  * finding still names something the editor can highlight.
  */
 export function buildUserMessage(feature, input = {}) {
-  const patchText = () => describePatch(input.patch);
+  // The wires, then what they add up to. The second costs a few hundred
+  // tokens and saves most of what a model would otherwise spend working the
+  // same thing out — badly, on a large graph. See patchFacts.js.
+  const patchText = () => `${describePatch(input.patch)}${patchFacts(input.patch)}`;
 
   switch (feature) {
     case 'ai.patch_review':

@@ -21,6 +21,10 @@ vi.mock('openai', () => ({
 
 const { default: handler } = await import('../api/ai/run.js');
 const { resetClaimedGrants } = await import('../api/_lib/grant.js');
+const { featureConfig } = await import('../api/_lib/features.js');
+
+/** The budgets these assertions are about, read rather than repeated. */
+const review = featureConfig('ai.patch_review');
 
 const SECRET = 'a'.repeat(64);
 const b64url = (input) =>
@@ -204,7 +208,10 @@ describe('POST /api/ai/run', () => {
       expect(request.text.format.type).toBe('json_schema');
       expect(request.text.format.name).toBe('patch_review');
       expect(request.text.format.strict).toBe(true);
-      expect(request.reasoning).toEqual({ effort: 'high' });
+      // Medium: the graph arrives with its reachability already worked out,
+      // and high effort on what is left was what ran a loaded patch past the
+      // function's time limit.
+      expect(request.reasoning).toEqual({ effort: 'medium' });
 
       // The catalogue must sit in `instructions`, the stable prefix OpenAI
       // caches, rather than being folded into the user turn with the patch.
@@ -264,16 +271,18 @@ describe('POST /api/ai/run', () => {
       const request = streamMock.mock.calls[0][0];
       expect(request.reasoning).toBeUndefined();
       // Nothing is thinking out loud, so the answer is the whole budget.
-      expect(request.max_output_tokens).toBe(16000);
+      expect(request.max_output_tokens).toBe(review.maxTokens);
     });
 
     it('leaves room for reasoning on top of the answer budget', async () => {
       mockModelAnswer({ summary: '', findings: [] });
       await post({ grant: signGrant(), input: { patch: {} } });
 
-      // Reasoning is spent out of max_output_tokens, so the 16000-token answer
-      // budget patch review declares cannot be the whole allowance.
-      expect(streamMock.mock.calls[0][0].max_output_tokens).toBeGreaterThan(16000);
+      // Reasoning is spent out of max_output_tokens, so the answer budget
+      // patch review declares cannot be the whole allowance.
+      expect(streamMock.mock.calls[0][0].max_output_tokens).toBe(
+        review.maxTokens + review.reasoningTokens
+      );
     });
 
     it('never lets the body choose the prompt', async () => {
