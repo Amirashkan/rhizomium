@@ -68,15 +68,65 @@ grep -r "OPENAI_API_KEY\|TIER_GRANT_SECRET\|sk-proj-" dist/   # must find nothin
 |---|---|
 | `TIER_GRANT_SECRET` | **The same value as the gallery's.** Generated with `openssl rand -hex 32`. Get it from whoever runs the gallery deployment. |
 | `OPENAI_API_KEY` | An OpenAI API key. Server-side only. |
-| `OPENAI_MODEL` | *Optional.* Puts every feature on one model, overriding both the default and any model a feature names for itself. Defaults to `gpt-5.6-luna`, except `ai.creative_director`, which asks for `gpt-5.6-terra`. Must name a model on the Responses API that supports Structured Outputs — every feature answers through a JSON schema. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
-| `OPENAI_REASONING` | *Optional.* Set to `off` when `OPENAI_MODEL` names a model with no reasoning mode: the `reasoning` parameter is then left off the request, which such a model would otherwise reject outright. Off also removes the 16k-token reasoning headroom from each call's output budget. Anything else, or unset, keeps reasoning on. |
+| `OPENAI_MODEL` | *Optional.* Puts every feature on one model, overriding both the default and any model a feature names for itself. Defaults to `gpt-5.6-terra`, except `ai.canvas_assist`, which asks for `gpt-5.6-luna`. Must name a model on the Responses API that supports Structured Outputs — every feature answers through a JSON schema. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
+| `OPENAI_REASONING` | *Optional.* Set to `off` when `OPENAI_MODEL` names a model with no reasoning mode: the `reasoning` parameter is then left off the request, which such a model would otherwise reject outright. Off also removes each feature's reasoning headroom from its output budget, leaving the answer the whole allowance. Anything else, or unset, keeps reasoning on. |
 
 Without either, `/api/ai/run` answers `503 not_configured` on every request and
 says so plainly rather than failing as an invalid grant.
 
-**`maxDuration` is set to 60s** in `vercel.json`, which is the ceiling on Hobby.
-Patch generation at `effort: high` can approach it on a large patch; on a Pro
-plan with Fluid compute, raise it to 300.
+### What a call is allowed to spend
+
+The input is not what costs the time. A review sends about 7,000 tokens —
+5,800 of catalogue and instructions, cached across calls, and roughly a
+thousand of patch — and prefilling that is a moment. Everything after it is
+decode, so three settings in `features.js` decide how long a feature takes:
+
+| | what it does |
+|---|---|
+| `effort` | How many reasoning tokens the model spends before answering. The only setting that changes how long a call *takes* rather than how long it is *allowed* to take. Every feature but the creative director now runs at `medium` or below. |
+| `maxTokens` | The answer. Sized from what the feature's schema actually produces — a review's summary and eight findings is under 2,000 tokens — because the sum below is a hard stop: a call that reaches it comes back `incomplete`, which is a wasted action. |
+| `reasoningTokens` | Room to think, on top of the answer. |
+
+`maxTokens + reasoningTokens` is `max_output_tokens`, and it is also the worst
+case anybody can be made to wait for: `run.js` derives that call's deadline
+from it at `ASSUMED_TOKENS_PER_SECOND`. A canvas-assist call allowed 3,500
+tokens is held to well under a minute; only the largest refactor of the largest
+patch approaches the function's own limit.
+
+`ai.patch_refactor` is the one feature whose budget is sized per call, by
+`answerBudget()`: it hands back the whole patch it was given, so a ten-node
+tidy and a four-hundred-node one need allowances an order of magnitude apart.
+
+Every completed call logs one line — seconds, reasoning tokens, answer tokens,
+input and cached tokens. **Read a few of those before changing any of the
+numbers above**; they were estimates until that line existed, which is how a
+review came to be allowed 32,000 output tokens and then ran past the function's
+time limit.
+
+Two things keep the model from re-deriving what is already known:
+`api/_lib/patchFacts.js` computes reachability, empty input pins and broken
+wires in JavaScript and hands them over as stated facts, and the prompt tells
+the model they are exact. On a large graph that traversal was the bulk of the
+reasoning — and the part a model gets wrong.
+
+**`maxDuration` is set to 300s** in `vercel.json`, and `FUNCTION_BUDGET_SECONDS`
+in `api/ai/run.js` is the same number — `tests/aiRequestTimeout.test.js` reads
+both and fails if they drift. It was 60s, which a review or a generation at
+`effort: high` does not fit inside on a real patch. What made that worth fixing
+twice over is how it failed: the platform kills the invocation at the limit and
+writes its own 504, carrying none of the CORS headers the handler set, so the
+browser refuses to read it and reports
+
+```
+No 'Access-Control-Allow-Origin' header is present on the requested resource
+```
+
+— a CORS error where nothing is wrong with CORS. The handler now stops the
+model 15s short of the limit itself and answers `504 timed_out`, with the
+headers on it and a message the editor can show. Lower both numbers together on
+a deployment whose plan caps functions shorter; the editor's own backstop
+(`REQUEST_TIMEOUT_MS` in `src/ai/aiClient.js`) sits just past the platform's
+limit and should stay that way.
 
 ---
 
@@ -303,14 +353,36 @@ two are validated after the fact instead — `validateGeneratedPatch()` in
 patch that would not open, and the endpoint answers `502 unusable_answer`
 rather than putting a broken document on someone's canvas.
 
-**Which model runs what.** `DEFAULT_MODEL` in `run.js` is `gpt-5.6-luna` —
-$0.20 per million input tokens and $1.20 output, against gpt-5.5's $5.00 and
-$30.00. Every feature that reads a graph and reports on it runs there. A
-feature that needs more names its own `model` in `features.js`, which today
-is only `ai.creative_director` on `gpt-5.6-terra`: it is sold on Cloude Plus as
-judgement about a piece, and an artist who paid for that and got the
-cost-efficient tier has been sold something else. `OPENAI_MODEL` overrides
-both.
+**Which model runs what.** `DEFAULT_MODEL` in `run.js` is `gpt-5.6-terra` —
+$2.00 per million input tokens against gpt-5.5's $5.00 — and a feature that
+wants something else names its own `model` in `features.js`.
+
+It ran the other way round for a while: the default was the cost-efficient
+`gpt-5.6-luna`, on the argument that reading a graph and reporting on it does
+not need a large model. Half right. These features are not asked to describe a
+patch, they are asked to judge one — is this wiring what the artist meant, will
+this value render black, is this chain worth collapsing — and a finding that is
+wrong costs an artist more than the saving, because they act on it.
+
+So the exception now goes the other way: `ai.canvas_assist` names luna for
+itself. It fires while the artist works, its suggestions are accepted in one
+click, and one it misses costs nothing where a slow one costs the flow it was
+meant to support. That is the only place in the editor where cheap-and-quick is
+the better answer.
+
+| feature | model | effort | why |
+|---|---|---|---|
+| `ai.canvas_assist` | luna | `low` | speed is the product |
+| `ai.patch_review` | terra | `medium` | run often, waited on; the graph facts are precomputed, so there is little left to reason about |
+| `ai.patch_refactor` | terra | `medium` | strictest correctness bar, but also the largest answer — effort on top of that budget is where the wait comes from |
+| `ai.patch_generator` | terra | `high` | writes a document the artist has to debug if it is wrong, and they are waiting on it deliberately |
+| `ai.node_generator` | terra | `high` | writes shader code that has to compile |
+| `ai.creative_director` | terra | `xhigh` | the thinking is the product |
+
+Capability is where correctness comes from; `effort` is where the seconds come
+from. That is the whole rule behind the table: raise the model where a mistake
+costs the artist something, raise the effort only where they are already
+waiting on purpose. `OPENAI_MODEL` overrides all of it.
 
 **Reasoning.** Each feature declares an `effort`, mapped in `run.js` to what
 the Responses API takes. `xhigh` — which only `ai.creative_director` asks for —

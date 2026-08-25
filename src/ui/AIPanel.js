@@ -454,6 +454,17 @@ export class AIPanel {
         );
       }
 
+      // Ran past the backend's deadline, or past the editor's. The advice in
+      // the message is the artist's to act on, so this is not an operator
+      // fault — but the call was made and metered, which they should hear.
+      if (error.code === 'timed_out') {
+        return modalManager.toast(
+          `${error.message} It still counted against your allowance, because the call was made.`,
+          'error',
+          'Took too long'
+        );
+      }
+
       const suffix = error.quotaSpent ? ' This one still counted against your allowance.' : '';
       return modalManager.toast(`${error.message}${suffix}`, 'error');
     }

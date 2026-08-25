@@ -18,7 +18,12 @@
 import OpenAI from 'openai';
 import { verifyGrant, grantsConfigured, claimGrantId } from '../_lib/grant.js';
 import { applyCors } from '../_lib/cors.js';
-import { featureConfig, buildUserMessage, BadInputError } from '../_lib/features.js';
+import {
+  featureConfig,
+  buildUserMessage,
+  answerBudget,
+  BadInputError,
+} from '../_lib/features.js';
 import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
 
 /**
@@ -28,20 +33,67 @@ import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
 const MAX_INPUT_BYTES = 512 * 1024;
 
 /**
+ * How long the platform lets this function run, in seconds.
+ *
+ * It has to be the same number as `functions` → `maxDuration` in vercel.json;
+ * tests/aiRequestTimeout.test.js reads both and fails if they drift. What
+ * makes it worth knowing here is what happens when it is reached: the platform
+ * kills the invocation and answers 504 itself, from outside this file — with
+ * none of the CORS headers applyCors() put on the response. The browser is
+ * then handed a reply it is not allowed to read, and reports the whole thing
+ * as
+ *
+ *   No 'Access-Control-Allow-Origin' header is present on the requested resource
+ *
+ * which sends whoever debugs it into the CORS configuration, where nothing is
+ * wrong. That is exactly what a review of a real, loaded patch looked like:
+ * the default graph answers in a few seconds, and a patch with a canvas full
+ * of nodes did not fit in the 60 seconds this function used to be given.
+ */
+export const FUNCTION_BUDGET_SECONDS = 300;
+
+/**
+ * The latest any call may still be running, whatever it is.
+ *
+ * Inside the platform's limit by enough to still write an answer. An honest
+ * 504 that says the call ran long — with the CORS headers on it, so the editor
+ * can read it and tell the artist — beats one from the platform that the
+ * browser turns into a CORS error.
+ *
+ * This is the ceiling, not the setting: each call gets a deadline of its own,
+ * sized from what it was allowed to write (see deadlineFor). Only the largest
+ * refactor of the largest patch ever comes near this one.
+ */
+export const MODEL_DEADLINE_MS = (FUNCTION_BUDGET_SECONDS - 15) * 1000;
+
+/**
  * The model most features run on.
  *
- * Luna is the cost-efficient tier of the GPT-5.6 family: $0.20 per million
- * input tokens against gpt-5.5's $5.00, and $1.20 output against $30.00. For
- * work that is mostly reading a graph and reporting what is wrong with it,
- * twenty-five times the price bought less than twenty-five times the answer.
+ * This used to be gpt-5.6-luna, the cost-efficient tier, on the argument that
+ * reading a graph and reporting on it is not work that needs a large model.
+ * The argument was half right. Luna is fine at *describing* a patch; what
+ * these features are actually asked for is judgement — is this wiring what the
+ * artist meant, will this parameter render black, is this chain worth
+ * collapsing — and there the cheap tier was not earning its saving. A finding
+ * that is wrong costs an artist more than the model cost saved, because they
+ * act on it.
  *
- * A feature that needs more says so with its own `model` (see features.js).
+ * So the default is now terra, and the exception goes the other way: a feature
+ * that needs speed more than judgement names luna for itself, which today is
+ * `ai.canvas_assist` alone (see features.js). Making the careful choice the
+ * default also means a feature added later inherits it rather than inheriting
+ * the cheap one by silence.
+ *
+ * On price: terra is $2.00 per million input tokens against gpt-5.5's $5.00,
+ * and most of every request here is the node catalogue, which is identical
+ * across calls and served from the prefix cache. The bill this moves is small
+ * and it is the right place to spend it.
  *
  * Two things any replacement has to be able to do: Structured Outputs, which is
  * how every answer here is data rather than prose, and the Responses API. It
  * does not have to be a reasoning model — see reasoningEnabled().
  */
-const DEFAULT_MODEL = 'gpt-5.6-luna';
+const DEFAULT_MODEL = 'gpt-5.6-terra';
 
 /**
  * `OPENAI_MODEL` exists so that moving to the next model is an environment
@@ -72,12 +124,46 @@ function reasoningEnabled() {
 }
 
 /**
+ * Room to think, for a feature that has not said how much it needs.
+ *
  * Reasoning tokens are spent out of `max_output_tokens`, unlike the answer
  * budgets in features.js, which describe the answer alone. Without headroom a
  * feature that thinks hard runs out of budget mid-sentence and comes back
- * `incomplete` — a spent call and nothing to show for it.
+ * `incomplete` — a spent call and nothing to show for it. Every feature names
+ * its own `reasoningTokens`; this is only the floor under a new one that
+ * forgets to.
  */
-const REASONING_HEADROOM = 16000;
+const DEFAULT_REASONING_TOKENS = 6000;
+
+/**
+ * How fast to assume the model writes, for turning a token budget into a
+ * deadline.
+ *
+ * Deliberately pessimistic — roughly half of what these models decode at in
+ * practice. A deadline that is too generous costs us nothing except a longer
+ * wait in the rare case where a call has genuinely hung; one that is too tight
+ * throws away calls that were about to answer, and bills the artist for them.
+ * Every completed call logs its tokens and its seconds (see logCall), so this
+ * can be calibrated from real numbers rather than adjusted by feel.
+ */
+const ASSUMED_TOKENS_PER_SECOND = 50;
+
+/** Nothing is given less than this, however small its budget. */
+const MIN_DEADLINE_MS = 30 * 1000;
+
+/**
+ * When to give up on a call whose budget is this many tokens.
+ *
+ * The point of deriving it rather than fixing it: a canvas-assist call that is
+ * allowed 3,500 tokens has no business taking four minutes, and a refactor of
+ * four hundred nodes cannot be held to seventy seconds. Each feature waits in
+ * proportion to what it was allowed to write, and none of them waits longer
+ * than the platform will (see MODEL_DEADLINE_MS).
+ */
+function deadlineFor(tokens) {
+  const derived = (tokens / ASSUMED_TOKENS_PER_SECOND) * 1000;
+  return Math.min(MODEL_DEADLINE_MS, Math.max(MIN_DEADLINE_MS, Math.round(derived)));
+}
 
 /**
  * The effort vocabulary in features.js, mapped to what the model accepts.
@@ -205,9 +291,13 @@ export default async function handler(req, res) {
     throw error;
   }
 
+  const started = Date.now();
+
   try {
-    const result = await callModel(config, userMessage);
+    const result = await callModel(config, userMessage, input);
     const payload = shapeResult(feature, result);
+
+    logCall(config, result, Date.now() - started);
 
     return res.status(200).json({
       feature,
@@ -218,6 +308,28 @@ export default async function handler(req, res) {
   } catch (error) {
     return handleModelError(error, res, config);
   }
+}
+
+/**
+ * One line per completed call: what it cost, and how long it took.
+ *
+ * The budgets in features.js and ASSUMED_TOKENS_PER_SECOND above are estimates
+ * of numbers nobody had measured — which is how a review came to be allowed
+ * 32,000 output tokens and then ran past the function's time limit. This is
+ * where the real ones come from. Read a few of these before changing either.
+ */
+function logCall(config, { usage, budget }, elapsedMs) {
+  const reasoning = usage?.output_tokens_details?.reasoning_tokens;
+  // Reasoning is counted inside output_tokens, so the answer is what is left.
+  // Floored: a usage shape that disagrees should read as odd, not as negative.
+  const answer = Math.max(0, (usage?.output_tokens ?? 0) - (reasoning ?? 0));
+  const cached = usage?.input_tokens_details?.cached_tokens ?? 0;
+
+  console.log(
+    `${config.label}: ${(elapsedMs / 1000).toFixed(1)}s, ` +
+      `${reasoning ?? '?'} reasoning + ${answer} answer of ${budget} allowed, ` +
+      `${usage?.input_tokens ?? '?'} in (${cached} cached).`
+  );
 }
 
 /**
@@ -234,36 +346,77 @@ export default async function handler(req, res) {
  * the node catalogue that makes up most of its bulk is not paid for in full on
  * every call; there is nothing to mark, and nothing to keep in sync.
  */
-async function callModel(config, userMessage) {
+async function callModel(config, userMessage, input) {
   const thinks = reasoningEnabled();
-  const outputBudget = config.maxTokens + (thinks ? REASONING_HEADROOM : 0);
+  const reasoningRoom = config.reasoningTokens ?? DEFAULT_REASONING_TOKENS;
+  const outputBudget = answerBudget(config, input) + (thinks ? reasoningRoom : 0);
 
-  const stream = openai().responses.stream({
-    model: modelName(config),
-    instructions: config.system(),
-    input: [{ role: 'user', content: userMessage }],
-    ...(thinks ? { reasoning: { effort: EFFORT[config.effort] || 'medium' } } : {}),
-    // Reasoning is spent out of this budget; without it the answer is the whole
-    // of it, and the headroom would only be an invitation to ramble.
-    max_output_tokens: outputBudget,
-    // Every call for a feature shares one prefix — the whole node registry —
-    // and prefix caching only pays when the request lands where that prefix is
-    // already warm. Keying by feature is what makes that likely under load
-    // rather than lucky. It steers routing; it is not part of the prompt.
-    prompt_cache_key: config.format.name,
-    text: {
-      format: {
-        type: 'json_schema',
-        name: config.format.name,
-        description: config.format.description,
-        schema: config.format.schema,
-        strict: Boolean(config.strict),
+  // Our own deadline, always shorter than the platform's, so that a call that
+  // runs long ends as an answer rather than as a killed invocation the browser
+  // cannot read. Sized from the budget: this call cannot write more than
+  // `outputBudget` tokens, so waiting longer than those tokens could take is
+  // waiting for something that is not coming. See FUNCTION_BUDGET_SECONDS.
+  const deadlineMs = deadlineFor(outputBudget);
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), deadlineMs);
+
+  try {
+    const answered = await streamAnswer(config, userMessage, {
+      thinks,
+      outputBudget,
+      signal: controller.signal,
+    });
+    return { ...answered, budget: outputBudget };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      console.error(
+        `${config.label}: no answer within ${Math.round(deadlineMs / 1000)}s ` +
+          `(budget ${outputBudget} tokens) — gave up.`
+      );
+      const timeout = new Error('The AI did not finish in time.');
+      timeout.code = 'timed_out';
+      timeout.deadlineMs = deadlineMs;
+      throw timeout;
+    }
+    throw error;
+  } finally {
+    // A timer still pending keeps the invocation alive after the answer is
+    // written, and is billed for.
+    clearTimeout(deadline);
+  }
+}
+
+/** The call itself, run under callModel()'s deadline. */
+async function streamAnswer(config, userMessage, { thinks, outputBudget, signal }) {
+  const stream = openai().responses.stream(
+    {
+      model: modelName(config),
+      instructions: config.system(),
+      input: [{ role: 'user', content: userMessage }],
+      ...(thinks ? { reasoning: { effort: EFFORT[config.effort] || 'medium' } } : {}),
+      // Reasoning is spent out of this budget; without it the answer is the whole
+      // of it, and the headroom would only be an invitation to ramble.
+      max_output_tokens: outputBudget,
+      // Every call for a feature shares one prefix — the whole node registry —
+      // and prefix caching only pays when the request lands where that prefix is
+      // already warm. Keying by feature is what makes that likely under load
+      // rather than lucky. It steers routing; it is not part of the prompt.
+      prompt_cache_key: config.format.name,
+      text: {
+        format: {
+          type: 'json_schema',
+          name: config.format.name,
+          description: config.format.description,
+          schema: config.format.schema,
+          strict: Boolean(config.strict),
+        },
       },
+      // Artists' patches are their work. There is no reason for this deployment
+      // to leave copies of them on someone else's server for 30 days.
+      store: false,
     },
-    // Artists' patches are their work. There is no reason for this deployment
-    // to leave copies of them on someone else's server for 30 days.
-    store: false,
-  });
+    { signal }
+  );
 
   const response = await stream.finalResponse();
 
@@ -385,6 +538,20 @@ function handleModelError(error, res, config) {
   if (error?.message && /patch|node kind|output node/i.test(error.message) && !error.status) {
     console.warn(`${config.label}: unusable answer — ${error.message}`);
     return res.status(502).json({ error: error.message, code: 'unusable_answer' });
+  }
+
+  // Stopped at our own deadline. Not the artist's doing, but not something an
+  // operator can fix either — the honest advice is a smaller patch, and saying
+  // so is the whole reason this branch exists rather than a platform 504 the
+  // browser reports as a CORS failure.
+  if (error?.code === 'timed_out') {
+    const seconds = Math.round((error.deadlineMs ?? MODEL_DEADLINE_MS) / 1000);
+    return res.status(504).json({
+      error:
+        `The AI was still working after ${seconds} seconds and was stopped. ` +
+        'Large patches take the longest — try it on a smaller one, or on part of this one.',
+      code: 'timed_out',
+    });
   }
 
   if (error?.code === 'refused') {
