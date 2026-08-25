@@ -74,9 +74,24 @@ grep -r "OPENAI_API_KEY\|TIER_GRANT_SECRET\|sk-proj-" dist/   # must find nothin
 Without either, `/api/ai/run` answers `503 not_configured` on every request and
 says so plainly rather than failing as an invalid grant.
 
-**`maxDuration` is set to 60s** in `vercel.json`, which is the ceiling on Hobby.
-Patch generation at `effort: high` can approach it on a large patch; on a Pro
-plan with Fluid compute, raise it to 300.
+**`maxDuration` is set to 300s** in `vercel.json`, and `FUNCTION_BUDGET_SECONDS`
+in `api/ai/run.js` is the same number — `tests/aiRequestTimeout.test.js` reads
+both and fails if they drift. It was 60s, which a review or a generation at
+`effort: high` does not fit inside on a real patch. What made that worth fixing
+twice over is how it failed: the platform kills the invocation at the limit and
+writes its own 504, carrying none of the CORS headers the handler set, so the
+browser refuses to read it and reports
+
+```
+No 'Access-Control-Allow-Origin' header is present on the requested resource
+```
+
+— a CORS error where nothing is wrong with CORS. The handler now stops the
+model 15s short of the limit itself and answers `504 timed_out`, with the
+headers on it and a message the editor can show. Lower both numbers together on
+a deployment whose plan caps functions shorter; the editor's own backstop
+(`REQUEST_TIMEOUT_MS` in `src/ai/aiClient.js`) sits just past the platform's
+limit and should stay that way.
 
 ---
 
