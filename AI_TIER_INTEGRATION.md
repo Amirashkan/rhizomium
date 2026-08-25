@@ -68,7 +68,8 @@ grep -r "OPENAI_API_KEY\|TIER_GRANT_SECRET\|sk-proj-" dist/   # must find nothin
 |---|---|
 | `TIER_GRANT_SECRET` | **The same value as the gallery's.** Generated with `openssl rand -hex 32`. Get it from whoever runs the gallery deployment. |
 | `OPENAI_API_KEY` | An OpenAI API key. Server-side only. |
-| `OPENAI_MODEL` | *Optional.* Overrides the model. Defaults to `gpt-5.5`. Must name a GPT-5-class reasoning model — every feature asks for reasoning and Structured Outputs. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
+| `OPENAI_MODEL` | *Optional.* Puts every feature on one model, overriding both the default and any model a feature names for itself. Defaults to `gpt-5.6-luna`, except `ai.creative_director`, which asks for `gpt-5.6-terra`. Must name a model on the Responses API that supports Structured Outputs — every feature answers through a JSON schema. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
+| `OPENAI_REASONING` | *Optional.* Set to `off` when `OPENAI_MODEL` names a model with no reasoning mode: the `reasoning` parameter is then left off the request, which such a model would otherwise reject outright. Off also removes the 16k-token reasoning headroom from each call's output budget. Anything else, or unset, keeps reasoning on. |
 
 Without either, `/api/ai/run` answers `503 not_configured` on every request and
 says so plainly rather than failing as an invalid grant.
@@ -136,9 +137,10 @@ is caught before it reaches a canvas. A patch with an unknown node kind, or with
 no output node, is answered `502` rather than handed over — a document that
 cannot open is a failed call, not a result.
 
-The catalogue text is byte-identical on every request and sits behind a
-`cache_control` breakpoint, so those ~4,000 tokens are billed once per cache
-window rather than once per call.
+The catalogue text is built once per process and byte-identical on every
+request, so those ~8,600 tokens sit at the front of a prefix the model's own
+cache can find and are billed in full once per cache window rather than once
+per call.
 
 ### The web viewer is now an editor surface too
 
@@ -301,12 +303,24 @@ two are validated after the fact instead — `validateGeneratedPatch()` in
 patch that would not open, and the endpoint answers `502 unusable_answer`
 rather than putting a broken document on someone's canvas.
 
+**Which model runs what.** `DEFAULT_MODEL` in `run.js` is `gpt-5.6-luna` —
+$0.20 per million input tokens and $1.20 output, against gpt-5.5's $5.00 and
+$30.00. Every feature that reads a graph and reports on it runs there. A
+feature that needs more names its own `model` in `features.js`, which today
+is only `ai.creative_director` on `gpt-5.6-terra`: it is sold on Cloude Plus as
+judgement about a piece, and an artist who paid for that and got the
+cost-efficient tier has been sold something else. `OPENAI_MODEL` overrides
+both.
+
 **Reasoning.** Each feature declares an `effort`, mapped in `run.js` to what
 the Responses API takes. `xhigh` — which only `ai.creative_director` asks for —
 lands on `high`: OpenAI's ceiling varies by model, `high` is the deepest
 setting every GPT-5-class model accepts, and a rejected effort value fails the
 whole call for a marginal gain. Raise it in the `EFFORT` map if the deployment
-pins a model that takes more.
+pins a model that takes more. Reasoning tokens are billed as output; a
+deployment that wants them gone — or that names a model with no reasoning mode
+at all, which would reject the parameter outright — sets `OPENAI_REASONING=off`
+and the parameter is left off the request entirely.
 
 **Budgets.** Reasoning tokens are spent out of `max_output_tokens`, so
 `maxTokens` in `features.js` describes the *answer* and `run.js` adds
@@ -317,9 +331,23 @@ result, because half a patch is not a patch.
 
 **Caching is automatic.** The system prompt goes in `instructions`, where it is
 the stable prefix of every request for a feature; the node catalogue is most of
-its ~22KB and never varies within a deploy. OpenAI caches long prefixes on its
-own, so there is nothing to mark and nothing to keep in sync. `usage.cacheReadTokens`
+its ~21KB and never varies within a deploy. OpenAI caches long prefixes on its
+own, so there is nothing to mark and nothing to keep in sync. `nodeCatalogText()`
+is built once per process, which is what keeps that prefix byte-identical, and
+each call carries a `prompt_cache_key` of the feature's name so requests that
+share a prefix are routed to where it is already warm. `usage.cacheReadTokens`
 in the response says what it saved.
+
+**The patch is not sent as JSON.** It goes over in the compact line format that
+`PATCH_FORMAT_LEGEND` in `features.js` describes — one line per node, one per
+wire — with any parameter still at its registry default left out, since the
+catalogue in the cached prefix already stated it. The same graph as indented
+JSON runs five to nine times longer, and none of that length is information: a
+sixty-node patch is 11,548 tokens as JSON and 1,299 in this format. The legend
+costs ~370 tokens once, at the end of the cached prefix. Answers are
+unaffected: those still come back as JSON through Structured Outputs.
+`tests/aiPromptEncoding.test.js` holds the encoding to what a model needs to
+name a node in its answer.
 
 **Requests are not stored.** `store: false` on every call. Artists' patches are
 their work, and there is no reason to leave copies of them on someone else's

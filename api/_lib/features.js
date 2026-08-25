@@ -14,7 +14,7 @@
  * call fails loudly. Prose is never parsed.
  */
 
-import { nodeCatalogText } from './nodeCatalog.js';
+import { nodeCatalogText, isDefaultParamValue } from './nodeCatalog.js';
 
 /**
  * The patch shape the editor speaks, shared by generator and refactor.
@@ -101,8 +101,42 @@ Artists use this live — patches run every frame at 60fps. Node count and textu
 
 ${nodeCatalogText()}
 
-Use only node kinds listed above, spelled exactly as they appear. Never invent one. If the registry has no node for what is wanted, say so in your answer rather than inventing a kind.`;
+Use only node kinds listed above, spelled exactly as they appear. Never invent one. If the registry has no node for what is wanted, say so in your answer rather than inventing a kind.
+
+${PATCH_FORMAT_LEGEND}`;
 }
+
+/**
+ * How a patch is written when it is shown to the model.
+ *
+ * This costs ~370 tokens, once, at the end of the cached prefix. It buys back
+ * several thousand on every patch that follows: the same graph as indented JSON
+ * runs five to nine times longer, and none of that length is information — it
+ * is punctuation, repeated key names, and defaults the registry above already
+ * stated. A sixty-node patch is 11,548 tokens as JSON and 1,299 in this format.
+ *
+ * Answers are unaffected: those come back through Structured Outputs, as JSON,
+ * in the schema each feature declares.
+ */
+const PATCH_FORMAT_LEGEND = `Patches are given to you in a compact line format, not as JSON.
+
+Nodes, one per line:
+  <id> <kind> @<x>,<y> [name] [param=value ...]
+The name, when present, is the artist's own label for that node, in quotes.
+"in=<n>" is the pin count of a node that takes a variable number of inputs.
+
+Then a blank line, then the wires, one per line:
+  <fromId>:<outPin> -> <toId>:<inPin>
+
+Reading the values:
+- A parameter that is absent is at its registry default. Only parameters the
+  artist changed are listed, so an absent one is a deliberate silence, not a
+  gap in what you were given.
+- Values are bare where they can be; anything else is JSON, so a quoted string
+  follows JSON rules and \\n inside one is a line break.
+
+Refer to nodes by these ids in your answer. Write your answer as JSON in the
+schema you were given, never in this line format.`;
 
 /** Severity vocabulary shared by review and canvas assist. */
 const SEVERITY = {
@@ -351,6 +385,19 @@ Name the inputs for what they carry, not input0. Keep the code short enough to r
     maxTokens: 32000,
     // One call is minutes of model time. Worth remembering the grant id.
     singleUse: true,
+    /**
+     * The one feature that does not run on the cheap model.
+     *
+     * Everything else here reads a graph and reports on it, which the Luna tier
+     * does well. This one is sold on the Cloude Plus tier as direction on a
+     * piece — judgement about what a work is promising and not paying off — and
+     * an artist who paid for that and got the cost-efficient model has been
+     * sold something else. Terra is still $2 per million input against
+     * gpt-5.5's $5, so the premium feature got cheaper too.
+     *
+     * `OPENAI_MODEL` overrides this, as it overrides everything.
+     */
+    model: 'gpt-5.6-terra',
     system: () => `${sharedContext()}
 
 Your task is to direct a whole piece, not to fix a patch.
@@ -407,25 +454,26 @@ export const IMPLEMENTED_FEATURES = Object.keys(AI_FEATURES);
 /**
  * Build the user turn for a feature from the editor's payload.
  *
- * Patches go over as JSON because that is what the editor speaks and what the
- * answer has to be expressed in; prose descriptions of a graph lose the ids
- * that make a finding actionable.
+ * The graph travels as the line format described in PATCH_FORMAT_LEGEND, which
+ * keeps what a model reasons about — ids, kinds, wires, the parameters an
+ * artist moved — and drops what it cannot use. Node ids survive intact, so a
+ * finding still names something the editor can highlight.
  */
 export function buildUserMessage(feature, input = {}) {
-  const patchJson = () => JSON.stringify(input.patch ?? {}, null, 1);
+  const patchText = () => describePatch(input.patch);
 
   switch (feature) {
     case 'ai.patch_review':
-      return `Review this patch.\n\n\`\`\`json\n${patchJson()}\n\`\`\``;
+      return `Review this patch.\n\n${patchText()}`;
 
     case 'ai.patch_refactor':
-      return `Tidy this patch without changing what it renders.\n\n\`\`\`json\n${patchJson()}\n\`\`\``;
+      return `Tidy this patch without changing what it renders.\n\n${patchText()}`;
 
     case 'ai.canvas_assist': {
       const focus = Array.isArray(input.selectedNodeIds) && input.selectedNodeIds.length
         ? `\n\nThe artist currently has these nodes selected: ${input.selectedNodeIds.join(', ')}. Weight your suggestions towards them.`
         : '';
-      return `Suggest small improvements to what I am working on.\n\n\`\`\`json\n${patchJson()}\n\`\`\`${focus}`;
+      return `Suggest small improvements to what I am working on.\n\n${patchText()}${focus}`;
     }
 
     case 'ai.patch_generator': {
@@ -443,12 +491,72 @@ export function buildUserMessage(feature, input = {}) {
     case 'ai.creative_director': {
       const brief = String(input.brief || '').trim();
       const briefText = brief ? `The artist's brief: ${brief}\n\n` : '';
-      return `${briefText}Direct this piece.\n\n\`\`\`json\n${patchJson()}\n\`\`\``;
+      return `${briefText}Direct this piece.\n\n${patchText()}`;
     }
 
     default:
       throw new BadInputError(`No message builder for ${feature}.`);
   }
+}
+
+/**
+ * The graph as the line format the legend describes.
+ *
+ * Exported so the tests can read what a patch actually costs, and so anything
+ * else that needs to show a model a patch writes it the one way.
+ */
+export function describePatch(patch) {
+  const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
+  const connections = Array.isArray(patch?.connections) ? patch.connections : [];
+
+  if (!nodes.length) return '(The canvas is empty.)';
+
+  const lines = nodes.map(describePatchNode);
+
+  if (connections.length) {
+    lines.push('');
+    for (const conn of connections) {
+      const from = `${conn?.from?.nodeId ?? ''}:${conn?.from?.pin ?? 0}`;
+      const to = `${conn?.to?.nodeId ?? ''}:${conn?.to?.pin ?? 0}`;
+      lines.push(`${from} -> ${to}`);
+    }
+  } else {
+    lines.push('', '(No wires: nothing in this patch is connected to anything else.)');
+  }
+
+  return lines.join('\n');
+}
+
+function describePatchNode(node) {
+  const bits = [String(node?.id ?? ''), String(node?.kind ?? '')];
+
+  bits.push(`@${Math.round(Number(node?.x) || 0)},${Math.round(Number(node?.y) || 0)}`);
+
+  // The artist's own name for a node says more about intent than anything else
+  // in the document, so it is one of the few things worth its length.
+  if (node?.name) bits.push(JSON.stringify(String(node.name)));
+  if (Number.isFinite(node?.inputCount)) bits.push(`in=${node.inputCount}`);
+
+  for (const [name, value] of Object.entries(node?.params || {})) {
+    if (value === null || value === undefined) continue;
+    if (isDefaultParamValue(node.kind, name, value)) continue;
+    bits.push(`${name}=${describeParamValue(value)}`);
+  }
+
+  return bits.join(' ');
+}
+
+/**
+ * Bare where it can be, JSON where it has to be.
+ *
+ * A bareword needs no quotes to be read back unambiguously; anything with a
+ * space, a quote, or a line break in it does, and JSON is the quoting the model
+ * already knows. Numbers and booleans are never quoted.
+ */
+function describeParamValue(value) {
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'string' && /^[\w./+-]+$/.test(value)) return value;
+  return JSON.stringify(value);
 }
 
 /** Input the caller got wrong — answered 400, not 500. */

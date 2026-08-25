@@ -28,19 +28,47 @@ import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
 const MAX_INPUT_BYTES = 512 * 1024;
 
 /**
- * The model, overridable per deployment.
+ * The model most features run on.
  *
- * Every feature here wants reasoning and Structured Outputs, so this has to
- * name a GPT-5-class reasoning model. `OPENAI_MODEL` exists so that moving to
- * the next one is an environment change rather than a deploy — and so a
- * deployment on a different account can name a model it actually has access
- * to. A model this account cannot reach comes back as a 404 and is reported
- * as a configuration problem, not as a failure the artist did anything about.
+ * Luna is the cost-efficient tier of the GPT-5.6 family: $0.20 per million
+ * input tokens against gpt-5.5's $5.00, and $1.20 output against $30.00. For
+ * work that is mostly reading a graph and reporting what is wrong with it,
+ * twenty-five times the price bought less than twenty-five times the answer.
+ *
+ * A feature that needs more says so with its own `model` (see features.js).
+ *
+ * Two things any replacement has to be able to do: Structured Outputs, which is
+ * how every answer here is data rather than prose, and the Responses API. It
+ * does not have to be a reasoning model — see reasoningEnabled().
  */
-const DEFAULT_MODEL = 'gpt-5.5';
+const DEFAULT_MODEL = 'gpt-5.6-luna';
 
-function modelName() {
-  return process.env.OPENAI_MODEL || DEFAULT_MODEL;
+/**
+ * `OPENAI_MODEL` exists so that moving to the next model is an environment
+ * change rather than a deploy — and so a deployment on a different account can
+ * name a model it actually has access to. It overrides every feature's own
+ * choice, which is what makes it a usable escape hatch: one variable puts the
+ * whole backend on one model. A model this account cannot reach comes back as
+ * a 404 and is reported as a configuration problem, not as a failure the
+ * artist did anything about.
+ */
+function modelName(config) {
+  return process.env.OPENAI_MODEL || config?.model || DEFAULT_MODEL;
+}
+
+/**
+ * Whether to send `reasoning` at all.
+ *
+ * A reasoning model wants it; a model without a reasoning mode rejects the
+ * whole request for carrying it, which would turn naming a cheaper model into
+ * a 400 on every call and read as a bug in the editor. `OPENAI_REASONING=off`
+ * is how an operator says the model they named does not think out loud.
+ *
+ * Off is also the cheaper setting where it is available: reasoning tokens are
+ * billed as output, and on a run of small patches they can outweigh the answer.
+ */
+function reasoningEnabled() {
+  return String(process.env.OPENAI_REASONING || '').toLowerCase() !== 'off';
 }
 
 /**
@@ -52,10 +80,14 @@ function modelName() {
 const REASONING_HEADROOM = 16000;
 
 /**
- * The effort vocabulary in features.js, mapped to what a GPT-5-class model
- * accepts. `xhigh` lands on `high`: OpenAI's ceiling varies by model, `high`
- * is the deepest setting every one of them takes, and a rejected effort value
- * would fail the whole call for the sake of a marginal gain.
+ * The effort vocabulary in features.js, mapped to what the model accepts.
+ *
+ * `xhigh` still lands on `high`. The GPT-5.6 family takes `xhigh` and `max`,
+ * so the ceiling this clamp was written for has moved — but `high` is the
+ * deepest setting every model an operator might pin with `OPENAI_MODEL`
+ * accepts, a rejected effort value fails the whole call, and reasoning tokens
+ * are billed as output. Raise the `xhigh` row here if a deployment wants the
+ * deeper setting and knows its model takes it.
  */
 const EFFORT = {
   low: 'low',
@@ -203,12 +235,22 @@ export default async function handler(req, res) {
  * every call; there is nothing to mark, and nothing to keep in sync.
  */
 async function callModel(config, userMessage) {
+  const thinks = reasoningEnabled();
+  const outputBudget = config.maxTokens + (thinks ? REASONING_HEADROOM : 0);
+
   const stream = openai().responses.stream({
-    model: modelName(),
+    model: modelName(config),
     instructions: config.system(),
     input: [{ role: 'user', content: userMessage }],
-    reasoning: { effort: EFFORT[config.effort] || 'medium' },
-    max_output_tokens: config.maxTokens + REASONING_HEADROOM,
+    ...(thinks ? { reasoning: { effort: EFFORT[config.effort] || 'medium' } } : {}),
+    // Reasoning is spent out of this budget; without it the answer is the whole
+    // of it, and the headroom would only be an invitation to ramble.
+    max_output_tokens: outputBudget,
+    // Every call for a feature shares one prefix — the whole node registry —
+    // and prefix caching only pays when the request lands where that prefix is
+    // already warm. Keying by feature is what makes that likely under load
+    // rather than lucky. It steers routing; it is not part of the prompt.
+    prompt_cache_key: config.format.name,
     text: {
       format: {
         type: 'json_schema',
@@ -248,7 +290,7 @@ async function callModel(config, userMessage) {
     // raising the feature's budget in features.js.
     console.error(
       `${config.label}: answer did not finish (${reason || 'unknown'}) within ` +
-        `${config.maxTokens + REASONING_HEADROOM} output tokens.`
+        `${outputBudget} output tokens.`
     );
     const error = new Error('The model ran out of room before finishing its answer.');
     error.code = 'answer_truncated';
@@ -397,7 +439,7 @@ function handleModelError(error, res, config) {
   // one thing whoever reads it needs.
   if (status === 404) {
     console.error(
-      `The AI backend is configured for a model it cannot use: ${modelName()} — ${modelErrorMessage(error)}`
+      `The AI backend is configured for a model it cannot use: ${modelName(config)} — ${modelErrorMessage(error)}`
     );
     return res.status(503).json({
       error: 'AI features are not configured correctly on this deployment.',
