@@ -359,11 +359,13 @@ export class AIPanel {
   }
 
   /**
-   * The three answers that need different words.
+   * The four answers that need different words.
    *
    * 402 is "here is what you would get". 429 is "come back at this time" — or,
    * for a signed-out visitor, "sign in, it is free and the allowance is
-   * bigger". 503 is an operator problem and not the artist's fault.
+   * bigger". 503 is an operator problem and not the artist's fault, and so is
+   * a 5xx crash — with the difference that nobody meant that one to happen, so
+   * it points at the console rather than reading as a settled state.
    */
   presentError(error) {
     if (error instanceof GrantError) {
@@ -378,6 +380,13 @@ export class AIPanel {
           'AI features are not switched on for the gallery yet. Nothing you did — it needs an operator.',
           'error',
           'Not configured'
+        );
+      }
+      if (error.code === 'server_error') {
+        return modalManager.toast(
+          `${error.message} The console line names the credential the request went out with.`,
+          'error',
+          'Not your fault'
         );
       }
       return modalManager.toast(error.message, 'error');
