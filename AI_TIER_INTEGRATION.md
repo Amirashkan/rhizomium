@@ -68,7 +68,7 @@ grep -r "OPENAI_API_KEY\|TIER_GRANT_SECRET\|sk-proj-" dist/   # must find nothin
 |---|---|
 | `TIER_GRANT_SECRET` | **The same value as the gallery's.** Generated with `openssl rand -hex 32`. Get it from whoever runs the gallery deployment. |
 | `OPENAI_API_KEY` | An OpenAI API key. Server-side only. |
-| `OPENAI_MODEL` | *Optional.* Puts every feature on one model, overriding both the default and any model a feature names for itself. Defaults to `gpt-5.6-luna`, except `ai.creative_director`, which asks for `gpt-5.6-terra`. Must name a model on the Responses API that supports Structured Outputs — every feature answers through a JSON schema. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
+| `OPENAI_MODEL` | *Optional.* Puts every feature on one model, overriding both the default and any model a feature names for itself. Defaults to `gpt-5.6-terra`, except `ai.canvas_assist`, which asks for `gpt-5.6-luna`. Must name a model on the Responses API that supports Structured Outputs — every feature answers through a JSON schema. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
 | `OPENAI_REASONING` | *Optional.* Set to `off` when `OPENAI_MODEL` names a model with no reasoning mode: the `reasoning` parameter is then left off the request, which such a model would otherwise reject outright. Off also removes each feature's reasoning headroom from its output budget, leaving the answer the whole allowance. Anything else, or unset, keeps reasoning on. |
 
 Without either, `/api/ai/run` answers `503 not_configured` on every request and
@@ -353,14 +353,36 @@ two are validated after the fact instead — `validateGeneratedPatch()` in
 patch that would not open, and the endpoint answers `502 unusable_answer`
 rather than putting a broken document on someone's canvas.
 
-**Which model runs what.** `DEFAULT_MODEL` in `run.js` is `gpt-5.6-luna` —
-$0.20 per million input tokens and $1.20 output, against gpt-5.5's $5.00 and
-$30.00. Every feature that reads a graph and reports on it runs there. A
-feature that needs more names its own `model` in `features.js`, which today
-is only `ai.creative_director` on `gpt-5.6-terra`: it is sold on Cloude Plus as
-judgement about a piece, and an artist who paid for that and got the
-cost-efficient tier has been sold something else. `OPENAI_MODEL` overrides
-both.
+**Which model runs what.** `DEFAULT_MODEL` in `run.js` is `gpt-5.6-terra` —
+$2.00 per million input tokens against gpt-5.5's $5.00 — and a feature that
+wants something else names its own `model` in `features.js`.
+
+It ran the other way round for a while: the default was the cost-efficient
+`gpt-5.6-luna`, on the argument that reading a graph and reporting on it does
+not need a large model. Half right. These features are not asked to describe a
+patch, they are asked to judge one — is this wiring what the artist meant, will
+this value render black, is this chain worth collapsing — and a finding that is
+wrong costs an artist more than the saving, because they act on it.
+
+So the exception now goes the other way: `ai.canvas_assist` names luna for
+itself. It fires while the artist works, its suggestions are accepted in one
+click, and one it misses costs nothing where a slow one costs the flow it was
+meant to support. That is the only place in the editor where cheap-and-quick is
+the better answer.
+
+| feature | model | effort | why |
+|---|---|---|---|
+| `ai.canvas_assist` | luna | `low` | speed is the product |
+| `ai.patch_review` | terra | `medium` | run often, waited on; the graph facts are precomputed, so there is little left to reason about |
+| `ai.patch_refactor` | terra | `medium` | strictest correctness bar, but also the largest answer — effort on top of that budget is where the wait comes from |
+| `ai.patch_generator` | terra | `high` | writes a document the artist has to debug if it is wrong, and they are waiting on it deliberately |
+| `ai.node_generator` | terra | `high` | writes shader code that has to compile |
+| `ai.creative_director` | terra | `xhigh` | the thinking is the product |
+
+Capability is where correctness comes from; `effort` is where the seconds come
+from. That is the whole rule behind the table: raise the model where a mistake
+costs the artist something, raise the effort only where they are already
+waiting on purpose. `OPENAI_MODEL` overrides all of it.
 
 **Reasoning.** Each feature declares an `effort`, mapped in `run.js` to what
 the Responses API takes. `xhigh` — which only `ai.creative_director` asks for —

@@ -69,18 +69,31 @@ export const MODEL_DEADLINE_MS = (FUNCTION_BUDGET_SECONDS - 15) * 1000;
 /**
  * The model most features run on.
  *
- * Luna is the cost-efficient tier of the GPT-5.6 family: $0.20 per million
- * input tokens against gpt-5.5's $5.00, and $1.20 output against $30.00. For
- * work that is mostly reading a graph and reporting what is wrong with it,
- * twenty-five times the price bought less than twenty-five times the answer.
+ * This used to be gpt-5.6-luna, the cost-efficient tier, on the argument that
+ * reading a graph and reporting on it is not work that needs a large model.
+ * The argument was half right. Luna is fine at *describing* a patch; what
+ * these features are actually asked for is judgement — is this wiring what the
+ * artist meant, will this parameter render black, is this chain worth
+ * collapsing — and there the cheap tier was not earning its saving. A finding
+ * that is wrong costs an artist more than the model cost saved, because they
+ * act on it.
  *
- * A feature that needs more says so with its own `model` (see features.js).
+ * So the default is now terra, and the exception goes the other way: a feature
+ * that needs speed more than judgement names luna for itself, which today is
+ * `ai.canvas_assist` alone (see features.js). Making the careful choice the
+ * default also means a feature added later inherits it rather than inheriting
+ * the cheap one by silence.
+ *
+ * On price: terra is $2.00 per million input tokens against gpt-5.5's $5.00,
+ * and most of every request here is the node catalogue, which is identical
+ * across calls and served from the prefix cache. The bill this moves is small
+ * and it is the right place to spend it.
  *
  * Two things any replacement has to be able to do: Structured Outputs, which is
  * how every answer here is data rather than prose, and the Responses API. It
  * does not have to be a reasoning model — see reasoningEnabled().
  */
-const DEFAULT_MODEL = 'gpt-5.6-luna';
+const DEFAULT_MODEL = 'gpt-5.6-terra';
 
 /**
  * `OPENAI_MODEL` exists so that moving to the next model is an environment
@@ -307,7 +320,9 @@ export default async function handler(req, res) {
  */
 function logCall(config, { usage, budget }, elapsedMs) {
   const reasoning = usage?.output_tokens_details?.reasoning_tokens;
-  const answer = (usage?.output_tokens ?? 0) - (reasoning ?? 0);
+  // Reasoning is counted inside output_tokens, so the answer is what is left.
+  // Floored: a usage shape that disagrees should read as odd, not as negative.
+  const answer = Math.max(0, (usage?.output_tokens ?? 0) - (reasoning ?? 0));
   const cached = usage?.input_tokens_details?.cached_tokens ?? 0;
 
   console.log(

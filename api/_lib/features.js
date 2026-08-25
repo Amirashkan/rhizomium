@@ -181,10 +181,16 @@ export const AI_FEATURES = {
   'ai.patch_review': {
     strict: true,
     label: 'Patch review',
-    // Medium, not high. The graph arrives with its reachability and its empty
-    // pins already worked out (see patchFacts.js), so what is left is
-    // judgement about a few dozen lines of text — and high effort on that was
-    // what took a loaded patch past the function's time limit.
+    /**
+     * Medium, on the default model rather than the cheap one — capability
+     * where the judgement is, effort where the time is.
+     *
+     * The graph arrives with its reachability and its empty pins already
+     * worked out (see patchFacts.js), so what is left to reason about is a few
+     * dozen lines of text. High effort on top of that was what took a loaded
+     * patch past the function's time limit, and a review is the feature an
+     * artist runs most often and waits on most impatiently.
+     */
     effort: 'medium',
     // A summary and a handful of findings. Twelve findings at their most
     // verbose is under 2,000 tokens; the old 16,000 was room to ramble that
@@ -240,6 +246,14 @@ Be specific and short. Every finding names the nodes it is about and says what t
   'ai.patch_refactor': {
     strict: false,
     label: 'Patch refactor',
+    /**
+     * Medium, despite the strictest correctness bar here — the output must
+     * render identically — because this feature already writes the largest
+     * answer of any of them. Its budget is where its time goes; adding high
+     * effort on top of a four-hundred-node patch is how this becomes the one
+     * feature nobody waits for. The prompt does the work instead: it is told,
+     * plainly, to leave anything it is unsure of alone.
+     */
     effort: 'medium',
     /**
      * The one feature whose answer is as large as its input: it returns the
@@ -299,6 +313,15 @@ Return the complete patch, not a diff. Every node that should survive must appea
     label: 'Canvas assist',
     // Fires while the artist works, so it is tuned for latency over depth.
     effort: 'low',
+    /**
+     * The one feature that runs on the cheap tier, and the only one where that
+     * is the right trade. It interrupts nobody, it suggests things that are
+     * accepted in one click, and a suggestion it misses costs an artist
+     * nothing — where a slow one costs them the flow it was meant to support.
+     * Everything else here is judgement an artist acts on, and runs on the
+     * default model.
+     */
+    model: 'gpt-5.6-luna',
     // Four suggestions of a sentence each. It was budgeted for a small essay.
     maxTokens: 1500,
     reasoningTokens: 2000,
@@ -341,13 +364,22 @@ At most four suggestions, fewer when there is less to say, none when the patch i
   'ai.patch_generator': {
     strict: false,
     label: 'Patch generator',
-    effort: 'medium',
+    /**
+     * High, where review is medium, because of what a mistake costs. A review
+     * that misses something is a shorter list; a generated patch with a wire
+     * in the wrong place is a document the artist has to debug before they can
+     * use it — and they asked for it and waited for it deliberately, which a
+     * review fired mid-session was not.
+     */
+    effort: 'high',
     // A generated patch is meant to be the smallest graph that does the job —
     // forty nodes and their wires is around 5,000 tokens of JSON. This leaves
     // room for twice that and stops well short of the old ceiling, which was
     // sized for a patch nobody should be generating.
     maxTokens: 12000,
-    reasoningTokens: 8000,
+    // Room for high effort to actually think. Too little here and the call
+    // comes back `incomplete`, which spends the artist's action on nothing.
+    reasoningTokens: 12000,
     singleUse: false,
     system: () => `${sharedContext()}
 
@@ -384,11 +416,13 @@ Say in your notes what the artist should reach for first to make it their own.`,
   'ai.node_generator': {
     strict: true,
     label: 'Node generator',
-    effort: 'medium',
+    // It writes shader code that has to compile. Same reasoning as the patch
+    // generator above: an artist waiting on one artifact would rather wait.
+    effort: 'high',
     // A shader body short enough for an artist to read at a glance, which the
     // prompt below asks for outright, plus its pins and a note.
     maxTokens: 3000,
-    reasoningTokens: 5000,
+    reasoningTokens: 8000,
     singleUse: false,
     system: () => `${sharedContext()}
 
@@ -449,18 +483,14 @@ Name the inputs for what they carry, not input0. Keep the code short enough to r
     // One call is minutes of model time. Worth remembering the grant id.
     singleUse: true,
     /**
-     * The one feature that does not run on the cheap model.
+     * No `model` line any more, and that is the point: this feature named terra
+     * for itself back when the default was the cheap tier, on the argument that
+     * an artist paying for direction on a piece should not get the
+     * cost-efficient model. The rest of the editor has since been held to the
+     * same standard, so the default is terra and this inherits it.
      *
-     * Everything else here reads a graph and reports on it, which the Luna tier
-     * does well. This one is sold on the Cloude Plus tier as direction on a
-     * piece — judgement about what a work is promising and not paying off — and
-     * an artist who paid for that and got the cost-efficient model has been
-     * sold something else. Terra is still $2 per million input against
-     * gpt-5.5's $5, so the premium feature got cheaper too.
-     *
-     * `OPENAI_MODEL` overrides this, as it overrides everything.
+     * `OPENAI_MODEL` overrides that, as it overrides everything.
      */
-    model: 'gpt-5.6-terra',
     system: () => `${sharedContext()}
 
 Your task is to direct a whole piece, not to fix a patch.

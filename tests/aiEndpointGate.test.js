@@ -77,6 +77,8 @@ describe('POST /api/ai/run', () => {
   beforeEach(() => {
     process.env.TIER_GRANT_SECRET = SECRET;
     process.env.OPENAI_API_KEY = 'sk-test';
+    // Every completed call logs what it cost; not this suite's business.
+    vi.spyOn(console, 'log').mockImplementation(() => {});
     delete process.env.OPENAI_MODEL;
     delete process.env.OPENAI_REASONING;
     streamMock.mockReset();
@@ -204,7 +206,7 @@ describe('POST /api/ai/run', () => {
       await post({ grant: signGrant(), input: { patch: {} } });
 
       const request = streamMock.mock.calls[0][0];
-      expect(request.model).toBe('gpt-5.6-luna');
+      expect(request.model).toBe('gpt-5.6-terra');
       expect(request.text.format.type).toBe('json_schema');
       expect(request.text.format.name).toBe('patch_review');
       expect(request.text.format.strict).toBe(true);
@@ -222,9 +224,21 @@ describe('POST /api/ai/run', () => {
       expect(request.store).toBe(false);
     });
 
-    it('runs the creative director on the model that feature asks for', async () => {
-      // Everything else reads a graph and reports on it, which the cheap model
-      // does well. This one is sold as judgement, on the top tier.
+    it('runs canvas assist on the cheap model, and only canvas assist', async () => {
+      // The one feature where speed is the product: it fires while the artist
+      // works, and a suggestion it misses costs them nothing. Everything else
+      // is judgement they act on, and takes the default.
+      mockModelAnswer({ suggestions: [] });
+
+      await post({
+        grant: signGrant({ feature: 'ai.canvas_assist' }),
+        input: { patch: {} },
+      });
+
+      expect(streamMock.mock.calls[0][0].model).toBe('gpt-5.6-luna');
+    });
+
+    it('runs the creative director on the default model, at its own effort', async () => {
       mockModelAnswer({ reading: '', directions: [] });
 
       await post({
@@ -232,7 +246,10 @@ describe('POST /api/ai/run', () => {
         input: { patch: {}, brief: 'go' },
       });
 
-      expect(streamMock.mock.calls[0][0].model).toBe('gpt-5.6-terra');
+      const request = streamMock.mock.calls[0][0];
+      expect(request.model).toBe('gpt-5.6-terra');
+      // `xhigh` is clamped to what every GPT-5-class model accepts.
+      expect(request.reasoning).toEqual({ effort: 'high' });
     });
 
     it('lets the operator name the model, and clamps effort to what every model takes', async () => {
