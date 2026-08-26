@@ -2462,8 +2462,22 @@ importConnections(connectionData) {
           this.editor.nodePreviews.clear();
         }
       }
+
+      // The compute stack keys everything — the registry, the managers, the
+      // per-node output textures, the fragment renderer's cached textures — by node
+      // id, and it is only ever pruned one node at a time, as nodes are DELETED.
+      // Replacing the graph deletes nothing, so without this the old graph's compute
+      // nodes keep being dispatched, and their ids are inherited by whatever the
+      // loaded file happens to number the same: a Texture 2D landing on a dead
+      // compute node's id was compiled with a compute_node_<id> binding aimed at its
+      // own bridged output texture, which invalidates every command buffer that
+      // render pass goes into. clear() defers the GPU teardown behind the frame
+      // fence, so it is safe here, and the shader rebuild that follows a load
+      // re-registers the new graph's own compute nodes.
+      window.computeExecutor?.clear?.();
+      window.computeExecutor?.clearFragmentCache?.();
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'graph-clear'
       });
     }

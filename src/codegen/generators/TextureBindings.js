@@ -23,9 +23,21 @@ export class TextureBindings {
     // Also collect compute node IDs from computeNodeRegistry that are referenced
     const computeNodeIdsInUse = new Set();
     if (window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
-      // Check if any compute nodes from registry are in the dependency chain
+      // The registry outlives the graph it was built from — nothing prunes it when
+      // the graph is REPLACED rather than edited — so an id in it is not proof that
+      // the node still exists, let alone that it is still a compute node. Opening a
+      // project numbers its nodes from scratch, so a loaded Texture 2D can land on a
+      // dead compute node's id; binding it as compute_node_<id> on top of its own
+      // texture_<id> pair resolves through ComputeExecutor.nodeOutputs to the very
+      // texture the node's own render pass draws into, and WebGPU rejects the whole
+      // command buffer ("usage (TextureBinding|RenderAttachment) includes writable
+      // usage ... in the same synchronization scope"). Trust the graph's node over
+      // the registry entry.
+      const usedNodeKinds = new Map((usedNodes || []).map(n => [n.id, n.kind]));
       for (const [nodeId] of window.computeNodeRegistry) {
         if (usedNodeIds && usedNodeIds.has(nodeId)) {
+          const kind = usedNodeKinds.get(nodeId);
+          if (kind && !kind.startsWith('Compute')) continue;
           computeNodeIdsInUse.add(nodeId);
         } else if (!usedNodeIds) {
           // If no filter, include all compute nodes (for backwards compatibility)
