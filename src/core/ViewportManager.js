@@ -1,4 +1,6 @@
 // src/core/ViewportManager.js - Enhanced with ErrorHandler integration
+import { canvasViewportWidth } from '../ui/dockLayout.js';
+
 export class ViewportManager {
   constructor() {
     this.scale = 1;
@@ -405,8 +407,10 @@ export class ViewportManager {
         throw new Error('Content has no size');
       }
 
-      // Assume viewport size (could be passed as parameter)
-      const viewportWidth = window.innerWidth || 800;
+      // The visible canvas, not the whole window: a docked panel holds part of
+      // the width, and fitting to the window would centre the graph half under
+      // it. See src/ui/dockLayout.js.
+      const viewportWidth = canvasViewportWidth() || 800;
       const viewportHeight = window.innerHeight || 600;
 
       const scaleX = (viewportWidth - padding * 2) / contentWidth;

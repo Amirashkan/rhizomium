@@ -30,8 +30,8 @@ export class PatchTooLargeError extends Error {
 }
 
 export class EmptyPatchError extends Error {
-  constructor() {
-    super('There is nothing on the canvas yet.');
+  constructor(message = 'There is nothing on the canvas yet.') {
+    super(message);
     this.name = 'EmptyPatchError';
   }
 }
@@ -40,13 +40,33 @@ export class EmptyPatchError extends Error {
  * Build the model-facing view of the current project.
  *
  * @param {Object} projectData - what SaveLoadManager.exportProject() returns.
- * @returns {{nodes: Array, connections: Array, nodeCount: number}}
+ * @param {Object} [options]
+ * @param {Iterable<string|number>} [options.nodeIds] - when given, keep only
+ *   these nodes and the wires that run between them. This is the panel's
+ *   "selection only" scope: a review of one branch of a large patch, which
+ *   both costs less and gets a more specific answer than the whole document.
+ * @returns {{nodes: Array, connections: Array, nodeCount: number, scope: string}}
  */
-export function buildPatchContext(projectData) {
-  const nodes = Array.isArray(projectData?.nodes) ? projectData.nodes : [];
-  const connections = Array.isArray(projectData?.connections) ? projectData.connections : [];
+export function buildPatchContext(projectData, { nodeIds } = {}) {
+  let nodes = Array.isArray(projectData?.nodes) ? projectData.nodes : [];
+  let connections = Array.isArray(projectData?.connections) ? projectData.connections : [];
 
   if (!nodes.length) throw new EmptyPatchError();
+
+  const keep = nodeIds ? new Set([...nodeIds].map(String)) : null;
+  if (keep) {
+    nodes = nodes.filter((node) => keep.has(String(node?.id)));
+    if (!nodes.length) {
+      throw new EmptyPatchError('Nothing is selected, so there is nothing to send.');
+    }
+    // A wire with one end outside the selection would name a node the model
+    // never sees, which reads as a broken patch rather than a partial one.
+    connections = connections.filter(
+      (conn) =>
+        keep.has(String(conn?.from?.nodeId)) && keep.has(String(conn?.to?.nodeId))
+    );
+  }
+
   if (nodes.length > MAX_NODES) throw new PatchTooLargeError(nodes.length);
 
   return {
@@ -56,6 +76,44 @@ export function buildPatchContext(projectData) {
       to: { nodeId: String(conn?.to?.nodeId ?? ''), pin: conn?.to?.pin ?? 0 },
     })),
     nodeCount: nodes.length,
+    scope: keep ? 'selection' : 'patch',
+  };
+}
+
+/**
+ * What this patch costs to send, for the panel to show before anything is
+ * spent.
+ *
+ * `approxTokens` is a heuristic — four characters to a token, the usual rule
+ * of thumb for English-and-JSON — and is labelled as an estimate wherever it
+ * is drawn. The exact count comes back with the answer in `usage`; this is
+ * only meant to be the difference between "this will be fine" and "this is a
+ * very large call".
+ */
+export function measurePatchContext(patch) {
+  const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
+  const connections = Array.isArray(patch?.connections) ? patch.connections : [];
+
+  let bytes = 0;
+  try {
+    // TextEncoder gives the real wire size for non-ASCII node names, which
+    // JSON.stringify().length does not.
+    bytes = new TextEncoder().encode(JSON.stringify(patch ?? {})).length;
+  } catch {
+    bytes = JSON.stringify(patch ?? {}).length;
+  }
+
+  const kinds = new Set();
+  for (const node of nodes) if (node?.kind) kinds.add(node.kind);
+
+  return {
+    nodeCount: nodes.length,
+    connectionCount: connections.length,
+    kindCount: kinds.size,
+    bytes,
+    approxTokens: Math.round(bytes / 4),
+    /** Share of the per-call node budget this patch uses, 0..1+. */
+    capacity: nodes.length / MAX_NODES,
   };
 }
 

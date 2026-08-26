@@ -28,6 +28,7 @@ import {
 } from '../utils/discreteParams.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu } from '../ui/ParameterBindingMenu.js';
+import { canvasViewportWidth } from '../ui/dockLayout.js';
 import { ShaderPreviewManager } from '../preview/ShaderPreviewManager.js';
 import { logRedrawDirtyMark, logRedrawCommit } from '../utils/RedrawDiagnostics.js';
 import { InvalidationManager } from "./InvalidationManager.js";
@@ -954,7 +955,10 @@ connectGPURenderer(renderFunction) {
   resize() {
     try {
       const dpr = window.devicePixelRatio || 1;
-      const w = window.innerWidth;
+      // Not window.innerWidth: a docked panel (the AI dock) holds part of the
+      // window, and the graph canvas has to end where that starts or the nodes
+      // underneath it become unreachable. Zero inset when nothing is docked.
+      const w = canvasViewportWidth();
       const h = window.innerHeight;
 
       this.canvas.width = Math.floor(w * dpr);

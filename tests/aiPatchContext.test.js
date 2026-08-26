@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   buildPatchContext,
+  measurePatchContext,
   EmptyPatchError,
   PatchTooLargeError,
   MAX_NODES,
@@ -79,6 +80,79 @@ describe('buildPatchContext', () => {
   it('refuses a patch too large to read rather than truncating it', () => {
     const nodes = new Array(MAX_NODES + 1).fill(null).map((_, i) => ({ id: i, kind: 'UV' }));
     expect(() => buildPatchContext({ nodes })).toThrow(PatchTooLargeError);
+  });
+});
+
+/**
+ * The panel's "Selection" scope. A review of one branch of a large patch has
+ * to be a coherent patch on its own — a wire pointing at a node the model was
+ * never shown reads as a broken document rather than a partial one.
+ */
+describe('buildPatchContext scoped to a selection', () => {
+  const project = {
+    nodes: [
+      { id: 1, kind: 'UV' },
+      { id: 2, kind: 'Noise' },
+      { id: 3, kind: 'OutputFinal' },
+    ],
+    connections: [
+      { from: { nodeId: 1, pin: 0 }, to: { nodeId: 2, pin: 0 } },
+      { from: { nodeId: 2, pin: 0 }, to: { nodeId: 3, pin: 0 } },
+    ],
+  };
+
+  it('keeps only the selected nodes and the wires between them', () => {
+    const context = buildPatchContext(project, { nodeIds: [1, 2] });
+
+    expect(context.nodeCount).toBe(2);
+    expect(context.nodes.map((node) => node.id)).toEqual(['1', '2']);
+    expect(context.connections).toHaveLength(1);
+    expect(context.scope).toBe('selection');
+  });
+
+  it('matches ids whatever type they arrive as', () => {
+    expect(buildPatchContext(project, { nodeIds: ['1'] }).nodeCount).toBe(1);
+    expect(buildPatchContext(project, { nodeIds: [1] }).nodeCount).toBe(1);
+  });
+
+  it('refuses an empty selection before any quota is spent', () => {
+    expect(() => buildPatchContext(project, { nodeIds: [] })).toThrow(EmptyPatchError);
+    expect(() => buildPatchContext(project, { nodeIds: ['nope'] })).toThrow(EmptyPatchError);
+  });
+
+  it('leaves the whole patch alone when no selection is given', () => {
+    expect(buildPatchContext(project).scope).toBe('patch');
+    expect(buildPatchContext(project).connections).toHaveLength(2);
+  });
+});
+
+/**
+ * What the panel shows before anything is spent. These are estimates and are
+ * drawn as estimates; what matters is that they move with the payload.
+ */
+describe('measurePatchContext', () => {
+  it('counts what is there and sizes what would be sent', () => {
+    const context = buildPatchContext({
+      nodes: [
+        { id: 1, kind: 'UV' },
+        { id: 2, kind: 'UV' },
+        { id: 3, kind: 'OutputFinal' },
+      ],
+      connections: [{ from: { nodeId: 1, pin: 0 }, to: { nodeId: 3, pin: 0 } }],
+    });
+
+    const measured = measurePatchContext(context);
+    expect(measured.nodeCount).toBe(3);
+    expect(measured.connectionCount).toBe(1);
+    expect(measured.kindCount).toBe(2); // UV twice, OutputFinal once
+    expect(measured.bytes).toBeGreaterThan(0);
+    expect(measured.approxTokens).toBe(Math.round(measured.bytes / 4));
+    expect(measured.capacity).toBeCloseTo(3 / MAX_NODES);
+  });
+
+  it('survives being handed nothing at all', () => {
+    expect(measurePatchContext(undefined).nodeCount).toBe(0);
+    expect(measurePatchContext(null).connectionCount).toBe(0);
   });
 });
 

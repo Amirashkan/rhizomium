@@ -1,48 +1,105 @@
-/* --- AI panel ------------------------------------------------------------
+/* --- AI dock --------------------------------------------------------------
    The AI features, drawn from the live entitlements catalogue (src/ui/AIPanel.js).
+
+   This is a dock on the right edge, not a modal: the canvases are inset by its
+   width (--rz-canvas-inset-right, see src/ui/dockLayout.js) so the graph stays
+   visible and reachable while the panel is open. Every feature in here talks
+   about the canvas, so covering the canvas was the one thing the panel could
+   not afford to do.
 
    Locked features stay on screen, dimmed, labelled with the tier they need —
    hiding them would mean an artist never learns the paid tier exists. All
    colour comes from tokens.css so the panel tracks the rest of the app. */
 
-.ai-panel-overlay {
+.ai-dock {
   position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-}
-
-.ai-panel-dialog {
-  width: min(560px, 92vw);
-  max-height: 86vh;
+  top: 40px; /* under the menu bar, like the canvases */
+  right: 0;
+  bottom: 0;
+  width: 400px;
+  z-index: 900; /* over the canvas, under menus (1000+) and modals */
   display: flex;
   flex-direction: column;
   background: linear-gradient(var(--rz-panel-top), var(--rz-panel-bottom));
-  border: 1px solid var(--rz-line-strong);
-  border-radius: 8px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  border-left: 1px solid var(--rz-line-strong);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
   font-family: var(--rz-font-ui);
   color: var(--rz-text);
 }
 
-.ai-panel-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--rz-line);
+/* The drag edge. Wider than it looks: an invisible 8px target either side of
+   the 1px border, because a hairline is not a thing anyone can grab. */
+.ai-dock-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  cursor: ew-resize;
+  z-index: 2;
 }
 
-.ai-panel-header h3 {
+.ai-dock-resizer:hover,
+.ai-dock-resizer:focus-visible {
+  background: var(--rz-accent-14);
+  outline: none;
+}
+
+.ai-dock-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  flex: 0 0 auto;
+}
+
+.ai-dock-header h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0.04em;
   display: flex;
   align-items: center;
   gap: 7px;
+}
+
+.ai-dock-icon-button {
+  background: none;
+  border: none;
+  color: var(--rz-text-faint);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+}
+
+.ai-dock-icon-button:hover:not(:disabled) {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+.ai-dock-icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ai-dock-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* The session totals, pinned so they do not scroll away — they are the running
+   bill, and a bill you have to scroll to is one nobody reads. */
+.ai-dock-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--rz-line);
+  padding: 8px 12px;
+  background: var(--rz-surface);
 }
 
 /* The persistent tier badge. Cloude and Cloude Plus earn the accent; free is
@@ -55,6 +112,7 @@
   font-weight: 500;
   border: 1px solid var(--rz-line-strong);
   color: var(--rz-text-faint);
+  white-space: nowrap;
 }
 
 .ai-panel-tier.tier-cloude,
@@ -64,27 +122,216 @@
   border-color: var(--rz-accent-deep);
 }
 
-.ai-panel-close {
-  background: none;
-  border: none;
-  color: var(--rz-text-faint);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
+/* --- Sections ------------------------------------------------------------ */
+
+.ai-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.ai-panel-close:hover {
+.ai-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-section-header h4 {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rz-text-3);
+}
+
+.ai-section-action {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--rz-text-faint);
+  cursor: pointer;
+}
+
+.ai-section-action:hover {
+  color: var(--rz-text);
+  text-decoration: underline;
+}
+
+.ai-quiet {
+  font-size: 11.5px;
+  color: var(--rz-text-faint);
+}
+
+/* --- Metrics ------------------------------------------------------------- */
+
+.ai-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rz-line);
+  border: 1px solid var(--rz-line);
+  border-radius: var(--rz-r-field);
+  overflow: hidden;
+}
+
+.ai-stat-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ai-stat {
+  background: var(--rz-surface);
+  padding: 6px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.ai-stat-label {
+  font-size: 10px;
+  color: var(--rz-text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-stat-value {
+  font-family: var(--rz-font-mono);
+  font-size: 13px;
+  color: var(--rz-text);
+}
+
+.ai-stat.bad .ai-stat-value {
+  color: var(--rz-error);
+}
+
+.ai-stat.warn .ai-stat-value {
+  color: var(--rz-warn);
+}
+
+/* A reading taken before the graph moved. Still worth showing — an old size is
+   better than no size — but never as though it were current. */
+.ai-stat.stale .ai-stat-value {
+  color: var(--rz-text-faint);
+  font-style: italic;
+}
+
+.ai-stat.stale .ai-stat-value::after {
+  content: " ·stale";
+  font-size: 9px;
+  font-style: normal;
+}
+
+.ai-meter {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--rz-fill-soft);
+  overflow: hidden;
+}
+
+.ai-meter-fill {
+  height: 100%;
+  background: var(--rz-accent);
+  border-radius: 999px;
+}
+
+.ai-meter.warn .ai-meter-fill {
+  background: var(--rz-warn);
+}
+
+.ai-meter.bad .ai-meter-fill {
+  background: var(--rz-error);
+}
+
+/* --- Controls ------------------------------------------------------------ */
+
+.ai-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-control-label {
+  font-size: 11px;
+  color: var(--rz-text-faint);
+}
+
+.ai-segmented {
+  display: flex;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field);
+  overflow: hidden;
+}
+
+.ai-segmented button {
+  background: none;
+  border: none;
+  padding: 4px 10px;
+  font-family: var(--rz-font-ui);
+  font-size: 11px;
+  color: var(--rz-text-faint);
+  cursor: pointer;
+}
+
+.ai-segmented button:hover:not(.active) {
   background: var(--rz-hover);
   color: var(--rz-text);
 }
 
-.ai-panel-body {
-  padding: 12px 14px 14px;
-  overflow-y: auto;
+.ai-segmented button.active {
+  background: var(--rz-accent-14);
+  color: var(--rz-accent);
+}
+
+.ai-control-row {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 7px;
 }
+
+.ai-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--rz-text-faint);
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.ai-checkbox input {
+  margin: 1px 0 0;
+  accent-color: var(--rz-accent);
+}
+
+.ai-secondary-button {
+  align-self: flex-start;
+  background: var(--rz-fill-soft);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field);
+  color: var(--rz-text-2);
+  font-family: var(--rz-font-ui);
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.ai-secondary-button:hover:not(:disabled) {
+  background: var(--rz-hover-strong);
+  color: var(--rz-text);
+}
+
+.ai-secondary-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- Notes --------------------------------------------------------------- */
 
 .ai-panel-loading,
 .ai-panel-note {
@@ -93,6 +340,7 @@
   padding: 8px 10px;
   border-radius: 6px;
   background: var(--rz-fill-soft);
+  line-height: 1.45;
 }
 
 .ai-panel-note.warning {
@@ -109,14 +357,20 @@
   gap: 7px;
 }
 
+/* --- Feature cards ------------------------------------------------------- */
+
 .ai-feature {
   border: 1px solid var(--rz-line);
   border-radius: 6px;
-  padding: 11px 12px;
+  padding: 10px 11px;
   background: var(--rz-surface);
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.ai-feature + .ai-feature {
+  margin-top: 8px;
 }
 
 .ai-feature.locked {
@@ -124,24 +378,37 @@
 }
 
 .ai-feature-title {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
 .ai-feature-description {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--rz-text-faint);
   line-height: 1.45;
+}
+
+.ai-feature-allowance-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .ai-feature-allowance {
   font-size: 11px;
   color: var(--rz-text-faint);
   font-family: var(--rz-font-mono);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .ai-feature-allowance.exhausted {
   color: var(--rz-warn);
+}
+
+.ai-feature-reset {
+  color: var(--rz-text-disabled);
 }
 
 .ai-feature-locked {
@@ -202,6 +469,7 @@ button.ai-upgrade-link:disabled {
 
 .ai-feature-input {
   width: 100%;
+  box-sizing: border-box;
   background: var(--rz-well);
   border: 1px solid var(--rz-line-strong);
   border-radius: 5px;
@@ -240,26 +508,93 @@ button.ai-upgrade-link:disabled {
   cursor: default;
 }
 
+.ai-feature-run.working {
+  animation: rzpulse 1.4s ease-in-out infinite;
+}
+
+.ai-feature-scope {
+  font-size: 10.5px;
+  color: var(--rz-text-disabled);
+}
+
+/* --- The session log ----------------------------------------------------- */
+
+.ai-run {
+  border: 1px solid var(--rz-line);
+  border-left-width: 2px;
+  border-radius: 6px;
+  background: var(--rz-surface);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.ai-run.status-error {
+  border-left-color: var(--rz-error);
+}
+
+.ai-run.status-ok {
+  border-left-color: var(--rz-accent-deep);
+}
+
+.ai-run > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  list-style: none;
+}
+
+.ai-run > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-run-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-run-when {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-family: var(--rz-font-mono);
+  color: var(--rz-text-disabled);
+}
+
+.ai-run-cost {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 7px 0;
+}
+
+.ai-pill {
+  font-family: var(--rz-font-mono);
+  font-size: 10px;
+  color: var(--rz-text-faint);
+  background: var(--rz-fill-soft);
+  border-radius: 999px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
 /* --- Findings, suggestions and directions -------------------------------- */
 
 .ai-findings {
   display: flex;
   flex-direction: column;
   gap: 9px;
-  max-height: 56vh;
-  overflow-y: auto;
 }
 
 .ai-findings-summary {
   margin: 0 0 2px;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--rz-text);
 }
 
 .ai-finding {
   border-left: 2px solid var(--rz-line-strong);
-  padding: 7px 0 7px 10px;
+  padding: 6px 0 6px 9px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -278,13 +613,13 @@ button.ai-upgrade-link:disabled {
 }
 
 .ai-finding-title {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .ai-finding-detail,
 .ai-finding-fix {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--rz-text-faint);
   line-height: 1.45;
 }
@@ -296,14 +631,17 @@ button.ai-upgrade-link:disabled {
 
 .ai-finding-steps {
   margin: 2px 0 0;
-  padding-left: 18px;
-  font-size: 12px;
+  padding-left: 16px;
+  font-size: 11.5px;
   color: var(--rz-text-faint);
   line-height: 1.5;
 }
 
 .ai-finding-show {
   align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   background: none;
   border: 1px solid var(--rz-line-strong);
   border-radius: 4px;
@@ -318,4 +656,13 @@ button.ai-upgrade-link:disabled {
 .ai-finding-show:hover {
   background: var(--rz-hover);
   color: var(--rz-text);
+}
+
+/* The dock's width is set inline by AIPanel.applyWidth() and never exceeds half
+   the window, so it stays beside the canvas at any size. What does not survive
+   a narrow dock is the four-across footer. */
+@media (max-width: 760px) {
+  .ai-stat-grid.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

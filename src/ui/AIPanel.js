@@ -1,11 +1,18 @@
 /**
  * AIPanel.js - the AI features, drawn from the live entitlements catalogue.
  *
+ * This is a dock, not a dialog: it holds the right edge of the window and the
+ * canvases end where it starts (src/ui/dockLayout.js). That is not decoration.
+ * Every one of these features reads or rewrites the canvas, and a modal that
+ * covered the canvas meant the artist could not see the thing being discussed
+ * — could not follow a "Show nodes", could not watch a refactor land, could not
+ * keep an eye on what was about to be replaced.
+ *
  * The panel shows every editor-surface feature, including the ones this
  * visitor cannot use. Hiding a locked feature means an artist never finds out
  * the paid tier exists; showing it with the tier it needs is the whole upsell.
  *
- * Three things this panel is careful about:
+ * Four things this panel is careful about:
  *
  *   - It draws from `catalog`, not from a hardcoded list, so a feature the
  *     gallery adds appears here without a release.
@@ -13,18 +20,29 @@
  *     quota and expires in five minutes.
  *   - It tells a tier problem (402) from a spent allowance (429) apart, and
  *     from a signed-out visitor who should sign in rather than pay.
+ *   - It says what an action costs and what it spent — allowance left, what the
+ *     call will carry, tokens and seconds it took — because these are metered
+ *     calls against someone's money and a spinner that says nothing else is a
+ *     bill with no itemisation.
  */
 
 import { modalManager } from './ModalManager.js';
-import { iconMarkup } from './iconSprite.js';
+import { iconMarkup, createIcon } from './iconSprite.js';
 import { openExternal } from '../utils/openExternal.js';
 import { isTauri } from '../utils/isTauri.js';
 import { DESKTOP_ORIGIN_HINT, signInToGallery } from './accountSession.js';
 import { entitlements } from '../ai/entitlements.js';
 import { runFeature, AIRequestError, GrantError } from '../ai/aiClient.js';
-import { buildPatchContext, EmptyPatchError, PatchTooLargeError } from '../ai/patchContext.js';
+import {
+  buildPatchContext,
+  measurePatchContext,
+  EmptyPatchError,
+  PatchTooLargeError,
+  MAX_NODES,
+} from '../ai/patchContext.js';
 import { insertGeneratedNode, replaceGraphWithPatch, selectNodes } from '../ai/applyResult.js';
 import { FEATURES, TIER_LABELS } from '../ai/tiers.js';
+import { setRightDockWidth, notifyCanvasResize } from './dockLayout.js';
 
 /** Features that need something typed before they can run. */
 const PROMPTED = {
@@ -59,6 +77,16 @@ const ANSWER_ONLY_FEATURES = new Set([
   'ai.creative_director',
 ]);
 
+/** Dock geometry. The maximum is also clamped to half the window at runtime. */
+const MIN_DOCK_WIDTH = 300;
+const MAX_DOCK_WIDTH = 620;
+const DEFAULT_DOCK_WIDTH = 400;
+
+const STORAGE_KEY = 'glsl-node-editor.ai-panel.prefs';
+
+/** How many runs the session log keeps before the oldest falls off. */
+const MAX_LOGGED_RUNS = 12;
+
 /**
  * What makes two runs the same run: the feature, and everything sent with it.
  *
@@ -71,25 +99,95 @@ function answerFingerprint(feature, payload) {
   return `${feature}:${JSON.stringify(payload)}`;
 }
 
+/** Preferences worth surviving a reload: the dock's size and its two switches. */
+function loadPrefs() {
+  const prefs = { width: DEFAULT_DOCK_WIDTH, scope: 'patch', reuseAnswers: true };
+  try {
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (Number.isFinite(stored.width)) prefs.width = stored.width;
+    if (stored.scope === 'selection' || stored.scope === 'patch') prefs.scope = stored.scope;
+    if (typeof stored.reuseAnswers === 'boolean') prefs.reuseAnswers = stored.reuseAnswers;
+  } catch {
+    // A corrupt or unavailable store is not worth a broken panel.
+  }
+  return prefs;
+}
+
+function savePrefs(prefs) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+  } catch {
+    // Private-mode storage refusals are not the artist's problem.
+  }
+}
+
 export class AIPanel {
   constructor() {
-    this.dialog = null;
+    this.dock = null;
     this.isOpen = false;
     this.busyFeature = null;
     this.unsubscribe = null;
     /** The last answer-only result, and whether a repeat has been offered. */
     this.lastAnswer = null;
+
+    this.prefs = loadPrefs();
+    /** True while the edge is being dragged; see onWindowResize. */
+    this.dragging = false;
+
+    /** Typed prompts, kept across re-renders so a redraw never eats a draft. */
+    this.drafts = {};
+    /** Which feature's textarea had focus, so a redraw can give it back. */
+    this.focusedFeature = null;
+
+    /** This session's runs, newest first. Read by the log and the footer. */
+    this.runs = [];
+    this.session = {
+      runs: 0,
+      failures: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalMs: 0,
+    };
+
+    /**
+     * The last payload measurement, and the graph shape it was taken on.
+     *
+     * Measuring means exporting the project, which collects texture data and
+     * is far too heavy to run on a timer while someone is building. So it is
+     * taken on request, and again for free after every run (the patch was
+     * built anyway) — and marked stale as soon as the graph's shape moves.
+     */
+    this.measurement = null;
   }
+
+  // --- Opening, closing, and holding the edge of the window -----------------
 
   async show() {
     if (this.isOpen) return;
 
-    this.createDialog();
+    this.createDock();
     this.isOpen = true;
+    this.applyWidth(this.prefs.width);
 
     // Redraw whenever entitlements change — a sign-in elsewhere in the app,
     // or a grant that just moved the counters.
     this.unsubscribe = entitlements.onChange(() => this.renderBody());
+
+    this.onWindowResize = () => {
+      // Not while the artist is dragging the edge. Every step of a drag tells
+      // the canvases to re-measure, which comes back here as a resize — and
+      // re-applying the *stored* width mid-drag snaps the dock back under the
+      // cursor on every frame, so the edge cannot be moved at all.
+      if (this.dragging) return;
+      // Otherwise: the window shrinking can make the stored width more than
+      // half of it, so re-clamp from the width the artist chose. Growing the
+      // window back restores it, which is why this reads prefs rather than the
+      // width currently applied.
+      this.applyWidth(this.prefs.width, { persist: false, silent: true });
+    };
+    window.addEventListener('resize', this.onWindowResize);
+
+    this.renderBody();
 
     // Cached for the session; this resolves immediately after the first load.
     await entitlements.load();
@@ -97,43 +195,151 @@ export class AIPanel {
   }
 
   hide() {
-    if (this.dialog?.parentElement) document.body.removeChild(this.dialog);
-    this.dialog = null;
+    if (this.dock?.parentElement) document.body.removeChild(this.dock);
+    this.dock = null;
     this.isOpen = false;
     this.unsubscribe?.();
     this.unsubscribe = null;
+
+    if (this.onWindowResize) {
+      window.removeEventListener('resize', this.onWindowResize);
+      this.onWindowResize = null;
+    }
+
+    // Give the canvases the width back.
+    setRightDockWidth(0);
   }
 
-  createDialog() {
-    this.dialog = document.createElement('div');
-    this.dialog.className = 'ai-panel-overlay';
-    this.dialog.innerHTML = `
-      <div class="ai-panel-dialog">
-        <div class="ai-panel-header">
-          <h3>${iconMarkup('expression', { size: 16 })} AI</h3>
-          <div class="ai-panel-tier" id="ai-panel-tier"></div>
-          <button class="ai-panel-close" title="Close">${iconMarkup('close', { size: 14, label: 'Close' })}</button>
-        </div>
-        <div class="ai-panel-body" id="ai-panel-body">
-          <div class="ai-panel-loading">Checking what you can use…</div>
-        </div>
-      </div>`;
+  toggle() {
+    if (this.isOpen) {
+      this.hide();
+      return Promise.resolve();
+    }
+    return this.show();
+  }
 
-    this.dialog.querySelector('.ai-panel-close').addEventListener('click', () => this.hide());
-    this.dialog.addEventListener('click', (event) => {
-      if (event.target === this.dialog) this.hide();
+  /**
+   * Set the dock's width, clamped, and hand the rest of the window to the
+   * canvases.
+   *
+   * Never wider than half the window: past that the dock is the application
+   * and the canvas is the panel.
+   */
+  applyWidth(width, { persist = true, silent = false } = {}) {
+    const ceiling = Math.max(MIN_DOCK_WIDTH, Math.min(MAX_DOCK_WIDTH, window.innerWidth * 0.5));
+    const next = Math.round(Math.min(Math.max(width, MIN_DOCK_WIDTH), ceiling));
+
+    if (this.dock) this.dock.style.width = `${next}px`;
+    setRightDockWidth(this.isOpen ? next : 0, { silent });
+
+    if (persist && next !== this.prefs.width) {
+      this.prefs.width = next;
+      savePrefs(this.prefs);
+    }
+    return next;
+  }
+
+  createDock() {
+    this.dock = document.createElement('aside');
+    this.dock.className = 'ai-dock';
+    this.dock.setAttribute('aria-label', 'AI assistant');
+    this.dock.innerHTML = `
+      <div class="ai-dock-resizer" role="separator" aria-orientation="vertical"
+           aria-label="Resize the AI panel" tabindex="0" title="Drag to resize"></div>
+      <div class="ai-dock-header">
+        <h3>${iconMarkup('expression', { size: 15 })} AI</h3>
+        <div class="ai-panel-tier" id="ai-panel-tier"></div>
+        <button class="ai-dock-icon-button" id="ai-refresh" title="Re-read your plan and allowance">
+          ${iconMarkup('refresh', { size: 13, label: 'Refresh' })}
+        </button>
+        <button class="ai-dock-icon-button" id="ai-close" title="Close the AI panel">
+          ${iconMarkup('close', { size: 13, label: 'Close' })}
+        </button>
+      </div>
+      <div class="ai-dock-body" id="ai-panel-body">
+        <div class="ai-panel-loading">Checking what you can use…</div>
+      </div>
+      <div class="ai-dock-footer" id="ai-dock-footer"></div>`;
+
+    this.dock.querySelector('#ai-close').addEventListener('click', () => this.hide());
+    this.dock.querySelector('#ai-refresh').addEventListener('click', (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      entitlements
+        .refresh()
+        .catch((error) => console.warn('[AIPanel] Could not refresh entitlements:', error))
+        .finally(() => {
+          button.disabled = false;
+          this.renderBody();
+        });
     });
 
-    document.body.appendChild(this.dialog);
+    this.wireResizer(this.dock.querySelector('.ai-dock-resizer'));
+
+    document.body.appendChild(this.dock);
   }
 
+  wireResizer(handle) {
+    let frameQueued = false;
+    // The canvases follow the drag, but at most once a frame: the graph redraws
+    // on every resize notification and a mousemove stream is faster than that.
+    const scheduleNotify = () => {
+      if (frameQueued) return;
+      frameQueued = true;
+      requestAnimationFrame(() => {
+        frameQueued = false;
+        notifyCanvasResize();
+      });
+    };
+
+    const onMove = (event) => {
+      this.applyWidth(window.innerWidth - event.clientX, { persist: false, silent: true });
+      scheduleNotify();
+    };
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+      this.dragging = false;
+      // Where it was let go is the width to remember.
+      if (this.dock) this.applyWidth(this.dock.offsetWidth, { silent: true });
+      notifyCanvasResize();
+    };
+
+    handle.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      this.dragging = true;
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // Keyboard: the drag handle is a control, and a control that only answers
+    // to a mouse is one some people cannot use at all.
+    handle.addEventListener('keydown', (event) => {
+      const step = event.shiftKey ? 48 : 16;
+      if (event.key === 'ArrowLeft') {
+        this.applyWidth(this.dock.offsetWidth + step);
+      } else if (event.key === 'ArrowRight') {
+        this.applyWidth(this.dock.offsetWidth - step);
+      } else {
+        return;
+      }
+      event.preventDefault();
+    });
+  }
+
+  // --- Drawing --------------------------------------------------------------
+
   renderBody() {
-    if (!this.dialog) return;
+    if (!this.dock) return;
 
     const state = entitlements.current;
     this.renderTierBadge(state);
 
-    const body = this.dialog.querySelector('#ai-panel-body');
+    const body = this.dock.querySelector('#ai-panel-body');
+    const scrollTop = body.scrollTop;
     body.textContent = '';
 
     // Signed out is not an error, but it is the difference between a third of
@@ -143,19 +349,29 @@ export class AIPanel {
       body.appendChild(signInPrompt(state));
     }
 
-    const rows = entitlements.editorCatalog();
+    const rows = entitlements.editorCatalog?.() || [];
+
+    body.appendChild(this.renderAllowanceSummary(rows));
+    body.appendChild(this.renderContextSection());
+
     if (!rows.length) {
       body.appendChild(note('No AI features are available right now.', 'warning'));
-      return;
+    } else {
+      const features = section('Features');
+      for (const row of rows) features.appendChild(this.renderFeature(row));
+      body.appendChild(features);
     }
 
-    for (const row of rows) {
-      body.appendChild(this.renderFeature(row));
-    }
+    body.appendChild(this.renderResults());
+
+    this.renderFooter();
+
+    body.scrollTop = scrollTop;
+    this.restoreFocus();
   }
 
   renderTierBadge(state) {
-    const badge = this.dialog.querySelector('#ai-panel-tier');
+    const badge = this.dock.querySelector('#ai-panel-tier');
     badge.textContent = state.tierLabel || TIER_LABELS[state.tier] || 'Free';
     badge.className = `ai-panel-tier tier-${state.tier}`;
     badge.title = state.authenticated
@@ -163,9 +379,211 @@ export class AIPanel {
       : 'Signed out — the free allowance is smaller until you sign in';
   }
 
+  /**
+   * The allowance across every metered feature, totalled.
+   *
+   * Per-feature numbers are on the cards below; this is the question an artist
+   * actually asks before starting something — how much have I got left today,
+   * and when does it come back.
+   */
+  renderAllowanceSummary(rows) {
+    const wrap = section('Allowance');
+
+    const metered = rows.filter((row) => row.allowed && row.quota);
+    if (!metered.length) {
+      wrap.appendChild(quietLine('Nothing here is metered on your plan.'));
+      return wrap;
+    }
+
+    let left = 0;
+    let total = 0;
+    let soonestReset = null;
+
+    for (const row of metered) {
+      const limit = row.quota.limit ?? 0;
+      total += limit;
+      left += typeof row.used === 'number' ? Math.max(0, limit - row.used) : limit;
+      if (row.resetsAt) {
+        const at = new Date(row.resetsAt).getTime();
+        if (!Number.isNaN(at) && (soonestReset === null || at < soonestReset)) soonestReset = at;
+      }
+    }
+
+    const stats = document.createElement('div');
+    stats.className = 'ai-stat-grid';
+    stats.appendChild(stat('Actions left today', String(left), left === 0 ? 'bad' : null));
+    stats.appendChild(stat('Daily allowance', String(total)));
+    stats.appendChild(
+      stat('Metered features', String(metered.length), null, 'Features that spend an action when you run them')
+    );
+    stats.appendChild(
+      stat('Allowance resets', soonestReset ? formatReset(new Date(soonestReset).toISOString()) : '—')
+    );
+    wrap.appendChild(stats);
+
+    wrap.appendChild(meter(total ? left / total : 0, left === 0 ? 'bad' : left / (total || 1) < 0.2 ? 'warn' : null));
+
+    return wrap;
+  }
+
+  /**
+   * What a call would carry, before one is paid for.
+   *
+   * The counts are read straight off the graph and cost nothing. The payload
+   * size is not: it means exporting the project, textures included, so it is
+   * taken on request and goes stale visibly rather than silently.
+   */
+  renderContextSection() {
+    const wrap = section('What gets sent');
+    const graph = window.graph;
+    const nodeCount = graph?.nodes?.length ?? 0;
+    const connectionCount = graph?.connections?.length ?? 0;
+    const selectedCount = graph?.selection?.size ?? 0;
+
+    // Scope: the whole patch, or only what is selected. Selection is how a
+    // large patch gets a specific answer — and how it stays under the cap.
+    const scope = document.createElement('div');
+    scope.className = 'ai-scope';
+
+    const scopeLabel = document.createElement('span');
+    scopeLabel.className = 'ai-control-label';
+    scopeLabel.textContent = 'Scope';
+    scope.appendChild(scopeLabel);
+
+    const group = document.createElement('div');
+    group.className = 'ai-segmented';
+    for (const [value, text, title] of [
+      ['patch', 'Whole patch', 'Send every node on the canvas'],
+      ['selection', 'Selection', 'Send only the selected nodes and the wires between them'],
+    ]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = text;
+      button.title = title;
+      button.className = this.prefs.scope === value ? 'active' : '';
+      button.addEventListener('click', () => {
+        this.prefs.scope = value;
+        savePrefs(this.prefs);
+        // A different scope is a different payload, so a remembered answer for
+        // the old one must not be handed back for the new one.
+        this.lastAnswer = null;
+        this.measurement = null;
+        this.renderBody();
+      });
+      group.appendChild(button);
+    }
+    scope.appendChild(group);
+    wrap.appendChild(scope);
+
+    const sending = this.prefs.scope === 'selection' ? selectedCount : nodeCount;
+
+    const stats = document.createElement('div');
+    stats.className = 'ai-stat-grid';
+    stats.appendChild(
+      stat('Nodes sent', `${sending}`, sending === 0 || sending > MAX_NODES ? 'bad' : null,
+        `Of ${nodeCount} on the canvas. ${MAX_NODES} is the most one call can read.`)
+    );
+    stats.appendChild(stat('Wires', String(connectionCount)));
+    stats.appendChild(stat('Selected', String(selectedCount)));
+    stats.appendChild(
+      stat(
+        'Payload',
+        this.measurement ? formatBytes(this.measurement.bytes) : '—',
+        this.measurementIsStale(nodeCount, connectionCount, selectedCount) ? 'stale' : null,
+        'The trimmed graph that leaves your machine: no textures, no bindings, no viewport.'
+      )
+    );
+    stats.appendChild(
+      stat(
+        'Est. tokens',
+        this.measurement ? `~${formatCount(this.measurement.approxTokens)}` : '—',
+        this.measurementIsStale(nodeCount, connectionCount, selectedCount) ? 'stale' : null,
+        'A rough four-characters-to-a-token estimate. The exact count comes back with the answer.'
+      )
+    );
+    stats.appendChild(
+      stat('Node kinds', this.measurement ? String(this.measurement.kindCount) : '—')
+    );
+    wrap.appendChild(stats);
+
+    wrap.appendChild(
+      meter(sending / MAX_NODES, sending > MAX_NODES ? 'bad' : sending / MAX_NODES > 0.75 ? 'warn' : null,
+        `${sending} of the ${MAX_NODES}-node limit for one call`)
+    );
+
+    const reason = this.contextProblem(nodeCount, selectedCount);
+    if (reason) wrap.appendChild(note(reason, 'warning'));
+
+    const controls = document.createElement('div');
+    controls.className = 'ai-control-row';
+
+    const measure = document.createElement('button');
+    measure.className = 'ai-secondary-button';
+    measure.textContent = this.measurement ? 'Re-measure payload' : 'Measure payload';
+    measure.title = 'Builds the payload without sending it. Costs nothing.';
+    measure.disabled = Boolean(reason);
+    measure.addEventListener('click', () => this.measure());
+    controls.appendChild(measure);
+
+    controls.appendChild(
+      checkbox(
+        'Reuse the last answer when nothing has changed',
+        this.prefs.reuseAnswers,
+        (checked) => {
+          this.prefs.reuseAnswers = checked;
+          savePrefs(this.prefs);
+        },
+        'Reading features cost an action even when the canvas has not moved, so a ' +
+          'repeat is offered from memory first. Turn this off to always run for real.'
+      )
+    );
+
+    wrap.appendChild(controls);
+    return wrap;
+  }
+
+  /** Why the patch-reading features cannot run right now, or null. */
+  contextProblem(nodeCount, selectedCount) {
+    if (!nodeCount) return 'There is nothing on the canvas yet, so the reading features have nothing to read.';
+    if (this.prefs.scope === 'selection' && !selectedCount) {
+      return 'The scope is set to the selection, but nothing is selected.';
+    }
+    const sending = this.prefs.scope === 'selection' ? selectedCount : nodeCount;
+    if (sending > MAX_NODES) {
+      return `${sending} nodes is more than the ${MAX_NODES} one call can read. Select part of the patch instead.`;
+    }
+    return null;
+  }
+
+  measurementIsStale(nodeCount, connectionCount, selectedCount) {
+    if (!this.measurement) return false;
+    return this.measurement.signature !== graphSignature(nodeCount, connectionCount, selectedCount, this.prefs.scope);
+  }
+
+  /** Build the payload without sending it, so its size can be shown. */
+  measure() {
+    try {
+      const patch = this.buildPatch();
+      this.measurement = {
+        ...measurePatchContext(patch),
+        signature: graphSignature(
+          window.graph?.nodes?.length ?? 0,
+          window.graph?.connections?.length ?? 0,
+          window.graph?.selection?.size ?? 0,
+          this.prefs.scope
+        ),
+      };
+    } catch (error) {
+      this.measurement = null;
+      modalManager.toast(error.message, 'warning');
+    }
+    this.renderBody();
+  }
+
   renderFeature(row) {
     const card = document.createElement('div');
     card.className = `ai-feature${row.allowed ? '' : ' locked'}`;
+    card.dataset.feature = row.feature;
 
     const definition = FEATURES[row.feature];
 
@@ -189,14 +607,18 @@ export class AIPanel {
     return card;
   }
 
-  /** "12 of 100 left today" — most worth showing on free, where it is small. */
+  /** "12 of 100 left today", with the bar that makes a small number obvious. */
   renderAllowance(row) {
+    const wrap = document.createElement('div');
+    wrap.className = 'ai-feature-allowance-block';
+
     const line = document.createElement('div');
     line.className = 'ai-feature-allowance';
 
     if (!row.quota) {
-      line.textContent = 'Included';
-      return line;
+      line.textContent = 'Included — this one does not spend an action.';
+      wrap.appendChild(line);
+      return wrap;
     }
 
     const limit = row.quota.limit;
@@ -204,13 +626,23 @@ export class AIPanel {
 
     if (used === null) {
       line.textContent = `${limit} per day`;
-    } else {
-      const left = Math.max(0, limit - used);
-      line.textContent = `${left} of ${limit} left today`;
-      if (left === 0) line.classList.add('exhausted');
+      wrap.appendChild(line);
+      return wrap;
     }
 
-    return line;
+    const left = Math.max(0, limit - used);
+    line.textContent = `${left} of ${limit} left today`;
+    if (left === 0) line.classList.add('exhausted');
+    if (row.resetsAt) {
+      const reset = document.createElement('span');
+      reset.className = 'ai-feature-reset';
+      reset.textContent = `resets ${formatReset(row.resetsAt)}`;
+      line.appendChild(reset);
+    }
+
+    wrap.appendChild(line);
+    wrap.appendChild(meter(limit ? left / limit : 0, left === 0 ? 'bad' : left / limit < 0.2 ? 'warn' : null));
+    return wrap;
   }
 
   renderLocked(row) {
@@ -241,19 +673,44 @@ export class AIPanel {
       input.className = 'ai-feature-input';
       input.rows = 2;
       input.placeholder = prompted.placeholder;
+      // Drafts survive the redraws that a running feature and every entitlement
+      // change cause. Losing a typed brief to a background refresh is the kind
+      // of small betrayal that stops people typing long ones.
+      input.value = this.drafts[row.feature] || '';
+      input.addEventListener('input', () => {
+        this.drafts[row.feature] = input.value;
+      });
+      input.addEventListener('focus', () => {
+        this.focusedFeature = row.feature;
+      });
+      input.addEventListener('blur', () => {
+        if (this.focusedFeature === row.feature) this.focusedFeature = null;
+      });
       wrap.appendChild(input);
     }
+
+    // A reading feature with nothing valid to read cannot run, and saying why
+    // here beats spending the click to find out.
+    const blocked = needsPatch(row.feature)
+      ? this.contextProblem(window.graph?.nodes?.length ?? 0, window.graph?.selection?.size ?? 0)
+      : null;
+    const exhausted = row.quota && typeof row.used === 'number' && row.used >= row.quota.limit;
 
     const button = document.createElement('button');
     button.className = 'ai-feature-run';
     button.textContent = prompted?.action || 'Run';
-    button.disabled = Boolean(this.busyFeature);
-    if (this.busyFeature === row.feature) button.textContent = 'Working…';
+    button.disabled = Boolean(this.busyFeature) || Boolean(blocked) || Boolean(exhausted);
+    if (blocked) button.title = blocked;
+    if (exhausted) button.title = 'Your allowance for this feature is spent for now.';
+    if (this.busyFeature === row.feature) {
+      button.textContent = 'Working…';
+      button.classList.add('working');
+    }
 
     button.addEventListener('click', () => {
       const payload = {};
       if (prompted) {
-        const text = input.value.trim();
+        const text = (this.drafts[row.feature] || '').trim();
         if (!text) {
           modalManager.toast('Describe what you want first.', 'warning');
           input.focus();
@@ -265,7 +722,152 @@ export class AIPanel {
     });
 
     wrap.appendChild(button);
+
+    if (needsPatch(row.feature)) {
+      const scopeNote = document.createElement('span');
+      scopeNote.className = 'ai-feature-scope';
+      scopeNote.textContent =
+        this.prefs.scope === 'selection' ? 'Reads the selection' : 'Reads the whole patch';
+      wrap.appendChild(scopeNote);
+    }
+
     return wrap;
+  }
+
+  /**
+   * Everything this session has asked for, newest first.
+   *
+   * Answers land here rather than in a modal because the canvas is the point:
+   * a finding that names three nodes is worth nothing if reading it means
+   * covering them up.
+   */
+  renderResults() {
+    const wrap = section('Results');
+
+    if (this.runs.length) {
+      const clear = document.createElement('button');
+      clear.className = 'ai-section-action';
+      clear.textContent = 'Clear';
+      clear.addEventListener('click', () => {
+        this.runs = [];
+        this.renderBody();
+      });
+      wrap.querySelector('.ai-section-header').appendChild(clear);
+    }
+
+    if (!this.runs.length) {
+      wrap.appendChild(quietLine('Nothing run yet this session.'));
+      return wrap;
+    }
+
+    for (const entry of this.runs) wrap.appendChild(this.renderRun(entry));
+    return wrap;
+  }
+
+  renderRun(entry) {
+    const card = document.createElement('details');
+    card.className = `ai-run status-${entry.status}`;
+    card.open = entry.open !== false;
+    card.addEventListener('toggle', () => {
+      entry.open = card.open;
+    });
+
+    const summary = document.createElement('summary');
+
+    const label = document.createElement('span');
+    label.className = 'ai-run-label';
+    label.textContent = entry.label;
+    summary.appendChild(label);
+
+    const when = document.createElement('span');
+    when.className = 'ai-run-when';
+    when.textContent = entry.at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    summary.appendChild(when);
+
+    card.appendChild(summary);
+
+    // What the call actually cost. Null tokens mean the backend did not report
+    // usage for this one — shown as a dash rather than a confident zero.
+    const cost = document.createElement('div');
+    cost.className = 'ai-run-cost';
+    cost.appendChild(
+      entry.repeat
+        ? pill('reused answer', 'Shown from memory — nothing was sent and no action was spent')
+        : pill(formatDuration(entry.durationMs), 'How long the call took')
+    );
+    if (entry.usage) {
+      cost.appendChild(pill(`${formatTokenCount(entry.usage.inputTokens)} in`, 'Input tokens'));
+      cost.appendChild(pill(`${formatTokenCount(entry.usage.outputTokens)} out`, 'Output tokens'));
+      if (entry.usage.cacheReadTokens) {
+        cost.appendChild(
+          pill(`${formatTokenCount(entry.usage.cacheReadTokens)} cached`, 'Input tokens served from cache')
+        );
+      }
+      if (entry.usage.reasoningTokens) {
+        cost.appendChild(
+          pill(`${formatTokenCount(entry.usage.reasoningTokens)} thinking`, 'Output tokens spent on reasoning')
+        );
+      }
+    }
+    if (entry.scope) cost.appendChild(pill(entry.scope === 'selection' ? 'selection' : 'whole patch'));
+    card.appendChild(cost);
+
+    card.appendChild(entry.body);
+    return card;
+  }
+
+  renderFooter() {
+    const footer = this.dock?.querySelector('#ai-dock-footer');
+    if (!footer) return;
+    footer.textContent = '';
+
+    const { runs, failures, inputTokens, outputTokens, totalMs } = this.session;
+    if (!runs) {
+      footer.appendChild(quietLine('This session: nothing run yet.'));
+      return;
+    }
+
+    const stats = document.createElement('div');
+    stats.className = 'ai-stat-grid compact';
+    stats.appendChild(stat('Runs', String(runs), null, 'Calls made this session — each spent an action'));
+    stats.appendChild(stat('Failed', String(failures), failures ? 'bad' : null,
+      'Failed calls still spend an action: the grant is issued before the model runs.'));
+    stats.appendChild(stat('Tokens', `${formatCount(inputTokens)}/${formatCount(outputTokens)}`, null, 'Input / output tokens across this session'));
+    stats.appendChild(stat('Average', formatDuration(totalMs / runs), null, 'Mean time per call this session'));
+    footer.appendChild(stats);
+  }
+
+  /**
+   * Give the caret back after a redraw.
+   *
+   * The panel redraws itself on every entitlement change and on both edges of
+   * a run, and a redraw that drops focus mid-sentence is worse than one that
+   * drops the text — the artist keeps typing into nothing.
+   */
+  restoreFocus() {
+    if (!this.focusedFeature || !this.dock) return;
+    // Matched by walking rather than by selector: a feature key comes from the
+    // gallery's catalogue, and interpolating one into a selector is how a
+    // remote string ends up parsed as CSS.
+    const card = [...this.dock.querySelectorAll('.ai-feature')].find(
+      (element) => element.dataset.feature === this.focusedFeature
+    );
+    const input = card?.querySelector('.ai-feature-input');
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+
+  // --- Running --------------------------------------------------------------
+
+  /** The payload the current scope says to send. Throws like buildPatchContext. */
+  buildPatch() {
+    const project = window.saveLoadManager?.exportProject?.();
+    if (this.prefs.scope === 'selection') {
+      const selected = window.graph?.selection;
+      return buildPatchContext(project, { nodeIds: selected ? [...selected] : [] });
+    }
+    return buildPatchContext(project);
   }
 
   /**
@@ -279,7 +881,7 @@ export class AIPanel {
     // grant, so an empty canvas costs nothing.
     if (needsPatch(feature)) {
       try {
-        payload.patch = buildPatchContext(window.saveLoadManager?.exportProject?.());
+        payload.patch = this.buildPatch();
         const selected = window.graph?.selection;
         if (selected?.size) payload.selectedNodeIds = [...selected].map(String);
       } catch (error) {
@@ -289,6 +891,17 @@ export class AIPanel {
         }
         throw error;
       }
+
+      // The payload is in hand, so its size is free to record.
+      this.measurement = {
+        ...measurePatchContext(payload.patch),
+        signature: graphSignature(
+          window.graph?.nodes?.length ?? 0,
+          window.graph?.connections?.length ?? 0,
+          window.graph?.selection?.size ?? 0,
+          this.prefs.scope
+        ),
+      };
     }
 
     // A second click with nothing changed buys the same answer twice. The
@@ -300,7 +913,7 @@ export class AIPanel {
     // through it runs for real. An artist who wants a second opinion gets one;
     // an artist who clicked twice wondering whether it worked does not pay for
     // wondering.
-    const fingerprint = answerFingerprint(feature, payload);
+    const fingerprint = this.prefs.reuseAnswers ? answerFingerprint(feature, payload) : null;
     if (fingerprint && this.lastAnswer?.fingerprint === fingerprint && !this.lastAnswer.offered) {
       this.lastAnswer.offered = true;
       modalManager.toast(
@@ -308,18 +921,34 @@ export class AIPanel {
         'info',
         this.lastAnswer.label
       );
-      await this.presentResult(feature, this.lastAnswer.label, this.lastAnswer.result, this.lastAnswer.warnings);
+      await this.presentResult(feature, this.lastAnswer.label, this.lastAnswer.result, this.lastAnswer.warnings, {
+        durationMs: 0,
+        usage: null,
+        repeat: true,
+      });
       return;
     }
 
     this.busyFeature = feature;
     this.renderBody();
 
+    const startedAt = performance.now();
     try {
-      const { result, warnings, label } = await runFeature(feature, payload);
+      const { result, warnings, label, usage } = await runFeature(feature, payload);
+      const durationMs = performance.now() - startedAt;
+
+      this.session.runs += 1;
+      this.session.totalMs += durationMs;
+      this.session.inputTokens += usage?.inputTokens || 0;
+      this.session.outputTokens += usage?.outputTokens || 0;
+
       if (fingerprint) this.lastAnswer = { fingerprint, label, result, warnings, offered: false };
-      await this.presentResult(feature, label, result, warnings);
+      await this.presentResult(feature, label, result, warnings, { durationMs, usage });
     } catch (error) {
+      this.session.runs += 1;
+      this.session.failures += 1;
+      this.session.totalMs += performance.now() - startedAt;
+      this.logFailure(feature, error, performance.now() - startedAt);
       this.presentError(error);
     } finally {
       this.busyFeature = null;
@@ -327,26 +956,86 @@ export class AIPanel {
     }
   }
 
-  async presentResult(feature, label, result, warnings) {
+  /** Put an entry at the top of the session log. */
+  log(entry) {
+    const run = {
+      at: new Date(),
+      status: 'ok',
+      durationMs: 0,
+      usage: null,
+      repeat: false,
+      ...entry,
+    };
+    // Only a feature that read the canvas has a scope worth naming: a generator
+    // was given a sentence, not a patch.
+    if (run.scope === undefined) run.scope = needsPatch(run.feature) ? this.prefs.scope : null;
+
+    this.runs.unshift(run);
+    if (this.runs.length > MAX_LOGGED_RUNS) this.runs.length = MAX_LOGGED_RUNS;
+    this.renderBody();
+
+    // The log sits under the feature cards, so a fresh answer can land below
+    // the fold — which reads as nothing having happened at all. Bring it up.
+    const newest = this.dock?.querySelector('.ai-run');
+    if (newest?.scrollIntoView) newest.scrollIntoView({ block: 'nearest' });
+  }
+
+  logFailure(feature, error, durationMs) {
+    const body = document.createElement('div');
+    body.className = 'ai-findings';
+    const text = document.createElement('p');
+    text.className = 'ai-findings-summary';
+    text.textContent = error?.message || 'Something went wrong running that.';
+    body.appendChild(text);
+
+    this.log({
+      feature,
+      label: FEATURES[feature]?.label || feature,
+      status: 'error',
+      durationMs,
+      body,
+    });
+  }
+
+  async presentResult(feature, label, result, warnings, meta = {}) {
     if (warnings?.length) {
       modalManager.toast(warnings.join(' '), 'warning', label);
     }
 
+    const entry = {
+      feature,
+      label: meta.repeat ? `${label} (repeat)` : label,
+      durationMs: meta.durationMs ?? 0,
+      usage: meta.usage ?? null,
+      repeat: Boolean(meta.repeat),
+    };
+
     switch (feature) {
       case 'ai.patch_review':
-        return showFindings(label, result.summary, result.findings, 'findings');
+        return this.log({ ...entry, body: findingsElement(result.summary, result.findings, 'findings') });
       case 'ai.canvas_assist':
-        return showFindings(label, '', result.suggestions, 'suggestions');
+        return this.log({ ...entry, body: findingsElement('', result.suggestions, 'suggestions') });
       case 'ai.creative_director':
-        return showDirections(label, result);
+        return this.log({ ...entry, body: directionsElement(result) });
       case 'ai.node_generator':
+        this.log({
+          ...entry,
+          body: generatedNodeElement(result, () => this.applyGeneratedNode(label, result)),
+        });
         return this.applyGeneratedNode(label, result);
       case 'ai.patch_generator':
+        this.log({
+          ...entry,
+          body: generatedPatchElement(result, () =>
+            this.applyGeneratedPatch(label, result, `Apply "${result.title}"?`)
+          ),
+        });
         return this.applyGeneratedPatch(label, result, `Apply "${result.title}"?`);
       case 'ai.patch_refactor':
+        this.log({ ...entry, body: refactorElement(result, () => this.applyRefactor(label, result)) });
         return this.applyRefactor(label, result);
       default:
-        return showFindings(label, JSON.stringify(result), [], 'findings');
+        return this.log({ ...entry, body: findingsElement(JSON.stringify(result), [], 'findings') });
     }
   }
 
@@ -381,7 +1070,11 @@ export class AIPanel {
     try {
       await replaceGraphWithPatch(result.patch, { title: result.title, reason: 'ai-generated' });
       modalManager.toast(`Applied "${result.title}".`, 'success', label);
-      this.hide();
+      // The canvas is a different canvas now: the measurement and any
+      // remembered answer describe a patch that no longer exists.
+      this.measurement = null;
+      this.lastAnswer = null;
+      this.renderBody();
     } catch (error) {
       modalManager.toast(`Could not apply the patch: ${error.message}`, 'error', label);
     }
@@ -402,7 +1095,9 @@ export class AIPanel {
     try {
       await replaceGraphWithPatch(result.patch, { reason: 'ai-refactor' });
       modalManager.toast('Refactor applied.', 'success', label);
-      this.hide();
+      this.measurement = null;
+      this.lastAnswer = null;
+      this.renderBody();
     } catch (error) {
       modalManager.toast(`Could not apply the refactor: ${error.message}`, 'error', label);
     }
@@ -490,6 +1185,94 @@ const OPERATOR_FAULT_CODES = new Set([
 
 function needsPatch(feature) {
   return feature !== 'ai.patch_generator' && feature !== 'ai.node_generator';
+}
+
+/** What has to move before a payload measurement stops describing the canvas. */
+function graphSignature(nodeCount, connectionCount, selectedCount, scope) {
+  return `${scope}:${nodeCount}:${connectionCount}:${scope === 'selection' ? selectedCount : 0}`;
+}
+
+// --- Small DOM pieces -------------------------------------------------------
+
+function section(title) {
+  const wrap = document.createElement('section');
+  wrap.className = 'ai-section';
+
+  const header = document.createElement('div');
+  header.className = 'ai-section-header';
+
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  header.appendChild(heading);
+
+  wrap.appendChild(header);
+  return wrap;
+}
+
+/** A labelled number. `tone` is 'bad', 'warn' or 'stale'. */
+function stat(label, value, tone = null, title = '') {
+  const cell = document.createElement('div');
+  cell.className = `ai-stat${tone ? ` ${tone}` : ''}`;
+  if (title) cell.title = title;
+
+  const name = document.createElement('span');
+  name.className = 'ai-stat-label';
+  name.textContent = label;
+  cell.appendChild(name);
+
+  const number = document.createElement('span');
+  number.className = 'ai-stat-value';
+  number.textContent = value;
+  cell.appendChild(number);
+
+  return cell;
+}
+
+/** A 0..1 bar. Values over 1 fill it and read as over-budget. */
+function meter(fraction, tone = null, title = '') {
+  const track = document.createElement('div');
+  track.className = `ai-meter${tone ? ` ${tone}` : ''}`;
+  if (title) track.title = title;
+
+  const fill = document.createElement('div');
+  fill.className = 'ai-meter-fill';
+  fill.style.width = `${Math.max(0, Math.min(1, fraction || 0)) * 100}%`;
+  track.appendChild(fill);
+
+  return track;
+}
+
+function pill(text, title = '') {
+  const el = document.createElement('span');
+  el.className = 'ai-pill';
+  el.textContent = text;
+  if (title) el.title = title;
+  return el;
+}
+
+function quietLine(text) {
+  const el = document.createElement('div');
+  el.className = 'ai-quiet';
+  el.textContent = text;
+  return el;
+}
+
+function checkbox(labelText, checked, onChange, title = '') {
+  const label = document.createElement('label');
+  label.className = 'ai-checkbox';
+  if (title) label.title = title;
+
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = checked;
+  input.addEventListener('change', () => onChange(input.checked));
+  label.appendChild(input);
+
+  const text = document.createElement('span');
+  text.textContent = labelText;
+  label.appendChild(text);
+
+  return label;
 }
 
 function note(text, type = 'info') {
@@ -611,8 +1394,34 @@ function formatReset(iso) {
   return `on ${date.toLocaleDateString()}`;
 }
 
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatCount(value) {
+  if (!Number.isFinite(value)) return '—';
+  if (value < 1000) return String(Math.round(value));
+  return `${(value / 1000).toFixed(1)}k`;
+}
+
+/** Null means the backend reported no usage — a dash, never a confident zero. */
+function formatTokenCount(value) {
+  return typeof value === 'number' ? formatCount(value) : '—';
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return '—';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+// --- Result bodies ----------------------------------------------------------
+
 /** Review findings and canvas-assist suggestions read the same way. */
-function showFindings(title, summary, items, kind) {
+function findingsElement(summary, items, kind) {
   const body = document.createElement('div');
   body.className = 'ai-findings';
 
@@ -625,7 +1434,9 @@ function showFindings(title, summary, items, kind) {
 
   if (!items?.length) {
     const clean = document.createElement('p');
-    clean.textContent = kind === 'findings' ? 'Nothing to report — the patch looks clean.' : 'Nothing to suggest right now.';
+    clean.className = 'ai-findings-summary';
+    clean.textContent =
+      kind === 'findings' ? 'Nothing to report — the patch looks clean.' : 'Nothing to suggest right now.';
     body.appendChild(clean);
   }
 
@@ -650,11 +1461,15 @@ function showFindings(title, summary, items, kind) {
       row.appendChild(fix);
     }
 
-    // A finding that names nodes can point at them.
+    // A finding that names nodes can point at them — and now that the panel is
+    // beside the canvas rather than over it, the artist can watch it happen.
     if (item.nodeIds?.length) {
       const show = document.createElement('button');
       show.className = 'ai-finding-show';
-      show.textContent = `Show ${item.nodeIds.length === 1 ? 'node' : 'nodes'}`;
+      show.appendChild(createIcon('search', { size: 12 }));
+      show.appendChild(
+        document.createTextNode(`Show ${item.nodeIds.length === 1 ? 'node' : 'nodes'}`)
+      );
       show.addEventListener('click', () => {
         const found = selectNodes(item.nodeIds);
         if (!found) modalManager.toast('Those nodes are no longer on the canvas.', 'warning');
@@ -665,16 +1480,10 @@ function showFindings(title, summary, items, kind) {
     body.appendChild(row);
   }
 
-  modalManager.showModal(
-    modalManager.createModal({
-      title,
-      body,
-      buttons: [{ label: 'Close', primary: true, onClick: () => true }],
-    })
-  );
+  return body;
 }
 
-function showDirections(title, result) {
+function directionsElement(result) {
   const body = document.createElement('div');
   body.className = 'ai-findings';
 
@@ -711,9 +1520,73 @@ function showDirections(title, result) {
     body.appendChild(row);
   }
 
-  modalManager.showModal(
-    modalManager.createModal({ title, body, buttons: [{ label: 'Close', primary: true, onClick: () => true }] })
+  return body;
+}
+
+/**
+ * A generated thing in the log, with the way to apply it again.
+ *
+ * The confirm dialog opens on its own when the answer arrives; this is what is
+ * left afterwards, so an artist who said "keep mine" can change their mind
+ * without paying for a second generation.
+ */
+function applyableElement(summaryText, detailNodes, applyLabel, onApply) {
+  const body = document.createElement('div');
+  body.className = 'ai-findings';
+
+  if (summaryText) {
+    const summary = document.createElement('p');
+    summary.className = 'ai-findings-summary';
+    summary.textContent = summaryText;
+    body.appendChild(summary);
+  }
+
+  for (const node of detailNodes) body.appendChild(node);
+
+  const apply = document.createElement('button');
+  apply.className = 'ai-secondary-button';
+  apply.textContent = applyLabel;
+  apply.addEventListener('click', () => onApply());
+  body.appendChild(apply);
+
+  return body;
+}
+
+function generatedNodeElement(result, onApply) {
+  const detail = document.createElement('div');
+  detail.className = 'ai-finding-detail';
+  detail.textContent = `${result.name} — ${
+    result.inputs?.map((pin) => `${pin.label} (${pin.type})`).join(', ') || 'no inputs'
+  } → ${result.outputType}`;
+
+  return applyableElement(result.description || '', [detail], 'Add to canvas…', onApply);
+}
+
+function generatedPatchElement(result, onApply) {
+  const detail = document.createElement('div');
+  detail.className = 'ai-finding-detail';
+  detail.textContent = `${result.patch?.nodes?.length ?? 0} nodes, ${
+    result.patch?.connections?.length ?? 0
+  } wires`;
+
+  return applyableElement(
+    `${result.title || 'Generated patch'}${result.notes ? ` — ${result.notes}` : ''}`,
+    [detail],
+    'Replace canvas…',
+    onApply
   );
+}
+
+function refactorElement(result, onApply) {
+  const changes = document.createElement('ul');
+  changes.className = 'ai-finding-steps';
+  for (const change of result.changes || []) {
+    const li = document.createElement('li');
+    li.textContent = `${change.kind}: ${change.detail}`;
+    changes.appendChild(li);
+  }
+
+  return applyableElement(result.summary || '', [changes], 'Apply refactor…', onApply);
 }
 
 /** One panel for the session, like the other editor windows. */
