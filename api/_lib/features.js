@@ -435,6 +435,7 @@ The rules of that body:
 - The body's final expression is the node's output, and its type must match the output type you declare.
 - This is WGSL-flavoured: write 0.0 not 0 for floats, and vec3<f32>(...) style constructors.
 - It runs per pixel per frame. No loops over large ranges, no unbounded work.
+- These names are already in scope and need no pin: uv (the vec2 pixel coordinate), time (seconds), pi, E, and audioEnvelope / audioEnvelopeBass / audioEnvelopeMids / audioEnvelopeHighs / audioEnvelopeFull. Declaring a local of the same name shadows the built-in, which is fine, but do not declare a pin for something this list already gives you.
 
 Name the inputs for what they carry, not input0. Keep the code short enough to read at a glance — an artist is going to open it.`,
     format: {

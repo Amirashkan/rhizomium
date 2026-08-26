@@ -49,6 +49,16 @@ export function insertGeneratedNode(generated) {
   const inputs = Array.isArray(generated.inputs) ? generated.inputs : [];
   if (inputs.length) setInputCount(node, inputs.length);
 
+  // The model declares what each pin carries, and the code it wrote assumes it. Keeping those
+  // types is what lets an unconnected pin default to a value of the right shape: a vec2 pin the
+  // code takes `.xy` of has to default to vec2<f32>(0.0), not to a scalar the shader cannot
+  // swizzle. Without them the compiler is left guessing from the code, which fails outright for a
+  // pin that is only ever multiplied or added.
+  const inputTypes = inputs.map((input) =>
+    (['f32', 'vec2', 'vec3', 'vec4'].includes(input?.type) ? input.type : 'f32')
+  );
+  if (inputTypes.length) node.params.inputTypes = inputTypes;
+
   // Name it for what it does, so the canvas reads without opening the code.
   if (generated.name) node.name = generated.name;
 
