@@ -2258,14 +2258,20 @@ function setupRhizomiumMenu() {
     });
   }
 
-  // View Show Grid
+  // View -> Grid -> Show Grid. Only paints the dots; snapping is a separate toggle.
   const viewShowGridCheckbox = document.getElementById("view-show-grid");
   if (viewShowGridCheckbox) {
-    viewShowGridCheckbox.checked = true; // Default
+    const initialGridVisible =
+      typeof editor?.isGridVisible === "function" ? editor.isGridVisible() : true;
+    viewShowGridCheckbox.checked = initialGridVisible;
     viewShowGridCheckbox.addEventListener("change", (e) => {
-      // TODO: Implement grid visibility toggle
+      const visible = !!e.target.checked;
+      if (typeof editor?.setGridVisible === "function") {
+        editor.setGridVisible(visible);
+      }
+      window.preferencesWindow?.syncPreference("showGrid", visible);
       if (typeof updateStatus === "function") {
-        updateStatus(`Grid ${e.target.checked ? "shown" : "hidden"}`);
+        updateStatus(`Grid ${visible ? "shown" : "hidden"}`);
       }
     });
   }
