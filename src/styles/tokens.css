@@ -131,6 +131,12 @@
     0 40px 100px -24px rgba(0, 0, 0, 0.8),
     inset 0 1px 0 rgba(255, 244, 230, 0.07);
 
+  /* How much of the window a right-hand dock is holding. The canvas rules in
+     editor/style.css subtract it from 100vw so a docked panel sits *beside*
+     the canvas instead of over it. Written by src/ui/dockLayout.js; zero
+     whenever nothing is docked. */
+  --rz-canvas-inset-right: 0px;
+
   /* Canvas grid — the dot variant from the handoff. Kept as variables so the
      snap-size control can drive them (see main.js). */
   --snap-grid-size: 20px;

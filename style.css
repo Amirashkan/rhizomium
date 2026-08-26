@@ -562,17 +562,20 @@ canvas {
   display: block;
 }
 
+/* Kept in step with editor/style.css: both canvases stop at the right-hand
+   dock rather than running under it — see src/ui/dockLayout.js. The variable is
+   0px whenever nothing is docked. */
 #gpu-canvas {
   z-index: 0;
   top: 40px;
-  width: 100vw;
+  width: calc(100vw - var(--rz-canvas-inset-right, 0px));
   height: calc(100vh - 40px);
 }
 
 #ui-canvas {
   z-index: 10;
   top: 40px;
-  width: 100vw;
+  width: calc(100vw - var(--rz-canvas-inset-right, 0px));
   height: calc(100vh - 40px);
   background-color: var(--rz-bg-app);
 }

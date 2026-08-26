@@ -29,7 +29,13 @@ vi.mock('../src/ui/ModalManager.js', () => ({
 }));
 
 vi.mock('../src/ai/entitlements.js', () => ({
-  entitlements: { current: {}, onChange: () => () => {}, load: async () => {} },
+  entitlements: {
+    current: {},
+    onChange: () => () => {},
+    load: async () => {},
+    editorCatalog: () => [],
+    upgradeUrl: 'https://art.tenderworld.org/pricing',
+  },
 }));
 
 vi.mock('../src/ai/applyResult.js', () => ({
@@ -45,10 +51,11 @@ vi.mock('../src/ui/accountSession.js', () => ({
 
 let patchContext = { nodes: [{ id: 'a', kind: 'UV', x: 0, y: 0 }], connections: [] };
 
-vi.mock('../src/ai/patchContext.js', () => ({
+// Only the canvas read is stubbed — the measuring and the node cap are the real
+// ones, so a change to either shows up here rather than passing silently.
+vi.mock('../src/ai/patchContext.js', async (importOriginal) => ({
+  ...(await importOriginal()),
   buildPatchContext: () => patchContext,
-  EmptyPatchError: class EmptyPatchError extends Error {},
-  PatchTooLargeError: class PatchTooLargeError extends Error {},
 }));
 
 const { AIPanel } = await import('../src/ui/AIPanel.js');
@@ -84,18 +91,23 @@ describe('running the same read-only feature twice', () => {
 
   it('shows the previous answer rather than nothing at all', async () => {
     answered('Two dead branches.');
+    await panel.show();
 
     await panel.run('ai.patch_review', {});
-    showModal.mockReset();
     await panel.run('ai.patch_review', {});
 
-    // The artist clicked a button; something has to open.
-    expect(showModal).toHaveBeenCalledTimes(1);
+    // The artist clicked a button; the answer has to be on screen — and it is
+    // in the dock beside the canvas now, not in a modal over it.
+    expect(panel.dock.textContent).toContain('Two dead branches.');
+    expect(panel.runs).toHaveLength(2);
+    expect(panel.runs[0].label).toContain('repeat');
     expect(toast).toHaveBeenCalledWith(
       expect.stringContaining('Nothing has changed'),
       'info',
       'Patch review'
     );
+
+    panel.hide();
   });
 
   it('runs for real on the click after that', async () => {

@@ -2385,7 +2385,10 @@ function setupRhizomiumMenu() {
     aiPanelBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      getAIPanel().show();
+      // A dock, not a dialog: the same menu entry opens and closes it.
+      Promise.resolve(getAIPanel().toggle()).catch((error) => {
+        console.warn("[main.js] AI panel could not be toggled:", error);
+      });
     });
   }
 

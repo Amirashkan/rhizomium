@@ -26,7 +26,8 @@ that were made along the way.
 | `src/ai/applyResult.js` | Puts a generated node or patch onto the canvas. |
 | `src/ai/outputGating.js` | The unmetered `output.*` flags. |
 | `src/viewer/viewerGate.js` | The unmetered `viewer.web` flag — and the one gate that refuses where outputGating allows. |
-| `src/ui/AIPanel.js` | The panel — Tools → AI Assistant… |
+| `src/ui/AIPanel.js` | The panel — Tools → AI Assistant. A dock on the right edge, not a modal; the same menu row opens and closes it. |
+| `src/ui/dockLayout.js` | How much of the window the dock holds, and how the canvases are told. |
 | `src/styles/ai-panel.css` | Its styles, on the app's own tokens. |
 
 ### Backend (Vercel functions, same deployment)
@@ -45,6 +46,13 @@ that were made along the way.
 covering the catalogue, the client's error mapping and free-tier fallback, the
 grant verifier against grants signed exactly as the gallery signs them, and the
 endpoint's refusal ordering.
+
+`tests/aiPanelDock.test.js` covers the panel as a dock: that opening it hands
+the canvas a narrower window and closing it gives the width back, that it never
+takes more than half the window, and that a feature with nothing valid to read —
+or no allowance left — is disabled with the reason on screen rather than failing
+on click. `tests/aiPanelRepeatGuard.test.js` covers the repeat guard and where
+its answer is shown.
 
 `tests/viewerGate.test.js` covers the web viewer's gate, including the
 asymmetry: the same degraded entitlements that let `output.multiscreen` through
@@ -203,6 +211,63 @@ The `surface` field is untouched: it is the gallery's word for whose UI lists
 the feature, and the AI panel filters on `surface === 'editor'` to build itself.
 A viewer page that appeared in that panel would be wrong. The editor's one entry
 point to it — File → Open in Web Viewer — is a menu row, not a catalogue row.
+
+### The panel is docked beside the canvas, not stacked over it
+
+Every editor-surface feature reads or rewrites the graph, and the panel used to
+be a centred modal over it. That made three things impossible at once: reading a
+finding while looking at the nodes it names, watching "Show nodes" select them,
+and seeing what a generated patch was about to replace.
+
+So it is a dock on the right edge, and the canvases are inset by its width
+rather than covered:
+
+- `src/ui/dockLayout.js` holds the number and publishes it twice — as the CSS
+  variable `--rz-canvas-inset-right` (which the `#gpu-canvas` / `#ui-canvas`
+  rules subtract from `100vw`, and which `gpuRenderer.resizeCanvas()` picks up
+  because it measures `clientWidth`), and as `canvasViewportWidth()` for the JS
+  that sizes the 2D canvas (`Editor.resize`) or reasons about the visible area
+  (`ViewportManager.fitToContent`).
+- Changing it fires a window `resize`, because every consequence — re-measuring
+  both canvases, redrawing the graph, rebuilding the MSAA texture — is already
+  wired to that event. A dock opening *is* a resize as far as the canvases are
+  concerned.
+- The dock never takes more than half the window, and its width is dragged from
+  the left edge, keyboard-adjustable, and remembered in
+  `glsl-node-editor.ai-panel.prefs`.
+
+Answers land in the panel's session log rather than in a modal, for the same
+reason. The confirm dialogs stayed where they were: applying a generated patch
+replaces the canvas, and that is a decision worth interrupting for — the log
+keeps an "Apply…" button afterwards so a changed mind costs nothing.
+
+### The panel says what an action costs, before and after
+
+These are metered calls against someone's money, and the gallery spends the
+quota when the grant is issued — before the model is called at all. A spinner
+that says nothing else is a bill with no itemisation, so the dock shows:
+
+- **Allowance** — actions left today across the metered features, each feature's
+  own `used`/`limit` as a bar, and when the window resets. A feature whose
+  allowance is spent has its button disabled rather than failing on click.
+- **What gets sent** — nodes, wires, selection, and how close the payload is to
+  the `MAX_NODES` cap, read straight off `window.graph` so it costs nothing.
+  Payload size and an estimated token count need the project exporter (textures
+  included), which is far too heavy to run on a timer while someone is
+  building, so they are measured on request — and again for free after every
+  run, since the patch was built anyway. The reading is marked *stale* the
+  moment the graph's shape moves rather than quietly ageing.
+- **Per run** — seconds, and the `usage` the backend already returned (input,
+  output, cached and reasoning tokens), which the panel previously discarded.
+- **This session** — runs, failures, tokens and the mean time per call. Failures
+  are counted because a failed call still spends an action.
+
+Two controls come out of that. **Scope** sends either the whole patch or only
+the selected nodes and the wires between them (`buildPatchContext(project,
+{ nodeIds })`) — a specific answer about one branch, and the way a patch over
+the node cap gets reviewed at all. **Reuse the last answer** exposes the repeat
+guard that was already there, for an artist who would rather always pay for a
+fresh opinion.
 
 ### The unmetered output flags fail *open*, deliberately
 
