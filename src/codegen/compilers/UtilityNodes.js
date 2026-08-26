@@ -5,6 +5,88 @@ import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import { getInputCount } from '../../data/nodeInputs.js';
 import { resolveDiscreteParam } from '../../utils/discreteParams.js';
 
+// The names hand-written (or model-written) node code may use for things that live in the
+// generated shader rather than in the snippet itself. Order does not matter: substitution walks
+// whole identifiers, so `u_time` is never seen as `time` and `audioEnvelopeBass` is never seen as
+// `audioEnvelope`.
+const SHADER_BUILTINS = new Map([
+  ['u_time', 'g.time'],
+  ['time', 'g.time'],
+  ['audioEnvelopeBass', 'g.audioEnvelopeBass'],
+  ['audioEnvelopeMids', 'g.audioEnvelopeMids'],
+  ['audioEnvelopeHighs', 'g.audioEnvelopeHighs'],
+  ['audioEnvelopeFull', 'g.audioEnvelopeFull'],
+  ['audioEnvelope', 'g.audioEnvelope'],
+  ['uv', 'in.uv'],
+  ['pi', '3.14159265359'],
+  ['PI', '3.14159265359'],
+]);
+
+// CustomGLSL bodies also spell Euler's number. Kept out of the Expression node's set so an existing
+// patch that uses `E` as a plain name there keeps meaning what it meant.
+const CUSTOM_CODE_BUILTINS = new Map([...SHADER_BUILTINS, ['E', '2.71828182846']]);
+
+const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*/g;
+const LOCAL_DECLARATION = /\b(?:let|var|const)\s+([A-Za-z_][A-Za-z0-9_]*)/g;
+
+/**
+ * Rewrite built-in names in a snippet of node code to what they mean in the generated shader.
+ *
+ * This used to be a run of `replace(/\buv\b/g, "in.uv")`-style passes, which is wrong three ways
+ * and produced WGSL that would not parse:
+ *
+ *   - A local of the same name was clobbered. `let uv = input0 * 2.0 - 1.0;` — the first line of
+ *     nearly every generated node — became `let in.uv = ...`, which is not a declaration at all.
+ *   - Member access was clobbered. An input wired to a UV node substitutes as `in.uv`, and the
+ *     following pass turned that into `in.in.uv`; `g.time` likewise became `g.g.time`.
+ *   - Passes fed each other: `u_time` became `g.time` and then `g.g.time`.
+ *
+ * So: one pass, over whole identifiers, skipping anything after a dot, and honouring a local
+ * declaration from the point it is declared onwards (WGSL does not have the declared name in scope
+ * inside its own initialiser, so `let uv = uv * 2.0;` still reads the built-in on the right).
+ *
+ * @param {string} code
+ * @param {Map<string, string>} builtins
+ * @returns {string}
+ */
+export function substituteShaderBuiltins(code, builtins = SHADER_BUILTINS) {
+  const shadowedByEarlierLines = new Set();
+
+  return code.split('\n').map((rawLine) => {
+    // Comments are stripped further down the pipeline, but rewriting inside one is still noise in
+    // anything that logs the intermediate code, so leave it alone.
+    const commentAt = rawLine.indexOf('//');
+    const body = commentAt >= 0 ? rawLine.slice(0, commentAt) : rawLine;
+    const comment = commentAt >= 0 ? rawLine.slice(commentAt) : '';
+
+    // Where each name this line declares comes into scope: past the end of its own statement, so
+    // the initialiser still reads the built-in (`let uv = uv * 2.0;` is the outer uv on the right,
+    // which is also the only reading WGSL allows).
+    const declaredHere = [];
+    LOCAL_DECLARATION.lastIndex = 0;
+    for (let match; (match = LOCAL_DECLARATION.exec(body)) !== null; ) {
+      const statementEnd = body.indexOf(';', match.index + match[0].length);
+      declaredHere.push({ name: match[1], from: statementEnd < 0 ? body.length : statementEnd + 1 });
+    }
+
+    const rewritten = body.replace(IDENTIFIER, (name, offset) => {
+      const replacement = builtins.get(name);
+      if (replacement === undefined) return name;
+
+      const before = body.slice(0, offset);
+      if (/\.\s*$/.test(before)) return name;                       // `foo.uv` is foo's member
+      if (/\b(?:let|var|const)\s+$/.test(before)) return name;      // the name being declared
+      if (shadowedByEarlierLines.has(name)) return name;            // a local declared above
+      if (declaredHere.some((d) => d.name === name && d.from <= offset)) return name;
+
+      return replacement;
+    });
+
+    for (const declaration of declaredHere) shadowedByEarlierLines.add(declaration.name);
+    return rewritten + comment;
+  }).join('\n');
+}
+
 export class UtilityNodes {
   constructor() {
     this.uniformManager = null;
@@ -183,16 +265,7 @@ export class UtilityNodes {
       expr = expr.replace(new RegExp(`\\b${name}\\b`, 'g'), `(${value})`);
     }
 
-    expr = expr.replace(/\bu_time\b/g, "g.time");
-    expr = expr.replace(/\btime\b/g, "g.time");
-    expr = expr.replace(/\baudioEnvelopeBass\b/g, "g.audioEnvelopeBass");
-    expr = expr.replace(/\baudioEnvelopeMids\b/g, "g.audioEnvelopeMids");
-    expr = expr.replace(/\baudioEnvelopeHighs\b/g, "g.audioEnvelopeHighs");
-    expr = expr.replace(/\baudioEnvelopeFull\b/g, "g.audioEnvelopeFull");
-    expr = expr.replace(/\baudioEnvelope\b/g, "g.audioEnvelope");
-    expr = expr.replace(/\buv\b/g, "in.uv");
-    expr = expr.replace(/\bpi\b/g, "3.14159265359");
-    expr = expr.replace(/\bPI\b/g, "3.14159265359");
+    expr = substituteShaderBuiltins(expr);
 
     let line = `let node_${nodeId} = ${expr};`;
 
@@ -602,14 +675,18 @@ export class UtilityNodes {
     const inferInputType = (inputIndex) => {
       const inputName = `input${inputIndex}`;
       // Match patterns like input0.x, input0.y, (input0).x, input0.r, etc.
-      // Look for input name followed by optional parentheses/whitespace, then dot, then component
-      const inputPattern = new RegExp(`\\b${inputName}\\b[^\\s]*\\.([xyzwrgba])\\b`, 'g');
+      // Look for input name followed by optional parentheses/whitespace, then dot, then component.
+      // The whole swizzle is captured, not just its first letter: `input0.xy` is the usual way an
+      // input says it is a vec2, and matching only a single component missed it entirely (the
+      // trailing \b cannot follow the `x` of `.xy`), so the pin defaulted to a scalar and `.xy` was
+      // then taken of an f32.
+      const inputPattern = new RegExp(`\\b${inputName}\\b[^\\s]*\\.([xyzwrgba]+)\\b`, 'g');
       let match;
       const components = new Set();
-      
+
       while ((match = inputPattern.exec(code)) !== null) {
-        if (match[1]) {
-          components.add(match[1]);
+        for (const component of match[1] || '') {
+          components.add(component);
         }
       }
       
@@ -700,12 +777,20 @@ export class UtilityNodes {
     // provide the correct default value.
     const inputCount = Math.max(1, getInputCount(node));
 
+    // A pin whose type the code declares outright (the AI node generator writes these; nothing
+    // stops a project file carrying them). Guessing from usage is a fallback for hand-written code,
+    // and a poor one — code that only ever says `input0 * 2.0` gives the guesser nothing to go on,
+    // so a vec2 pin came out a scalar and every later line was a type error.
+    const declaredTypes = Array.isArray(node.params?.inputTypes) ? node.params.inputTypes : [];
+    const declaredTypeFor = (index) =>
+      (['f32', 'vec2', 'vec3', 'vec4'].includes(declaredTypes[index]) ? declaredTypes[index] : null);
+
     // Types are inferred from the ORIGINAL code, before any substitution rewrites the input names
     // the inference patterns look for.
     const inputCodes = [];
     for (let i = 0; i < inputCount; i++) {
-      const inferredType = inferInputType(i);
-      const input = getInput(i, inferredType || null, getDefaultForType(inferredType));
+      const inputType = declaredTypeFor(i) || inferInputType(i);
+      const input = getInput(i, inputType || null, getDefaultForType(inputType));
       inputCodes.push(typeof input === 'object' && input?.code !== undefined ? input.code : input);
     }
 
@@ -716,18 +801,9 @@ export class UtilityNodes {
     }
 
 
-    // Replace built-in variables with their shader equivalents
-    code = code.replace(/\bu_time\b/g, "g.time");
-    code = code.replace(/\btime\b/g, "g.time");
-    code = code.replace(/\baudioEnvelopeBass\b/g, "g.audioEnvelopeBass");
-    code = code.replace(/\baudioEnvelopeMids\b/g, "g.audioEnvelopeMids");
-    code = code.replace(/\baudioEnvelopeHighs\b/g, "g.audioEnvelopeHighs");
-    code = code.replace(/\baudioEnvelopeFull\b/g, "g.audioEnvelopeFull");
-    code = code.replace(/\baudioEnvelope\b/g, "g.audioEnvelope");
-    code = code.replace(/\buv\b/g, "in.uv");
-    code = code.replace(/\bpi\b/g, "3.14159265359");
-    code = code.replace(/\bPI\b/g, "3.14159265359");
-    code = code.replace(/\bE\b/g, "2.71828182846");
+    // Replace built-in variables with their shader equivalents. Locals the code declares itself
+    // (`let uv = ...`) keep their own meaning — see substituteShaderBuiltins.
+    code = substituteShaderBuiltins(code, CUSTOM_CODE_BUILTINS);
 
     // Get output type from parameter
     const outputType = node.params?.outputType || "f32";
