@@ -10,6 +10,7 @@
 import { makeDraggable } from './utils/draggable.js';
 
 const DEFAULT_PREFERENCES = {
+  showGrid: true,
   snapToGrid: true,
   gridSize: 20,
   autoSave: true,
@@ -199,12 +200,15 @@ export class PreferencesWindow {
   _createCanvasSection() {
     const section = this._createSection("Canvas / Node Editor");
 
+    const showGrid = this._createCheckbox("Show Grid", "showGrid", this.preferences.showGrid);
     const snap = this._createCheckbox("Snap to Grid", "snapToGrid", this.preferences.snapToGrid);
     const gridSize = this._createSlider("Grid Size", "gridSize", 2, 100, this.preferences.gridSize, "px", 1);
 
+    section.appendChild(showGrid.container);
     section.appendChild(snap.container);
     section.appendChild(gridSize.container);
 
+    this._controls.showGrid = showGrid.checkbox;
     this._controls.snapToGrid = snap.checkbox;
     this._controls.gridSize = gridSize;
 
@@ -378,6 +382,12 @@ export class PreferencesWindow {
 
   _applyPreference(key, value) {
     switch (key) {
+      case "showGrid": {
+        window.editor?.setGridVisible?.(value);
+        const showToggle = document.getElementById("view-show-grid");
+        if (showToggle) showToggle.checked = value;
+        break;
+      }
       case "snapToGrid": {
         window.editor?.setSnapEnabled?.(value);
         const toggle = document.getElementById("snap-toggle");
@@ -399,6 +409,9 @@ export class PreferencesWindow {
   }
 
   _refreshControls() {
+    if (this._controls.showGrid) {
+      this._controls.showGrid.checked = this.preferences.showGrid;
+    }
     if (this._controls.snapToGrid) {
       this._controls.snapToGrid.checked = this.preferences.snapToGrid;
     }

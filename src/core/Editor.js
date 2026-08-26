@@ -102,6 +102,9 @@ export class Editor {
       // Snap-to-grid defaults
       this.snapEnabled = false;
       this.snapGridSize = 20;
+      // Grid visibility is independent of snapping: the dots can be shown
+      // without snapping, and snapping works with the dots hidden.
+      this.gridVisible = true;
       
       // Initialize managers with error handling
       this.initializeManagers(undoManager);
@@ -280,6 +283,9 @@ export class Editor {
       }
       if (typeof this.snapEnabled !== 'boolean') {
         this.snapEnabled = false;
+      }
+      if (typeof this.gridVisible !== 'boolean') {
+        this.gridVisible = true;
       }
       if (this.selection?.setSnapGridSize) {
         this.selection.setSnapGridSize(this.snapGridSize);
@@ -1477,6 +1483,26 @@ connectGPURenderer(renderFunction) {
     }
 
     return false;
+  }
+
+  /**
+   * Show or hide the background grid. Purely visual - snapping keeps working
+   * while the dots are hidden.
+   */
+  setGridVisible(visible) {
+    const normalized = !!visible;
+    const previous = this.gridVisible;
+    this.gridVisible = normalized;
+
+    if (previous !== normalized) {
+      this.safeDraw('grid-visibility');
+    }
+
+    return this.gridVisible;
+  }
+
+  isGridVisible() {
+    return this.gridVisible !== false;
   }
 
   setSnapGridSize(size) {

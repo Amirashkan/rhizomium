@@ -281,6 +281,12 @@ export class Renderer {
   _renderBackgroundGrid() {
     const ctx = this.ctx;
     const editor = window.editor;
+
+    // View -> Grid -> Show Grid. Hiding the dots leaves snapping untouched.
+    if (typeof editor?.isGridVisible === "function" && !editor.isGridVisible()) {
+      return;
+    }
+
     const gridSize =
       typeof editor?.getSnapGridSize === "function"
         ? editor.getSnapGridSize()
