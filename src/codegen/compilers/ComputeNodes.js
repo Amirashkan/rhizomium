@@ -2191,28 +2191,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     const colorMode = this.getParam(node, 'colorMode', 'Grayscale');
     const interpolation = this.getParam(node, 'interpolation', 'Linear');
 
-    // Get color stops (max 8 stops supported)
-    const colorStops = this.getParam(node, 'colorStops', [
-      { position: 0.0, color: [0, 0, 0, 1] },
-      { position: 1.0, color: [1, 1, 1, 1] }
-    ]);
-
-    const numStops = Math.min(colorStops.length, 8);
     const typeIndex = this.getGradientTypeIndex(type);
     const colorModeIndex = this.getColorModeIndex(colorMode);
     const interpolationIndex = this.getInterpolationIndex(interpolation);
-
-    // Debug logging
-    console.log('[ComputeGradient Shader Generation]', {
-      colorMode,
-      colorModeIndex,
-      type,
-      typeIndex,
-      interpolation,
-      interpolationIndex,
-      numStops,
-      colorStops: colorStops.slice(0, 2)
-    });
 
     const shader = `
 // Compute Gradient Shader - Type: ${type}, ColorMode: ${colorMode}

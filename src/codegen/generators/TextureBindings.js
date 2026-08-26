@@ -1,4 +1,6 @@
 // src/codegen/generators/TextureBindings.js
+import { maxTextureBindings } from '../../gpu/deviceLimits.js';
+
 export class TextureBindings {
   /**
    * Generate texture binding code for WGSL
@@ -10,8 +12,12 @@ export class TextureBindings {
     let bindingCode = "";
     let bindingIndex = 3; // 0:u, 1:g, 2:ParamUniforms (if present)
     
-    // WebGPU limit: maximum 16 sampled textures per stage
-    const MAX_TEXTURES = 16;
+    // How many texture+sampler pairs this machine's device actually granted. The
+    // spec default is 16 per stage; the editor asks for more where the adapter
+    // allows it (see gpu/deviceLimits.js), because a skipped binding is not a
+    // graceful degradation — the node bodies still sample it by name, so the whole
+    // shader fails to compile.
+    const MAX_TEXTURES = maxTextureBindings();
     let textureCount = 0;
 
     // If usedNodes is provided, use that; otherwise use all graph nodes

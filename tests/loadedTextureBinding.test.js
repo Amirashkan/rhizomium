@@ -23,6 +23,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { FragmentTextureRenderer } from '../src/gpu/FragmentTextureRenderer.js';
 import { TextureBindings } from '../src/codegen/generators/TextureBindings.js';
 import { SaveLoadManager } from '../src/core/SaveLoadManager.js';
+import { ComputeExecutor } from '../src/gpu/ComputeExecutor.js';
 import { restoreImageTexture } from '../src/core/patchTextures.js';
 
 const makeTexture = (label) => {
@@ -238,26 +239,95 @@ describe('compute bindings from a registry that outlived its graph', () => {
   });
 });
 
-describe('replacing the graph tears down the compute stack it was built for', () => {
+describe('a graph that no longer has any compute node', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('clears the registry, managers and cached fragment textures', () => {
-    const computeExecutor = { clear: vi.fn(), clearFragmentCache: vi.fn() };
-    vi.stubGlobal('window', { computeExecutor });
+  function makeExecutor(manager, outputTexture) {
+    const executor = Object.create(ComputeExecutor.prototype);
+    Object.assign(executor, {
+      computeManagers: new Map([['9', manager]]),
+      computeTextures: new Map([['9', { texture: outputTexture }]]),
+      computeNodes: new Map([['9', {}]]),
+      inputHashes: new Map(),
+      nodeOutputs: new Map([['9', outputTexture]]),
+      executionOrder: ['9'],
+      initialized: true,
+      fallbackTexture: null,
+      _pendingDestroys: [],
+    });
+    executor.clearFragmentCache = vi.fn();
+    executor.createFallbackTexture = vi.fn();
+    executor.updateExecutionOrder = vi.fn(() => { executor.executionOrder = []; });
+    return executor;
+  }
 
-    const manager = {
-      graph: { nodes: [{ id: '1' }], connections: [{}], selection: new Set(['1']) },
-      clearGraph: SaveLoadManager.prototype.clearGraph,
-    };
+  it('tears its managers down instead of leaving them dispatching', async () => {
+    const outputTexture = makeTexture('Output Texture');
+    const manager = { destroy: vi.fn(), getOutputTexture: () => outputTexture };
+    const executor = makeExecutor(manager, outputTexture);
+    vi.stubGlobal('window', { computeNodeRegistry: new Map() });
 
-    manager.clearGraph();
+    await executor._initializeOnce();
 
-    expect(manager.graph.nodes).toEqual([]);
-    expect(computeExecutor.clear).toHaveBeenCalled();
-    expect(computeExecutor.clearFragmentCache).toHaveBeenCalled();
+    expect(executor.computeManagers.size).toBe(0);
+    expect(executor.executionOrder).toEqual([]);
+
+    // The teardown is deferred, never immediate: the pipeline still on screen is
+    // bound to those textures until the new shader replaces it, and destroying
+    // them under it is "Destroyed texture used in a submit".
+    expect(manager.destroy).not.toHaveBeenCalled();
+    expect(executor._pendingDestroys.length).toBeGreaterThan(0);
+    expect(executor._reinitializing).toBe(false);
+
+    for (const fn of executor._pendingDestroys) fn();
+    expect(manager.destroy).toHaveBeenCalled();
+    expect(executor.nodeOutputs.has('9')).toBe(false); // no dangling texture left bound
   });
 
-  it('is a no-op on the compute stack when there is no executor (the viewer)', () => {
+  it('costs nothing when there was nothing built either', async () => {
+    const executor = makeExecutor({ destroy: vi.fn(), getOutputTexture: () => null }, null);
+    executor.initialized = false;
+    vi.stubGlobal('window', { computeNodeRegistry: new Map() });
+
+    await executor._initializeOnce();
+
+    expect(executor.createFallbackTexture).not.toHaveBeenCalled();
+    expect(executor.computeManagers.size).toBe(1);
+  });
+});
+
+describe('replacing the graph drops the registry that described it', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const makeManager = () => ({
+    graph: { nodes: [{ id: '1' }], connections: [{}], selection: new Set(['1']) },
+    clearGraph: SaveLoadManager.prototype.clearGraph,
+  });
+
+  it('empties the compute registry along with the graph', () => {
+    const registry = new Map([['22', { node: { id: '22', kind: 'ComputeBlur' } }]]);
+    vi.stubGlobal('window', { computeNodeRegistry: registry });
+
+    makeManager().clearGraph();
+
+    expect(registry.size).toBe(0);
+  });
+
+  it('leaves the running managers and their textures alone', () => {
+    // The pipeline on screen is still bound to them and keeps drawing until the
+    // loaded graph's shader replaces it — destroying them here is what
+    // "Destroyed texture [Texture "Output Texture"] used in a submit" looks like.
+    // initialize() does that teardown, holding the old textures alive meanwhile.
+    const computeExecutor = { clear: vi.fn(), clearFragmentCache: vi.fn() };
+    vi.stubGlobal('window', { computeExecutor, computeNodeRegistry: new Map() });
+
+    makeManager().clearGraph();
+
+    expect(computeExecutor.clear).not.toHaveBeenCalled();
+    expect(computeExecutor.clearFragmentCache).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op on the compute stack when there is none (the viewer)', () => {
     vi.stubGlobal('window', {});
     const manager = {
       graph: { nodes: [], connections: [], selection: new Set() },
