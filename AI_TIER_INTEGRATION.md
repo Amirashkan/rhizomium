@@ -185,9 +185,17 @@ costs the artist the action, the wait, and the answer. `refactorFit()` in
 
 | verdict | when | what happens |
 |---|---|---|
-| `fits` | up to ~104 nodes — finishes even at 50 tokens/second | runs, nothing said |
-| `tight` | ~104–338 nodes — needs the rate these models really decode at | runs, with a note that it may run long |
-| `too_large` | past ~338 nodes, **or** any patch whose answer would exceed the 32k budget | refused in front of the grant: no call, no charge |
+| `fits` | up to ~90 nodes — finishes even at 50 tokens/second | runs, nothing said |
+| `tight` | ~90–300 nodes — needs the rate these models really decode at | runs, with a note that it may run long |
+| `too_large` | past ~300 nodes, **or** any patch whose answer would exceed the 32k budget | refused in front of the grant: no call, no charge |
+
+Those node counts are measured from patches exported out of the running editor,
+not modelled: built in-page, put through `saveLoadManager.exportProject()` and
+`buildPatchContext()`, then costed. A synthetic sweep put the same two crossings
+at ~104 and ~338 nodes, optimistic at both ends — a real graph carries about
+1.8 wires per node where a chain carries 1.0, and every wire is a line the
+refactor writes back. Treat them as landmarks either way: the check measures the
+patch in front of it, never a node count.
 
 The panel checks it in `run()` before `runFeature()`, which is what makes a
 refusal free; `api/ai/run.js` checks the same rule before calling the model and
