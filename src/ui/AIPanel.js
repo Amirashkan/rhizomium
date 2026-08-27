@@ -1110,7 +1110,12 @@ export class AIPanel {
     if (!accepted) return;
 
     try {
-      await replaceGraphWithPatch(result.patch, { reason: 'ai-refactor' });
+      await replaceGraphWithPatch(result.patch, {
+        reason: 'ai-refactor',
+        // The artist had this patch before the refactor did. Any node whose
+        // code was too long to send in full keeps the code it already had.
+        preserveLongParams: true,
+      });
       modalManager.toast('Refactor applied.', 'success', label);
       this.measurement = null;
       this.lastAnswer = null;

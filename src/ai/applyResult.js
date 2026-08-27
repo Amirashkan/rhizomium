@@ -12,6 +12,7 @@
 
 import { makeNode } from '../data/NodeDefs.js';
 import { setInputCount } from '../data/nodeInputs.js';
+import { MAX_PARAM_CHARS } from './patchContext.js';
 
 /** Canvas coordinates of the middle of the view, for placing something new. */
 export function viewportCentre() {
@@ -71,16 +72,64 @@ export function insertGeneratedNode(generated) {
 }
 
 /**
+ * Give a node back any parameter the model was never shown in full.
+ *
+ * A string parameter longer than MAX_PARAM_CHARS travels as its first two
+ * thousand characters and a comment saying the rest was cut
+ * (see trimParams in patchContext.js). The model can only return what it was
+ * given, so a thousand-line shader body would come back as the fragment — and
+ * writing that to the canvas would delete most of a node the artist wrote by
+ * hand. Measured on a real patch: 49KB of code, 2KB of it sent.
+ *
+ * The editor still has the original, so the original wins. Nothing else about
+ * the node is touched: the refactor may still move it, rename it, rewire it or
+ * remove it entirely — it simply does not get to rewrite text it only saw the
+ * start of.
+ *
+ * Matched on id *and* kind, so a generated patch that happens to reuse an id
+ * cannot inherit an unrelated node's code.
+ */
+function keepLongParams(node, before) {
+  const original = before.get(String(node.id));
+  if (!original || original.kind !== node.kind) return node.params || {};
+
+  const params = { ...(node.params || {}) };
+  for (const [key, value] of Object.entries(original.params || {})) {
+    if (typeof value === 'string' && value.length > MAX_PARAM_CHARS) {
+      params[key] = value;
+    }
+  }
+  return params;
+}
+
+/**
  * Replace the whole document with a patch.
  *
  * Writes a backup first: `importProject` clears the graph, and the artist's
  * previous patch is not otherwise recoverable through undo.
  *
+ * @param {Object} patch - the validated patch from the backend.
+ * @param {Object} [options]
+ * @param {boolean} [options.preserveLongParams] - keep parameters the model
+ *   was shown only the start of. True for a refactor, which rewrites a patch
+ *   the artist already had; meaningless for a generated one, which had no
+ *   previous version to preserve.
  * @returns {Promise<void>}
  */
-export async function replaceGraphWithPatch(patch, { title, reason = 'ai-patch' } = {}) {
+export async function replaceGraphWithPatch(
+  patch,
+  { title, reason = 'ai-patch', preserveLongParams = false } = {}
+) {
   const manager = window.saveLoadManager;
   if (!manager) throw new Error('The editor is not ready yet.');
+
+  // Read the canvas before the backup, because the backup does not change it
+  // and the import is about to.
+  const before = new Map();
+  if (preserveLongParams) {
+    const graph = window.graph || window.editor?.graph;
+    for (const node of graph?.nodes || []) before.set(String(node.id), node);
+  }
 
   // Best effort: a backup that fails is not a reason to refuse the import the
   // artist just confirmed, but it is worth knowing about.
@@ -97,7 +146,7 @@ export async function replaceGraphWithPatch(patch, { title, reason = 'ai-patch' 
       id: String(node.id),
       kind: node.kind,
       position: { x: node.x ?? 0, y: node.y ?? 0 },
-      params: node.params || {},
+      params: preserveLongParams ? keepLongParams(node, before) : node.params || {},
       ...(node.name ? { name: node.name } : {}),
     })),
     connections: patch.connections || [],

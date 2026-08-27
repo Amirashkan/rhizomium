@@ -197,6 +197,46 @@ at ~104 and ~338 nodes, optimistic at both ends — a real graph carries about
 refactor writes back. Treat them as landmarks either way: the check measures the
 patch in front of it, never a node count.
 
+#### A node with more code than fits in one call
+
+Size is one axis. The other is how much text a small graph carries, and it is
+the one node counts miss entirely. `trimParams()` caps any single string
+parameter at `MAX_PARAM_CHARS` (2,000), so a `CustomGLSL` node with a thousand
+lines in it travels as its first two thousand characters and a marker.
+
+Measured on patches built in the editor: **a 1,000-line custom node is 49KB of
+code on the canvas, of which 2KB is sent.** The review prompt is 6,552 tokens
+for a 500-, 1,000- or 2,000-line body — identical, because past the cap the
+patch stops growing. Three nodes, a small call, and 96% of what the artist
+wrote never left the machine.
+
+That was fine for the reading features and quietly destructive for the one that
+writes back. A refactor returns the whole patch and `replaceGraphWithPatch()`
+imports it over the canvas — so it returned the *shortened* copy, and 47KB of
+hand-written shader became 2KB and a comment. Nothing flagged it: by every
+token measure these patches are small.
+
+Two fixes, both in the round trip rather than in the budgets:
+
+- **`keepLongParams()` in `applyResult.js`** — when applying a refactor, any
+  parameter the model was shown only the start of keeps the value the artist
+  already had. Everything else the refactor decided (moves, rewiring,
+  removals, names) still lands. Matched on id *and* kind, so a generated patch
+  reusing an id cannot inherit unrelated code.
+- **`name` in `PATCH_SCHEMA`** — the refactor prompt asks the model to *"give
+  nodes names that say what they do"*, and the answer schema had nowhere to put
+  one, so `validateGeneratedPatch()` dropped every name in the patch on the way
+  back. Names now round-trip.
+
+`refactorFit()` reports these patches as `tight` with reason `fidelity`: a
+warning that the model is working from a fragment — so a tidy-up that leaves
+those nodes alone is doing the right thing rather than missing something — not
+a refusal, because the code is no longer at risk. Sending it in full is not the
+alternative: six such nodes would be ~76,000 tokens to write back against a
+ceiling of 3,460 for a patch that size.
+
+`tests/aiRefactorFidelity.test.js` covers both round trips.
+
 The panel checks it in `run()` before `runFeature()`, which is what makes a
 refusal free; `api/ai/run.js` checks the same rule before calling the model and
 answers `413 refactor_too_large`, for a client that did not. The node counts

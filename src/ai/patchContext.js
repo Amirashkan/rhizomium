@@ -36,6 +36,37 @@ export class EmptyPatchError extends Error {
   }
 }
 
+/**
+ * How much of one string parameter travels. A custom shader body is worth
+ * sending; a thousand lines of one is a document, not a parameter.
+ */
+export const MAX_PARAM_CHARS = 2000;
+
+/**
+ * What is left in place of the rest. It matters that this is findable: a patch
+ * carrying it has been shortened, so what comes back from a refactor must not
+ * be written over the artist's own copy — see keepLongParams in applyResult.js.
+ */
+export const TRUNCATION_MARKER = '/* … truncated */';
+
+/**
+ * Nodes whose parameters were shortened on the way out.
+ *
+ * @param {Object} patch - a trimmed patch, as buildPatchContext() returns it.
+ * @returns {Array<{id: string, param: string}>}
+ */
+export function truncatedParams(patch) {
+  const found = [];
+  for (const node of patch?.nodes ?? []) {
+    for (const [param, value] of Object.entries(node?.params ?? {})) {
+      if (typeof value === 'string' && value.endsWith(TRUNCATION_MARKER)) {
+        found.push({ id: String(node.id), param });
+      }
+    }
+  }
+  return found;
+}
+
 /* -------------------------------------------------------------------------
  * Will a refactor of this patch finish?
  *
@@ -152,6 +183,31 @@ export function refactorFit(patch) {
     message,
   });
 
+  /**
+   * Before either budget: would this refactor cost the artist their own text?
+   *
+   * A refactor returns the whole patch, and what it returns is written over
+   * the canvas. It can only return what it was shown — and what it was shown
+   * of a long shader body is the first MAX_PARAM_CHARS characters of it. So a
+   * patch with a thousand-line custom node comes back with that node holding
+   * two thousand characters and a comment saying the rest was cut, which is
+   * not a tidied patch: it is the artist's work with most of one node deleted.
+   *
+   * Measured on real patches: a 1,000-line custom node is 49KB of code, of
+   * which 2KB is sent. Nothing about the token cost says so — the prompt is a
+   * few hundred tokens either way, and every budget below says this patch is
+   * comfortably small. That is exactly why it is checked here.
+   *
+   * Sending the code in full is not the fix either: six such nodes would be
+   * 76,000 tokens to write back against a ceiling of 3,460. The fix is that
+   * applyResult keeps the artist's own text when it writes the answer back
+   * (see keepLongParams), so what is left here is a warning: the model is
+   * working from a fragment, and a tidy-up that leaves those nodes alone is
+   * doing the right thing rather than missing something.
+   */
+  const shortened = truncatedParams(patch);
+  const shortenedNodes = [...new Set(shortened.map((entry) => entry.id))];
+
   // Truncation, not timeout: the model would run out of room mid-patch and the
   // call would come back `incomplete`. Half a patch is not a patch.
   if (answerTokens > answerCeilingTokens) {
@@ -180,6 +236,27 @@ export function refactorFit(patch) {
       'time',
       `This is a large refactor: about ${Math.round(answerTokens / 1000)}k tokens to write back, which may ` +
         `run past the ${deadlineSeconds}-second limit. Tidying a selection at a time is more reliable.`
+    );
+  }
+
+  /**
+   * Last, and a warning rather than a refusal: the patch fits, but the model
+   * will not see all of it.
+   *
+   * A node whose code is longer than MAX_PARAM_CHARS travels as its first two
+   * thousand characters. The code itself is safe — applyResult keeps what the
+   * artist already had rather than writing back the fragment — so this costs
+   * the answer's quality, not the artist's work. Worth saying once, because a
+   * refactor that leaves a long node alone is doing the right thing with what
+   * it was given, and looks like a refactor that missed something.
+   */
+  if (shortenedNodes.length) {
+    return verdictFor(
+      'tight',
+      'fidelity',
+      `${shortenedNodes.length === 1 ? 'One node has' : `${shortenedNodes.length} nodes have`} more code than ` +
+        `fits in one call, so the model sees the first ${MAX_PARAM_CHARS} characters of it and no more. ` +
+        'Your code is kept exactly as it is either way — but expect the tidy-up to leave those nodes alone.'
     );
   }
 
@@ -311,9 +388,9 @@ function trimParams(params) {
     if (typeof value === 'string') {
       if (value.startsWith('data:')) {
         trimmed[name] = '<embedded data>';
-      } else if (value.length > 2000) {
+      } else if (value.length > MAX_PARAM_CHARS) {
         // Custom GLSL bodies are worth sending; a novel is not.
-        trimmed[name] = `${value.slice(0, 2000)}\n/* … truncated */`;
+        trimmed[name] = `${value.slice(0, MAX_PARAM_CHARS)}\n${TRUNCATION_MARKER}`;
       } else {
         trimmed[name] = value;
       }

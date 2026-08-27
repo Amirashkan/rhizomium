@@ -40,6 +40,16 @@ const PATCH_SCHEMA = {
         properties: {
           id: { type: 'string', description: 'Unique within this patch.' },
           kind: { type: 'string', description: 'A node kind from the registry, exactly as spelled there.' },
+          /**
+           * The artist's own label. Optional, and the only property here that
+           * is: a generated patch may leave nodes unnamed, but a refactor that
+           * cannot return a name is a refactor that deletes every name in the
+           * patch — including the ones this prompt asks it to improve.
+           */
+          name: {
+            type: 'string',
+            description: 'The node\'s label on the canvas. Keep the artist\'s name unless you are improving it.',
+          },
           x: { type: 'number', description: 'Canvas position. Lay signal flow out left to right, ~220 apart.' },
           y: { type: 'number', description: 'Canvas position. Separate parallel branches by ~140.' },
           params: {

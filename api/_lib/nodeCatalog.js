@@ -163,11 +163,18 @@ export function validateGeneratedPatch(patch) {
     seenIds.add(id);
 
     const def = NodeDefs[kind];
+    const name = typeof node.name === 'string' ? node.name.trim() : '';
+
     return {
       id,
       kind,
       x: Number.isFinite(node.x) ? node.x : index * 220,
       y: Number.isFinite(node.y) ? node.y : 0,
+      // Carried through rather than dropped: applyResult writes this back to
+      // the canvas, so a node that loses its name here loses it on the
+      // artist's screen — and naming nodes is something the refactor is asked
+      // to do.
+      ...(name ? { name } : {}),
       params: sanitizeParams(def, node.params),
     };
   });
