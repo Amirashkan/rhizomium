@@ -1,0 +1,338 @@
+/* src/styles/shader-compiler.css
+   Tools → Shader Tools → Shader Compiler (src/ui/ShaderCompilerWindow.js).
+
+   A floating tool window like the mapping panel, built around one long code
+   view. The gutter is sticky so line numbers survive a horizontal scroll — an
+   error at column 90 is unreadable if its line number scrolls off with it. */
+
+#shader-compiler-window {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 760px;
+  max-width: calc(100vw - 32px);
+  height: 620px;
+  max-height: calc(100vh - 104px);
+  min-width: 420px;
+  min-height: 280px;
+  display: none;
+  flex-direction: column;
+  background: linear-gradient(var(--rz-panel-top), var(--rz-panel-bottom));
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 10px;
+  box-shadow: var(--rz-shadow-pop, 0 12px 40px rgba(0, 0, 0, 0.6));
+  color: var(--rz-text);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  z-index: 1000;
+  overflow: hidden;
+  resize: both;
+}
+
+#shader-compiler-window.rz-sc-open {
+  display: flex;
+}
+
+/* --- header --------------------------------------------------------------- */
+
+.rz-sc-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  cursor: move;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.rz-sc-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.rz-sc-badge {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--rz-line-strong);
+  color: var(--rz-text-faint);
+}
+
+.rz-sc-badge[data-state="ok"] {
+  color: var(--rz-success-dot);
+  border-color: var(--rz-success-line);
+  background: var(--rz-success-soft);
+}
+
+.rz-sc-badge[data-state="warn"] {
+  color: var(--rz-warn);
+  border-color: rgba(245, 165, 36, 0.35);
+  background: var(--rz-warn-soft);
+}
+
+.rz-sc-badge[data-state="error"] {
+  color: var(--rz-error);
+  border-color: var(--rz-error-line);
+  background: var(--rz-error-soft);
+}
+
+.rz-sc-close {
+  background: none;
+  border: none;
+  color: var(--rz-text-3);
+  font-size: 18px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.rz-sc-close:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+/* --- toolbar -------------------------------------------------------------- */
+
+.rz-sc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  flex-shrink: 0;
+}
+
+.rz-sc-spacer {
+  flex: 1;
+}
+
+.rz-sc-target {
+  max-width: 260px;
+  padding: 5px 8px;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  background: var(--rz-well);
+  color: var(--rz-text);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+}
+
+.rz-sc-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  background: var(--rz-fill-soft);
+  color: var(--rz-text-2);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rz-sc-btn:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+.rz-sc-primary {
+  border-color: var(--rz-accent-30);
+  background: var(--rz-accent-10);
+  color: var(--rz-accent);
+}
+
+.rz-sc-primary:hover {
+  background: var(--rz-accent-14);
+  color: var(--rz-accent-hover);
+}
+
+.rz-sc-follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--rz-text-3);
+  cursor: pointer;
+  user-select: none;
+}
+
+.rz-sc-follow input {
+  accent-color: var(--rz-accent);
+}
+
+/* --- status strip --------------------------------------------------------- */
+
+.rz-sc-status {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  color: var(--rz-text-3);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+/* --- code view ------------------------------------------------------------ */
+
+.rz-sc-code {
+  flex: 1;
+  min-height: 80px;
+  overflow: auto;
+  background: var(--rz-bg-deep);
+  font-family: var(--rz-font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  padding: 6px 0;
+}
+
+.rz-sc-code:focus-visible {
+  outline: 1px solid var(--rz-accent-30);
+  outline-offset: -1px;
+}
+
+.rz-sc-line {
+  display: flex;
+  align-items: flex-start;
+  white-space: pre;
+  min-width: max-content;
+}
+
+.rz-sc-ln {
+  position: sticky;
+  left: 0;
+  flex: 0 0 auto;
+  width: 46px;
+  padding-right: 10px;
+  text-align: right;
+  color: var(--rz-text-disabled);
+  background: var(--rz-bg-deep);
+  user-select: none;
+}
+
+.rz-sc-src {
+  flex: 1 1 auto;
+  padding-right: 14px;
+  color: var(--rz-text-2);
+  font-family: inherit;
+}
+
+.rz-sc-line.rz-sc-has-error {
+  background: var(--rz-error-soft);
+}
+
+.rz-sc-line.rz-sc-has-error .rz-sc-ln {
+  color: var(--rz-error);
+  background: var(--rz-error-soft);
+}
+
+.rz-sc-line.rz-sc-has-warning {
+  background: var(--rz-warn-soft);
+}
+
+.rz-sc-line.rz-sc-has-warning .rz-sc-ln {
+  color: var(--rz-warn);
+  background: var(--rz-warn-soft);
+}
+
+.rz-sc-line.rz-sc-flash {
+  box-shadow: inset 2px 0 0 var(--rz-accent);
+}
+
+.rz-sc-empty {
+  padding: 18px 16px;
+  color: var(--rz-text-3);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+}
+
+/* Token colours. Muted next to the node graph's palette — this is text to read,
+   not a signal to spot across the room. */
+.rz-sc-kw {
+  color: #c586c0;
+}
+
+.rz-sc-ty {
+  color: #4ec9b0;
+}
+
+.rz-sc-num {
+  color: #b5cea8;
+}
+
+.rz-sc-attr {
+  color: var(--rz-accent-deep);
+}
+
+.rz-sc-comment {
+  color: var(--rz-text-faint);
+  font-style: italic;
+}
+
+/* --- diagnostics ---------------------------------------------------------- */
+
+.rz-sc-diagnostics {
+  flex: 0 0 auto;
+  max-height: 156px;
+  overflow-y: auto;
+  border-top: 1px solid var(--rz-line);
+}
+
+.rz-sc-diagnostics.rz-sc-quiet {
+  display: none;
+}
+
+.rz-sc-diag {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  border-bottom: 1px solid var(--rz-line);
+  background: none;
+  color: var(--rz-text-2);
+  font-family: var(--rz-font-ui);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rz-sc-diag:hover {
+  background: var(--rz-hover);
+}
+
+.rz-sc-diag-loc {
+  flex: 0 0 auto;
+  min-width: 46px;
+  font-family: var(--rz-font-mono);
+  color: var(--rz-text-faint);
+}
+
+.rz-sc-diag-text {
+  white-space: pre-wrap;
+}
+
+.rz-sc-diag.rz-sc-error .rz-sc-diag-loc {
+  color: var(--rz-error);
+}
+
+.rz-sc-diag.rz-sc-warning .rz-sc-diag-loc {
+  color: var(--rz-warn);
+}
+
+/* --- footer --------------------------------------------------------------- */
+
+.rz-sc-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--rz-line);
+  color: var(--rz-text-faint);
+  font-family: var(--rz-font-mono);
+  font-size: 11px;
+  flex-shrink: 0;
+}
