@@ -22,6 +22,8 @@ vi.mock('openai', () => ({
 const { default: handler } = await import('../api/ai/run.js');
 const { resetClaimedGrants } = await import('../api/_lib/grant.js');
 const { featureConfig } = await import('../api/_lib/features.js');
+/** A patch at the node limit, built the way the cost report builds it. */
+const { largestPatch } = await import('../api/_lib/tokenCost.js');
 
 /** The budgets these assertions are about, read rather than repeated. */
 const review = featureConfig('ai.patch_review');
@@ -154,6 +156,38 @@ describe('POST /api/ai/run', () => {
 
       expect(res.statusCode).toBe(413);
       expect(streamMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses a refactor that could not finish, before spending a model call', async () => {
+      // The editor checks this in front of the grant, so in normal operation
+      // the request never arrives. When it does — an older client, or a caller
+      // that is not the editor — answering in milliseconds beats starting a
+      // call that MODEL_DEADLINE_MS will stop nearly five minutes later.
+      const res = await post({
+        grant: signGrant({ feature: 'ai.patch_refactor', tier: 'cloude' }),
+        input: { patch: largestPatch() },
+      });
+
+      expect(res.statusCode).toBe(413);
+      expect(res.body.code).toBe('refactor_too_large');
+      expect(res.body.error).toMatch(/select part of the patch/i);
+      expect(streamMock).not.toHaveBeenCalled();
+    });
+
+    it('still runs a refactor of a patch that fits', async () => {
+      mockModelAnswer({
+        summary: 'Tidied.',
+        changes: [],
+        patch: { nodes: [{ id: 'a', kind: 'OutputFinal', x: 0, y: 0, params: {} }], connections: [] },
+      });
+
+      const res = await post({
+        grant: signGrant({ feature: 'ai.patch_refactor', tier: 'cloude' }),
+        input: { patch: { nodes: [{ id: 'a', kind: 'OutputFinal', x: 0, y: 0 }], connections: [] } },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(streamMock).toHaveBeenCalled();
     });
 
     it('refuses a generator request with nothing to generate from', async () => {

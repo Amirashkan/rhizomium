@@ -37,6 +37,242 @@ export class EmptyPatchError extends Error {
 }
 
 /**
+ * How much of one string parameter travels. A custom shader body is worth
+ * sending; a thousand lines of one is a document, not a parameter.
+ */
+export const MAX_PARAM_CHARS = 2000;
+
+/**
+ * What is left in place of the rest. It matters that this is findable: a patch
+ * carrying it has been shortened, so what comes back from a refactor must not
+ * be written over the artist's own copy — see keepLongParams in applyResult.js.
+ */
+export const TRUNCATION_MARKER = '/* … truncated */';
+
+/**
+ * Nodes whose parameters were shortened on the way out.
+ *
+ * @param {Object} patch - a trimmed patch, as buildPatchContext() returns it.
+ * @returns {Array<{id: string, param: string}>}
+ */
+export function truncatedParams(patch) {
+  const found = [];
+  for (const node of patch?.nodes ?? []) {
+    for (const [param, value] of Object.entries(node?.params ?? {})) {
+      if (typeof value === 'string' && value.endsWith(TRUNCATION_MARKER)) {
+        found.push({ id: String(node.id), param });
+      }
+    }
+  }
+  return found;
+}
+
+/* -------------------------------------------------------------------------
+ * Will a refactor of this patch finish?
+ *
+ * MAX_NODES is the limit on what a call can *read*. The refactor has a second
+ * limit nobody was checking: it hands the whole patch back as JSON, so what it
+ * has to *write* grows with the patch while the deadline does not — run.js
+ * clamps every call at MODEL_DEADLINE_MS however large its budget. Measured
+ * (see api/_lib/tokenCost.js and npm run ai:tokens), a 400-node patch is about
+ * 20,600 tokens of answer, and decoding that plus its thinking room is roughly
+ * twice the deadline.
+ *
+ * Left unchecked that is the worst failure the editor has: the gallery meters
+ * the grant when it issues it, before the model is called at all, so the
+ * artist waits nearly five minutes and is then charged an action for a 504.
+ * Working it out first costs a JSON.stringify of a patch already in memory.
+ *
+ * The asymmetry is what makes refusing the right call rather than a cautious
+ * one: a refusal that turns out to be wrong costs the artist a message telling
+ * them to select part of the patch, and no allowance. Letting one through that
+ * cannot finish costs them the action, the wait, and the answer.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Mirrored from the backend, which owns these numbers.
+ *
+ * `ai.patch_refactor`'s `reasoningTokens` and `maxTokens` in
+ * api/_lib/features.js, and `ASSUMED_TOKENS_PER_SECOND` and
+ * `MODEL_DEADLINE_MS` in api/ai/run.js. tests/aiFeatureTokenCost.test.js
+ * imports both sides and fails if any of them drift.
+ */
+export const REFACTOR_BUDGET = {
+  /** Room the feature is given to think, which is decoded like any other token. */
+  reserveTokens: 8000,
+  /** The most it may write before the call comes back `incomplete`. */
+  answerCeilingTokens: 32000,
+  /** The pessimistic decode rate run.js sizes its deadline from. */
+  pessimisticTokensPerSecond: 50,
+  /**
+   * What these models actually decode at — run.js describes its own figure as
+   * roughly half of practice. Used only to decide what is impossible, never to
+   * promise that something is quick.
+   */
+  realisticTokensPerSecond: 100,
+  /** Where the call is stopped, whatever it is doing (MODEL_DEADLINE_MS). */
+  deadlineSeconds: 285,
+};
+
+/**
+ * What a refactor of this patch would have to write back.
+ *
+ * The answer is the patch itself, as JSON, in the schema features.js declares —
+ * not the compact line format it arrived in — plus a summary and a change list.
+ * Estimated at the same four bytes to a token as everything else here.
+ */
+export function estimateRefactorAnswerTokens(patch) {
+  const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
+  const connections = Array.isArray(patch?.connections) ? patch.connections : [];
+
+  // One change entry per ten nodes: a tidy-up that touched a tenth of the
+  // graph. Sized generously rather than tightly — undercounting here is what
+  // would let a call through that cannot finish.
+  const changes = Math.ceil(nodes.length / 10) * 120;
+
+  let bytes = 0;
+  try {
+    bytes = new TextEncoder().encode(JSON.stringify({ nodes, connections })).length;
+  } catch {
+    bytes = JSON.stringify({ nodes, connections }).length;
+  }
+
+  return Math.ceil(bytes / 4) + changes;
+}
+
+/**
+ * Whether a refactor of this patch can finish, worked out before anything is
+ * spent on it.
+ *
+ * @param {Object} patch - the trimmed patch, as buildPatchContext() returns it.
+ * @returns {{verdict: 'fits'|'tight'|'too_large', reason: string|null,
+ *   answerTokens: number, neededTokens: number, seconds: number,
+ *   optimisticSeconds: number, message: string|null}}
+ *
+ *   `fits` — finishes even at the pessimistic rate. Say nothing.
+ *   `tight` — finishes at the rate these models really decode, but not at the
+ *     rate the deadline was sized from. Worth a word before the click; not
+ *     worth refusing, because it is the band most loaded patches land in.
+ *   `too_large` — cannot finish, either because the answer would not fit the
+ *     budget or because writing it would outrun the deadline at any plausible
+ *     speed. Refuse this one.
+ */
+export function refactorFit(patch) {
+  const {
+    reserveTokens,
+    answerCeilingTokens,
+    pessimisticTokensPerSecond,
+    realisticTokensPerSecond,
+    deadlineSeconds,
+  } = REFACTOR_BUDGET;
+
+  const answerTokens = estimateRefactorAnswerTokens(patch);
+  const neededTokens = answerTokens + reserveTokens;
+  const nodeCount = patch?.nodes?.length ?? 0;
+
+  const seconds = Math.round(neededTokens / pessimisticTokensPerSecond);
+  const optimisticSeconds = Math.round(neededTokens / realisticTokensPerSecond);
+
+  const verdictFor = (verdict, reason, message) => ({
+    verdict,
+    reason,
+    answerTokens,
+    neededTokens,
+    seconds,
+    optimisticSeconds,
+    message,
+  });
+
+  /**
+   * Before either budget: would this refactor cost the artist their own text?
+   *
+   * A refactor returns the whole patch, and what it returns is written over
+   * the canvas. It can only return what it was shown — and what it was shown
+   * of a long shader body is the first MAX_PARAM_CHARS characters of it. So a
+   * patch with a thousand-line custom node comes back with that node holding
+   * two thousand characters and a comment saying the rest was cut, which is
+   * not a tidied patch: it is the artist's work with most of one node deleted.
+   *
+   * Measured on real patches: a 1,000-line custom node is 49KB of code, of
+   * which 2KB is sent. Nothing about the token cost says so — the prompt is a
+   * few hundred tokens either way, and every budget below says this patch is
+   * comfortably small. That is exactly why it is checked here.
+   *
+   * Sending the code in full is not the fix either: six such nodes would be
+   * 76,000 tokens to write back against a ceiling of 3,460. The fix is that
+   * applyResult keeps the artist's own text when it writes the answer back
+   * (see keepLongParams), so what is left here is a warning: the model is
+   * working from a fragment, and a tidy-up that leaves those nodes alone is
+   * doing the right thing rather than missing something.
+   */
+  const shortened = truncatedParams(patch);
+  const shortenedNodes = [...new Set(shortened.map((entry) => entry.id))];
+
+  // Truncation, not timeout: the model would run out of room mid-patch and the
+  // call would come back `incomplete`. Half a patch is not a patch.
+  if (answerTokens > answerCeilingTokens) {
+    return verdictFor(
+      'too_large',
+      'budget',
+      `Rewriting these ${nodeCount} nodes would take about ${Math.round(answerTokens / 1000)}k tokens, ` +
+        `more than the ${Math.round(answerCeilingTokens / 1000)}k a refactor can write in one answer. ` +
+        'Select part of the patch and tidy it in pieces.'
+    );
+  }
+
+  if (optimisticSeconds > deadlineSeconds) {
+    return verdictFor(
+      'too_large',
+      'time',
+      `A refactor of these ${nodeCount} nodes has to write about ${Math.round(answerTokens / 1000)}k tokens, ` +
+        `which takes longer than the ${deadlineSeconds} seconds a call is given — so it would be stopped ` +
+        'before it answered. Select part of the patch and tidy it in pieces. Nothing has been charged for this.'
+    );
+  }
+
+  if (seconds > deadlineSeconds) {
+    return verdictFor(
+      'tight',
+      'time',
+      `This is a large refactor: about ${Math.round(answerTokens / 1000)}k tokens to write back, which may ` +
+        `run past the ${deadlineSeconds}-second limit. Tidying a selection at a time is more reliable.`
+    );
+  }
+
+  /**
+   * Last, and a warning rather than a refusal: the patch fits, but the model
+   * will not see all of it.
+   *
+   * A node whose code is longer than MAX_PARAM_CHARS travels as its first two
+   * thousand characters. The code itself is safe — applyResult keeps what the
+   * artist already had rather than writing back the fragment — so this costs
+   * the answer's quality, not the artist's work. Worth saying once, because a
+   * refactor that leaves a long node alone is doing the right thing with what
+   * it was given, and looks like a refactor that missed something.
+   */
+  if (shortenedNodes.length) {
+    return verdictFor(
+      'tight',
+      'fidelity',
+      `${shortenedNodes.length === 1 ? 'One node has' : `${shortenedNodes.length} nodes have`} more code than ` +
+        `fits in one call, so the model sees the first ${MAX_PARAM_CHARS} characters of it and no more. ` +
+        'Your code is kept exactly as it is either way — but expect the tidy-up to leave those nodes alone.'
+    );
+  }
+
+  return verdictFor('fits', null, null);
+}
+
+/** A refactor that was worked out to be impossible before it was paid for. */
+export class RefactorTooLargeError extends Error {
+  constructor(fit) {
+    super(fit.message);
+    this.name = 'RefactorTooLargeError';
+    this.fit = fit;
+  }
+}
+
+/**
  * Build the model-facing view of the current project.
  *
  * @param {Object} projectData - what SaveLoadManager.exportProject() returns.
@@ -152,9 +388,9 @@ function trimParams(params) {
     if (typeof value === 'string') {
       if (value.startsWith('data:')) {
         trimmed[name] = '<embedded data>';
-      } else if (value.length > 2000) {
+      } else if (value.length > MAX_PARAM_CHARS) {
         // Custom GLSL bodies are worth sending; a novel is not.
-        trimmed[name] = `${value.slice(0, 2000)}\n/* … truncated */`;
+        trimmed[name] = `${value.slice(0, MAX_PARAM_CHARS)}\n${TRUNCATION_MARKER}`;
       } else {
         trimmed[name] = value;
       }

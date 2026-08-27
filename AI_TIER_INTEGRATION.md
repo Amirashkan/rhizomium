@@ -47,6 +47,23 @@ covering the catalogue, the client's error mapping and free-tier fallback, the
 grant verifier against grants signed exactly as the gallery signs them, and the
 endpoint's refusal ordering.
 
+`tests/aiFeatureTokenCost.test.js` measures what every feature costs at both
+ends and prints the table when it runs (`npm run ai:tokens` prints the same one
+on its own). It holds the bounds worth failing over — the shared prompt under
+8,000 tokens, no single call billable for more than 64,000, every feature with
+room for the smallest answer its schema admits and its own stated
+`reasoningTokens` — and pins which features' ceilings outrun the deadline. It
+also costs the three named calls above: that a cold call pays for the whole
+prefix, that a warm one pays for a couple of hundred tokens of it, and that the
+worst-case refactor's answer fits its budget but not its deadline.
+
+`tests/aiRefactorPreflight.test.js` covers what the panel does about that last
+one: that a refactor of a patch too large to finish never reaches
+`runFeature()` — no grant, no call, no charge — that the toast says so, that a
+large-but-workable patch is warned about and still run, and that a review of
+the same patch is left alone. The endpoint's half of the same rule is in
+`tests/aiEndpointGate.test.js`.
+
 `tests/aiPanelDock.test.js` covers the panel as a dock: that opening it hands
 the canvas a narrower window and closing it gives the width back, that it never
 takes more than half the window, and that a feature with nothing valid to read —
@@ -104,6 +121,137 @@ patch approaches the function's own limit.
 `ai.patch_refactor` is the one feature whose budget is sized per call, by
 `answerBudget()`: it hands back the whole patch it was given, so a ten-node
 tidy and a four-hundred-node one need allowances an order of magnitude apart.
+
+#### What that works out to, per feature
+
+`npm run ai:tokens` prints the range for every feature, worked out from the
+real prompts and budgets by `api/_lib/tokenCost.js` — no key needed and nothing
+is called. Today:
+
+| feature | model | prompt min → max | answer min → ceiling | most one call can be billed |
+|---|---|---|---|---|
+| Patch review | terra | 6.0k → 16.1k | 7 → 9,000 | ~25k |
+| Patch refactor | terra | 6.0k → 16.1k | 17 → 40,000 | ~56k |
+| Canvas assist | luna | 6.0k → 16.0k | 5 → 3,500 | ~20k |
+| Patch generator | terra | 6.0k → 6.5k | 16 → 24,000 | ~31k |
+| Node generator | terra | 6.0k → 6.6k | 20 → 11,000 | ~18k |
+| AI creative director | terra | 6.0k → 16.6k | 8 → 22,000 | ~39k |
+
+Prompt maxima are a 400-node patch (`MAX_NODES`) or a long typed brief; the
+~5,900-token shared prefix is most of every prompt and is served from cache
+after the first call. Answer minima are the smallest document each schema
+admits — an empty findings list is a valid review — and the ceilings are
+`max_output_tokens`, the point a call is cut off, not a prediction: a review of
+a clean patch answers in a few hundred.
+
+Three of those ceilings imply more seconds at `ASSUMED_TOKENS_PER_SECOND` than
+the 285s deadline covers — refactor (800s), patch generator (480s), creative
+director (440s) — so their *largest possible* answer would be stopped rather
+than finished. That is not today's bug: the rate is deliberately about half of
+what these models decode at, and nothing writes its whole ceiling.
+`tests/aiFeatureTokenCost.test.js` names those three, so a fourth arriving is a
+decision someone makes rather than a 504 someone debugs.
+
+#### Three calls, costed end to end
+
+The same report prints these under the table. They bracket everything the
+editor does.
+
+**Cold** — a review of a 40-node patch as the first call of its kind, after a
+deploy or when nothing has kept the prefix warm. **6,961 prompt tokens, every
+one of them fresh**, and at most 16.0k billed once thinking room is counted.
+This is the price of the registry, paid in full.
+
+**Warm minimal** — canvas assist, one node on the canvas, prefix hot.
+**5,978 prompt tokens of which 5,760 come back from cache: 218 fresh.** The
+cheapest real call the editor can make, at most 9.5k billed. Cached tokens are
+still counted in `input_tokens` and billed at a discount rather than at zero,
+so a warm call is a cheaper call, not a smaller one — and the 5,760 is the
+whole argument for keeping the catalogue at the front of the prompt and
+`prompt_cache_key` on the request.
+
+**Worst-case refactor** — a 400-node patch, the largest single thing anyone can
+ask for. Prompt 16.1k (10.2k fresh), and the answer **must** write ~24.2k
+because the feature hands its whole input back as JSON. That fits the 32,000
+budget with 7.8k spare, so `answerBudget()` is sized correctly — but decoding
+24.2k plus 8k of thinking is **~645s of work against a 285s deadline**. The
+call cannot finish, which is why it is now refused before it is paid for (see
+below).
+
+So the limit that governs a refactor is time, not `MAX_NODES` — and since the
+gallery meters the grant *when it issues it*, a refactor that cannot finish
+costs the artist the action, the wait, and the answer. `refactorFit()` in
+`src/ai/patchContext.js` works it out first, from the patch already in memory:
+
+| verdict | when | what happens |
+|---|---|---|
+| `fits` | up to ~90 nodes — finishes even at 50 tokens/second | runs, nothing said |
+| `tight` | ~90–300 nodes — needs the rate these models really decode at | runs, with a note that it may run long |
+| `too_large` | past ~300 nodes, **or** any patch whose answer would exceed the 32k budget | refused in front of the grant: no call, no charge |
+
+Those node counts are measured from patches exported out of the running editor,
+not modelled: built in-page, put through `saveLoadManager.exportProject()` and
+`buildPatchContext()`, then costed. A synthetic sweep put the same two crossings
+at ~104 and ~338 nodes, optimistic at both ends — a real graph carries about
+1.8 wires per node where a chain carries 1.0, and every wire is a line the
+refactor writes back. Treat them as landmarks either way: the check measures the
+patch in front of it, never a node count.
+
+#### A node with more code than fits in one call
+
+Size is one axis. The other is how much text a small graph carries, and it is
+the one node counts miss entirely. `trimParams()` caps any single string
+parameter at `MAX_PARAM_CHARS` (2,000), so a `CustomGLSL` node with a thousand
+lines in it travels as its first two thousand characters and a marker.
+
+Measured on patches built in the editor: **a 1,000-line custom node is 49KB of
+code on the canvas, of which 2KB is sent.** The review prompt is 6,552 tokens
+for a 500-, 1,000- or 2,000-line body — identical, because past the cap the
+patch stops growing. Three nodes, a small call, and 96% of what the artist
+wrote never left the machine.
+
+That was fine for the reading features and quietly destructive for the one that
+writes back. A refactor returns the whole patch and `replaceGraphWithPatch()`
+imports it over the canvas — so it returned the *shortened* copy, and 47KB of
+hand-written shader became 2KB and a comment. Nothing flagged it: by every
+token measure these patches are small.
+
+Two fixes, both in the round trip rather than in the budgets:
+
+- **`keepLongParams()` in `applyResult.js`** — when applying a refactor, any
+  parameter the model was shown only the start of keeps the value the artist
+  already had. Everything else the refactor decided (moves, rewiring,
+  removals, names) still lands. Matched on id *and* kind, so a generated patch
+  reusing an id cannot inherit unrelated code.
+- **`name` in `PATCH_SCHEMA`** — the refactor prompt asks the model to *"give
+  nodes names that say what they do"*, and the answer schema had nowhere to put
+  one, so `validateGeneratedPatch()` dropped every name in the patch on the way
+  back. Names now round-trip.
+
+`refactorFit()` reports these patches as `tight` with reason `fidelity`: a
+warning that the model is working from a fragment — so a tidy-up that leaves
+those nodes alone is doing the right thing rather than missing something — not
+a refusal, because the code is no longer at risk. Sending it in full is not the
+alternative: six such nodes would be ~76,000 tokens to write back against a
+ceiling of 3,460 for a patch that size.
+
+`tests/aiRefactorFidelity.test.js` covers both round trips.
+
+The panel checks it in `run()` before `runFeature()`, which is what makes a
+refusal free; `api/ai/run.js` checks the same rule before calling the model and
+answers `413 refactor_too_large`, for a client that did not. The node counts
+above are for ordinary patches — the rule is measured per patch, so sixty
+`CustomGLSL` nodes carrying shader bodies are refused where four hundred bare
+ones are not, because the refactor has to write every one of those bodies back.
+
+A refusal that is wrong costs a message telling the artist to select part of
+the patch. Letting one through that cannot finish costs them an action. That
+asymmetry is why the check refuses at the realistic decode rate rather than
+hedging past it.
+
+Three levers narrow the gap if it matters: a lower node cap for the refactor
+specifically, a higher `maxDuration`, or a refactor that returns a diff instead
+of the whole patch. `npm run ai:tokens` scores each of them in a second.
 
 Every completed call logs one line — seconds, reasoning tokens, answer tokens,
 input and cached tokens. **Read a few of those before changing any of the

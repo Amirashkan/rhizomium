@@ -25,12 +25,13 @@ import {
   BadInputError,
 } from '../_lib/features.js';
 import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
+import { refactorFit } from '../../src/ai/patchContext.js';
 
 /**
  * Everything the artist has on their canvas travels in the request. A large
  * patch is normal; an unbounded one is someone else's problem being made ours.
  */
-const MAX_INPUT_BYTES = 512 * 1024;
+export const MAX_INPUT_BYTES = 512 * 1024;
 
 /**
  * How long the platform lets this function run, in seconds.
@@ -93,7 +94,7 @@ export const MODEL_DEADLINE_MS = (FUNCTION_BUDGET_SECONDS - 15) * 1000;
  * how every answer here is data rather than prose, and the Responses API. It
  * does not have to be a reasoning model — see reasoningEnabled().
  */
-const DEFAULT_MODEL = 'gpt-5.6-terra';
+export const DEFAULT_MODEL = 'gpt-5.6-terra';
 
 /**
  * `OPENAI_MODEL` exists so that moving to the next model is an environment
@@ -133,7 +134,7 @@ function reasoningEnabled() {
  * its own `reasoningTokens`; this is only the floor under a new one that
  * forgets to.
  */
-const DEFAULT_REASONING_TOKENS = 6000;
+export const DEFAULT_REASONING_TOKENS = 6000;
 
 /**
  * How fast to assume the model writes, for turning a token budget into a
@@ -146,7 +147,7 @@ const DEFAULT_REASONING_TOKENS = 6000;
  * Every completed call logs its tokens and its seconds (see logCall), so this
  * can be calibrated from real numbers rather than adjusted by feel.
  */
-const ASSUMED_TOKENS_PER_SECOND = 50;
+export const ASSUMED_TOKENS_PER_SECOND = 50;
 
 /** Nothing is given less than this, however small its budget. */
 const MIN_DEADLINE_MS = 30 * 1000;
@@ -279,6 +280,23 @@ export default async function handler(req, res) {
       error: `That patch is too large to send (${Math.round(inputBytes / 1024)}KB). Trim it and try again.`,
       code: 'input_too_large',
     });
+  }
+
+  // A refactor writes its whole input back out, so past a certain size it
+  // cannot finish inside the deadline however much budget it is given. The
+  // editor checks this before it asks for a grant (src/ai/patchContext.js);
+  // this is the same rule on the server, for a client that did not — answered
+  // in milliseconds, before a model call is spent on something that would be
+  // stopped at MODEL_DEADLINE_MS.
+  if (feature === 'ai.patch_refactor') {
+    const fit = refactorFit(input.patch);
+    if (fit.verdict === 'too_large') {
+      console.warn(
+        `${config.label}: refused before calling the model — ` +
+          `${input.patch?.nodes?.length ?? 0} nodes needs ~${fit.answerTokens} answer tokens (${fit.reason}).`
+      );
+      return res.status(413).json({ error: fit.message, code: 'refactor_too_large' });
+    }
   }
 
   let userMessage;

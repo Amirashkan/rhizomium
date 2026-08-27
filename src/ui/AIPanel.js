@@ -36,6 +36,7 @@ import { runFeature, AIRequestError, GrantError } from '../ai/aiClient.js';
 import {
   buildPatchContext,
   measurePatchContext,
+  refactorFit,
   EmptyPatchError,
   PatchTooLargeError,
   MAX_NODES,
@@ -892,6 +893,22 @@ export class AIPanel {
         throw error;
       }
 
+      // The refactor has a second limit besides MAX_NODES: it writes the whole
+      // patch back, and past a certain size that cannot be written inside the
+      // deadline. Checked here, in front of the grant, because the gallery
+      // meters the grant when it issues it — a call let through to fail on the
+      // backend costs the artist an action and a five-minute wait for a 504.
+      if (feature === 'ai.patch_refactor') {
+        const fit = refactorFit(payload.patch);
+        if (fit.verdict === 'too_large') {
+          modalManager.toast(fit.message, 'warning', 'Too large to refactor in one call');
+          return;
+        }
+        if (fit.verdict === 'tight') {
+          modalManager.toast(fit.message, 'info', 'Large refactor');
+        }
+      }
+
       // The payload is in hand, so its size is free to record.
       this.measurement = {
         ...measurePatchContext(payload.patch),
@@ -1093,7 +1110,12 @@ export class AIPanel {
     if (!accepted) return;
 
     try {
-      await replaceGraphWithPatch(result.patch, { reason: 'ai-refactor' });
+      await replaceGraphWithPatch(result.patch, {
+        reason: 'ai-refactor',
+        // The artist had this patch before the refactor did. Any node whose
+        // code was too long to send in full keeps the code it already had.
+        preserveLongParams: true,
+      });
       modalManager.toast('Refactor applied.', 'success', label);
       this.measurement = null;
       this.lastAnswer = null;
