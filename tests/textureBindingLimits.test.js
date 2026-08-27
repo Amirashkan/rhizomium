@@ -58,12 +58,19 @@ describe('asking the adapter for texture headroom', () => {
     expect(textureBindingLimits({})).toEqual({});
   });
 
-  it('takes the smaller of textures and samplers as the usable limit', () => {
-    // Each bound texture brings its own sampler, so 64 textures with 16 samplers
-    // is 16 usable pairs, not 64.
+  it('is not held back by the sampler budget any more', () => {
+    // Samplers were the real ceiling while each texture declared its own: 64
+    // textures with 16 samplers meant 16 usable. A generated shader now declares
+    // two samplers in total, so all 64 textures are spendable.
     expect(textureBindingLimitOf({
       limits: { maxSampledTexturesPerShaderStage: 64, maxSamplersPerShaderStage: 16 },
-    })).toBe(16);
+    })).toBe(64);
+  });
+
+  it('still yields to a device that cannot bind even the shared samplers', () => {
+    expect(textureBindingLimitOf({
+      limits: { maxSampledTexturesPerShaderStage: 64, maxSamplersPerShaderStage: 1 },
+    })).toBe(1);
   });
 
   it('falls back to the spec default for a device that reports nothing', () => {

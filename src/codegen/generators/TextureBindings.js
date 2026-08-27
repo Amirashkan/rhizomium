@@ -1,5 +1,6 @@
 // src/codegen/generators/TextureBindings.js
 import { maxTextureBindings } from '../../gpu/deviceLimits.js';
+import { SHARED_SAMPLER, SHARED_SAMPLER_CLAMP } from '../../gpu/sharedSamplers.js';
 
 export class TextureBindings {
   /**
@@ -77,6 +78,15 @@ export class TextureBindings {
       return bindingCode;
     }
 
+    // Two sampler bindings serve every texture below (see gpu/sharedSamplers.js).
+    // Declaring one per texture spent the stage's SAMPLER budget — 16 on most
+    // adapters, and not raisable the way the sampled-texture budget is — so the
+    // sampler count, not the texture count, was what capped a patch.
+    bindingCode += `
+@group(0) @binding(${bindingIndex}) var ${SHARED_SAMPLER}: sampler;
+@group(0) @binding(${bindingIndex + 1}) var ${SHARED_SAMPLER_CLAMP}: sampler;`;
+    bindingIndex += 2;
+
     // Process regular graph nodes
     for (const node of nodesToProcess) {
       // Skip this node if we have a filter and it's not in the used nodes
@@ -96,16 +106,14 @@ export class TextureBindings {
         const nodeId = this.sanitize(node.id);
 
         bindingCode += `
-@group(0) @binding(${bindingIndex}) var texture_${nodeId}: texture_2d<f32>;
-@group(0) @binding(${bindingIndex + 1}) var sampler_${nodeId}: sampler;`;
-        bindingIndex += 2;
+@group(0) @binding(${bindingIndex}) var texture_${nodeId}: texture_2d<f32>;`;
+        bindingIndex += 1;
         textureCount += 1; // Each texture2D counts as 1 texture
       } else if (node.kind === "TextureCube") {
         const nodeId = this.sanitize(node.id);
         bindingCode += `
-@group(0) @binding(${bindingIndex}) var textureCube_${nodeId}: texture_cube<f32>;
-@group(0) @binding(${bindingIndex + 1}) var samplerCube_${nodeId}: sampler;`;
-        bindingIndex += 2;
+@group(0) @binding(${bindingIndex}) var textureCube_${nodeId}: texture_cube<f32>;`;
+        bindingIndex += 1;
         textureCount += 1; // Each textureCube counts as 1 texture
       } else if (node.kind && node.kind.startsWith('Compute')) {
         // CRITICAL: Only add compute bindings for nodes actually in the dependency chain
@@ -117,9 +125,8 @@ export class TextureBindings {
         }
 
         bindingCode += `
-@group(0) @binding(${bindingIndex}) var compute_node_${nodeId}: texture_2d<f32>;
-@group(0) @binding(${bindingIndex + 1}) var sampler_compute_node_${nodeId}: sampler;`;
-        bindingIndex += 2;
+@group(0) @binding(${bindingIndex}) var compute_node_${nodeId}: texture_2d<f32>;`;
+        bindingIndex += 1;
         textureCount += 1; // Each compute texture counts as 1 texture
         computeNodeIdsInUse.delete(node.id); // Mark as processed
       }
@@ -140,9 +147,8 @@ export class TextureBindings {
       }
 
       bindingCode += `
-@group(0) @binding(${bindingIndex}) var compute_node_${sanitizedId}: texture_2d<f32>;
-@group(0) @binding(${bindingIndex + 1}) var sampler_compute_node_${sanitizedId}: sampler;`;
-      bindingIndex += 2;
+@group(0) @binding(${bindingIndex}) var compute_node_${sanitizedId}: texture_2d<f32>;`;
+      bindingIndex += 1;
       textureCount += 1; // Each compute texture counts as 1 texture
     }
 
@@ -159,9 +165,8 @@ export class TextureBindings {
       }
 
       bindingCode += `
-@group(0) @binding(${bindingIndex}) var compute_node_${sanitizedId}: texture_2d<f32>;
-@group(0) @binding(${bindingIndex + 1}) var sampler_compute_node_${sanitizedId}: sampler;`;
-      bindingIndex += 2;
+@group(0) @binding(${bindingIndex}) var compute_node_${sanitizedId}: texture_2d<f32>;`;
+      bindingIndex += 1;
       textureCount += 1;
     }
 

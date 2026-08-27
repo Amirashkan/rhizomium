@@ -7,6 +7,7 @@ import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import { resolveResolution } from '../../ui/OutputFormat.js';
 import { getInputCount } from '../../data/nodeInputs.js';
 import { resolveDiscreteParam } from '../../utils/discreteParams.js';
+import { SHARED_SAMPLER } from '../../gpu/sharedSamplers.js';
 
 export class ComputeNodes {
   constructor() {
@@ -103,7 +104,7 @@ export class ComputeNodes {
 
     // Sample the compute output texture
     const line = `let uv_${nodeId} = vec2<f32>(in.uv.x, 1.0 - in.uv.y);
-    let node_${nodeId}_rgba = textureSample(${textureId}, sampler_${textureId}, uv_${nodeId});
+    let node_${nodeId}_rgba = textureSample(${textureId}, ${SHARED_SAMPLER}, uv_${nodeId});
     let node_${nodeId} = node_${nodeId}_rgba;`;
 
     // Single Color (RGBA) output. Channels are extracted downstream with a

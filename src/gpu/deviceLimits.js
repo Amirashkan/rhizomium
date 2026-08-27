@@ -13,6 +13,8 @@
 // nothing and some drivers charge for the headroom), and let the generator read
 // back what was actually granted rather than assuming.
 
+import { SHARED_SAMPLER_COUNT } from './sharedSamplers.js';
+
 /** What a device gives you when nothing is requested. */
 export const DEFAULT_BINDINGS_PER_STAGE = 16;
 
@@ -67,18 +69,19 @@ export function publishTextureBindingLimit(device) {
   window.gpuTextureBindingLimit = textureBindingLimitOf(device);
 }
 
-/** How many texture+sampler pairs one stage of this device may bind. */
+/** How many textures one stage of this device may sample. */
 export function textureBindingLimitOf(device) {
   const limits = device?.limits;
   const textures = Number(limits?.maxSampledTexturesPerShaderStage);
+  // Samplers used to be the real ceiling — one per texture, and most adapters
+  // grant no more than the default 16 of them. A generated shader now declares
+  // SHARED_SAMPLER_COUNT of them in total (see gpu/sharedSamplers.js), so the
+  // sampled-texture budget is what a patch actually spends.
   const samplers = Number(limits?.maxSamplersPerShaderStage);
-  // Each bound texture brings its own sampler, so the smaller ceiling is the one
-  // that counts.
-  const usable = Math.min(
-    Number.isFinite(textures) ? textures : DEFAULT_BINDINGS_PER_STAGE,
-    Number.isFinite(samplers) ? samplers : DEFAULT_BINDINGS_PER_STAGE,
-  );
-  return Math.max(1, usable);
+  if (Number.isFinite(samplers) && samplers < SHARED_SAMPLER_COUNT) {
+    return Math.max(1, samplers);
+  }
+  return Math.max(1, Number.isFinite(textures) ? textures : DEFAULT_BINDINGS_PER_STAGE);
 }
 
 /**

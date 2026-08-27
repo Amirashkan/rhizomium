@@ -19,6 +19,7 @@
 
 import { NodeDefs } from '../data/NodeDefs.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
+import { isSharedSampler, sharedSampler } from './sharedSamplers.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValues } from '../core/audioAnalysisPins.js';
 import { isTriggerChangeMode } from '../core/triggerMode.js';
 
@@ -1049,6 +1050,12 @@ export class FragmentTextureRenderer {
         return { buffer };
       }
       case 'sampler': {
+        // The two shared samplers every generated shader declares (see
+        // gpu/sharedSamplers.js) — no node owns them.
+        if (isSharedSampler(meta.varName)) {
+          return sharedSampler(this.device, meta.varName);
+        }
+
         // Check if this is a sampler for a Texture2D/TextureCube node - look up actual sampler
         if (meta.varName) {
           // Extract node ID from sampler variable name (e.g., "sampler_27" or "samplerCube_27")

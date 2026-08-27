@@ -16,6 +16,7 @@
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import { resolveDiscreteParam } from '../../utils/discreteParams.js';
+import { SHARED_SAMPLER } from '../../gpu/sharedSamplers.js';
 
 export class TransformNodes {
   constructor() {
@@ -131,12 +132,12 @@ export class TransformNodes {
     const sid = String(textureInputId).replace(/[^a-zA-Z0-9_]/g, '_');
 
     if (inputNode.kind && inputNode.kind.startsWith('Compute')) {
-      return { texture: `compute_node_${sid}`, sampler: `sampler_compute_node_${sid}` };
+      return { texture: `compute_node_${sid}`, sampler: SHARED_SAMPLER };
     }
     // Text binds under the same `texture_<id>` / `sampler_<id>` pair as Texture2D, so a transform
     // can rotate/scale rasterised text the same way it does an image.
     if (inputNode.kind === 'Texture2D' || inputNode.kind === 'Text') {
-      return { texture: `texture_${sid}`, sampler: `sampler_${sid}` };
+      return { texture: `texture_${sid}`, sampler: SHARED_SAMPLER };
     }
     return null;
   }

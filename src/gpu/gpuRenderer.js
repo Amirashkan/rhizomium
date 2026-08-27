@@ -3,6 +3,7 @@
 
 import { RenderCache } from './RenderCache.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
+import { isSharedSampler, sharedSampler } from './sharedSamplers.js';
 
 
 // Parse WGSL for @group/@binding declarations so we can allocate resources dynamically.
@@ -509,6 +510,12 @@ export class GPURenderer {
   }
 
   _lookupTextureBinding(texManager, varName) {
+    // Every texture in the shader samples through one of two shared samplers now,
+    // so these two names are the only sampler bindings a generated shader has.
+    if (isSharedSampler(varName)) {
+      return { sampler: sharedSampler(this.device, varName) };
+    }
+
     const match = /^(sampler_compute_|textureCube_|texture_|samplerCube_|sampler_|compute_)(.+)$/.exec(varName);
     if (!match) return null;
     const prefix = match[1];
