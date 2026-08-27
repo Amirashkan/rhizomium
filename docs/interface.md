@@ -356,6 +356,31 @@ View and export generated WGSL shader code:
 
 ---
 
+## Shader Compiler
+
+Compile the graph and read what the GPU driver says about it:
+
+**Open:** **Tools → Shader Tools → Shader Compiler** (`Ctrl+Alt+C`)
+
+**Features:**
+- **Shader picker** - The fragment shader for the main output, plus each
+  compute node's own compute shader
+- **Compile** - Rebuilds the shader from the graph as it stands and hands it to
+  the driver
+- **Errors and warnings** - Listed with line and column, marked on the source
+  itself; click one to jump to its line
+- **Follow graph** - Recompiles as you edit; switch it off to hold a shader
+  still while you read it
+- **Copy / Save .wgsl** - The selected shader, not just the main one
+- Line count, binding count, function count, parameter uniforms and size along
+  the bottom
+
+Without a GPU device the window still shows the source and says it could not
+compile it. A patch whose output isn't wired up has no fragment shader yet, and
+the window says that too rather than showing an empty view.
+
+---
+
 ## Audio Settings Panel
 
 Configure audio reactivity:

@@ -33,6 +33,7 @@ import { OSCParameterBinding } from './src/osc/OSCParameterBinding.js';
 import { getOSCSettingsPanel } from './src/ui/OSCSettingsPanel.js';
 import { MappingModel } from './src/mapping/MappingModel.js';
 import { getMappingPanel } from './src/ui/MappingPanel.js';
+import { getShaderCompilerWindow } from './src/ui/ShaderCompilerWindow.js';
 import { findProjectionMapNode, syncMappingToNode } from './src/mapping/projectionMapNode.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
@@ -2417,9 +2418,12 @@ function setupRhizomiumMenu() {
     shaderCompilerBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Implement shader compiler tool
+      const compilerWindow = getShaderCompilerWindow();
+      compilerWindow.toggle();
       if (typeof updateStatus === "function") {
-        updateStatus("Shader Compiler: Feature coming soon");
+        updateStatus(compilerWindow.isVisible()
+          ? "Shader Compiler opened"
+          : "Shader Compiler closed");
       }
     });
   }
@@ -3497,6 +3501,13 @@ async function updateShaderFromGraph() {
     if (typeof updateStatus === "function") {
       updateStatus("Shader compilation failed", "error");
     }
+  } finally {
+    // The Shader Compiler window follows the graph, and every outcome of a
+    // build is a state it has something to say about — compiled, bailed for
+    // want of a wired output, or thrown. Announced from `finally` so the early
+    // returns above are covered too; nothing else listens, and no listener
+    // means no cost.
+    window.dispatchEvent(new CustomEvent("rz:shader-built"));
   }
 }
 

@@ -42,8 +42,10 @@ project — it is not served by this repo's deployment.
 grid display + visibility toggle, global node-preview toggle, anti-aliasing,
 frame range / loop / alpha / compression export settings, new project,
 publish to cloud, unsaved-changes check on exit, connect/disconnect pins,
-script editor, shader compiler tool, GLSL utilities, layout system (custom /
+script editor, GLSL utilities, layout system (custom /
 minimal / floating windows / reset panels), open documentation.
+
+- [x] Shader Compiler (Tools → Shader Tools) — `src/ui/ShaderCompilerWindow.js`: compiles the graph on demand, lists the fragment shader plus every compute node's shader, and prints the driver's errors and warnings against the source.
 
 - [ ] Triage: implement, or hide the menu items for beta so testers don't hit dead buttons
 - [ ] `PreferencesWindow.js` stubs: keymap editor, reset shortcuts, node-preview toggle, auto-save interval, logging level
