@@ -30,7 +30,7 @@ import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
  * Everything the artist has on their canvas travels in the request. A large
  * patch is normal; an unbounded one is someone else's problem being made ours.
  */
-const MAX_INPUT_BYTES = 512 * 1024;
+export const MAX_INPUT_BYTES = 512 * 1024;
 
 /**
  * How long the platform lets this function run, in seconds.
@@ -93,7 +93,7 @@ export const MODEL_DEADLINE_MS = (FUNCTION_BUDGET_SECONDS - 15) * 1000;
  * how every answer here is data rather than prose, and the Responses API. It
  * does not have to be a reasoning model — see reasoningEnabled().
  */
-const DEFAULT_MODEL = 'gpt-5.6-terra';
+export const DEFAULT_MODEL = 'gpt-5.6-terra';
 
 /**
  * `OPENAI_MODEL` exists so that moving to the next model is an environment
@@ -133,7 +133,7 @@ function reasoningEnabled() {
  * its own `reasoningTokens`; this is only the floor under a new one that
  * forgets to.
  */
-const DEFAULT_REASONING_TOKENS = 6000;
+export const DEFAULT_REASONING_TOKENS = 6000;
 
 /**
  * How fast to assume the model writes, for turning a token budget into a
@@ -146,7 +146,7 @@ const DEFAULT_REASONING_TOKENS = 6000;
  * Every completed call logs its tokens and its seconds (see logCall), so this
  * can be calibrated from real numbers rather than adjusted by feel.
  */
-const ASSUMED_TOKENS_PER_SECOND = 50;
+export const ASSUMED_TOKENS_PER_SECOND = 50;
 
 /** Nothing is given less than this, however small its budget. */
 const MIN_DEADLINE_MS = 30 * 1000;

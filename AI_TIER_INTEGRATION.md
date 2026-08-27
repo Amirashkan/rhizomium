@@ -47,6 +47,13 @@ covering the catalogue, the client's error mapping and free-tier fallback, the
 grant verifier against grants signed exactly as the gallery signs them, and the
 endpoint's refusal ordering.
 
+`tests/aiFeatureTokenCost.test.js` measures what every feature costs at both
+ends and prints the table when it runs (`npm run ai:tokens` prints the same one
+on its own). It holds the bounds worth failing over — the shared prompt under
+8,000 tokens, no single call billable for more than 64,000, every feature with
+room for the smallest answer its schema admits and its own stated
+`reasoningTokens` — and pins which features' ceilings outrun the deadline.
+
 `tests/aiPanelDock.test.js` covers the panel as a dock: that opening it hands
 the canvas a narrower window and closing it gives the width back, that it never
 takes more than half the window, and that a feature with nothing valid to read —
@@ -104,6 +111,36 @@ patch approaches the function's own limit.
 `ai.patch_refactor` is the one feature whose budget is sized per call, by
 `answerBudget()`: it hands back the whole patch it was given, so a ten-node
 tidy and a four-hundred-node one need allowances an order of magnitude apart.
+
+#### What that works out to, per feature
+
+`npm run ai:tokens` prints the range for every feature, worked out from the
+real prompts and budgets by `api/_lib/tokenCost.js` — no key needed and nothing
+is called. Today:
+
+| feature | model | prompt min → max | answer min → ceiling | most one call can be billed |
+|---|---|---|---|---|
+| Patch review | terra | 6.0k → 16.1k | 7 → 9,000 | ~25k |
+| Patch refactor | terra | 6.0k → 16.1k | 17 → 40,000 | ~56k |
+| Canvas assist | luna | 6.0k → 16.0k | 5 → 3,500 | ~20k |
+| Patch generator | terra | 6.0k → 6.5k | 16 → 24,000 | ~31k |
+| Node generator | terra | 6.0k → 6.6k | 20 → 11,000 | ~18k |
+| AI creative director | terra | 6.0k → 16.6k | 8 → 22,000 | ~39k |
+
+Prompt maxima are a 400-node patch (`MAX_NODES`) or a long typed brief; the
+~5,900-token shared prefix is most of every prompt and is served from cache
+after the first call. Answer minima are the smallest document each schema
+admits — an empty findings list is a valid review — and the ceilings are
+`max_output_tokens`, the point a call is cut off, not a prediction: a review of
+a clean patch answers in a few hundred.
+
+Three of those ceilings imply more seconds at `ASSUMED_TOKENS_PER_SECOND` than
+the 285s deadline covers — refactor (800s), patch generator (480s), creative
+director (440s) — so their *largest possible* answer would be stopped rather
+than finished. That is not today's bug: the rate is deliberately about half of
+what these models decode at, and nothing writes its whole ceiling.
+`tests/aiFeatureTokenCost.test.js` names those three, so a fourth arriving is a
+decision someone makes rather than a 504 someone debugs.
 
 Every completed call logs one line — seconds, reasoning tokens, answer tokens,
 input and cached tokens. **Read a few of those before changing any of the
