@@ -25,6 +25,7 @@ import {
   BadInputError,
 } from '../_lib/features.js';
 import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
+import { refactorFit } from '../../src/ai/patchContext.js';
 
 /**
  * Everything the artist has on their canvas travels in the request. A large
@@ -279,6 +280,23 @@ export default async function handler(req, res) {
       error: `That patch is too large to send (${Math.round(inputBytes / 1024)}KB). Trim it and try again.`,
       code: 'input_too_large',
     });
+  }
+
+  // A refactor writes its whole input back out, so past a certain size it
+  // cannot finish inside the deadline however much budget it is given. The
+  // editor checks this before it asks for a grant (src/ai/patchContext.js);
+  // this is the same rule on the server, for a client that did not — answered
+  // in milliseconds, before a model call is spent on something that would be
+  // stopped at MODEL_DEADLINE_MS.
+  if (feature === 'ai.patch_refactor') {
+    const fit = refactorFit(input.patch);
+    if (fit.verdict === 'too_large') {
+      console.warn(
+        `${config.label}: refused before calling the model — ` +
+          `${input.patch?.nodes?.length ?? 0} nodes needs ~${fit.answerTokens} answer tokens (${fit.reason}).`
+      );
+      return res.status(413).json({ error: fit.message, code: 'refactor_too_large' });
+    }
   }
 
   let userMessage;

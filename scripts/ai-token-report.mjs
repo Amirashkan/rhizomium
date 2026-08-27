@@ -13,14 +13,24 @@
  * them or diff two branches.
  */
 
-import { allFeatureTokenRanges, formatTokenReport, MIRRORED_FROM_RUN } from '../api/_lib/tokenCost.js';
+import {
+  allFeatureTokenRanges,
+  namedScenarios,
+  formatTokenReport,
+  formatScenarioReport,
+  MIRRORED_FROM_RUN,
+} from '../api/_lib/tokenCost.js';
 
 const ranges = allFeatureTokenRanges();
+const scenarios = namedScenarios();
 
 if (process.argv.includes('--json')) {
-  console.log(JSON.stringify(ranges, null, 2));
+  console.log(JSON.stringify({ ranges, scenarios }, null, 2));
 } else {
   // The deadline run.js stops a call at, so a ceiling that cannot be written
   // inside it is called out rather than left to be worked out by eye.
-  console.log(formatTokenReport(ranges, MIRRORED_FROM_RUN.deadlineSeconds));
+  const { deadlineSeconds } = MIRRORED_FROM_RUN;
+  console.log(formatTokenReport(ranges, deadlineSeconds));
+  console.log('\n');
+  console.log(formatScenarioReport(scenarios, deadlineSeconds));
 }

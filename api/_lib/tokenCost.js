@@ -26,6 +26,7 @@
  */
 
 import { AI_FEATURES, answerBudget, buildUserMessage } from './features.js';
+import { estimateRefactorAnswerTokens, refactorFit, REFACTOR_BUDGET } from '../../src/ai/patchContext.js';
 
 /**
  * The estimate, and the one place it is made.
@@ -90,7 +91,7 @@ export function smallestPatch() {
  * drops defaults precisely because artists leave most of them alone, and what
  * is left after that is names and the handful of values they turned.
  */
-export function largestPatch(nodeCount = MAX_NODES) {
+export function syntheticPatch(nodeCount = MAX_NODES) {
   const nodes = [];
   const connections = [];
 
@@ -116,6 +117,24 @@ export function largestPatch(nodeCount = MAX_NODES) {
   connections.push({ from: { nodeId: `n${nodeCount - 2}`, pin: 0 }, to: { nodeId: 'out', pin: 0 } });
 
   return { nodes, connections };
+}
+
+/** The patch at the node limit: the largest one call will ever carry. */
+export function largestPatch() {
+  return syntheticPatch(MAX_NODES);
+}
+
+/**
+ * A patch the size of a working canvas rather than either extreme.
+ *
+ * Forty nodes is a loaded-but-ordinary piece, and it is what the scenarios
+ * below use where the point is what a normal call costs rather than what the
+ * limits are.
+ */
+export const TYPICAL_NODES = 40;
+
+export function typicalPatch() {
+  return syntheticPatch(TYPICAL_NODES);
 }
 
 /** A prompt of a few words, which is what most typed briefs actually are. */
@@ -289,6 +308,288 @@ export function allFeatureTokenRanges() {
  */
 export function hardInputCeilingTokens() {
   return Math.ceil(MIRRORED_FROM_RUN.maxInputBytes / BYTES_PER_TOKEN);
+}
+
+/* -------------------------------------------------------------------------
+ * Cold, warm, and the worst case.
+ *
+ * The ranges above are the envelope. These are three calls inside it, worked
+ * out in full, because the envelope does not answer the questions anyone
+ * actually has: what does the first call after a deploy cost, what does an
+ * ordinary one cost once the cache is warm, and does the largest refactor the
+ * editor permits even fit in the budget it is given.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Prefix caching, as far as it can be modelled from outside.
+ *
+ * OpenAI caches long identical prefixes automatically and reports the hit as
+ * `usage.input_tokens_details.cached_tokens`. Two properties of it matter here:
+ * a prompt under CACHE_MINIMUM_TOKENS is never cached at all, and the hit is
+ * granted in blocks of CACHE_BLOCK_TOKENS rather than to the token, so the tail
+ * of the prefix is paid for every time.
+ *
+ * Cached tokens are still counted in `input_tokens` — they are billed at a
+ * discount, not billed at zero — so what changes between a cold call and a warm
+ * one is the *price* of the prompt, not its size. That is why the scenarios
+ * below report the split rather than a total.
+ */
+export const CACHE_BLOCK_TOKENS = 128;
+export const CACHE_MINIMUM_TOKENS = 1024;
+
+/**
+ * How much of a prompt's stable prefix a warm call can expect to have cached.
+ *
+ * @param {number} prefixTokens - the deterministic head of the prompt, which
+ *   for every feature here is its system instructions.
+ * @returns {number} tokens served from cache, rounded down to a whole block.
+ */
+export function cachedPrefixTokens(prefixTokens) {
+  if (prefixTokens < CACHE_MINIMUM_TOKENS) return 0;
+  return Math.floor(prefixTokens / CACHE_BLOCK_TOKENS) * CACHE_BLOCK_TOKENS;
+}
+
+/**
+ * What the refactor has to write back for a given patch.
+ *
+ * The one feature whose answer is as large as its input: it returns the whole
+ * patch, as JSON, in the schema features.js declares — not the compact line
+ * format the patch arrived in. So the question its budget has to answer is not
+ * "is 32,000 tokens generous" but "does this particular patch fit in it", and
+ * that is measurable rather than a matter of opinion.
+ *
+ * This is the editor's own estimator, not a second one: the same function the
+ * panel calls to decide whether to run a refactor at all
+ * (src/ai/patchContext.js). A report that measured this differently from the
+ * check that acts on it would be worse than no report.
+ */
+export const refactorAnswerTokens = estimateRefactorAnswerTokens;
+
+/**
+ * One call, costed end to end.
+ *
+ * @param {Object} spec
+ * @param {string} spec.name - short label for the scenario.
+ * @param {string} spec.feature - a key of AI_FEATURES.
+ * @param {Object} spec.input - the request payload.
+ * @param {boolean} spec.warm - whether the prefix cache is hot for this feature.
+ * @param {string} spec.note - what this scenario is, in a sentence.
+ * @param {number} [spec.expectedAnswer] - tokens the answer is actually
+ *   expected to need, where that is knowable (the refactor). Omitted elsewhere,
+ *   because what a review will write is not predictable — only its ceiling is.
+ */
+export function measureScenario({ name, feature, input, warm, note, expectedAnswer = null }) {
+  const config = AI_FEATURES[feature];
+  if (!config) throw new Error(`No such feature: ${feature}`);
+
+  const system = estimateTokens(config.system());
+  const user = estimateTokens(buildUserMessage(feature, input));
+  const promptTotal = system + user;
+  const cached = warm ? cachedPrefixTokens(system) : 0;
+
+  const reasoningRoom = config.reasoningTokens ?? MIRRORED_FROM_RUN.defaultReasoningTokens;
+  const answerCeiling = answerBudget(config, input);
+  const outputCeiling = answerCeiling + reasoningRoom;
+
+  return {
+    name,
+    note,
+    feature,
+    label: config.label,
+    model: config.model || MIRRORED_FROM_RUN.defaultModel,
+    warm: Boolean(warm),
+    prompt: {
+      total: promptTotal,
+      system,
+      user,
+      /** Served from cache, and so billed at the cached rate. */
+      cached,
+      /** Paid for at the full input rate on this call. */
+      fresh: promptTotal - cached,
+    },
+    output: {
+      /** The smallest document the schema admits — the floor, not a forecast. */
+      floor: minimalAnswerTokens(config.format.schema),
+      /** What the answer actually needs, where that can be worked out. */
+      expected: expectedAnswer,
+      answerCeiling,
+      reasoningRoom,
+      ceiling: outputCeiling,
+      /** Room left over once the answer is written, when it is known. */
+      headroom: expectedAnswer === null ? null : answerCeiling - expectedAnswer,
+    },
+    /** Prompt plus the output ceiling: the most this call can be billed for. */
+    billedCeiling: promptTotal + outputCeiling,
+    ceilingSeconds: Math.round(outputCeiling / MIRRORED_FROM_RUN.assumedTokensPerSecond),
+
+    /**
+     * Seconds the answer this call actually has to write implies, where that
+     * is knowable — thinking room included, since reasoning is decoded too.
+     *
+     * This is the number that decides whether a call comes back. The ceiling
+     * seconds above are the worst case nobody reaches; this is the work in
+     * front of it.
+     */
+    expectedSeconds:
+      expectedAnswer === null
+        ? null
+        : Math.round((expectedAnswer + reasoningRoom) / MIRRORED_FROM_RUN.assumedTokensPerSecond),
+
+    /**
+     * What the editor's pre-flight check makes of this call, for the one
+     * feature that has one. `too_large` here means the call never happens:
+     * refactorFit() stops it in front of the grant, so no allowance is spent.
+     */
+    fit: feature === 'ai.patch_refactor' ? refactorFit(input.patch) : null,
+  };
+}
+
+/**
+ * The largest patch a refactor can be given and still finish.
+ *
+ * The refactor writes its whole input back out, so the answer grows with the
+ * patch while the deadline does not — `deadlineFor()` in run.js clamps at
+ * MODEL_DEADLINE_MS however large the budget gets. Somewhere below the
+ * 400-node limit those two lines cross, and past that point the call is being
+ * accepted knowing it will be stopped.
+ *
+ * Measured rather than solved: build the patch, measure what it would have to
+ * write, ask whether that fits. The default rate is the pessimistic one run.js
+ * sizes its own deadline from, so the answer is the conservative end — at the
+ * speed these models really decode, the crossing is higher.
+ *
+ * @returns {{nodes: number, tokens: number, seconds: number}} the largest patch
+ *   that fits, and what it costs.
+ */
+export function refactorNodeCeiling({
+  tokensPerSecond = MIRRORED_FROM_RUN.assumedTokensPerSecond,
+  deadlineSeconds = MIRRORED_FROM_RUN.deadlineSeconds,
+} = {}) {
+  const config = AI_FEATURES['ai.patch_refactor'];
+  const affordable = tokensPerSecond * deadlineSeconds;
+
+  let fits = { nodes: 0, tokens: 0, seconds: 0 };
+
+  for (let nodes = 2; nodes <= MAX_NODES; nodes += 1) {
+    const patch = syntheticPatch(nodes);
+    const needed = refactorAnswerTokens(patch) + config.reasoningTokens;
+    if (needed > affordable) break;
+    fits = { nodes, tokens: needed, seconds: Math.round(needed / tokensPerSecond) };
+  }
+
+  return fits;
+}
+
+/**
+ * The three calls worth knowing by heart.
+ *
+ * They bracket everything the editor does: the most expensive way to make an
+ * ordinary request, the cheapest, and the largest single thing anyone can ask
+ * for.
+ */
+export function namedScenarios() {
+  const worstRefactorPatch = largestPatch();
+
+  return [
+    measureScenario({
+      name: 'Cold',
+      feature: 'ai.patch_review',
+      input: { patch: typicalPatch() },
+      warm: false,
+      note:
+        `A review of a ${TYPICAL_NODES}-node patch as the first call of its kind — after a deploy, ` +
+        'or when nobody has run this feature recently enough to leave the prefix warm. ' +
+        'Every token of the registry is paid for at the full input rate.',
+    }),
+    measureScenario({
+      name: 'Warm minimal',
+      feature: 'ai.canvas_assist',
+      input: { patch: smallestPatch() },
+      warm: true,
+      note:
+        'The cheapest real call the editor can make: canvas assist, one node on the canvas, ' +
+        'prefix hot from the calls before it. Nothing here is smaller.',
+    }),
+    measureScenario({
+      name: 'Worst-case refactor',
+      feature: 'ai.patch_refactor',
+      input: { patch: worstRefactorPatch },
+      warm: true,
+      expectedAnswer: refactorAnswerTokens(worstRefactorPatch),
+      note:
+        `A refactor of a patch at the ${MAX_NODES}-node limit: the largest single thing anyone ` +
+        'can ask for, and the only feature that has to write its whole input back out.',
+    }),
+  ];
+}
+
+/** The scenarios as text, under the range table. */
+export function formatScenarioReport(scenarios, deadlineSeconds = null) {
+  const lines = ['Three calls, costed end to end', ''];
+
+  for (const scenario of scenarios) {
+    lines.push(`${scenario.name} — ${scenario.label} on ${scenario.model.replace(/^gpt-/, '')}`);
+    lines.push(`  ${scenario.note}`);
+    lines.push(
+      `  Prompt   ${fmt(scenario.prompt.total)} tokens ` +
+        `(${fmt(scenario.prompt.fresh)} fresh, ${fmt(scenario.prompt.cached)} cached)`
+    );
+
+    const answer = scenario.output.expected !== null
+      ? `must write ~${fmt(scenario.output.expected)}, ceiling ${fmt(scenario.output.answerCeiling)} ` +
+        `(${fmt(scenario.output.headroom)} spare)`
+      : `floor ${fmt(scenario.output.floor)}, ceiling ${fmt(scenario.output.answerCeiling)}`;
+    lines.push(`  Answer   ${answer}`);
+    lines.push(
+      `  Thinking up to ${fmt(scenario.output.reasoningRoom)}, so at most ` +
+        `${fmt(scenario.billedCeiling)} tokens billed and ${scenario.ceilingSeconds}s spent` +
+        (deadlineSeconds && scenario.ceilingSeconds > deadlineSeconds
+          ? ` — past the ${deadlineSeconds}s deadline`
+          : '')
+    );
+
+    // Only the refactor knows what it has to write. Where that is known, it is
+    // the number that decides whether the call comes back at all.
+    if (scenario.expectedSeconds !== null) {
+      lines.push(
+        `  Decoding the ~${fmt(scenario.output.expected)} it must write, plus thinking, is ` +
+          `~${scenario.expectedSeconds}s of work` +
+          (deadlineSeconds && scenario.expectedSeconds > deadlineSeconds
+            ? ` against a ${deadlineSeconds}s deadline: this call cannot finish.`
+            : '.')
+      );
+    }
+
+    if (scenario.fit) {
+      lines.push(
+        `  Pre-flight ${scenario.fit.verdict}` +
+          (scenario.fit.verdict === 'too_large'
+            ? ': refused in front of the grant, so none of the above is ever spent.'
+            : scenario.fit.verdict === 'tight'
+              ? ': allowed, with a warning that it may run long.'
+              : ': allowed.')
+      );
+    }
+
+    lines.push('');
+  }
+
+  // Where the two lines cross, which is what the editor's pre-flight check
+  // acts on: comfortable below the first, refused above the second.
+  const comfortable = refactorNodeCeiling();
+  const possible = refactorNodeCeiling({
+    tokensPerSecond: REFACTOR_BUDGET.realisticTokensPerSecond,
+  });
+
+  lines.push(
+    `Refactor, by patch size: up to ~${comfortable.nodes} nodes it fits even at the pessimistic ` +
+      `${MIRRORED_FROM_RUN.assumedTokensPerSecond} tokens/second (~${fmt(comfortable.tokens)} to write). ` +
+      `From there to ~${possible.nodes} it is accepted with a warning — it needs the rate these models ` +
+      `really decode at. Past ~${possible.nodes}, refactorFit() refuses it before a grant is asked for, ` +
+      'so nothing is charged and nobody waits for a 504.'
+  );
+
+  return lines.join('\n').trimEnd();
 }
 
 /** Column widths chosen once, so the table lines up in a terminal. */

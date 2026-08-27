@@ -30,16 +30,26 @@ const {
   allFeatureTokenRanges,
   featureTokenRange,
   formatTokenReport,
+  formatScenarioReport,
+  namedScenarios,
+  measureScenario,
+  cachedPrefixTokens,
+  refactorAnswerTokens,
+  refactorNodeCeiling,
   estimateTokens,
   minimalAnswer,
   largestPatch,
   smallestPatch,
+  typicalPatch,
+  syntheticPatch,
   hardInputCeilingTokens,
+  CACHE_BLOCK_TOKENS,
   MIRRORED_FROM_RUN,
   MAX_NODES,
 } = await import('../api/_lib/tokenCost.js');
 
 const { AI_FEATURES } = await import('../api/_lib/features.js');
+const { refactorFit, REFACTOR_BUDGET } = await import('../src/ai/patchContext.js');
 const {
   MAX_INPUT_BYTES,
   DEFAULT_MODEL,
@@ -184,6 +194,200 @@ describe('what each feature is allowed to write', () => {
     for (const range of ranges) {
       if (range.ceilingSeconds > DEADLINE_SECONDS) continue;
       expect(range.ceilingSeconds * ASSUMED_TOKENS_PER_SECOND).toBe(range.output.max);
+    }
+  });
+});
+
+describe('the three calls worth knowing by heart', () => {
+  const scenarios = namedScenarios();
+  const [cold, warm, worst] = scenarios;
+
+  it('reports all three', () => {
+    console.log(`\n${formatScenarioReport(scenarios, DEADLINE_SECONDS)}\n`);
+    expect(scenarios.map((s) => s.name)).toEqual(['Cold', 'Warm minimal', 'Worst-case refactor']);
+  });
+
+  it('cold: pays full price for every token of the prompt', () => {
+    // Nothing cached, so the whole registry is billed at the input rate. This
+    // is the first call after a deploy, and the most an ordinary request costs.
+    expect(cold.warm).toBe(false);
+    expect(cold.prompt.cached).toBe(0);
+    expect(cold.prompt.fresh).toBe(cold.prompt.total);
+  });
+
+  it('warm minimal: pays for a few hundred tokens of prompt, not six thousand', () => {
+    // The point of keeping the registry at the front of the prompt: on a warm
+    // call almost the whole of it comes back from cache, and what is fresh is
+    // the patch and the ask.
+    expect(warm.prompt.cached).toBeGreaterThan(5000);
+    expect(warm.prompt.fresh).toBeLessThan(500);
+    // And it is the cheapest of the three by some distance.
+    expect(warm.billedCeiling).toBeLessThan(cold.billedCeiling);
+    expect(warm.billedCeiling).toBeLessThan(worst.billedCeiling / 4);
+  });
+
+  it('warm and cold differ by exactly the cacheable prefix', () => {
+    const input = { patch: typicalPatch() };
+    const spec = { name: 'x', feature: 'ai.patch_review', input, note: '' };
+    const asCold = measureScenario({ ...spec, warm: false });
+    const asWarm = measureScenario({ ...spec, warm: true });
+
+    expect(asCold.prompt.total).toBe(asWarm.prompt.total);
+    expect(asCold.prompt.fresh - asWarm.prompt.fresh).toBe(cachedPrefixTokens(asCold.prompt.system));
+  });
+
+  it('worst-case refactor: the answer it must write fits the budget it is given', () => {
+    // The invariant that actually protects the feature. The refactor hands
+    // back its whole input as JSON, so if a 400-node patch needed more than
+    // maxTokens the call would come back `incomplete` every time and the
+    // artist's action would be spent on nothing.
+    expect(worst.output.expected).toBeGreaterThan(0);
+    expect(worst.output.expected).toBeLessThan(worst.output.answerCeiling);
+    expect(worst.output.headroom).toBeGreaterThan(5000);
+  });
+
+  it('worst-case refactor: has more to write than its deadline allows', () => {
+    /**
+     * Pinned because it is the sharper version of the ceiling finding above:
+     * it is not only that the refactor *may* write 40,000 tokens, it is that a
+     * 400-node patch *must* write around 20,000, and decoding that plus its
+     * thinking room is roughly twice the 285s deadline at the rate run.js
+     * assumes. The editor accepts patches up to 400 nodes; this call is
+     * accepted knowing it will be stopped.
+     *
+     * Left as a measurement rather than a failure because the assumed rate is
+     * deliberately about half of real decode speed. Change the deadline, the
+     * budget, or MAX_NODES and this test says so.
+     */
+    expect(worst.expectedSeconds).toBeGreaterThan(DEADLINE_SECONDS);
+  });
+
+  it('finds where a refactor stops fitting its deadline', () => {
+    const ceiling = refactorNodeCeiling();
+
+    // Somewhere well inside the node limit, which is the whole point: the
+    // limit that governs a refactor is time, not MAX_NODES.
+    expect(ceiling.nodes).toBeGreaterThan(50);
+    expect(ceiling.nodes).toBeLessThan(MAX_NODES);
+    expect(ceiling.seconds).toBeLessThanOrEqual(DEADLINE_SECONDS);
+
+    // And it is a boundary, not a guess: one node past it does not fit.
+    const room = MIRRORED_FROM_RUN.assumedTokensPerSecond * DEADLINE_SECONDS;
+    const past = refactorAnswerTokens(syntheticPatch(ceiling.nodes + 1))
+      + AI_FEATURES['ai.patch_refactor'].reasoningTokens;
+    expect(past).toBeGreaterThan(room);
+  });
+
+  it('grows the refactor answer with the patch it is given', () => {
+    expect(refactorAnswerTokens(largestPatch())).toBeGreaterThan(
+      refactorAnswerTokens(typicalPatch()) * 5
+    );
+    // A one-node patch is a rounding error against the 8,000 it is given to
+    // think with, which is why small refactors are never the problem.
+    expect(refactorAnswerTokens(smallestPatch())).toBeLessThan(
+      REFACTOR_BUDGET.reserveTokens / 10
+    );
+  });
+});
+
+describe('the pre-flight check in front of a refactor', () => {
+  /**
+   * The failure this exists to prevent: the gallery meters a grant when it
+   * issues it, so a refactor that cannot finish costs the artist an action and
+   * a nearly five-minute wait before the deadline turns it into a 504. Working
+   * it out first costs a JSON.stringify.
+   */
+  it('lets an ordinary patch through without a word', () => {
+    const fit = refactorFit(typicalPatch());
+    expect(fit.verdict).toBe('fits');
+    expect(fit.message).toBeNull();
+  });
+
+  it('warns on a large one rather than refusing it', () => {
+    // The band most loaded patches land in: too big for the pessimistic rate
+    // the deadline was sized from, fine at the rate these models really run.
+    const fit = refactorFit(syntheticPatch(200));
+    expect(fit.verdict).toBe('tight');
+    expect(fit.message).toMatch(/large refactor/i);
+  });
+
+  it('refuses one that cannot finish at any plausible speed', () => {
+    const fit = refactorFit(largestPatch());
+    expect(fit.verdict).toBe('too_large');
+    expect(fit.reason).toBe('time');
+    // The message has to say what to do instead, and that this cost nothing.
+    expect(fit.message).toMatch(/select part of the patch/i);
+    expect(fit.message).toMatch(/nothing has been charged/i);
+  });
+
+  it('refuses one whose answer would not fit the budget at all', () => {
+    // Not a timeout: a patch of shader bodies is small in nodes and huge in
+    // answer, because the refactor has to write every one of them back. This
+    // is the case that would come back `answer_truncated` — a spent action for
+    // half a patch.
+    const shaderHeavy = {
+      nodes: Array.from({ length: 60 }, (_, i) => ({
+        id: `c${i}`,
+        kind: 'CustomGLSL',
+        x: i * 220,
+        y: 0,
+        params: { code: '// a long custom body\n'.repeat(120) },
+      })),
+      connections: [],
+    };
+
+    const fit = refactorFit(shaderHeavy);
+    expect(fit.verdict).toBe('too_large');
+    expect(fit.reason).toBe('budget');
+    expect(fit.answerTokens).toBeGreaterThan(REFACTOR_BUDGET.answerCeilingTokens);
+  });
+
+  it('agrees with the report about what a refactor has to write', () => {
+    // One estimator, used by both. A guard that measured differently from the
+    // report would be worse than no report.
+    const patch = syntheticPatch(150);
+    expect(refactorFit(patch).answerTokens).toBe(refactorAnswerTokens(patch));
+  });
+
+  it('mirrors the budgets the backend actually enforces', () => {
+    const config = AI_FEATURES['ai.patch_refactor'];
+    expect(REFACTOR_BUDGET.reserveTokens).toBe(config.reasoningTokens);
+    expect(REFACTOR_BUDGET.answerCeilingTokens).toBe(config.maxTokens);
+    expect(REFACTOR_BUDGET.pessimisticTokensPerSecond).toBe(ASSUMED_TOKENS_PER_SECOND);
+    expect(REFACTOR_BUDGET.deadlineSeconds).toBe(DEADLINE_SECONDS);
+    // run.js calls its own rate "roughly half" of real decode speed. If that
+    // stops being what the client assumes, the refusal line moves silently.
+    expect(REFACTOR_BUDGET.realisticTokensPerSecond).toBe(ASSUMED_TOKENS_PER_SECOND * 2);
+  });
+
+  it('leaves the refusal line inside the node limit, where it can bite', () => {
+    // If the two crossings ever rose above MAX_NODES the check would be dead
+    // code: every patch the editor allows would sail past it.
+    const possible = refactorNodeCeiling({
+      tokensPerSecond: REFACTOR_BUDGET.realisticTokensPerSecond,
+    });
+    expect(possible.nodes).toBeLessThan(MAX_NODES);
+    expect(refactorNodeCeiling().nodes).toBeLessThan(possible.nodes);
+  });
+});
+
+describe('the prefix cache, as far as it can be modelled', () => {
+  it('grants the cache in whole blocks, so the tail is always fresh', () => {
+    expect(cachedPrefixTokens(5919)).toBe(5888);
+    expect(5919 - cachedPrefixTokens(5919)).toBeLessThan(CACHE_BLOCK_TOKENS);
+  });
+
+  it('caches nothing under the minimum', () => {
+    expect(cachedPrefixTokens(1023)).toBe(0);
+    expect(cachedPrefixTokens(1024)).toBe(1024);
+  });
+
+  it('leaves the prompt the same size either way', () => {
+    // Cached tokens are billed cheaper, not billed at zero, and they still
+    // count in `input_tokens`. A warm call is not a smaller call.
+    const scenarios = namedScenarios();
+    for (const scenario of scenarios) {
+      expect(scenario.prompt.cached + scenario.prompt.fresh).toBe(scenario.prompt.total);
     }
   });
 });
