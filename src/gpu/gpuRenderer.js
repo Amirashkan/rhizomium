@@ -5,6 +5,25 @@ import { RenderCache } from './RenderCache.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 
 
+/** Release a captured frame. Closing twice, or on a stub, is not an error here. */
+function closeBitmap(bitmap) {
+  try { bitmap?.close?.(); } catch { /* already closed or not a real bitmap */ }
+}
+
+/**
+ * Give one frame consumer its bitmap, closing it ourselves if the consumer
+ * throws before it can take ownership. One consumer failing must not leak the
+ * frame, nor stop the others from getting theirs.
+ */
+function handFrameTo(consumer, bitmap) {
+  try {
+    consumer(bitmap);
+  } catch {
+    closeBitmap(bitmap);
+  }
+}
+
+
 // Parse WGSL for @group/@binding declarations so we can allocate resources dynamically.
 function analyzeBindings(wgsl) {
   const groups = {};
@@ -76,6 +95,12 @@ export class GPURenderer {
     // presented the frame, so those reads intermittently come back blank — the
     // "black frame" flicker the mirror used to show. Null unless a viewer is open.
     this._frameTap = null;        // (bitmap: ImageBitmap) => void  — owns + closes
+    // Additional consumers registered through addFrameTap(). Two outputs can
+    // want the same frame at once — a second-monitor mirror on the projector
+    // and an NDI sender feeding the vision mixer — and a single slot made the
+    // second one silently unhook the first. Each consumer is handed its own
+    // ImageBitmap and closes it; see _deliverTappedFrame for who pays for that.
+    this._frameTaps = new Set();
     this._frameTapInFlight = false; // coalesce: at most one createImageBitmap pending
 
     // State tap: the cheap alternative to the pixel frame tap. A consumer (the
@@ -1552,6 +1577,36 @@ export class GPURenderer {
   }
 
   /**
+   * Register an ADDITIONAL frame consumer, alongside setFrameTap and any other
+   * consumer already attached. Same contract: the callback receives a freshly
+   * captured ImageBitmap and TAKES OWNERSHIP of it — it must close it.
+   *
+   * Prefer this over setFrameTap for anything new. setFrameTap owns one slot
+   * and overwrites whatever held it, which is only safe because exactly one
+   * caller (the second-monitor viewer) uses it.
+   *
+   * @param {(bitmap: ImageBitmap) => void} callback
+   * @returns {() => void} unsubscribe — idempotent, safe to call after teardown
+   */
+  addFrameTap(callback) {
+    if (typeof callback !== "function") return () => {};
+    this._frameTaps.add(callback);
+    return () => { this._frameTaps.delete(callback); };
+  }
+
+  /** Whether any consumer wants frames. Kept cheap: called every frame. */
+  _hasFrameTap() {
+    return this._frameTap !== null || this._frameTaps.size > 0;
+  }
+
+  /** Every attached consumer, the setFrameTap slot first. */
+  _frameTapConsumers() {
+    const consumers = this._frameTap ? [this._frameTap] : [];
+    for (const callback of this._frameTaps) consumers.push(callback);
+    return consumers;
+  }
+
+  /**
    * Register a per-frame STATE consumer for the native second-monitor path. The
    * callback receives, synchronously right after submit, a snapshot of the
    * uniform bytes this frame wrote plus the current WGSL, so another window can
@@ -1757,8 +1812,7 @@ export class GPURenderer {
    * so a slow decode cannot pile up and stall the render loop.
    */
   _captureTappedFrame() {
-    const tap = this._frameTap;
-    if (!tap || typeof createImageBitmap !== "function") return;
+    if (!this._hasFrameTap() || typeof createImageBitmap !== "function") return;
     if (this._frameTapInFlight) return;
     if (!this.canvas || !this.canvas.width || !this.canvas.height) return;
 
@@ -1768,16 +1822,49 @@ export class GPURenderer {
     } catch {
       return; // canvas mid-resize / context lost — skip this frame
     }
+    // Held until delivery finishes, not just until the decode does: copying for
+    // a second consumer is itself async, and clearing the flag early would let
+    // the next frame start capturing while this one was still being handed out.
     this._frameTapInFlight = true;
     pending.then(
-      (bitmap) => {
-        this._frameTapInFlight = false;
-        const cb = this._frameTap;
-        if (!cb) { try { bitmap.close(); } catch { /* ignore */ } return; }
-        try { cb(bitmap); } catch { try { bitmap.close(); } catch { /* ignore */ } }
-      },
+      (bitmap) => this._deliverTappedFrame(bitmap),
       () => { this._frameTapInFlight = false; },
     );
+  }
+
+  /**
+   * Hand a captured frame to every consumer, one owned ImageBitmap each.
+   *
+   * A single consumer — the usual case, and the only one that existed before
+   * NDI — gets the capture itself, so nothing is copied and the cost is exactly
+   * what it was. Only a second simultaneous output pays for a copy, and only
+   * while both are running.
+   */
+  async _deliverTappedFrame(bitmap) {
+    try {
+      const consumers = this._frameTapConsumers();
+      if (consumers.length === 0) { closeBitmap(bitmap); return; }
+      if (consumers.length === 1) { handFrameTo(consumers[0], bitmap); return; }
+
+      // Copy before handing anything over: the first consumer owns the original
+      // and may close it the moment it is called, which would leave nothing to
+      // copy from for the others.
+      const copies = [];
+      for (let i = 1; i < consumers.length; i++) {
+        try {
+          copies.push(await createImageBitmap(bitmap));
+        } catch {
+          copies.push(null); // drop this consumer's frame, not everyone's
+        }
+      }
+
+      handFrameTo(consumers[0], bitmap);
+      for (let i = 0; i < copies.length; i++) {
+        if (copies[i]) handFrameTo(consumers[i + 1], copies[i]);
+      }
+    } finally {
+      this._frameTapInFlight = false;
+    }
   }
 
   async captureFrame(options = {}) {

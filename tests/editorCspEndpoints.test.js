@@ -53,6 +53,8 @@ const REQUIRED_ORIGINS = [
   ['frame stream server', 'ws://127.0.0.1:8766'],
   ['OSC bridge', 'ws://127.0.0.1:8767'],
   ['OSC bridge', 'ws://localhost:8767'],
+  ['NDI bridge', 'ws://127.0.0.1:8768'],
+  ['NDI bridge', 'ws://localhost:8768'],
 
   // The account. Both are same-origin-or-better on the web and neither is in
   // the desktop app, where every page is served from tauri://localhost: the
