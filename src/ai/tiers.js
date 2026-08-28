@@ -106,7 +106,12 @@ export const FEATURES = {
     tier: 'cloude',
     surface: 'collab',
     label: 'Collab space',
-    description: 'Opens a patch to other artists: one shared canvas, live presence, edits as they happen.',
+    // Says who runs the relay, because the gallery's copy does and the two
+    // have to match: this text is what a locked panel shows an artist who is
+    // deciding whether to pay for it.
+    description:
+      'Opens a patch to other artists: one shared canvas, live presence, edits as they happen. ' +
+      'Runs over a relay you or a collaborator hosts — we do not host one yet.',
     metered: false,
   },
   'viewer.web': {

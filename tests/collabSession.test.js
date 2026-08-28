@@ -307,3 +307,119 @@ describe('when the relay goes away', () => {
     expect(session.state).toBe(STATES.CLOSED);
   });
 });
+
+describe('showing a pass at the door', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  /** A session whose hello waits on a grant, as the panel's does. */
+  function makeGuardedSession(getGrant) {
+    const session = new CollabSession({
+      url: 'ws://relay.example/room',
+      getGraph: () => new Graph(),
+      socketFactory: FakeSocket,
+      getGrant,
+    });
+    session.join('basalt-101', { name: 'Ada' });
+    FakeSocket.last.open();
+    return { session, socket: FakeSocket.last };
+  }
+
+  it('waits for the grant before saying hello, then carries it', async () => {
+    const { session, socket } = makeGuardedSession(async () => 'tok-1');
+
+    // Nothing has gone out yet: the gallery has not answered.
+    expect(socket.ofKind('hello')).toHaveLength(0);
+
+    await vi.waitFor(() => expect(socket.ofKind('hello')).toHaveLength(1));
+    expect(socket.ofKind('hello')[0]).toMatchObject({ room: 'basalt-101', grant: 'tok-1' });
+    session.leave();
+  });
+
+  it('says hello without one rather than not at all, and lets the relay decide', async () => {
+    // The loopback case: no gallery to ask, and a relay that will not ask either.
+    const { session, socket } = makeGuardedSession(async () => null);
+
+    await vi.waitFor(() => expect(socket.ofKind('hello')).toHaveLength(1));
+    expect(socket.ofKind('hello')[0].grant).toBeUndefined();
+    session.leave();
+  });
+
+  it('asks for a new grant on the reconnect, because the relay spent the last one', async () => {
+    let issued = 0;
+    const { session, socket } = makeGuardedSession(async () => `tok-${++issued}`);
+    await vi.waitFor(() => expect(socket.ofKind('hello')).toHaveLength(1));
+
+    socket.close();
+    vi.advanceTimersByTime(1000);
+    const second = FakeSocket.last;
+    expect(second).not.toBe(socket);
+    second.open();
+
+    await vi.waitFor(() => expect(second.ofKind('hello')).toHaveLength(1));
+    expect(second.ofKind('hello')[0].grant).toBe('tok-2');
+    session.leave();
+  });
+
+  it('does not say hello on a socket that died while the gallery was thinking', async () => {
+    let release;
+    const { session, socket } = makeGuardedSession(() => new Promise((r) => { release = r; }));
+    await Promise.resolve(); // let the session get as far as asking
+
+    socket.close();
+    release('tok-late');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(socket.ofKind('hello')).toHaveLength(0);
+    session.leave();
+  });
+});
+
+describe('when the relay says no', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  // Retrying a refusal spends a minute arriving at the same sentence, and hides
+  // that sentence behind "Reconnecting…" while it does — which is how a
+  // configuration problem gets reported as a flaky network.
+  for (const code of ['grant_required', 'grant_invalid', 'bad_token', 'room_full', 'no_room']) {
+    it(`stops on ${code} and keeps the reason on screen`, () => {
+      const { session, socket } = makeSession(new Graph());
+
+      socket.deliver({ t: 'error', code, message: 'The relay explained itself.' });
+      socket.close();
+
+      expect(session.state).toBe(STATES.FAILED);
+      expect(session.lastError).toBe('The relay explained itself.');
+      expect(session.refused).toBe(code);
+
+      const dead = FakeSocket.last;
+      vi.advanceTimersByTime(60000);
+      expect(FakeSocket.last).toBe(dead);
+    });
+  }
+
+  it('still retries a refusal that is not about this peer', () => {
+    const { session, socket } = makeSession(new Graph());
+
+    socket.deliver({ t: 'error', code: 'shutting_down', message: 'Relay restarting.' });
+    socket.close();
+
+    expect(session.state).toBe(STATES.RECONNECTING);
+    vi.advanceTimersByTime(1000);
+    expect(FakeSocket.last).not.toBe(socket);
+    session.leave();
+  });
+
+  it('forgets the refusal when the artist tries again', () => {
+    const { session, socket } = makeSession(new Graph());
+    socket.deliver({ t: 'error', code: 'room_full', message: 'That room is full.' });
+    socket.close();
+    expect(session.refused).toBe('room_full');
+
+    session.join('basalt-101', { name: 'Ada' });
+    expect(session.refused).toBeNull();
+    session.leave();
+  });
+});

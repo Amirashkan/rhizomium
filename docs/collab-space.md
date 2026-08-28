@@ -6,9 +6,8 @@ feature the pricing page has been describing as *"real-time multi-artist
 sessions on one canvas"*.
 
 This document is the honest version of that sentence. What follows is what the
-foundation actually does today, what it deliberately does not do, and what has
-to happen before it can be sold as a hosted service rather than run between
-machines you control.
+foundation actually does today, what it deliberately does not do, and what still
+stands between it and a hosted service rather than a relay you run yourself.
 
 ## Using it
 
@@ -25,17 +24,40 @@ The first person into a room sets the canvas. Everyone after that **adopts** it:
 their open patch is replaced. The panel says so and asks first, because that is
 destructive to unsaved work.
 
+A relay can turn you away as well — the room is full, the token is wrong, the
+pass was not accepted. The panel shows the relay's own sentence and stops there
+rather than reconnecting: none of those answers change by asking again a second
+later, and burying the explanation under "Reconnecting…" is how a configuration
+problem gets reported as a flaky network.
+
 ## Running the relay
 
 `rhizo_server.py` starts one on `ws://127.0.0.1:8767/room` alongside the frame
-stream and the OSC bridge. On its own:
+stream and the OSC bridge. On its own there are three ways to run it, and they
+differ in what they can prove about whoever just connected:
 
 ```bash
+# 1. Loopback. Anyone who can reach the port is in — which, on loopback, is you.
+python3 collab_room_server.py
+
+# 2. A shared token. As private as the token is. It proves the peer was told
+#    the token; it says nothing about who they are or what they pay for.
 python3 collab_room_server.py --host 0.0.0.0 --token some-shared-secret
+
+# 3. A gallery-signed pass. The only one that can face the internet.
+TIER_GRANT_SECRET=<the gallery's signing secret> \
+  python3 collab_room_server.py --host 0.0.0.0
 ```
 
-`GET /health` and `GET /stats` report rooms, message counts and drops.
-`/api/status` on the main server carries the relay's URL and room count too.
+The third mode admits a peer only if it presents a grant the gallery signed,
+naming `collab.space` and not yet expired — see **Who gets in** below. The two
+can be combined; the token is checked first, at the HTTP upgrade, and the grant
+at the hello.
+
+`GET /health` and `GET /stats` report rooms, message counts, drops and refusals;
+both say whether the relay is gated (`grantRequired`), so an operator can tell
+an open relay from a closed one without trying to join. `/api/status` on the
+main server carries the relay's URL, room count and gating too.
 
 The relay carries messages and nothing else. It never parses an op, holds no
 history, and keeps no state worth losing — restart it and the editors reconnect
@@ -91,24 +113,59 @@ Stated here because the pricing page's sentence is broader than the build:
   quiet mismatch is worse than a visible loss.
 - **Remote edits are not in your undo history.** Ctrl+Z undoes your own work.
   Silently undoing someone else's would be worse than not offering it.
-- **It is not a multi-tenant service yet.** See below.
+- **It is not a hosted service.** The relay can now verify who is knocking (see
+  *Who gets in*), which is what a public address requires; it still has no
+  accounts, no per-room ownership, and no way for one subscriber to say who else
+  may join *their* room. A grant proves someone pays for the collab space, not
+  that they were invited to this canvas. Rooms are named, and a guessed name is
+  as good as an invited one.
 
-## What it would take to host this
+## Who gets in
 
 The editor's gate (`src/collab/collabGate.js`) is a licence check in a browser
 the visitor controls — same as every other gate in this integration, and it says
-so at the top of the file. The enforceable boundary is the relay, and today the
-relay can only check a shared `--token`. It has no share of the gallery's
-signing secret, so it cannot verify a grant.
+so at the top of the file. A determined artist can turn it off with devtools and
+open the panel anyway. What they cannot do is forge a token signed with a secret
+their browser has never held, which is why the relay is the boundary that counts.
 
-The step that changes that is the one `api/_lib/grant.js` already implements for
-the AI backend: the editor asks the gallery for a signed grant naming
-`collab.space`, presents it when it joins, and the relay verifies the signature
-before it puts the peer in a room. Until then:
+The sequence, when the relay is run with `TIER_GRANT_SECRET`:
 
-- on loopback it is a local, single-machine feature;
-- on a LAN or a host with `--token` it is as private as that token is;
-- it should not face the open internet.
+1. The editor asks the gallery for a grant naming `collab.space`
+   (`src/collab/collabGrant.js`). This is the same call every AI action makes,
+   and for this key it spends nothing: `collab.space` is unmetered.
+2. It presents the grant in its `hello`.
+3. The relay verifies the HMAC signature against the shared secret, checks the
+   expiry, checks the grant names `collab.space` and not some other feature, and
+   checks it has not already admitted that grant's `jti` (`collab_grant.py`).
+   Only then does the peer go into a room.
+
+`collab_grant.py` is a port of `api/_lib/grant.js` — the same format, the same
+checks, in the language the relay is written in.
+`tests/collabRelayGrant.test.js` signs tokens in Node and runs them through both
+verifiers, asserting they agree, so the two cannot drift apart quietly.
+
+Four things about this are worth knowing before relying on it:
+
+- **A grant is a ticket at the door, not a subscription check on a timer.** It is
+  verified when a peer joins and never again. Re-checking mid-session would mean
+  throwing a paying artist out of a live room the moment a five-minute token
+  aged out, which is worse than what it would prevent. A peer stays until its
+  socket closes.
+- **One grant admits one peer.** The relay remembers each grant's `jti` for ten
+  minutes, so a token pasted into a second browser is refused. This is also why
+  the editor asks for a fresh grant before *every* hello, the reconnect's
+  included — a cached one would come back as a replay.
+- **Every refusal says the same thing.** Wrong signature, expired, wrong feature
+  and malformed all answer `grant_invalid`; only the log says which. That
+  follows `grant.js`: telling someone which check their forged token failed is
+  free help with the next one. A hello carrying no grant at all is the exception
+  — `grant_required` — because it is nearly always an honest mismatch (an editor
+  that could not reach the gallery, or one pointed at a relay it did not know was
+  gated) and the remedy is different.
+- **The gallery has to be able to issue one.** The relay verifies grants; it does
+  not mint them. Until `collab.space` exists in the gallery's catalogue and its
+  grant endpoint will sign for it, a gated relay will refuse everyone — correctly,
+  and unhelpfully. See the next section for the order to do it in.
 
 ## Where the tier catalogue has to change too
 

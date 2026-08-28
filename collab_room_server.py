@@ -15,31 +15,46 @@ server with an opinion:
   - It keeps no state worth losing. Restarting it drops every room; the editors
     reconnect and re-adopt. That is the intended failure mode.
 
-## What it can and cannot enforce
+## What it enforces
 
 The editor gates the collab space on the `collab.space` entitlement
 (src/collab/collabGate.js), but that is a licence check in a browser the
-visitor controls. The enforceable boundary is here, and today this relay can
-only check a shared room token: it has no way to verify a gallery-signed grant
-because it has no share of the gallery's signing secret. So:
+visitor controls. The enforceable boundary is here, and there are three ways to
+run it, in ascending order of what they can prove about whoever just connected:
 
-  - Run it on loopback (the default) and it is a local, single-machine feature.
-  - Run it on a LAN or a host with `--token` and it is as private as that token.
-  - It is NOT yet a multi-tenant service, and docs/collab-space.md says so.
+  - **Loopback, no secrets** (the default). A local, single-machine feature.
+    Anyone who can reach the port is in.
+  - **`--token`**. As private as that shared token is. It says the peer was
+    told the token; it says nothing about who they are or what they pay for.
+  - **`--grant-secret`** (or `TIER_GRANT_SECRET`). Every peer must present a
+    grant the gallery signed, naming `collab.space` and not yet expired. This
+    is the one that can face the internet: the secret is shared with the
+    gallery, never with the editor, so a browser cannot mint one for itself.
+    See collab_grant.py, which is the Python half of api/_lib/grant.js.
 
-Verifying a signed grant the way api/_lib/grant.js does is the step that turns
-this into something that can face the internet.
+A token and a grant secret can be set together; the grant is checked after the
+token. Without `--grant-secret` the relay carries whoever arrives, so do not
+put that configuration on a public address.
 """
 
 import argparse
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from typing import Dict, List, Optional, Set
 
 from aiohttp import WSMsgType, web
+
+from collab_grant import (
+    COLLAB_FEATURE,
+    REFUSED_INVALID,
+    REFUSED_REQUIRED,
+    GrantReplayGuard,
+    check_admission,
+)
 
 logger = logging.getLogger('collab_room')
 
@@ -64,7 +79,8 @@ ROOM_NAME_LIMIT = 64
 class Peer:
     """One editor's connection."""
 
-    def __init__(self, ws: web.WebSocketResponse, room: str, name: str):
+    def __init__(self, ws: web.WebSocketResponse, room: str, name: str,
+                 grant: Optional[dict] = None):
         self.ws = ws
         self.room = room
         self.name = name[:NAME_LIMIT] or 'Artist'
@@ -72,6 +88,10 @@ class Peer:
         self.joined_at = time.time()
         self.queue: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_LIMIT)
         self.dropped = 0
+        # What the gallery said about this peer, when a grant was required. It
+        # is kept for the operator's log and never sent to the room: the other
+        # artists are entitled to a name and a pointer, not to someone's tier.
+        self.grant = grant or None
 
     def describe(self) -> dict:
         return {'peerId': self.peer_id, 'name': self.name, 'joinedAt': self.joined_at}
@@ -86,11 +106,15 @@ class CollabRoomServer:
         port: int = DEFAULT_PORT,
         token: Optional[str] = None,
         room_limit: int = DEFAULT_ROOM_LIMIT,
+        grant_secret: Optional[str] = None,
     ):
         self.host = host
         self.port = port
         self.token = token
         self.room_limit = room_limit
+        self.grant_secret = grant_secret
+        self.replay_guard = GrantReplayGuard()
+        self.refused_count = 0
 
         self.app = web.Application()
         self.runner: Optional[web.AppRunner] = None
@@ -184,9 +208,7 @@ class CollabRoomServer:
         await ws.prepare(request)
 
         if self.token and request.query.get('token') != self.token:
-            await ws.send_json({'t': 'error', 'code': 'bad_token',
-                                'message': 'This relay needs the room token.'})
-            await ws.close()
+            await self._refuse(ws, 'bad_token', 'This relay needs the room token.')
             return ws
 
         peer: Optional[Peer] = None
@@ -220,23 +242,58 @@ class CollabRoomServer:
 
         return ws
 
+    async def _refuse(self, ws: web.WebSocketResponse, code: str, message: str) -> None:
+        """Say no in words the panel can show, then hang up."""
+        self.refused_count += 1
+        await ws.send_json({'t': 'error', 'code': code, 'message': message})
+        await ws.close()
+
+    def _check_grant(self, data: dict):
+        """
+        Decide whether this hello may enter a room, and log why not.
+
+        The decision itself is collab_grant.check_admission — kept there so it
+        can be tested without a socket. This adds the one thing a relay owes an
+        operator that a pure function cannot: a line in the log saying which
+        check actually failed, since the peer is deliberately not told.
+        """
+        payload, code, reason = check_admission(
+            data.get('grant'), self.grant_secret, self.replay_guard
+        )
+        if code:
+            logger.warning('Refused a peer: %s.', reason or code)
+        return payload, code
+
     async def _join(self, ws: web.WebSocketResponse, data: dict) -> Optional[Peer]:
         room = str(data.get('room') or '')[:ROOM_NAME_LIMIT].strip()
         if not room:
-            await ws.send_json({'t': 'error', 'code': 'no_room',
-                                'message': 'A collab session needs a room name.'})
-            await ws.close()
+            await self._refuse(ws, 'no_room', 'A collab session needs a room name.')
+            return None
+
+        # Entitlement before capacity, deliberately. Checking the room's size
+        # first would cost one fewer grant on a full room, and would also let
+        # anyone with a socket probe which room names are occupied without ever
+        # proving they are entitled to be here.
+        grant, refusal = self._check_grant(data)
+        if refusal == REFUSED_REQUIRED:
+            await self._refuse(ws, REFUSED_REQUIRED,
+                               'This relay only admits accounts the gallery vouches for, and the '
+                               'editor did not present a pass. Sign in to the gallery and try again.')
+            return None
+        if refusal:
+            await self._refuse(ws, REFUSED_INVALID,
+                               'The gallery pass this editor presented was not accepted. Sign in '
+                               'again, then rejoin.')
             return None
 
         occupants = self.rooms.setdefault(room, [])
         if len(occupants) >= self.room_limit:
-            await ws.send_json({'t': 'error', 'code': 'room_full',
-                                'message': f'That room already has {self.room_limit} artists in it.'})
-            await ws.close()
+            await self._refuse(ws, 'room_full',
+                               f'That room already has {self.room_limit} artists in it.')
             return None
 
         identity = data.get('identity') or {}
-        peer = Peer(ws, room, str(identity.get('name') or 'Artist'))
+        peer = Peer(ws, room, str(identity.get('name') or 'Artist'), grant=grant)
         founder = len(occupants) == 0
         occupants.append(peer)
 
@@ -303,7 +360,15 @@ class CollabRoomServer:
     # ------------------------------------------------------------------
 
     async def handle_health(self, _request: web.Request) -> web.Response:
-        return web.json_response({'status': 'ok', 'rooms': len(self.rooms)})
+        return web.json_response({
+            'status': 'ok',
+            'rooms': len(self.rooms),
+            # Advertised so an operator (or a panel showing a relay's address)
+            # can tell a gated relay from an open one without trying to join.
+            # It is a description, not a secret: what it protects is the
+            # signing key, which never leaves the server.
+            'grantRequired': bool(self.grant_secret),
+        })
 
     async def handle_stats(self, _request: web.Request) -> web.Response:
         return web.json_response({
@@ -311,7 +376,9 @@ class CollabRoomServer:
             'rooms': {name: len(peers) for name, peers in self.rooms.items()},
             'messages': self.message_count,
             'dropped': self.dropped_count,
+            'refused': self.refused_count,
             'tokenRequired': bool(self.token),
+            'grantRequired': bool(self.grant_secret),
         })
 
 
@@ -328,7 +395,7 @@ def get_server(**kwargs) -> CollabRoomServer:
 
 async def _run(args):
     server = get_server(host=args.host, port=args.port, token=args.token,
-                        room_limit=args.room_limit)
+                        room_limit=args.room_limit, grant_secret=args.grant_secret)
     await server.start()
     try:
         while True:
@@ -344,11 +411,26 @@ def main():
     parser.add_argument('--token', default=None,
                         help='Shared secret every peer must present as ?token=')
     parser.add_argument('--room-limit', type=int, default=DEFAULT_ROOM_LIMIT)
+    parser.add_argument('--grant-secret', default=os.environ.get('TIER_GRANT_SECRET'),
+                        help='The gallery\'s grant-signing secret. When set, every peer must '
+                             'present a signed grant naming ' + COLLAB_FEATURE + '. Defaults to '
+                             '$TIER_GRANT_SECRET; prefer the environment over the command line, '
+                             'which other processes can read.')
     parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format='%(asctime)s %(levelname)s %(message)s')
+
+    if args.grant_secret:
+        logger.info('Admitting only peers with a gallery-signed %s grant.', COLLAB_FEATURE)
+    elif args.host not in ('127.0.0.1', 'localhost', '::1'):
+        # Not fatal — a LAN relay behind a shared token is a legitimate way to
+        # run this — but an unauthenticated relay on a routable address is
+        # worth one loud line in the log rather than a silent surprise.
+        logger.warning('Listening on %s with no grant secret: anyone who can reach this port '
+                       'can join a room.%s', args.host,
+                       '' if args.token else ' Not even a room token is set.')
     try:
         asyncio.run(_run(args))
     except KeyboardInterrupt:
