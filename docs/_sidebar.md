@@ -13,6 +13,7 @@
   * [Working with Textures](textures.md)
   * [Compute Nodes](compute-nodes.md)
   * [3D Field Visualization](field-visualization.md)
+  * [Multi-Screen Output](multi-screen.md)
 
 * Animation & Control
   * [Parameter Expressions](parameter-expressions.md)

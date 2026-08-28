@@ -41,7 +41,7 @@ render resolution set in **View → Preview / Export Settings**), Backups, Exit
 **View** - Panels (Toggle ParamPanel, Toggle Preview Panel, Toggle 3D
 Viewport), Zoom (Zoom In, Zoom Out, Reset Zoom), Grid (Show Grid, Snap to
 Grid, Grid Size), Preview / Export Settings, Show Console, Timeline,
-VJ Control, Second Monitor Viewer
+VJ Control, Open / Close Output, Output Screens…
 
 **Node** - Create Node…, Delete Node, Duplicate Node, Pins (Connect Pins,
 Disconnect Pins), Node Settings / Params…

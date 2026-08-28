@@ -43,6 +43,26 @@
 // #second-monitor-map, which covers the whole display and shows the frame
 // corner-pinned onto the projector's physical surfaces.
 //
+// SCREEN FRAMING sits before all of it. In a multi-screen rig this window is one
+// SCREEN, and a screen shows a REGION — a crop of the composition (see
+// screenRegion.js). Mirroring is the full region and is what a lone output
+// window has; a wall of three projectors is three windows on three thirds.
+//
+// The crop is applied at PRESENT time, not by rendering something different:
+// this window still renders the whole composition (so its shader, its compute
+// resolutions and its feedback sims stay identical to the editor's and to its
+// neighbours'), and then shows only its part of the result. On the native path
+// that goes through the mapping compositor, whose surfaces already sample the
+// composition through a src quad — the region is exactly such a quad, so a
+// cropped screen composites through the same pass a mapped one does, and a
+// screen that is both crops first and maps inside the crop. On the pixel
+// fallback the crop is a source rect on the blit.
+//
+// This window learns which screen it is from its URL (`?screen=<id>`), so it
+// knows its identity before the first message. Messages addressed to another
+// screen are ignored; the composition-wide state stream is not addressed at all
+// and every screen in the rig re-renders from the same broadcast.
+//
 // Keyboard: Esc closes the window; F (or double-click) toggles native
 // fullscreen. Tauri APIs are loaded via guarded dynamic import so this module
 // stays inert if ever opened outside the desktop app.
@@ -52,9 +72,18 @@ import { isTauri } from '../utils/isTauri.js';
 import { GPURenderer } from '../gpu/gpuRenderer.js';
 import { requestDeviceWithTextureLimits } from '../gpu/deviceLimits.js';
 import {
+  FULL_REGION,
+  sanitizeRegion,
+  isFullRegion,
+  regionAspect,
+  composeMappingWithRegion,
+} from '../screens/screenRegion.js';
+import {
   SecondMonitorMessage as MSG,
   SecondMonitorTier as TIER,
   openSecondMonitorChannel,
+  screenIdFromUrl,
+  isForScreen,
 } from './secondMonitorFrameChannel.js';
 
 /** Default native-renderer factory: a window-local WebGPU device + GPURenderer. */
@@ -129,6 +158,17 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   const createMappingCompositor = typeof opts.createMappingCompositor === 'function'
     ? opts.createMappingCompositor : null;
 
+  // Which screen in the rig this window is. Fixed for the life of the page: it
+  // comes from the URL the editor opened us with, so addressing works before any
+  // message arrives. A page opened without one is the single-output screen.
+  const screenId = (typeof opts.screenId === 'string' && opts.screenId)
+    ? opts.screenId
+    : screenIdFromUrl(win.location);
+
+  // The crop of the composition this screen shows. Full until the editor says
+  // otherwise, so a screen never starts by hiding most of the picture.
+  let region = { ...FULL_REGION };
+
   let tier = TIER.FALLBACK;     // start safe: show pixels until told to go native
   let renderer = null;          // window-local GPURenderer (native path)
   let rendererPromise = null;   // in-flight creation
@@ -155,6 +195,10 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   // preview can reshape, rescale, or rebuild this window. MATCH_EDITOR (-1) is the
   // explicit opt-in that adopts the editor's dims for exact feedback-sim matching.
   const MATCH_EDITOR = -1;
+  // Ceiling on the render canvas's long edge. WebGPU's default
+  // maxTextureDimension2D is 8192, and the canvas has to be allocatable however
+  // steeply a screen is cropped.
+  const MAX_RENDER_EDGE = 8192;
   let computeMaxDim = 0;
   // Long edge (device px) of the surface we present on; 0 = this display's own
   // resolution. Independent of what we RENDER, which the editor pins to its
@@ -175,6 +219,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let mappingCompositor = null;
   let mappingRuntimePromise = null;
   let pendingMapping = null;      // snapshot seen before the runtime existed
+  let editorMapping = null;       // the editor's mapping AS SENT (uncomposed with our region)
   let mappingShown = false;       // whether the warp surface is currently presented
   let masterOpacity = 1;          // latest level from the editor's master fader
 
@@ -248,7 +293,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
 
   function requestPixelFallback() {
     tier = TIER.FALLBACK;
-    try { channel?.postMessage({ type: MSG.NEED_FALLBACK }); } catch { /* ignore */ }
+    try { channel?.postMessage({ type: MSG.NEED_FALLBACK, screenId }); } catch { /* ignore */ }
   }
 
   function applyShader(wgsl) {
@@ -608,6 +653,10 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (next === TIER.NATIVE || next === TIER.NATIVE_COMPUTE) ensureRenderer();
     if (next === TIER.NATIVE_COMPUTE) ensureComputeRuntime();
     if (leavingCompute) clearComputeRuntime();
+    // The two paths crop in different places (compositor vs. blit), so which
+    // mapping this window should warp through changes with the tier.
+    refreshMapping();
+    updatePresentationOpacity();
   }
 
   /**
@@ -633,7 +682,13 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
    * still uploads the render at full brightness and the fade stays honest.
    */
   function updatePresentationOpacity() {
-    const behind = mappingShown ? '0' : String(masterOpacity);
+    // A CROPPED screen on the native path is only correct once the compositor is
+    // warping it: the render canvas behind holds the whole composition squeezed
+    // into the crop's box, which is the wrong picture. Hold it dark until the
+    // warp is up rather than flash that onto a projector. (The pixel fallback
+    // crops in its own blit, so it is right without the compositor.)
+    const cropPending = tier !== TIER.FALLBACK && !isFullRegion(region) && !mappingShown;
+    const behind = (mappingShown || cropPending) ? '0' : String(masterOpacity);
     [gpuCanvas, fbCanvas].forEach(canvas => {
       if (canvas && canvas.style) canvas.style.opacity = behind;
     });
@@ -644,6 +699,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   function onMessage(e) {
     const d = e?.data;
     if (!d) return;
+    // Addressed messages belong to one screen in the rig; the state stream is
+    // unaddressed and every screen consumes it.
+    if (!isForScreen(d, screenId)) return;
     switch (d.type) {
       case MSG.SHADER:
         if (tier === TIER.FALLBACK) tier = TIER.NATIVE; // promote; CAPS refines the tier
@@ -703,6 +761,15 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       case MSG.RENDER_RES:
         setComputeMaxDim(d.maxDim);
         setDisplayMaxDim(d.displayMaxDim);
+        break;
+      case MSG.SCREEN_CONFIG:
+        setRegion(d.region);
+        if (d.displayMaxDim !== undefined) setDisplayMaxDim(d.displayMaxDim);
+        // Name the window after the screen, so an operator alt-tabbing through a
+        // rig of five can tell which projector they are looking at.
+        if (d.name && doc && typeof doc.title === 'string') {
+          try { doc.title = `Rhizomium — ${d.name}`; } catch { /* ignore */ }
+        }
         break;
       case MSG.FEEDBACK_RESET:
         // A Feedback node was reset in the editor (panel button / Reset pin). Our
@@ -768,11 +835,40 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   // sampled output would stretch. Compute textures are now capped along their
   // long edge, preserving shape, so the two agree and the editor's is the one to
   // trust. In the legacy display-shaped modes there is nothing to letterbox to.
-  function effectiveAspect() {
-    if (!isMatchEditor()) return 0; // fill the display
+  function compositionAspect() {
     if (editorAspect > 0) return editorAspect;
     if (tier === TIER.NATIVE_COMPUTE && computeAspect > 0) return computeAspect;
     return 0;
+  }
+
+  function effectiveAspect() {
+    // A CROPPED screen is letterboxed to what it shows in every mode. Filling the
+    // display with a third of a composition would stretch it, and a rig only
+    // lines up if each projector frames its own tile the same way — so framing
+    // stops being optional the moment a screen is showing part of a wall.
+    if (!isMatchEditor() && isFullRegion(region)) return 0; // fill the display
+    return regionAspect(compositionAspect(), region);
+  }
+
+  /**
+   * Adopt this screen's crop of the composition.
+   *
+   * Resizing follows because the canvas has to hold the WHOLE composition at
+   * enough resolution for the crop to land sharp; the mapping is recomposed
+   * because that is what actually applies the crop on the native path.
+   */
+  function setRegion(next) {
+    const r = sanitizeRegion(next);
+    if (r.x === region.x && r.y === region.y && r.w === region.w && r.h === region.h) return;
+    region = r;
+    if (!isFullRegion(region)) ensureMappingRuntime();
+    sizeGpuCanvas();
+    refreshMapping();
+    // The warp only starts covering the display on the next frame, so stand the
+    // render canvas down now rather than showing a squeezed composition until
+    // then (see updatePresentationOpacity).
+    updatePresentationOpacity();
+    reportSize();
   }
 
   function sizeGpuCanvas() {
@@ -789,13 +885,28 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       const rect = letterboxRect(a, 1, cssW, cssH);
       if (rect.dw > 0 && rect.dh > 0) { elW = rect.dw; elH = rect.dh; left = rect.dx; top = rect.dy; }
     }
-    // The element keeps its letterboxed CSS box (so the output still fills the
-    // display's usable area); only the pixels behind it are capped.
-    const fullW = Math.max(1, Math.round(elW * dpr));
-    const fullH = Math.max(1, Math.round(elH * dpr));
-    const scale = displayScaleFor(fullW, fullH);
-    const bw = Math.max(1, Math.round(fullW * scale));
-    const bh = Math.max(1, Math.round(fullH * scale));
+    // The element keeps its letterboxed CSS box — the rect this screen's picture
+    // occupies on the display, and so the output space its mapping is measured
+    // in; only the pixels behind it are capped.
+    const presentW = Math.max(1, Math.round(elW * dpr));
+    const presentH = Math.max(1, Math.round(elH * dpr));
+    const scale = displayScaleFor(presentW, presentH);
+    // The canvas holds the WHOLE composition even when this screen shows a crop
+    // of it, so it is sized by dividing the presented pixels back out by the
+    // region. A third of a composition presented on a 1920-wide projector needs a
+    // 5760-wide render behind it, or the crop is a 3x upscale of a 1920 frame —
+    // which is exactly the softness a projector wall shows up.
+    let bw = Math.max(1, Math.round((presentW * scale) / region.w));
+    let bh = Math.max(1, Math.round((presentH * scale) / region.h));
+    // A steep crop can ask for more than the GPU will allocate. Scale the pair
+    // down together rather than clamping each: the composition's shape is what
+    // the shader's resolution uniform is derived from, and squashing it would
+    // change the picture, not just its sharpness.
+    const over = Math.max(bw, bh) / MAX_RENDER_EDGE;
+    if (over > 1) {
+      bw = Math.max(1, Math.round(bw / over));
+      bh = Math.max(1, Math.round(bh / over));
+    }
     if (gpuCanvas.width !== bw) gpuCanvas.width = bw;
     if (gpuCanvas.height !== bh) gpuCanvas.height = bh;
     gpuCanvas.style.width = elW + 'px';
@@ -826,6 +937,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     try {
       channel?.postMessage({
         type: MSG.RESIZE,
+        screenId,
         width: (gpuCanvas || fbCanvas)?.width || 0,
         height: (gpuCanvas || fbCanvas)?.height || 0,
         dpr: win.devicePixelRatio || 1,
@@ -929,15 +1041,24 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         : new compositorMod.MappingCompositor(mapCanvas);
       if (!mappingCompositor || !mappingCompositor.isReady()) {
         // No WebGL2 here: keep presenting the render unmapped rather than
-        // blacking out the projector.
+        // blacking out the projector. A cropped screen loses its crop with it and
+        // shows the whole composition — a wrong-looking wall an operator can see
+        // and work around, where a black projector says nothing.
         mappingCompositor = null;
         mappingModel = null;
+        if (!isFullRegion(region)) {
+          console.warn('[secondMonitorReceiver] no WebGL2: screen framing unavailable, mirroring instead');
+          region = { ...FULL_REGION };
+          sizeGpuCanvas();
+        }
+        updatePresentationOpacity();
         return;
       }
       if (pendingMapping) {
         mappingModel.deserialize(pendingMapping);
         pendingMapping = null;
       }
+      updatePresentationOpacity();
     }).catch(() => {
       mappingModel = null;
       mappingCompositor = null;
@@ -949,15 +1070,41 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   // warp surface must be off until a mapping is both present and switched on.
   if (mapCanvas && mapCanvas.style) mapCanvas.style.display = 'none';
 
-  /** Adopt a mapping snapshot from the editor (streams during a corner drag). */
+  /**
+   * Adopt a mapping snapshot from the editor (streams during a corner drag).
+   *
+   * The mapping is composition-wide — every screen in the rig gets the same one —
+   * so what is held here is the editor's snapshot AS SENT, and this screen's own
+   * crop is folded in on the way to the compositor (see refreshMapping).
+   */
   function applyMapping(snapshot) {
     if (!mapCanvas) return;
+    editorMapping = snapshot || null;
+    refreshMapping();
+  }
+
+  /**
+   * Push the mapping this window should actually warp through: the editor's
+   * surfaces re-expressed inside this screen's crop, or — when nothing is mapped
+   * but the screen IS cropped — the single surface that is the crop.
+   *
+   * On the pixel-fallback path the crop is already applied by the blit, so the
+   * editor's surfaces are used unchanged; folding the region in as well would
+   * crop it twice.
+   */
+  function refreshMapping() {
+    if (!mapCanvas) return;
+    const composed = (tier === TIER.FALLBACK)
+      ? (editorMapping && editorMapping.enabled ? editorMapping : null)
+      : composeMappingWithRegion(editorMapping, region);
     if (!mappingModel) {
-      pendingMapping = snapshot || null;
-      ensureMappingRuntime();
+      pendingMapping = composed;
+      // Only stand the runtime up when there is something to warp. A plain
+      // mirrored screen that never maps anything still pays nothing for it.
+      if (composed) ensureMappingRuntime();
       return;
     }
-    mappingModel.deserialize(snapshot || { enabled: false, surfaces: [] });
+    mappingModel.deserialize(composed || { enabled: false, surfaces: [] });
   }
 
   /** @returns {boolean} whether frames should be warped before presenting. */
@@ -1122,9 +1269,17 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     fbCtx.fillStyle = '#000';
     fbCtx.fillRect(0, 0, cw, ch);
     if (latest) {
-      const { dx, dy, dw, dh } = letterboxRect(latestW, latestH, cw, ch);
+      // The mirrored bitmap is the whole composition; a cropped screen shows its
+      // own part of it. Taking that as a SOURCE rect on the blit is both the crop
+      // and the scale in one call — no second surface, and no compositor needed
+      // on a path that is already the degraded one.
+      const sx = Math.round(latestW * region.x);
+      const sy = Math.round(latestH * region.y);
+      const sw = Math.max(1, Math.round(latestW * region.w));
+      const sh = Math.max(1, Math.round(latestH * region.h));
+      const { dx, dy, dw, dh } = letterboxRect(sw, sh, cw, ch);
       if (dw > 0 && dh > 0) {
-        try { fbCtx.drawImage(latest, dx, dy, dw, dh); } catch { /* skip frame */ }
+        try { fbCtx.drawImage(latest, sx, sy, sw, sh, dx, dy, dw, dh); } catch { /* skip frame */ }
       }
     }
   }
@@ -1289,7 +1444,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   });
   win.addEventListener('dblclick', () => toggleFullscreen());
   win.addEventListener('beforeunload', () => {
-    try { channel?.postMessage({ type: MSG.CLOSED }); } catch { /* ignore */ }
+    try { channel?.postMessage({ type: MSG.CLOSED, screenId }); } catch { /* ignore */ }
   });
 
   async function tauriWindow() {
@@ -1319,7 +1474,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     closing = true;
     clearComputeRuntime();
     try { win.textureManager?.destroy?.(); } catch { /* ignore */ }
-    try { channel?.postMessage({ type: MSG.CLOSED }); } catch { /* ignore */ }
+    try { channel?.postMessage({ type: MSG.CLOSED, screenId }); } catch { /* ignore */ }
     if (rafId != null) { try { win.cancelAnimationFrame(rafId); } catch { /* ignore */ } }
     const w = await tauriWindow();
     if (w) { try { await w.close(); return; } catch { /* fall through */ } }
@@ -1330,8 +1485,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   // editor can pick the right path from the start.
   if (channel) {
     const webgpu = !!gpuCanvas && typeof navigator !== 'undefined' && !!navigator.gpu;
-    try { channel.postMessage({ type: MSG.READY, webgpu }); } catch { /* ignore */ }
-    if (!webgpu) { try { channel.postMessage({ type: MSG.NEED_FALLBACK }); } catch { /* ignore */ } }
+    try { channel.postMessage({ type: MSG.READY, screenId, webgpu }); } catch { /* ignore */ }
+    if (!webgpu) { try { channel.postMessage({ type: MSG.NEED_FALLBACK, screenId }); } catch { /* ignore */ } }
   }
   reportSize();
 
@@ -1346,6 +1501,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     get latestSize() { return { width: latestW, height: latestH }; },
     get computeMaxDim() { return computeMaxDim; },
     get displayMaxDim() { return displayMaxDim; },
+    get screenId() { return screenId; },
+    get region() { return { ...region }; },
     setComputeMaxDim,
     setDisplayMaxDim,
     get mappingModel() { return mappingModel; },

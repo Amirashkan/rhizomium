@@ -488,6 +488,19 @@ ungated. Wiring the check means existing users on a lower tier lose it.
 viewer is never gated, so a tier that lapses mid-show cannot strand a window on
 a projector.
 
+The entitlement now covers what its description promised — "drives several
+displays from one patch, with per-screen framing" — rather than a single output
+window. See `docs/multi-screen.md`. There are two gates rather than one now, and
+both fail the same way:
+
+- `main.js`, the `btn-second-monitor` handler: taking the rig live.
+- `ScreensPanel`, via its `canUseMultiScreen` option: adding a SECOND screen, or
+  applying a layout that needs more than one. A single output screen is never
+  refused there, so a lower tier keeps exactly what it had before.
+
+Neither gate touches an open window. Reframing, closing, and switching a screen
+off all run ungated, for the same reason closing does.
+
 ### The desktop app is a cross-origin client, and the gallery has to know it
 
 Everything above assumes the editor and the gallery are two origins that
