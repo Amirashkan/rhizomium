@@ -162,9 +162,15 @@ export const SHORTCUT_SECTIONS = [
       },
       {
         id: "btn-second-monitor",
-        label: "Second Monitor Viewer",
+        label: "Open / Close Output",
         keys: "Mod+Shift+2",
-        note: "Desktop / Vite build only.",
+        note: "Turns on every screen in the rig. Desktop / Vite build only.",
+      },
+      {
+        id: "btn-output-screens",
+        label: "Output Screens…",
+        keys: "Mod+Shift+3",
+        note: "Lay the patch out across several displays. Desktop / Vite build only.",
       },
       {
         label: "Frame selected nodes",

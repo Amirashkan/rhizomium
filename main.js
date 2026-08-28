@@ -9,7 +9,7 @@ import { FileManager } from "./src/ui/FileManager.js";
 import { getAIPanel } from "./src/ui/AIPanel.js";
 import { showAccountDialog } from "./src/ui/accountSession.js";
 import { entitlements } from "./src/ai/entitlements.js";
-import { requireOutputFeature } from "./src/ai/outputGating.js";
+import { requireOutputFeature, checkOutputFeature } from "./src/ai/outputGating.js";
 import { WelcomeWindow } from "./src/ui/WelcomeWindow.js";
 import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
@@ -33,6 +33,9 @@ import { OSCParameterBinding } from './src/osc/OSCParameterBinding.js';
 import { getOSCSettingsPanel } from './src/ui/OSCSettingsPanel.js';
 import { MappingModel } from './src/mapping/MappingModel.js';
 import { getMappingPanel } from './src/ui/MappingPanel.js';
+import { ScreenModel, MAIN_SCREEN_ID } from './src/screens/ScreenModel.js';
+import { getScreensPanel } from './src/ui/ScreensPanel.js';
+import { getOutputAspect } from './src/ui/OutputFormat.js';
 import { getShaderCompilerWindow } from './src/ui/ShaderCompilerWindow.js';
 import { findProjectionMapNode, syncMappingToNode } from './src/mapping/projectionMapNode.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
@@ -167,6 +170,12 @@ let floatingPreview = null;
 let statusBar = null;
 let fpsMeter = null;
 let secondMonitorViewer = null;
+// The output rig: which displays this patch is thrown onto, and what each of
+// them shows. The model is the single source of truth — the screens panel edits
+// it, the project file carries it, and the output bridge opens and closes
+// windows to match it.
+let screenModel = null;
+let screensPanel = null;
 let previewExportSettingsWindow = null;
 let preferencesWindow = null;
 let renderLoopController = null;
@@ -576,8 +585,32 @@ async function initialize() {
           renderer: window.gpuRenderer,
           onStatus: (message, kind) => updateStatus(message, kind),
           onActiveChange: (active) => setSecondMonitorButtonState(active),
+          // A projector shut down from its own window (Esc) is the artist saying
+          // "not this one" — record it, or the next region nudge reopens it.
+          onScreenSelfClosed: (screenId) => screenModel?.update(screenId, { enabled: false }),
         });
         window.secondMonitorViewer = secondMonitorViewer;
+
+        // Multi-screen output. The rig is a document: the panel edits it, the
+        // project file carries it, and every change here is pushed straight to
+        // the open windows — a region nudged during setup moves on the projector
+        // while the artist is still looking at the wall.
+        screenModel = new ScreenModel();
+        window.screenModel = screenModel;
+        editor.screenModel = screenModel;
+        screenModel.onChange((model) => {
+          secondMonitorViewer.syncScreens(model.enabledScreens());
+          syncOutputMenuToScreens();
+        });
+
+        screensPanel = getScreensPanel(screenModel, {
+          onStatus: (message, kind) => updateStatus(message, kind),
+          // Closing or reframing what is already open is never gated — a tier
+          // that lapsed mid-show must not strand a projector.
+          canUseMultiScreen: () => checkOutputFeature("output.multiscreen").allowed,
+          getCompositionAspect: () => getOutputAspect(),
+        });
+        window.screensPanel = screensPanel;
       }
 
       // Projection mapping — corner-pin the rendered output onto the physical
@@ -1589,14 +1622,40 @@ function setupUIEventHandlers() {
       }
 
       try {
-        await secondMonitorViewer.toggle();
+        // This is the rig's master switch: it turns on every screen the artist
+        // has laid out, not just one window. Going through the model rather than
+        // the viewer keeps one source of truth — the panel, the project file and
+        // the open windows can never disagree about what the rig is.
+        if (screenModel) {
+          const screens = screenModel.list();
+          if (!screens.length) {
+            screenModel.ensureMain();
+          } else {
+            const turningOff = screenModel.enabledScreens().length > 0;
+            for (const screen of screens) {
+              screenModel.update(screen.id, { enabled: !turningOff });
+            }
+          }
+        } else {
+          await secondMonitorViewer.toggle();
+        }
       } catch (error) {
-        console.error('[main.js] Error toggling second-monitor viewer:', error);
+        console.error('[main.js] Error toggling the output screens:', error);
         if (typeof updateStatus === "function") {
-          updateStatus("Second-monitor viewer error: " + error.message, "error");
+          updateStatus("Output screen error: " + error.message, "error");
         }
       }
     });
+
+    // The screens panel: lay the patch out across a rig of displays.
+    const outputScreensBtn = removeExistingHandlers("btn-output-screens");
+    if (outputScreensBtn && screensPanel) {
+      outputScreensBtn.style.removeProperty("display");
+      outputScreensBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        screensPanel.toggle();
+      });
+    }
 
     // Display-size control for the second viewer. The viewer always RENDERS the
     // output format - same framing, same sim resolution as the editor - and this
@@ -1612,7 +1671,10 @@ function setupUIEventHandlers() {
       secondMonitorDisplayRow.style.removeProperty("display");
 
       const presets = new Set(["0", "1280", "1920", "2560", "3840"]);
-      const current = secondMonitorViewer.displayMaxDim;
+      // Read through the model when there is one, so the menu shows what the rig
+      // says rather than only what happens to be open.
+      const current = screenModel?.get(MAIN_SCREEN_ID)?.displayMaxDim
+        ?? secondMonitorViewer.displayMaxDim;
       const isCustom = Number.isFinite(current) && current > 0 && !presets.has(String(current));
 
       if (Number.isFinite(current)) {
@@ -1629,21 +1691,32 @@ function setupUIEventHandlers() {
       };
       syncCustomRow();
 
+      // Setting it on the model rather than the viewer is what makes it stick:
+      // the rig carries the value into the project file and back out again,
+      // where the viewer only knows about windows that are open right now.
+      const setMainDisplayRes = (longEdge) => {
+        if (screenModel?.get(MAIN_SCREEN_ID)) {
+          screenModel.update(MAIN_SCREEN_ID, { displayMaxDim: longEdge });
+          return screenModel.get(MAIN_SCREEN_ID).displayMaxDim;
+        }
+        secondMonitorViewer.setDisplayResolution(longEdge);
+        return secondMonitorViewer.displayMaxDim;
+      };
+
       secondMonitorDisplaySel.addEventListener("change", (e) => {
         syncCustomRow();
         const raw = e.target.value === "custom"
           ? secondMonitorDisplayCustom?.value
           : e.target.value;
         const longEdge = parseInt(raw, 10);
-        if (Number.isFinite(longEdge)) secondMonitorViewer.setDisplayResolution(longEdge);
+        if (Number.isFinite(longEdge)) setMainDisplayRes(longEdge);
       });
 
       secondMonitorDisplayCustom?.addEventListener("change", (e) => {
         const longEdge = parseInt(e.target.value, 10);
         if (!Number.isFinite(longEdge)) return;
-        secondMonitorViewer.setDisplayResolution(longEdge);
-        // The viewer clamps; show what was actually applied.
-        e.target.value = String(secondMonitorViewer.displayMaxDim);
+        // The value is clamped on the way in; show what was actually applied.
+        e.target.value = String(setMainDisplayRes(longEdge));
       });
     }
   }
@@ -3532,15 +3605,34 @@ function updateStatus(message, type = "info") {
 }
 
 /**
- * Reflect the second-monitor viewer's active/inactive state on its menu button.
+ * Reflect the output rig's active/inactive state on its menu button.
+ *
+ * The button is the rig's master switch, so what it says has to say how many
+ * screens it is about to turn on: "Close Output (3 screens)" is the difference
+ * between an artist knowing their wall is live and finding out from the audience.
  * Safe to call when the button is absent (non-Vite builds) — it no-ops.
  */
 function setSecondMonitorButtonState(active) {
   const btn = document.getElementById("btn-second-monitor");
   if (!btn) return;
-  btn.textContent = active ? "Close Second Monitor" : "Second Monitor Viewer";
+  const count = screenModel ? screenModel.enabledScreens().length : (active ? 1 : 0);
+  const many = count > 1 ? ` (${count} screens)` : "";
+  btn.textContent = active ? `Close Output${many}` : `Open Output${many}`;
   btn.style.backgroundColor = active ? "rgba(0, 170, 0, 0.8)" : "";
   btn.style.borderColor = active ? "rgba(0, 255, 0, 0.4)" : "";
+}
+
+/**
+ * Keep the output menu in step with the rig after a model change.
+ *
+ * The windows open asynchronously, so the button's label is driven from what the
+ * rig SAYS should be on rather than waiting for the last projector to come up —
+ * otherwise the menu reads "Open Output" for a moment while the wall is already
+ * lighting up.
+ */
+function syncOutputMenuToScreens() {
+  if (!screenModel) return;
+  setSecondMonitorButtonState(screenModel.enabledScreens().length > 0);
 }
 
 function handleRenderFrame(frameState) {

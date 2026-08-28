@@ -259,6 +259,12 @@ exportProject(options = {}) {
       // Part of the artwork's staging, so it travels with the project.
       projectionMapping: this.exportProjectionMapping(),
 
+      // Output screens: which displays this patch is thrown onto and what each
+      // one shows. A studio rig is set up once against a physical room and
+      // reopened every show night, so it belongs in the file next to the mapping
+      // rather than being rebuilt from the menu each time.
+      outputScreens: this.exportOutputScreens(),
+
       // Editor state
       ...(includeViewport && {
         viewport: this.exportViewport(),
@@ -400,6 +406,16 @@ exportProjectionMapping() {
   return null;
 }
 
+/**
+ * Export the output screens — the rig this patch is thrown onto.
+ */
+exportOutputScreens() {
+  if (window.screenModel) {
+    return window.screenModel.serialize();
+  }
+  return null;
+}
+
 
 async importProject(projectData, options = {}) {
   try {
@@ -496,6 +512,11 @@ async importProject(projectData, options = {}) {
     // Restore projection mapping
     if (projectData.projectionMapping) {
       this.importProjectionMapping(projectData.projectionMapping);
+    }
+
+    // Restore the output screens
+    if (projectData.outputScreens) {
+      this.importOutputScreens(projectData.outputScreens);
     }
 
     // Restore previews if requested
@@ -2358,6 +2379,30 @@ importConnections(connectionData) {
 
       window.errorHandler?.handleError(error, {
         component: 'mapping-import'
+      });
+    }
+  }
+
+  /**
+   * Import the output screens.
+   *
+   * Loading a rig describes the screens; it never opens them. A project opened
+   * to be looked at on one machine must not throw windows onto whatever displays
+   * happen to be attached, so every loaded screen starts switched off and the
+   * output button is what takes the rig live.
+   */
+  importOutputScreens(screenData) {
+    try {
+      if (!window.screenModel) {
+
+        return;
+      }
+
+      window.screenModel.deserialize(screenData);
+    } catch (error) {
+
+      window.errorHandler?.handleError(error, {
+        component: 'screens-import'
       });
     }
   }

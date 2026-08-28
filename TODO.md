@@ -18,6 +18,7 @@ Last updated: 2026-07-27.
 - [x] Align versions: `package.json` → `0.9.0-beta.1`, `tauri.conf.json` → `0.9.0` (Windows MSI bundling rejects pre-release suffixes)
 - [ ] Deploy a Vercel preview and smoke-test in a WebGPU browser: landing page, `/studio` editor, second-monitor window, save/load, export, gallery share
 - [ ] Desktop (optional for beta): `npm run tauri:build` and sanity-check the bundle on at least one OS
+- [ ] Desktop, multi-screen: with two displays attached, lay out "2 across" in **View → Output Screens…**, open the rig, and check each window lands on its own display and shows its own half — the crop path is Tauri-only, so it cannot be exercised from a browser or from the test suite
 - [ ] Tag `v0.9.0-beta.1` and create a GitHub **pre-release** (attach Tauri bundles if built)
 - [ ] Publish known-issues list for beta testers (seed from this file + `DEFERRED_WORK.md`)
 - [ ] Set up a feedback channel (GitHub issue template for beta bugs)

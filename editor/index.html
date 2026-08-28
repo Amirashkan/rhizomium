@@ -34,6 +34,7 @@
     <link rel="stylesheet" href="../src/styles/timeline.css" />
     <link rel="stylesheet" href="../src/styles/ai-panel.css" />
     <link rel="stylesheet" href="../src/styles/mapping-panel.css" />
+    <link rel="stylesheet" href="../src/styles/screens-panel.css" />
     <link rel="stylesheet" href="../src/styles/shader-compiler.css" />
     <link rel="stylesheet" href="../src/vj/vj-control-panel.css" />
     <style>
@@ -340,7 +341,13 @@
           <!-- Second-monitor full-screen viewer. Hidden by default; revealed
                only in the Vite/desktop build (see main.js / isViteBuild.js). -->
           <div class="menu-separator" id="sep-second-monitor" style="display:none"></div>
-          <button id="btn-second-monitor" style="display:none">Second Monitor Viewer</button>
+          <!-- The rig's master switch: turns on every screen laid out in the
+               screens panel below. main.js rewrites the label with the count. -->
+          <button id="btn-second-monitor" style="display:none">Open Output</button>
+          <!-- Multi-screen output: lay a patch out across several displays, each
+               framed on its own part of the composition. Revealed alongside the
+               output button, in the Vite/desktop build only. -->
+          <button id="btn-output-screens" style="display:none">Output Screens…</button>
           <!-- The second viewer always RENDERS the output format, so its sims and
                framing match the editor exactly. This only sets how many pixels it
                presents with; the render is letterboxed into that surface.

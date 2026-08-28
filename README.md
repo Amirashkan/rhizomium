@@ -79,15 +79,25 @@ Pushing a `v*` tag builds them in CI and attaches them to a draft release
 > That is why Windows is the only platform bundled; `tauri:dev` still runs
 > anywhere. Details in [DESKTOP_APP.md](DESKTOP_APP.md).
 
-### Second-Monitor Viewer (Vite/desktop build only)
+### Multi-Screen Output (Vite/desktop build only)
 
-The Vite build (`npm run dev` and the Tauri desktop app) adds a **View → Second
-Monitor Viewer** entry. It opens a chrome-free black window on a second display
-and mirrors the live output there, letterboxed and centred — a pristine
-performance surface with no editor UI. The output paints on its own animation
+The Vite build (`npm run dev` and the Tauri desktop app) adds a **View → Open
+Output** entry. It opens chrome-free black windows on the displays the patch is
+thrown onto and renders the live output there, letterboxed and centred — a
+pristine performance surface with no editor UI. The output paints on its own animation
 frame, so it keeps running at the second display's refresh rate even when the
 editor window is occluded or minimised. Press **Esc** to close it, or **F** /
 double-click to toggle fullscreen.
+
+**View → Output Screens…** lays a rig out across several displays: a projector
+panorama, a video wall, or a stage where each surface shows its own slice. Every
+screen renders the same composition and shows its own **region** of it, with
+one-click layouts (2 across, 3 across, 2 × 2), an edge-blend overlap for
+projectors, and per-screen display and resolution. The composition's state is
+broadcast once for the whole rig, so a second and third screen cost the editor
+almost nothing. It is a **Cloude Plus** entitlement (`output.multiscreen`), and
+the rig saves with the project. Details in
+[docs/multi-screen.md](docs/multi-screen.md).
 
 There are two backends, chosen automatically at runtime:
 
@@ -127,6 +137,7 @@ second-monitor viewer is its full-screen surface.
 
 ## 📖 Documentation
 
+- **[docs/multi-screen.md](docs/multi-screen.md)** - Driving several displays from one patch, with per-screen framing
 - **[docs/web-viewer.md](docs/web-viewer.md)** - The web patch viewer, and the tier gate on it
 - **[docs/frame-rate.md](docs/frame-rate.md)** - **Frame rate & display refresh — read this if the fps readout is lower than your monitor's refresh rate**
 - **[QUICKSTART.md](QUICKSTART.md)** - Get started in 3 steps

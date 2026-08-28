@@ -67,7 +67,8 @@ is open.
 | `Ctrl+Alt+T` | Timeline | |
 | `Ctrl+Shift+V` | VJ Control | |
 | `Ctrl+Alt+P` | Compute Profiler | Per-frame GPU timing; costs performance while open |
-| `Ctrl+Shift+2` | Second Monitor Viewer | Desktop / Vite build only |
+| `Ctrl+Shift+2` | Open / Close Output | Turns on every screen in the rig. Desktop / Vite build only |
+| `Ctrl+Shift+3` | Output Screens… | Lay the patch out across several displays. Desktop / Vite build only |
 
 ## Node
 

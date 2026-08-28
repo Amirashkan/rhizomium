@@ -30,6 +30,20 @@
 // alone — a fragment storage buffer (3D path) — revert to the pixel FRAME tap
 // (GPURenderer.setFrameTap) so the second monitor never shows broken output.
 //
+// MULTI-SCREEN. One editor drives a whole rig of these windows — a studio's
+// projectors or wall panels — and the cost of the second and third is close to
+// nothing, because they all render the SAME composition. The state stream above
+// is broadcast ONCE over one shared channel no matter how many screens are open;
+// each receiver re-renders it and shows its own crop of the result. What is per
+// screen is only the framing (see screenRegion.js), the display it sits on, and
+// its presentation resolution — a handful of bytes, sent when they change.
+//
+// So this class is two things: the broadcast ENGINE (one per editor, started
+// with the first screen and stopped with the last), and the open RIG — the map
+// of screen id to native window. The single-output case is just a rig of one,
+// on the screen id 'main', which is why open()/close()/toggle() and the menu
+// button behave exactly as they always did.
+//
 // All '@tauri-apps/api' access is via dynamic import() so that statically
 // importing this module stays safe on the raw web deployments, which serve the
 // source un-bundled and cannot resolve bare specifiers. This class is only ever
@@ -38,12 +52,18 @@
 import { isTauri } from '../utils/isTauri.js';
 import { controlInputPinIndices } from '../data/NodeDefs.js';
 import { getOutputOpacity, onOutputOpacityChange } from '../vj/MasterOutput.js';
+import { MAIN_SCREEN_ID, makeScreen } from '../screens/ScreenModel.js';
+import { sanitizeRegion } from '../screens/screenRegion.js';
+import { readDisplayLayout, openScreenWindow } from './ScreenWindow.js';
 import {
   SecondMonitorMessage as MSG,
   SecondMonitorTier as TIER,
   openSecondMonitorChannel,
 } from './secondMonitorFrameChannel.js';
 
+// Legacy default for the `windowLabel` option. Window labels now come from the
+// screen id (see ScreenWindow.screenWindowLabel); this is kept only so an older
+// caller passing the option is not surprised by a different window.
 const WINDOW_LABEL = 'second-monitor';
 
 // The viewer always renders the editor's output format (protocol value -1), so
@@ -57,11 +77,18 @@ export class TauriSecondMonitorViewer {
   /**
    * @param {HTMLCanvasElement} sourceCanvas  the live GPU canvas to mirror
    * @param {Object} [options]
-   * @param {string} [options.windowLabel]     Tauri window label (must be unique)
+   * @param {string} [options.windowLabel]     legacy alias, unused (labels come
+   *                                           from the screen id — see ScreenWindow)
    * @param {Object} [options.renderer]        GPURenderer to tap for frames
    *                                           (falls back to window.gpuRenderer)
    * @param {(message: string, kind?: string) => void} [options.onStatus]
    * @param {(active: boolean) => void} [options.onActiveChange]
+   * @param {(screens: object[]) => void} [options.onScreensChange] called with the
+   *   open screens whenever a window opens or closes
+   * @param {(screenId: string) => void} [options.onScreenSelfClosed] called when a
+   *   receiver shut ITSELF down (Esc, or the window's own close button) rather
+   *   than being closed from here — the rig's owner has to hear about it, or the
+   *   next edit reopens a projector somebody deliberately switched off
    */
   constructor(sourceCanvas, options = {}) {
     this.sourceCanvas = sourceCanvas;
@@ -71,10 +98,19 @@ export class TauriSecondMonitorViewer {
     this.onActiveChange = typeof options.onActiveChange === 'function'
       ? options.onActiveChange
       : () => {};
+    this.onScreensChange = typeof options.onScreensChange === 'function'
+      ? options.onScreensChange
+      : () => {};
+    this.onScreenSelfClosed = typeof options.onScreenSelfClosed === 'function'
+      ? options.onScreenSelfClosed
+      : () => {};
 
-    this._win = null;            // the native WebviewWindow (frame target)
-    this._unlistenMainClose = null; // editor close-requested unlisten (close child with editor)
-    this._channel = null;        // BroadcastChannel to the receiver page
+    // The open rig: screen id -> { screen, win, unlistenEditorClose, displayIndex }.
+    // Empty means no output at all, which is what `isActive` reports on.
+    /** @type {Map<string, {screen: object, win: object, unlistenEditorClose: (()=>void)|null, displayIndex: number}>} */
+    this._screens = new Map();
+    this._unlistenMainClose = null; // editor close-requested unlisten (close children with editor)
+    this._channel = null;        // BroadcastChannel to the receiver pages
     this._onChannelMessage = null;
     this._unsubscribeOpacity = null; // VJ master fader subscription
     this._stateTap = null;       // handler registered on the renderer's state tap
@@ -85,22 +121,34 @@ export class TauriSecondMonitorViewer {
     this._lastFragmentSig = null; // last fragment-subgraph structure signature broadcast
     this._sentFragmentNodes = false; // whether a non-empty FRAGMENT_GRAPH has been sent
     this._forceFallback = false; // receiver can't render natively → pixels only
-    // The viewer always RENDERS the output format (MATCH_OUTPUT, sent on every
-    // RENDER_RES), so its sims and framing are identical to the editor's. Only
-    // how many pixels the presentation surface spends is configurable here
-    // (0 = the display's own resolution).
-    this._displayMaxDim = 0;
     // Latest projection-mapping snapshot, or null while the output is unmapped.
     // Held so a viewer opened (or reconnected) mid-set starts already aligned.
+    // The mapping is composition-wide: every screen in the rig warps through it,
+    // each folding in its own framing (see screenRegion.composeMappingWithRegion).
     this._mapping = null;
     this._feedbackStateInFlight = false; // a feedback-state capture/broadcast is running
     this._stepSeq = 0;           // sim-step counter (one per COMPUTE_UNIFORMS message)
     this._active = false;
   }
 
-  /** True while the second-monitor window is open. */
+  /** True while any output window is open. */
   get isActive() {
     return this._active;
+  }
+
+  /** How many output windows are open right now. */
+  get screenCount() {
+    return this._screens.size;
+  }
+
+  /** The screen records currently holding a window, in the order they opened. */
+  openScreens() {
+    return [...this._screens.values()].map((entry) => entry.screen);
+  }
+
+  /** Whether a screen's window is open. */
+  isScreenOpen(screenId) {
+    return this._screens.has(screenId);
   }
 
   /** Whether second-display placement is available (always true under Tauri). */
@@ -118,10 +166,27 @@ export class TauriSecondMonitorViewer {
     return this._active;
   }
 
-  /** Open the native second-monitor window and start mirroring. */
+  /**
+   * Open the single-output screen. The one-screen case — the output button in the
+   * menu — goes through here, and gets exactly the window it always did.
+   */
   async open() {
-    if (this._active) {
-      try { await this._win?.setFocus(); } catch { /* ignore */ }
+    await this.openScreen(makeScreen({ id: MAIN_SCREEN_ID }));
+  }
+
+  /**
+   * Open one screen's output window, starting the broadcast engine if this is the
+   * first. Opening a screen that is already open just focuses its window.
+   *
+   * @param {object} screen a screen record (see ScreenModel.makeScreen)
+   */
+  async openScreen(screen) {
+    if (!screen || !screen.id) return;
+    const existing = this._screens.get(screen.id);
+    if (existing) {
+      // Already open: adopt any changed framing, and bring it forward.
+      this.setScreenConfig(screen);
+      try { await existing.win?.setFocus(); } catch { /* ignore */ }
       return;
     }
     if (!this.sourceCanvas) {
@@ -129,53 +194,230 @@ export class TauriSecondMonitorViewer {
       return;
     }
     if (!isTauri()) {
-      this.onStatus('Second-monitor viewer requires the desktop app', 'error');
+      this.onStatus('Multi-screen output requires the desktop app', 'error');
       return;
     }
 
+    const wasActive = this._active;
     try {
-      const channel = openSecondMonitorChannel();
-      if (!channel) throw new Error('BroadcastChannel is unavailable');
-      this._channel = channel;
-      this._onChannelMessage = (e) => this._handleChannelMessage(e);
-      channel.addEventListener('message', this._onChannelMessage);
-
-      // The receiver renders its own frames, so the master fader's effect on the
-      // editor's canvas never reaches it. Follow the level and send it across.
-      this._unsubscribeOpacity = onOutputOpacityChange((opacity) => {
-        this._broadcastMasterOpacity(opacity);
-      });
-
-      await this._createWindow();
+      this._ensureEngine();
+      await this._createScreenWindow(screen);
     } catch (err) {
       console.error('[TauriSecondMonitorViewer] open failed:', err);
-      this.onStatus('Could not open second-monitor window: ' + (err?.message || err), 'error');
-      this._teardown();
+      this.onStatus('Could not open output window: ' + (err?.message || err), 'error');
+      if (!this._screens.size) this._teardown();
       return;
     }
 
     this._active = true;
-    this._startTap();
-    this._applyRenderCap();
-    this.onActiveChange(true);
-    this.onStatus('Second-monitor viewer opened');
+    // Send the framing straight away rather than waiting for the receiver's
+    // READY. The page is still loading and will miss this one, and READY re-sends
+    // it — but a receiver that reconnects without a fresh READY (a reload racing
+    // our bookkeeping) then still has a config to work from.
+    this._broadcastScreenConfig(screen.id);
+    if (!wasActive) {
+      this._startTap();
+      this._applyRenderCap();
+      this.onActiveChange(true);
+    }
+    this.onScreensChange(this.openScreens());
+    this.onStatus(this._screens.size > 1
+      ? `Output open on ${this._screens.size} screens`
+      : 'Second-monitor viewer opened');
   }
 
-  /** Close the window and stop mirroring. */
+  /**
+   * Close one screen's window, stopping the broadcast engine when it was the last.
+   * @param {string} screenId
+   */
+  async closeScreen(screenId) {
+    const entry = this._screens.get(screenId);
+    if (!entry) return;
+    this._screens.delete(screenId);
+
+    // Tell the receiver first: a window that shuts itself down goes black rather
+    // than showing a frozen last frame while the OS tears it down.
+    try { this._channel?.postMessage({ type: MSG.CLOSE, screenId }); } catch { /* ignore */ }
+    if (typeof entry.unlistenEditorClose === 'function') {
+      try { entry.unlistenEditorClose(); } catch { /* ignore */ }
+    }
+    try { await entry.win?.close(); } catch { /* already gone */ }
+
+    if (this._screens.size === 0) {
+      const wasActive = this._active;
+      this._stopTap();
+      this._teardown();
+      this._restoreRenderCap();
+      if (wasActive) {
+        this.onActiveChange(false);
+        this.onStatus('Second-monitor viewer closed');
+      }
+    } else {
+      this.onStatus(`Output open on ${this._screens.size} screen${this._screens.size === 1 ? '' : 's'}`);
+    }
+    this.onScreensChange(this.openScreens());
+  }
+
+  /** Close every output window and stop mirroring. */
   async close() {
-    const wasActive = this._active;
-    this._stopTap();
+    const ids = [...this._screens.keys()];
+    for (const id of ids) await this.closeScreen(id);
+    // Nothing was open: still make sure no engine state is left behind.
+    if (!ids.length) {
+      this._stopTap();
+      this._teardown();
+      this._restoreRenderCap();
+    }
+  }
 
-    try { this._channel?.postMessage({ type: MSG.CLOSE }); } catch { /* ignore */ }
+  /**
+   * Bring the open rig in line with a list of screens: open what should be open,
+   * close what should not, and push new framing to the rest.
+   *
+   * This is what the screens panel calls on every edit, so it must be cheap and
+   * non-destructive for screens that did not change — retiling a wall must not
+   * blink every projector that kept its tile.
+   *
+   * @param {object[]} screens the screens that should hold a window
+   * @returns {Promise<void>}
+   */
+  syncScreens(screens) {
+    // Model changes arrive faster than windows open — a layout button rewrites
+    // the whole rig in one go, and the panel notifies once per edit. Chain the
+    // syncs so two never interleave: overlapping runs would both see a screen as
+    // missing and open its window twice.
+    const run = () => this._syncScreensNow(screens);
+    this._syncChain = (this._syncChain || Promise.resolve()).then(run, run);
+    return this._syncChain;
+  }
 
-    const win = this._win;
-    this._teardown();
-    this._restoreRenderCap();
-    if (win) { try { await win.close(); } catch { /* already gone */ } }
+  /** One sync pass. Always run through {@link syncScreens}, never directly. */
+  async _syncScreensNow(screens) {
+    const wanted = new Map((Array.isArray(screens) ? screens : []).map((s) => [s.id, s]));
 
-    if (wasActive) {
-      this.onActiveChange(false);
-      this.onStatus('Second-monitor viewer closed');
+    for (const id of [...this._screens.keys()]) {
+      if (!wanted.has(id)) await this.closeScreen(id);
+    }
+    for (const [id, screen] of wanted) {
+      const open = this._screens.get(id);
+      if (!open) {
+        await this.openScreen(screen);
+      } else if (this._screenChanged(open.screen, screen)) {
+        // A display reassignment is the one edit that needs the window itself
+        // moved, which Tauri does not do in place — reopen just that screen.
+        if ((open.screen.displayIndex ?? -1) !== (screen.displayIndex ?? -1)) {
+          await this.closeScreen(id);
+          await this.openScreen(screen);
+        } else {
+          open.screen = screen;
+          this.setScreenConfig(screen);
+        }
+      }
+    }
+  }
+
+  /** Whether two screen records differ in anything a window cares about. */
+  _screenChanged(a, b) {
+    return a.name !== b.name
+      || (a.displayIndex ?? -1) !== (b.displayIndex ?? -1)
+      || (a.displayMaxDim || 0) !== (b.displayMaxDim || 0)
+      || JSON.stringify(sanitizeRegion(a.region)) !== JSON.stringify(sanitizeRegion(b.region));
+  }
+
+  /**
+   * Push a screen's framing to its window: which crop of the composition it
+   * shows, what it is called, and how many pixels it presents with.
+   * @param {object} screen
+   */
+  setScreenConfig(screen) {
+    if (!screen || !screen.id) return;
+    const entry = this._screens.get(screen.id);
+    if (entry) entry.screen = { ...entry.screen, ...screen };
+    this._broadcastScreenConfig(screen.id);
+  }
+
+  /** Send one screen's SCREEN_CONFIG + resolution contract, if it is open. */
+  _broadcastScreenConfig(screenId) {
+    const entry = this._screens.get(screenId);
+    if (!entry || !this._channel) return;
+    const screen = entry.screen;
+    try {
+      this._channel.postMessage({
+        type: MSG.SCREEN_CONFIG,
+        screenId,
+        name: screen.name || '',
+        region: sanitizeRegion(screen.region),
+        displayMaxDim: screen.displayMaxDim || 0,
+      });
+    } catch { /* ignore */ }
+    // The render contract is per screen too: every screen RENDERS the output
+    // format (so all their sims match the editor's exactly) and differs only in
+    // how many pixels it presents with.
+    try {
+      this._channel.postMessage({
+        type: MSG.RENDER_RES,
+        screenId,
+        maxDim: MATCH_OUTPUT,
+        displayMaxDim: screen.displayMaxDim || 0,
+      });
+    } catch { /* ignore */ }
+  }
+
+  /**
+   * Stand up the shared broadcast engine: the one channel and the one master-fader
+   * subscription the whole rig runs on. Idempotent — the second and third screen
+   * reuse what the first stood up, which is why they cost the editor almost
+   * nothing.
+   */
+  _ensureEngine() {
+    if (this._channel) return;
+    const channel = openSecondMonitorChannel();
+    if (!channel) throw new Error('BroadcastChannel is unavailable');
+    this._channel = channel;
+    this._onChannelMessage = (e) => this._handleChannelMessage(e);
+    channel.addEventListener('message', this._onChannelMessage);
+
+    // The receivers render their own frames, so the master fader's effect on the
+    // editor's canvas never reaches them. Follow the level and send it across.
+    this._unsubscribeOpacity = onOutputOpacityChange((opacity) => {
+      this._broadcastMasterOpacity(opacity);
+    });
+  }
+
+  /** Create one screen's native window and register it in the open rig. */
+  async _createScreenWindow(screen) {
+    const windowApi = await import('@tauri-apps/api/window');
+    const { monitors, editorIndex } = await readDisplayLayout(windowApi);
+    // Automatic placement must not stack two screens on one projector, so it
+    // skips the displays the rig has already claimed.
+    const taken = new Set();
+    for (const entry of this._screens.values()) {
+      if (entry.displayIndex >= 0) taken.add(entry.displayIndex);
+    }
+    const opened = await openScreenWindow({
+      screen,
+      pageUrl: this._receiverUrl(),
+      monitors,
+      editorIndex,
+      taken,
+    });
+    this._screens.set(screen.id, {
+      screen,
+      win: opened.win,
+      unlistenEditorClose: opened.unlistenEditorClose,
+      displayIndex: opened.displayIndex,
+    });
+    return opened;
+  }
+
+  /** Resolve the receiver page URL as a sibling of the current editor page. */
+  _receiverUrl() {
+    try {
+      const { pathname } = window.location;
+      const dir = pathname.endsWith('/') ? pathname : pathname.replace(/[^/]*$/, '');
+      return dir + 'second-monitor.html';
+    } catch {
+      return '/editor/second-monitor.html';
     }
   }
 
@@ -218,7 +460,11 @@ export class TauriSecondMonitorViewer {
   // Internals
   // ---------------------------------------------------------------------------
 
-  /** Release channel/loop state without firing user callbacks. */
+  /**
+   * Release the shared engine — channel, subscriptions, loop state — without
+   * firing user callbacks. Any window still registered is dropped from the rig
+   * here; closing the windows themselves is closeScreen's job.
+   */
   _teardown() {
     this._stopTap();
     if (this._channel && this._onChannelMessage) {
@@ -229,23 +475,41 @@ export class TauriSecondMonitorViewer {
     }
     this._unsubscribeOpacity = null;
     try { this._channel?.close(); } catch { /* ignore */ }
+    for (const entry of this._screens.values()) {
+      if (typeof entry.unlistenEditorClose === 'function') {
+        try { entry.unlistenEditorClose(); } catch { /* ignore */ }
+      }
+    }
+    this._screens.clear();
     if (typeof this._unlistenMainClose === 'function') {
       try { this._unlistenMainClose(); } catch { /* ignore */ }
     }
     this._unlistenMainClose = null;
     this._channel = null;
     this._onChannelMessage = null;
-    this._win = null;
     this._active = false;
   }
 
   _handleChannelMessage(e) {
     const data = e?.data;
     if (!data) return;
-    // The receiver closed itself (Esc or native close) — sync our state.
-    if (data.type === MSG.CLOSED) { this.close(); return; }
-    // The receiver cannot render natively (no WebGPU / device lost). Pin the
-    // pixel path so it always has something to show.
+    // Receivers name themselves; a message from a page that predates screen
+    // addressing is the single-output screen.
+    const screenId = data.screenId || MAIN_SCREEN_ID;
+    // A receiver closed itself (Esc or native close) — sync that screen's state,
+    // and tell the owner so the rig records the screen as off rather than
+    // reopening it on the next unrelated edit.
+    if (data.type === MSG.CLOSED) {
+      if (this._screens.has(screenId)) {
+        try { this.onScreenSelfClosed(screenId); } catch { /* ignore */ }
+      }
+      this.closeScreen(screenId);
+      return;
+    }
+    // A receiver cannot render natively (no WebGPU / device lost). Pin the pixel
+    // path so it always has something to show. The tap is shared, so one screen
+    // that cannot go native puts the whole rig on pixels — which is correct: a
+    // fallback screen has nothing else to paint.
     if (data.type === MSG.NEED_FALLBACK) {
       this._forceFallback = true;
       this._enterFallback();
@@ -266,15 +530,21 @@ export class TauriSecondMonitorViewer {
       if (this._mode) {
         try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch { /* ignore */ }
       }
-      // A (re)connecting receiver needs the resolution contract: always render
-      // the output format, at this display size.
-      try {
-        this._channel?.postMessage({
-          type: MSG.RENDER_RES,
-          maxDim: MATCH_OUTPUT,
-          displayMaxDim: this._displayMaxDim,
-        });
-      } catch { /* ignore */ }
+      // Everything above is composition-wide and reaches the whole rig. What this
+      // screen still needs is its own framing and resolution contract.
+      this._broadcastScreenConfig(screenId);
+      if (!this._screens.has(screenId)) {
+        // A receiver we have no record of (a reload racing our bookkeeping):
+        // it still needs the resolution contract, or it renders at the wrong size.
+        try {
+          this._channel?.postMessage({
+            type: MSG.RENDER_RES,
+            screenId,
+            maxDim: MATCH_OUTPUT,
+            displayMaxDim: 0,
+          });
+        } catch { /* ignore */ }
+      }
       // A mirror opened mid-set has to start at the level already on the fader,
       // not full brightness.
       this._broadcastMasterOpacity(getOutputOpacity());
@@ -316,141 +586,38 @@ export class TauriSecondMonitorViewer {
   }
 
   /**
-   * Set the second viewer's DISPLAY size: the long edge, in device pixels, of the
-   * surface it presents on. 0 (the default) uses the display's own resolution.
-   * The render itself is always the output format, letterboxed into this surface,
-   * so the viewer shows exactly the editor's framing and its sims stay 1:1 -
-   * only the cost of presenting changes. Persists across reconnects (re-sent on
-   * READY). No-op until a viewer is open.
+   * Set a screen's DISPLAY size: the long edge, in device pixels, of the surface
+   * it presents on. 0 (the default) uses the display's own resolution. The render
+   * itself is always the output format, letterboxed into this surface, so the
+   * screen shows exactly the editor's framing (cropped to its region) and its
+   * sims stay 1:1 — only the cost of presenting changes. Persists across
+   * reconnects (re-sent on READY). No-op unless that screen is open.
    * @param {number} longEdge
+   * @param {string} [screenId] which screen; defaults to the single-output screen
    */
-  setDisplayResolution(longEdge) {
+  setDisplayResolution(longEdge, screenId = MAIN_SCREEN_ID) {
     let v = Math.round(Number(longEdge));
     if (!Number.isFinite(v) || v <= 0) v = 0;
     else v = Math.max(MIN_DISPLAY_EDGE, Math.min(MAX_DISPLAY_EDGE, v));
-    this._displayMaxDim = v;
-    try {
-      this._channel?.postMessage({
-        type: MSG.RENDER_RES,
-        maxDim: MATCH_OUTPUT,
-        displayMaxDim: v,
-      });
-    } catch { /* ignore */ }
-  }
-
-  /** Current display long edge in device px; 0 = the display's own resolution. */
-  get displayMaxDim() { return this._displayMaxDim; }
-
-  /**
-   * Create the native WebviewWindow on a detected second display (borderless,
-   * fullscreen, always-on-top). Falls back to a centred, decorated window the
-   * user can move when only one display is present.
-   */
-  async _createWindow() {
-    const [{ WebviewWindow }, windowApi] = await Promise.all([
-      import('@tauri-apps/api/webviewWindow'),
-      import('@tauri-apps/api/window'),
-    ]);
-
-    const target = await this._resolveSecondMonitor(windowApi);
-    const options = {
-      url: this._receiverUrl(),
-      title: 'Rhizomium — Output',
-      decorations: !target,     // borderless on a real 2nd monitor
-      alwaysOnTop: !!target,
-      skipTaskbar: !!target,
-      focus: true,
-      visible: false,                  // reveal only after the receiver's first paint
-      backgroundColor: [0, 0, 0, 255], // black RGBA; secondary defense against white flash
-    };
-    if (target) {
-      // Monitor bounds are physical pixels; window options are logical pixels.
-      const s = target.scaleFactor || 1;
-      options.x = Math.round((target.position?.x || 0) / s);
-      options.y = Math.round((target.position?.y || 0) / s);
-      options.width = Math.max(1, Math.round((target.size?.width || 1920) / s));
-      options.height = Math.max(1, Math.round((target.size?.height || 1080) / s));
-    } else {
-      options.width = 1280;
-      options.height = 720;
-      options.center = true;
-    }
-
-    // Reuse-proof: drop a window lingering under our label from a prior session.
-    try {
-      const existing = await WebviewWindow.getByLabel(this.windowLabel);
-      if (existing) { try { await existing.close(); } catch { /* ignore */ } }
-    } catch { /* getByLabel best-effort */ }
-
-    const win = new WebviewWindow(this.windowLabel, options);
-    await new Promise((resolve, reject) => {
-      let settled = false;
-      const done = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
-      win.once('tauri://created', () => done(resolve));
-      win.once('tauri://error', (ev) => done(reject, new Error(this._tauriErr(ev))));
-      setTimeout(() => done(reject, new Error('window creation timed out')), 5000);
-    });
-    this._win = win;
-
-    // The output window is a separate top-level window, so closing the editor
-    // leaves it orphaned (and keeps the app alive). Close it with the editor.
-    try {
-      const mainWin = windowApi.getCurrentWindow?.();
-      if (mainWin && typeof mainWin.onCloseRequested === 'function') {
-        this._unlistenMainClose = await mainWin.onCloseRequested(() => {
-          try { this._win?.close(); } catch { /* already gone */ }
-        });
-      }
-    } catch { /* close-with-editor is best-effort */ }
-
-    // True OS fullscreen on the target display. The borderless window already
-    // fills the monitor, so a failure here is non-fatal.
-    if (target) {
-      try { await win.setFullscreen(true); } catch { /* borderless fill remains */ }
-    }
-    // Safety net: ensure the window is eventually shown even if the receiver's
-    // first-paint reveal never fires (receiver error, or loaded outside Tauri).
-    // show() is idempotent, so racing the receiver's own show() is harmless.
-    setTimeout(() => { win.show().catch(() => {}); }, 1500);
-    return win;
+    const entry = this._screens.get(screenId);
+    if (entry) entry.screen = { ...entry.screen, displayMaxDim: v };
+    else if (screenId === MAIN_SCREEN_ID) this._pendingMainDisplayMaxDim = v;
+    this._broadcastScreenConfig(screenId);
   }
 
   /**
-   * Pick a display that is not the editor's current one.
-   * @returns {Promise<object|null>} a Tauri Monitor, or null when single-display.
+   * A screen's presentation long edge in device px; 0 = the display's own
+   * resolution.
+   * @param {string} [screenId]
    */
-  async _resolveSecondMonitor(windowApi) {
-    try {
-      const monitors = await windowApi.availableMonitors();
-      if (!Array.isArray(monitors) || monitors.length === 0) return null;
-      let current = null;
-      try { current = await windowApi.currentMonitor(); } catch { /* ignore */ }
-      const samePos = (a, b) =>
-        a && b && a.position?.x === b.position?.x && a.position?.y === b.position?.y;
-      return monitors.find((m) => !samePos(m, current)) || null;
-    } catch (err) {
-      console.warn('[TauriSecondMonitorViewer] monitor query failed:', err?.message || err);
-      return null;
-    }
+  displayResolutionFor(screenId = MAIN_SCREEN_ID) {
+    const entry = this._screens.get(screenId);
+    if (entry) return entry.screen.displayMaxDim || 0;
+    return screenId === MAIN_SCREEN_ID ? (this._pendingMainDisplayMaxDim || 0) : 0;
   }
 
-  /** Resolve the receiver page URL as a sibling of the current editor page. */
-  _receiverUrl() {
-    try {
-      const { pathname } = window.location;
-      const dir = pathname.endsWith('/') ? pathname : pathname.replace(/[^/]*$/, '');
-      return dir + 'second-monitor.html';
-    } catch {
-      return '/editor/second-monitor.html';
-    }
-  }
-
-  _tauriErr(ev) {
-    const p = ev && typeof ev === 'object' ? ev.payload : ev;
-    if (p == null) return 'window error';
-    return typeof p === 'string' ? p : JSON.stringify(p);
-  }
-
+  /** The single-output screen's display long edge; 0 = the display's own resolution. */
+  get displayMaxDim() { return this.displayResolutionFor(MAIN_SCREEN_ID); }
   /**
    * Start mirroring. Prefer the native STATE tap: broadcast tiny uniform bytes
    * and let the receiver re-render. The first snapshot picks native vs the pixel

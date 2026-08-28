@@ -236,7 +236,9 @@ describe('TauriSecondMonitorViewer', () => {
 
     viewer.setDisplayResolution(1920);
     expect(viewer.displayMaxDim).toBe(1920);
-    const sent = channel.posted.find((m) => m.type === MSG.RENDER_RES);
+    // The LAST one: opening the screen already sent its framing and resolution
+    // contract once, so what matters is the value now in force.
+    const sent = channel.posted.filter((m) => m.type === MSG.RENDER_RES).pop();
     expect(sent?.displayMaxDim).toBe(1920);
     expect(sent?.maxDim).toBe(-1); // always render the output format
 

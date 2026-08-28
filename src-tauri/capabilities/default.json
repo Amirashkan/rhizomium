@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the main editor window and the second-monitor output window.",
-  "windows": ["main", "second-monitor"],
+  "description": "Permissions for the main editor window and the output windows. A rig can hold several output screens at once, so every window a screen opens has to be covered: 'second-monitor' is the single-output screen's historic label and 'output-*' matches the rest (see ScreenWindow.screenWindowLabel). Without the pattern an added screen would open with no permissions and could not show, fullscreen or close itself.",
+  "windows": ["main", "second-monitor", "output-*"],
   "permissions": [
     "core:default",
     "core:event:default",

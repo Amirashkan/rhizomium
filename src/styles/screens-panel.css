@@ -1,0 +1,292 @@
+/* src/styles/screens-panel.css
+   The output screens panel: a floating tool window like the mapping panel, whose
+   centre is the LAYOUT MAP — the composition drawn once with every screen's
+   region on top of it, so a rig can be read as a picture rather than a table. */
+
+#screens-panel {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 620px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 110px);
+  display: none;
+  flex-direction: column;
+  background: linear-gradient(var(--rz-panel-top), var(--rz-panel-bottom));
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 10px;
+  box-shadow: var(--rz-shadow-pop, 0 12px 40px rgba(0, 0, 0, 0.6));
+  color: var(--rz-text);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+#screens-panel.rz-scr-open {
+  display: flex;
+}
+
+/* --- header ------------------------------------------------------------- */
+
+.rz-scr-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  cursor: move;
+  user-select: none;
+}
+
+.rz-scr-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.rz-scr-close {
+  background: none;
+  border: none;
+  color: var(--rz-text-3);
+  font-size: 18px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.rz-scr-close:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+/* --- toolbar ------------------------------------------------------------ */
+
+.rz-scr-toolbar,
+.rz-scr-listhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rz-line);
+}
+
+.rz-scr-spacer { flex: 1; }
+
+.rz-scr-label {
+  color: var(--rz-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+
+.rz-scr-btn {
+  padding: 5px 9px;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  background: var(--rz-fill-soft);
+  color: var(--rz-text-2);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rz-scr-btn:hover:not(:disabled) {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+.rz-scr-btn.rz-scr-primary {
+  background: var(--rz-accent);
+  border-color: var(--rz-accent);
+  color: var(--rz-accent-ink);
+  font-weight: 600;
+}
+
+.rz-scr-btn.rz-scr-primary:hover { background: var(--rz-accent-hover); }
+
+.rz-scr-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--rz-text-3);
+  font-size: 11px;
+}
+
+.rz-scr-field input[type='range'] { width: 88px; }
+.rz-scr-field output { min-width: 32px; color: var(--rz-text-2); }
+
+/* --- layout map --------------------------------------------------------- */
+
+/* The composition, drawn in its own aspect. Regions are absolutely positioned
+   inside it as plain percentages — the same numbers the fields below show, so
+   the picture and the values cannot disagree. */
+.rz-scr-map {
+  position: relative;
+  margin: 12px;
+  width: calc(100% - 24px);
+  max-height: 200px;
+  background:
+    repeating-conic-gradient(var(--rz-fill-soft) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
+  border: 1px dashed var(--rz-line-strong);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.rz-scr-region {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+/* The fill is a child rather than the region's own background so it can be
+   translucent while the border and label stay solid — and so two overlapping
+   regions add up to a brighter band exactly where an edge blend would be. */
+.rz-scr-region-fill {
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0.22;
+}
+
+.rz-scr-region > span {
+  padding: 2px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--rz-text);
+  background: rgba(0, 0, 0, 0.55);
+  border-bottom-right-radius: 3px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.rz-scr-region[data-index='0'] { color: #7fd3ff; }
+.rz-scr-region[data-index='1'] { color: #b9f06a; }
+.rz-scr-region[data-index='2'] { color: #ffb46a; }
+.rz-scr-region[data-index='3'] { color: #c79bff; }
+.rz-scr-region[data-index='4'] { color: #5cf0bb; }
+.rz-scr-region[data-index='5'] { color: #ffd85c; }
+
+.rz-scr-region-off { opacity: 0.3; }
+
+/* --- screen list -------------------------------------------------------- */
+
+.rz-scr-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 12px 10px;
+}
+
+.rz-scr-empty {
+  padding: 18px 4px;
+  color: var(--rz-text-3);
+  line-height: 1.6;
+  text-align: center;
+}
+
+.rz-scr-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rz-line);
+}
+
+.rz-scr-row:last-child { border-bottom: none; }
+.rz-scr-row-off { opacity: 0.55; }
+
+.rz-scr-row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rz-scr-dot {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--rz-text-3);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.rz-scr-dot[aria-pressed='true'] { color: var(--rz-accent); }
+.rz-scr-dot:hover { background: var(--rz-hover); }
+
+.rz-scr-name {
+  flex: 1 1 120px;
+  min-width: 80px;
+}
+
+.rz-scr-name,
+.rz-scr-select,
+.rz-scr-row-region input {
+  padding: 4px 6px;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  background: var(--rz-fill-soft);
+  color: var(--rz-text);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.rz-scr-select { flex: 0 1 auto; max-width: 190px; }
+
+.rz-scr-remove {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--rz-text-3);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.rz-scr-remove:hover {
+  background: var(--rz-error-soft, rgba(255, 90, 90, 0.16));
+  color: var(--rz-text);
+}
+
+.rz-scr-row-region {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0 28px;
+}
+
+.rz-scr-row-region label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--rz-text-3);
+  font-size: 10px;
+}
+
+.rz-scr-row-region input { width: 58px; }
+
+/* --- footer ------------------------------------------------------------- */
+
+.rz-scr-foot {
+  padding: 8px 12px;
+  border-top: 1px solid var(--rz-line);
+  color: var(--rz-text-3);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.rz-scr-foot.rz-scr-gated { color: var(--rz-warning, #e0b25c); }
