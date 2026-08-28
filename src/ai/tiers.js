@@ -24,16 +24,20 @@ export const TIER_RANK = {
   cloude_plus: 2,
 };
 
+/**
+ * `cloude_plus` is labelled Studio, and was labelled Cloude Plus. Only the
+ * label moved: the key is in stored grants, so renaming it is a migration.
+ */
 export const TIER_LABELS = {
   free: 'Free',
   cloude: 'Cloude',
-  cloude_plus: 'Cloude Plus',
+  cloude_plus: 'Studio',
 };
 
 export const TIER_DESCRIPTIONS = {
-  free: 'The open-source editor and the AI features that assist work already on the canvas.',
-  cloude: 'Everything in Free, plus the web viewer, the pro artist panel, and the generative AI features.',
-  cloude_plus: 'Everything in Cloude, plus live output, server-side rendering, and the AI creative director.',
+  free: 'The open-source editor, and AI that reads the patch you already have.',
+  cloude: 'Everything in Free, plus refactoring, the generative AI features, the web viewer and the pro artist panel.',
+  cloude_plus: 'Everything in Cloude, plus NDI and multi-screen output, and the AI creative director.',
 };
 
 export function isTier(value) {
@@ -62,13 +66,6 @@ export const FEATURES = {
     description: 'Reads an existing patch and reports problems, dead nodes and likely mistakes.',
     metered: true,
   },
-  'ai.patch_refactor': {
-    tier: 'free',
-    surface: 'editor',
-    label: 'Patch refactor',
-    description: 'Rewrites and tidies an existing patch without changing what it renders.',
-    metered: true,
-  },
   'ai.canvas_assist': {
     tier: 'free',
     surface: 'editor',
@@ -77,7 +74,17 @@ export const FEATURES = {
     metered: true,
   },
 
-  // --- Cloude: generative AI, and the paid gallery surfaces -----------------
+  // --- Cloude: the AI that writes, and the paid gallery surfaces ------------
+  'ai.patch_refactor': {
+    // Behind a subscription because it is the dearest call the editor makes —
+    // its schema lets it write a whole 400-node patch back — and because it is
+    // the only feature that rewrites the artist's document.
+    tier: 'cloude',
+    surface: 'editor',
+    label: 'Patch refactor',
+    description: 'Rewrites and tidies an existing patch without changing what it renders.',
+    metered: true,
+  },
   'ai.patch_generator': {
     tier: 'cloude',
     surface: 'editor',
@@ -105,9 +112,10 @@ export const FEATURES = {
     label: 'Pro artist panel',
     description: 'The extended artist tooling in the gallery: analytics, space controls, publishing options.',
     metered: false,
+    addon: 'addon.pro_artist_panel',
   },
 
-  // --- Cloude Plus: structure in place, not fully operated yet --------------
+  // --- Studio: structure in place, not fully operated yet -------------------
   'output.ndi': {
     tier: 'cloude_plus',
     surface: 'output',
@@ -123,11 +131,15 @@ export const FEATURES = {
     metered: false,
   },
   'render.server_side': {
+    // `tier` is inert: the add-on is the gate, and that add-on is bundled with
+    // no plan and is unavailable. Studio listed this before and never served
+    // it — the renderer behind the gate was never written.
     tier: 'cloude_plus',
     surface: 'output',
     label: 'Server-side rendering',
-    description: 'Renders a patch on the server rather than on the artist’s machine.',
+    description: 'Renders a patch on our machines rather than yours.',
     metered: true,
+    addon: 'addon.server_side_rendering',
   },
   'ai.creative_director': {
     tier: 'cloude_plus',
@@ -160,25 +172,46 @@ const DAY = 24 * HOUR;
  */
 export const QUOTAS = {
   free: {
-    'ai.patch_review': { limit: 15, windowSeconds: DAY },
-    'ai.patch_refactor': { limit: 15, windowSeconds: DAY },
-    'ai.canvas_assist': { limit: 60, windowSeconds: DAY },
+    'ai.patch_review': { limit: 2, windowSeconds: DAY },
+    'ai.canvas_assist': { limit: 15, windowSeconds: DAY },
   },
   cloude: {
-    'ai.patch_review': { limit: 200, windowSeconds: DAY },
-    'ai.patch_refactor': { limit: 200, windowSeconds: DAY },
-    'ai.canvas_assist': { limit: 1000, windowSeconds: DAY },
-    'ai.patch_generator': { limit: 100, windowSeconds: DAY },
-    'ai.node_generator': { limit: 100, windowSeconds: DAY },
+    'ai.patch_review': { limit: 5, windowSeconds: DAY },
+    'ai.patch_refactor': { limit: 3, windowSeconds: DAY },
+    'ai.canvas_assist': { limit: 50, windowSeconds: DAY },
+    'ai.patch_generator': { limit: 1, windowSeconds: DAY },
+    'ai.node_generator': { limit: 2, windowSeconds: DAY },
   },
   cloude_plus: {
-    'ai.patch_review': { limit: 1000, windowSeconds: DAY },
-    'ai.patch_refactor': { limit: 1000, windowSeconds: DAY },
-    'ai.canvas_assist': { limit: 5000, windowSeconds: DAY },
-    'ai.patch_generator': { limit: 500, windowSeconds: DAY },
-    'ai.node_generator': { limit: 500, windowSeconds: DAY },
-    'ai.creative_director': { limit: 100, windowSeconds: DAY },
-    'render.server_side': { limit: 50, windowSeconds: DAY },
+    'ai.patch_review': { limit: 12, windowSeconds: DAY },
+    'ai.patch_refactor': { limit: 6, windowSeconds: DAY },
+    'ai.canvas_assist': { limit: 150, windowSeconds: DAY },
+    'ai.patch_generator': { limit: 3, windowSeconds: DAY },
+    'ai.node_generator': { limit: 5, windowSeconds: DAY },
+    'ai.creative_director': { limit: 1, windowSeconds: DAY },
+  },
+};
+
+/**
+ * Add-ons: held on any tier, including Free, and gating a feature on their own.
+ *
+ * `available` is whether the thing can be SERVED and is the only flag that
+ * gates access. `includedFrom` is the tier that grants it without buying it —
+ * which is how the pro artist panel stays with Cloude while also being an
+ * add-on. Server-side rendering is included from nothing and cannot be served,
+ * so it is refused for everybody.
+ */
+export const ADDONS = {
+  'addon.pro_artist_panel': {
+    label: 'Pro artist panel',
+    includedFrom: 'cloude',
+    available: true,
+  },
+  'addon.server_side_rendering': {
+    label: 'Server-side rendering',
+    available: false,
+    unavailableReason:
+      'There is no render capacity behind it yet, and it is not yet settled whether this renders a file you download or streams a session that runs live.',
   },
 };
 
@@ -193,6 +226,9 @@ export const ANONYMOUS_QUOTA_DIVISOR = 3;
 
 export function quotaFor(tier, feature) {
   if (!FEATURES[feature]?.metered) return null;
+  // An add-on's allowance follows the add-on, not the plan, and there is no
+  // add-on allowance to follow yet. Draw nothing rather than a plan's number.
+  if (FEATURES[feature].addon) return { limit: 0, windowSeconds: HOUR };
   return QUOTAS[tier]?.[feature] ?? { limit: 0, windowSeconds: HOUR };
 }
 
@@ -201,17 +237,74 @@ export function tierAtLeast(tier, required) {
   return (TIER_RANK[tier] ?? -1) >= (TIER_RANK[required] ?? Infinity);
 }
 
-export function hasFeature(tier, feature) {
+/**
+ * Whether an account holds an add-on: bought outright, or included from a tier.
+ *
+ * Availability is checked first. An add-on nobody can be served is held by
+ * nobody, so a Studio subscriber is refused for the same reason as a visitor
+ * rather than being told to upgrade to something they already have.
+ *
+ * `held` defaults to none because nothing sells an add-on yet. When something
+ * does, it arrives on the entitlements payload.
+ */
+export function holdsAddon(tier, addon, held = []) {
+  const definition = ADDONS[addon];
+  if (!definition || !definition.available) return false;
+  if (held.includes(addon)) return true;
+  return definition.includedFrom !== undefined && tierAtLeast(tier, definition.includedFrom);
+}
+
+/**
+ * Whether an account may use a feature.
+ *
+ * `addons` defaults to none on purpose: a caller that has not been taught
+ * about add-ons refuses an add-on feature rather than drawing it enabled and
+ * then taking a 402.
+ */
+export function hasFeature(tier, feature, addons = []) {
   if (!isFeatureKey(feature)) return false;
-  return tierAtLeast(tier, FEATURES[feature].tier);
+  const definition = FEATURES[feature];
+  if (definition.addon) return holdsAddon(tier, definition.addon, addons);
+  return tierAtLeast(tier, definition.tier);
 }
 
-export function featuresForTier(tier) {
-  return FEATURE_KEYS.filter((key) => hasFeature(tier, key));
+export function featuresForTier(tier, addons = []) {
+  return FEATURE_KEYS.filter((key) => hasFeature(tier, key, addons));
 }
 
-/** The tier a feature needs, for an upsell message. */
+/**
+ * What stands between an account and a feature, and so what to say when it is
+ * refused: buy a bigger plan, buy the add-on, or come back when we can do it.
+ *
+ * Prefer `catalog[].gate` from /api/entitlements over calling this — the
+ * gallery is the authority and this mirror can be stale.
+ */
+export function gateFor(feature) {
+  const addon = FEATURES[feature]?.addon;
+  if (!addon) return { kind: 'tier', tier: FEATURES[feature]?.tier ?? 'cloude_plus' };
+
+  const definition = ADDONS[addon];
+  if (!definition.available) {
+    return {
+      kind: 'unavailable',
+      addon,
+      reason: definition.unavailableReason ?? 'Not available yet.',
+    };
+  }
+  return { kind: 'addon', addon, includedFrom: definition.includedFrom };
+}
+
+/**
+ * The tier a feature needs, for an upsell message.
+ *
+ * Only meaningful for a tier-gated feature. An add-on bundled with no plan is
+ * not reachable by upgrading to anything, so the fallback names the highest
+ * tier: it cannot understate what is needed, but it will name a plan that does
+ * not unlock the feature. Use gateFor() where the difference matters.
+ */
 export function requiredTier(feature) {
+  const addon = FEATURES[feature]?.addon;
+  if (addon) return ADDONS[addon].includedFrom ?? 'cloude_plus';
   return FEATURES[feature]?.tier ?? 'cloude_plus';
 }
 
