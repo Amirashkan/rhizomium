@@ -1,5 +1,6 @@
 // main.js - Complete version with Undo System and Event System
 import { GPURenderer } from "./src/gpu/gpuRenderer.js";
+import { requestDeviceWithTextureLimits } from "./src/gpu/deviceLimits.js";
 import { RenderLoop } from "./src/core/RenderLoop.js";
 import { buildWGSL } from "./src/codegen/glslBuilder.js";
 import { Editor } from "./src/core/Editor.js";
@@ -212,7 +213,10 @@ async function initialize() {
     const adapter = await navigator.gpu.requestAdapter(
       isWindows ? undefined : { powerPreference: "high-performance" }
     );
-    const device = await adapter.requestDevice();
+    // Ask for more than the spec's 16 sampled textures per stage where the
+    // machine allows it: a patch with more texture-ish nodes than that compiled
+    // to a shader naming bindings the device would not grant, and died.
+    const device = await requestDeviceWithTextureLimits(adapter);
     // Retain the adapter: if it gets garbage-collected, Chromium drops the
     // Dawn instance behind it and later buffer.mapAsync calls fail with "A
     // valid external Instance reference no longer exists" (breaks 3D readback)
@@ -3447,8 +3451,14 @@ async function updateShaderFromGraph() {
     }
 
     // Initialize compute nodes BEFORE setting shader source
-    // This ensures compute textures exist when bind groups are created
-    if (computeExecutor && window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
+    // This ensures compute textures exist when bind groups are created.
+    // An EMPTY registry is not a reason to skip it once the executor has managers:
+    // that is a graph whose last compute node just went away (deleted, or replaced
+    // wholesale by a project load), and initialize() is what tears the old managers
+    // down — safely, holding their textures alive until the new bind groups are in
+    // place. Skipping it left them dispatching every frame for a graph that no
+    // longer contains them.
+    if (computeExecutor && (window.computeNodeRegistry?.size > 0 || computeExecutor.initialized)) {
       await computeExecutor.initialize();
     }
 

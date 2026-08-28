@@ -31,6 +31,7 @@
  */
 
 import { GPURenderer } from '../gpu/gpuRenderer.js';
+import { requestDeviceWithTextureLimits } from '../gpu/deviceLimits.js';
 import { ComputeExecutor } from '../gpu/ComputeExecutor.js';
 import { RenderLoop } from '../core/RenderLoop.js';
 import { buildWGSL } from '../codegen/glslBuilder.js';
@@ -123,7 +124,9 @@ export class PatchRuntime {
       );
     }
 
-    this.device = await adapter.requestDevice();
+    // Same texture-binding headroom the editor asks for, so a published patch
+    // that compiles there compiles here.
+    this.device = await requestDeviceWithTextureLimits(adapter);
 
     // Retain the adapter: if it is garbage-collected, Chromium drops the Dawn
     // instance behind it and later GPU calls fail out of nowhere.

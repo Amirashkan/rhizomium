@@ -7,6 +7,7 @@ import { modalManager } from '../ui/ModalManager.js';
 import { hydrateNodes, hydrateConnections } from './graphHydration.js';
 import { dataUrlToBlob } from './dataUrl.js';
 import { restorePatchTextures, restoreImageTexture, restoreVideoTexture } from './patchTextures.js';
+import { encodeProjectFile, decodeProjectFile } from './projectFile.js';
 
 // Re-exported: this module was the decoder's home before the web viewer
 // needed it without the rest of the save/load stack.
@@ -1216,7 +1217,7 @@ async reinitializeWebGPU() {
   // FILE OPERATIONS
   // =============================================================================
 
-  saveToFile(filename = null, format = "json") {
+  async saveToFile(filename = null, format = "json") {
     try {
       const projectData = this.exportProject();
       const timestamp = new Date()
@@ -1234,8 +1235,10 @@ async reinitializeWebGPU() {
           break;
 
         case "rhizomium":
-          content = JSON.stringify(projectData, null, 2);
-          mimeType = "application/json";
+          // Compact, then compressed: a .rz is opened by the app, not read by a
+          // person, and its bulk is inlined media.
+          content = await encodeProjectFile(JSON.stringify(projectData));
+          mimeType = this._fileMimeType(content);
           extension = "rz";
           break;
 
@@ -1351,7 +1354,7 @@ async reinitializeWebGPU() {
     try {
       if (this.supportsFileSystemAccess && this.currentFileHandle) {
         try {
-          const content = JSON.stringify(this.exportProject(), null, 2);
+          const content = await this._encodeForFile(this.currentFileHandle.name);
           await this._writeToHandle(this.currentFileHandle, content);
           this.hasUnsavedChanges = false;
           this._updateDocumentTitle();
@@ -1399,8 +1402,6 @@ async reinitializeWebGPU() {
    */
   async _saveProjectAs(format = "rhizomium") {
     try {
-      const content = JSON.stringify(this.exportProject(), null, 2);
-
       if (this.supportsFileSystemAccess) {
         let handle;
         try {
@@ -1421,7 +1422,9 @@ async reinitializeWebGPU() {
           throw err;
         }
 
-        await this._writeToHandle(handle, content);
+        // Encode for the name the user actually chose, so picking .json in the
+        // dialog still writes readable JSON.
+        await this._writeToHandle(handle, await this._encodeForFile(handle.name));
         this.currentFileHandle = handle;
         this.currentProjectName = handle.name;
         this.hasUnsavedChanges = false;
@@ -1444,7 +1447,8 @@ async reinitializeWebGPU() {
         ? cleaned
         : `${cleaned}.${ext}`;
 
-      this.downloadFile(content, fileName, "application/json");
+      const content = await this._encodeForFile(fileName);
+      this.downloadFile(content, fileName, this._fileMimeType(content));
       this.currentFileHandle = null; // downloads don't yield a writable handle
       this.currentProjectName = fileName;
       this.hasUnsavedChanges = false;
@@ -2462,8 +2466,24 @@ importConnections(connectionData) {
           this.editor.nodePreviews.clear();
         }
       }
+
+      // Drop the compute registry with the graph it describes. It is keyed by node
+      // id and is otherwise only pruned one node at a time, as nodes are DELETED —
+      // replacing the graph deletes nothing, so every id in it outlives its node and
+      // is inherited by whatever the loaded file numbers the same. A Texture 2D
+      // landing on a dead compute node's id was then compiled with a
+      // compute_node_<id> binding aimed at its own bridged output texture, which
+      // invalidates every command buffer that render pass goes into.
+      //
+      // Bookkeeping ONLY: the managers and their textures are left alone, because
+      // the pipeline still on screen is still bound to them and keeps drawing until
+      // the loaded graph's shader replaces it — destroying them here is what
+      // "Destroyed texture [Texture "Output Texture"] used in a submit" looks like.
+      // The rebuild that follows tears them down in initialize(), which holds the
+      // old textures alive until the new bind groups are in place.
+      window.computeNodeRegistry?.clear?.();
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'graph-clear'
       });
     }
@@ -2503,21 +2523,38 @@ importConnections(connectionData) {
     }
   }
 
+  /**
+   * A project file's JSON text. Compressed .rz files are inflated on the way in
+   * (see projectFile.js); everything written before compression existed, and
+   * every .json/.wgsl import, reads exactly as it always did.
+   */
   async readFile(file) {
-    return new Promise((resolve, reject) => {
-      try {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = () => reject(new Error("Failed to read file"));
-        reader.readAsText(file);
-      } catch (error) {
-        window.errorHandler?.handleError(error, { 
-          component: 'file-read',
-          filename: file?.name
-        });
-        reject(error);
-      }
-    });
+    try {
+      return await decodeProjectFile(file);
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'file-read',
+        filename: file?.name
+      });
+      throw error instanceof Error ? error : new Error("Failed to read file");
+    }
+  }
+
+  /**
+   * The project as bytes for `name`: compressed for a .rz, plain pretty-printed
+   * JSON for a .json, which stays human-readable interchange.
+   */
+  async _encodeForFile(name) {
+    const projectData = this.exportProject();
+    if (/\.json$/i.test(String(name || ""))) {
+      return JSON.stringify(projectData, null, 2);
+    }
+    return await encodeProjectFile(JSON.stringify(projectData));
+  }
+
+  /** What encodeProjectFile actually produced: gzip bytes, or plain JSON text. */
+  _fileMimeType(content) {
+    return typeof content === "string" ? "application/json" : "application/gzip";
   }
 
   downloadFile(content, filename, mimeType) {

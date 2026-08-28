@@ -7,6 +7,7 @@ import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import { resolveResolution } from '../../ui/OutputFormat.js';
 import { getInputCount } from '../../data/nodeInputs.js';
 import { resolveDiscreteParam } from '../../utils/discreteParams.js';
+import { SHARED_SAMPLER } from '../../gpu/sharedSamplers.js';
 
 export class ComputeNodes {
   constructor() {
@@ -103,7 +104,7 @@ export class ComputeNodes {
 
     // Sample the compute output texture
     const line = `let uv_${nodeId} = vec2<f32>(in.uv.x, 1.0 - in.uv.y);
-    let node_${nodeId}_rgba = textureSample(${textureId}, sampler_${textureId}, uv_${nodeId});
+    let node_${nodeId}_rgba = textureSample(${textureId}, ${SHARED_SAMPLER}, uv_${nodeId});
     let node_${nodeId} = node_${nodeId}_rgba;`;
 
     // Single Color (RGBA) output. Channels are extracted downstream with a
@@ -2191,28 +2192,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     const colorMode = this.getParam(node, 'colorMode', 'Grayscale');
     const interpolation = this.getParam(node, 'interpolation', 'Linear');
 
-    // Get color stops (max 8 stops supported)
-    const colorStops = this.getParam(node, 'colorStops', [
-      { position: 0.0, color: [0, 0, 0, 1] },
-      { position: 1.0, color: [1, 1, 1, 1] }
-    ]);
-
-    const numStops = Math.min(colorStops.length, 8);
     const typeIndex = this.getGradientTypeIndex(type);
     const colorModeIndex = this.getColorModeIndex(colorMode);
     const interpolationIndex = this.getInterpolationIndex(interpolation);
-
-    // Debug logging
-    console.log('[ComputeGradient Shader Generation]', {
-      colorMode,
-      colorModeIndex,
-      type,
-      typeIndex,
-      interpolation,
-      interpolationIndex,
-      numStops,
-      colorStops: colorStops.slice(0, 2)
-    });
 
     const shader = `
 // Compute Gradient Shader - Type: ${type}, ColorMode: ${colorMode}

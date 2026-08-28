@@ -19,6 +19,7 @@
 
 import { NodeDefs } from '../data/NodeDefs.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
+import { isSharedSampler, sharedSampler } from './sharedSamplers.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValues } from '../core/audioAnalysisPins.js';
 import { isTriggerChangeMode } from '../core/triggerMode.js';
 
@@ -466,7 +467,7 @@ export class FragmentTextureRenderer {
       const bindingMap = this._analyzeBindings(shaderCode);
 
       // Create bind group layouts and bind groups
-      const { layouts, bindGroups, uniformBuffers } = this._createBindResources(bindingMap, uniformManager);
+      const { layouts, bindGroups, uniformBuffers } = this._createBindResources(bindingMap, uniformManager, texture);
 
       // Create pipeline layout
       const pipelineLayout = this.device.createPipelineLayout({
@@ -770,7 +771,7 @@ export class FragmentTextureRenderer {
         const meta = bindings[binding];
 
         // Create resource (this will now get current compute textures)
-        const resource = this._createResource(meta, cached.uniformBuffers);
+        const resource = this._createResource(meta, cached.uniformBuffers, null, cached.texture);
         resources.push({ binding, resource });
       }
 
@@ -875,7 +876,7 @@ export class FragmentTextureRenderer {
    * Create bind group layouts and bind groups
    * @private
    */
-  _createBindResources(bindingMap, uniformManager = null) {
+  _createBindResources(bindingMap, uniformManager = null, outputTexture = null) {
     const groupIndices = Object.keys(bindingMap.groups).map(Number).sort((a, b) => a - b);
 
     const layouts = [];
@@ -896,7 +897,7 @@ export class FragmentTextureRenderer {
         entries.push(layoutEntry);
 
         // Create resource
-        const resource = this._createResource(meta, uniformBuffers, uniformManager);
+        const resource = this._createResource(meta, uniformBuffers, uniformManager, outputTexture);
         resources.push({ binding, resource });
       }
 
@@ -937,10 +938,79 @@ export class FragmentTextureRenderer {
   }
 
   /**
+   * The TextureManager entry a `texture_<id>` / `sampler_<id>` binding refers to, or null.
+   * Both of the manager's maps are searched, by key and then by sanitised key, in the
+   * order the renderer has always used; `accept` says what the caller needs from the
+   * entry (a sampler, or something it can make a view of) so a half-populated entry in
+   * the first map doesn't shadow a complete one in the second.
+   * @private
+   */
+  _findTextureEntry(texManager, sanitizedId, accept) {
+    if (!texManager) return null;
+
+    const direct = texManager.gpuTextures?.get?.(sanitizedId);
+    if (accept(direct)) return { nodeId: sanitizedId, info: direct };
+
+    if (typeof texManager.getTexture === "function") {
+      const info = texManager.getTexture(sanitizedId);
+      if (accept(info)) return { nodeId: sanitizedId, info };
+    }
+
+    for (const map of [texManager.textures, texManager.gpuTextures]) {
+      if (!map?.entries) continue;
+      for (const [nodeId, info] of map.entries()) {
+        const nodeSanitizedId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, "_");
+        if (nodeSanitizedId === sanitizedId && accept(info)) {
+          return { nodeId, info };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Is this the very texture the pass is about to draw into?
+   *
+   * A node's own materialized output is published in ComputeExecutor.nodeOutputs under
+   * the node's id, and a compute_node_<id> binding resolves through that map — so a
+   * shader that names its own node (a bad id inherited from an older graph, a compute
+   * node aliasing its input straight through, a cycle) asks to sample the pass's colour
+   * attachment. WebGPU refuses the whole command buffer for it ("usage
+   * (TextureBinding|RenderAttachment) includes writable usage and another usage in the
+   * same synchronization scope"), which drops every other render batched into that
+   * encoder too. Reading nothing costs this one node; the rest of the frame survives.
+   * @private
+   */
+  _isOutputTexture(texture, outputTexture) {
+    return !!outputTexture && texture === outputTexture;
+  }
+
+  /**
+   * The view for a texture entry, created and cached on the entry when it has none.
+   *
+   * An entry is NOT required to arrive with a view: a project restored from a file
+   * registers its images straight onto the device, and a texture manager built by an
+   * embedder may do the same. Demanding `textureView` here sent every one of those
+   * bindings to the 1x1 white dummy below — a Texture 2D that kept its filename and
+   * rendered flat white in its thumbnail and in every texture bridged from it — while
+   * the main canvas showed the image, because GPURenderer creates the missing view
+   * (_ensureTextureView) instead of giving up. Caching on the entry matters: bind
+   * groups are rebuilt on every render, and a view per binding per frame is garbage.
+   * @private
+   */
+  _textureView(info) {
+    if (!info.textureView && info.texture?.createView) {
+      info.textureView = info.texture.createView();
+    }
+    return info.textureView;
+  }
+
+  /**
    * Create resource for binding
    * @private
    */
-  _createResource(meta, uniformBuffers, uniformManager = null) {
+  _createResource(meta, uniformBuffers, uniformManager = null, outputTexture = null) {
     switch (meta.kind) {
       case 'uniform-buffer': {
         // Reuse existing uniform buffer if available
@@ -980,49 +1050,20 @@ export class FragmentTextureRenderer {
         return { buffer };
       }
       case 'sampler': {
+        // The two shared samplers every generated shader declares (see
+        // gpu/sharedSamplers.js) — no node owns them.
+        if (isSharedSampler(meta.varName)) {
+          return sharedSampler(this.device, meta.varName);
+        }
+
         // Check if this is a sampler for a Texture2D/TextureCube node - look up actual sampler
         if (meta.varName) {
           // Extract node ID from sampler variable name (e.g., "sampler_27" or "samplerCube_27")
           const sanitizedId = meta.varName.replace(/^(sampler_|samplerCube_)/, '');
-
-          // Try to get actual sampler from TextureManager
           const texManager = window.editor?.textureManager || window.textureManager;
-          if (texManager) {
-            // Try gpuTextures map first
-            if (texManager.gpuTextures?.get) {
-              const gpuInfo = texManager.gpuTextures.get(sanitizedId);
-              if (gpuInfo && gpuInfo.sampler) {
-                return gpuInfo.sampler;
-              }
-            }
-
-            // Try getTexture method
-            if (typeof texManager.getTexture === "function") {
-              const textureInfo = texManager.getTexture(sanitizedId);
-              if (textureInfo && textureInfo.sampler) {
-                return textureInfo.sampler;
-              }
-            }
-
-            // Try iterating through textures map
-            if (texManager.textures) {
-              for (const [nodeId, info] of texManager.textures.entries()) {
-                const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
-                if (nodeSanitizedId === sanitizedId && info.sampler) {
-                  return info.sampler;
-                }
-              }
-            }
-
-            // Try iterating through gpuTextures map
-            if (texManager.gpuTextures) {
-              for (const [nodeId, info] of texManager.gpuTextures.entries()) {
-                const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
-                if (nodeSanitizedId === sanitizedId && info.sampler) {
-                  return info.sampler;
-                }
-              }
-            }
+          const found = this._findTextureEntry(texManager, sanitizedId, info => !!info?.sampler);
+          if (found) {
+            return found.info.sampler;
           }
         }
 
@@ -1044,7 +1085,7 @@ export class FragmentTextureRenderer {
           // Try to get the actual compute node output texture from ComputeExecutor
           if (window.computeExecutor && window.computeExecutor.nodeOutputs) {
             const computeTexture = window.computeExecutor.nodeOutputs.get(nodeId);
-            if (computeTexture) {
+            if (computeTexture && !this._isOutputTexture(computeTexture, outputTexture)) {
               return computeTexture.createView();
             }
           }
@@ -1052,7 +1093,7 @@ export class FragmentTextureRenderer {
           // Fallback: try to get from computeTextures registry
           if (window.computeExecutor && window.computeExecutor.computeTextures) {
             const textureData = window.computeExecutor.computeTextures.get(nodeId);
-            if (textureData && textureData.texture) {
+            if (textureData?.texture && !this._isOutputTexture(textureData.texture, outputTexture)) {
               return textureData.texture.createView();
             }
           }
@@ -1062,45 +1103,15 @@ export class FragmentTextureRenderer {
         if (meta.varName) {
           // Extract node ID from texture variable name (e.g., "texture_27" -> "27")
           const sanitizedId = meta.varName.replace(/^(texture_|textureCube_)/, '');
-
-          // Try to get actual texture from TextureManager
           const texManager = window.editor?.textureManager || window.textureManager;
-          if (texManager) {
-            // Try gpuTextures map first
-            if (texManager.gpuTextures?.get) {
-              const gpuInfo = texManager.gpuTextures.get(sanitizedId);
-              if (gpuInfo && gpuInfo.textureView) {
-                return gpuInfo.textureView;
-              }
-            }
-
-            // Try getTexture method
-            if (typeof texManager.getTexture === "function") {
-              const textureInfo = texManager.getTexture(sanitizedId);
-              if (textureInfo && textureInfo.textureView) {
-                return textureInfo.textureView;
-              }
-            }
-
-            // Try iterating through textures map
-            if (texManager.textures) {
-              for (const [nodeId, info] of texManager.textures.entries()) {
-                const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
-                if (nodeSanitizedId === sanitizedId && info.textureView) {
-                  return info.textureView;
-                }
-              }
-            }
-
-            // Try iterating through gpuTextures map
-            if (texManager.gpuTextures) {
-              for (const [nodeId, info] of texManager.gpuTextures.entries()) {
-                const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
-                if (nodeSanitizedId === sanitizedId && info.textureView) {
-                  return info.textureView;
-                }
-              }
-            }
+          const found = this._findTextureEntry(
+            texManager,
+            sanitizedId,
+            info => !!(info?.textureView || info?.texture?.createView)
+          );
+          const view = found ? this._textureView(found.info) : null;
+          if (view) {
+            return view;
           }
         }
 

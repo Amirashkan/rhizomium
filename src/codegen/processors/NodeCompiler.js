@@ -14,6 +14,7 @@ import { ComputeNodes } from '../compilers/ComputeNodes.js';
 import { ProjectionMapNodes } from '../compilers/ProjectionMapNodes.js';
 import { UnifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 import { buildParamRefMapping, guardedResolve } from '../../utils/paramReferences.js';
+import { SHARED_SAMPLER } from '../../gpu/sharedSamplers.js';
 
 export class NodeCompiler {
   constructor() {
@@ -426,7 +427,7 @@ export class NodeCompiler {
         const textureId = `compute_node_${texId}`;
         result = {
           line: `let uv_${texId} = vec2<f32>(in.uv.x, 1.0 - in.uv.y);
-    let node_${nodeId}_rgba = textureSample(${textureId}, sampler_${textureId}, uv_${texId});
+    let node_${nodeId}_rgba = textureSample(${textureId}, ${SHARED_SAMPLER}, uv_${texId});
     let node_${nodeId} = node_${nodeId}_rgba;`,
           outputType: "vec4",
           outputPins: [

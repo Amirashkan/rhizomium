@@ -268,7 +268,13 @@ export class ComputeExecutor {
    * serializes overlapping calls — never call this directly.
    */
   async _initializeOnce() {
-    if (!window.computeNodeRegistry || window.computeNodeRegistry.size === 0) {
+    const registry = window.computeNodeRegistry;
+    // Nothing registered AND nothing built: no work to do, and no teardown owed.
+    // An empty registry with managers still standing is not that case — a graph
+    // that lost its last compute node (an edit, or a project load that replaced
+    // the whole graph) still has to reach the teardown below, or those managers
+    // keep dispatching every frame into textures nothing reads any more.
+    if (!registry?.size && !this.initialized) {
       return;
     }
 
@@ -340,7 +346,7 @@ export class ComputeExecutor {
     // Create fallback texture
     this.createFallbackTexture();
 
-    for (const [nodeId, nodeData] of window.computeNodeRegistry) {
+    for (const [nodeId, nodeData] of (registry || [])) {
       await this.initializeComputeNode(nodeId, nodeData);
     }
 

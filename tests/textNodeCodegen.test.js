@@ -22,6 +22,7 @@ import {
   textNodeHasLiveExpression,
 } from '../src/core/TextRasterizer.js';
 import { TextNodeProcessor } from '../src/core/TextNodeProcessor.js';
+import { SHARED_SAMPLER } from '../src/gpu/sharedSamplers.js';
 
 function buildGraph(params = {}, { uvInput = null } = {}) {
   const nodes = [
@@ -43,13 +44,14 @@ describe('Text node codegen', () => {
     delete window.textureManager;
   });
 
-  it('binds a 2D texture and sampler under the node id, like an image node', () => {
+  it('binds a 2D texture under the node id, like an image node', () => {
     const bindings = TextureBindings.generate({
       nodes: [{ id: '10', kind: 'Text' }],
     });
 
     expect(bindings).toContain('var texture_10: texture_2d<f32>');
-    expect(bindings).toContain('var sampler_10: sampler');
+    // Sampled through the shader's shared sampler, like every other texture.
+    expect(bindings).toContain(`var ${SHARED_SAMPLER}: sampler;`);
   });
 
   it('samples that binding at the incoming UV, with Y flipped like the other texture nodes', () => {
@@ -57,7 +59,7 @@ describe('Text node codegen', () => {
 
     expect(wgsl).toContain('let srcuv_10 = in.uv;');
     expect(wgsl).toContain('let uv_10 = vec2<f32>(fituv_10.x, 1.0 - fituv_10.y);');
-    expect(wgsl).toContain('textureSample(texture_10, sampler_10, uv_10)');
+    expect(wgsl).toContain(`textureSample(texture_10, ${SHARED_SAMPLER}, uv_10)`);
   });
 
   it('reads a connected UV instead of the fragment UV', () => {
@@ -169,7 +171,7 @@ describe('Text node codegen', () => {
       connections: [],
     }).wgsl;
 
-    expect(wgsl).toContain('textureSample(texture_10, sampler_10, sample_uv_20)');
+    expect(wgsl).toContain(`textureSample(texture_10, ${SHARED_SAMPLER}, sample_uv_20)`);
   });
 });
 
