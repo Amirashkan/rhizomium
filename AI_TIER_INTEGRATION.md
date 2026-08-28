@@ -122,6 +122,43 @@ patch approaches the function's own limit.
 `answerBudget()`: it hands back the whole patch it was given, so a ten-node
 tidy and a four-hundred-node one need allowances an order of magnitude apart.
 
+#### Measuring what an answer actually costs
+
+Everything above is a *budget* — what a call is allowed. What it spends is a
+different number, and the pricing model turns on it: output is six times the
+input rate on the default model and reasoning is billed as output, so the
+fraction of its budget a typical answer uses moves the bill more than anything
+else about the patch.
+
+Every completed call logs that fraction. `logCall()` in `api/ai/run.js` writes
+one line per call, marked `AI_USAGE` and carrying compact JSON — the answer,
+the reasoning, the budget it was allowed, and `answerShare`, the ratio between
+them. Readable by eye, and parseable without a regex that breaks the first time
+a label gains a comma.
+
+```
+vercel logs <deployment-url> | node scripts/answer-lengths.mjs
+```
+
+That prints a median share per feature, with the sample size and the p90 tail.
+The medians are what the pricing workbook's "typical answer, share of budget"
+column wants; the p90 is the tail the quotas underwrite.
+
+Two limits on what it can tell you, which the script also prints:
+
+- **Only completed calls log.** A call stopped at the deadline generated
+  tokens and was billed for them, and it is not in the sample. The measured
+  share is a floor, not an average.
+- **Nothing aggregates these.** They live as long as the platform keeps
+  function logs, so what comes back is a sample of whatever window was
+  fetched — not a measurement of the population. Use the median rather than
+  the mean, and look at `n` before repricing on it.
+
+If the number ever has to be *trusted* rather than sampled, it wants a row in a
+table written after the call, the way the gallery's quota counter is written
+before it. The gallery's `ai_usage` table holds a call count and no tokens, so
+today there is nowhere for it to go.
+
 #### What that works out to, per feature
 
 `npm run ai:tokens` prints the range for every feature, worked out from the

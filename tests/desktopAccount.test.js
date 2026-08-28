@@ -423,8 +423,8 @@ describe('accountSummary', () => {
   it('tells signed in, signed out and unreachable apart', async () => {
     const { accountSummary } = await import('../src/ui/accountSession.js');
 
-    expect(accountSummary({ authenticated: true, tierLabel: 'Cloude Plus' }))
-      .toBe('Signed in · Cloude Plus');
+    expect(accountSummary({ authenticated: true, tierLabel: 'Studio' }))
+      .toBe('Signed in · Studio');
     expect(accountSummary({ authenticated: false, degraded: true }))
       .toBe('Not signed in · gallery unreachable');
     expect(accountSummary({ authenticated: false, tier: 'free', tierLabel: 'Free' }))

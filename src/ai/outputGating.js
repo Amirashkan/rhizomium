@@ -1,5 +1,5 @@
 /**
- * outputGating.js - the gate for the unmetered Cloude Plus output features.
+ * outputGating.js - the gate for the unmetered Studio output features.
  *
  * `output.ndi` and `output.multiscreen` are flags, not metered calls: there is
  * no quota and no grant to ask for, so a check against the live entitlements

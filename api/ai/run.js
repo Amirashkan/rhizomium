@@ -315,7 +315,7 @@ export default async function handler(req, res) {
     const result = await callModel(config, userMessage, input);
     const payload = shapeResult(feature, result);
 
-    logCall(config, result, Date.now() - started);
+    logCall(feature, config, result, Date.now() - started);
 
     return res.status(200).json({
       feature,
@@ -335,18 +335,54 @@ export default async function handler(req, res) {
  * of numbers nobody had measured — which is how a review came to be allowed
  * 32,000 output tokens and then ran past the function's time limit. This is
  * where the real ones come from. Read a few of these before changing either.
+ *
+ * The line is JSON behind a fixed marker so it can be read two ways. A person
+ * scanning the function logs gets the numbers in order; a script gets them
+ * without a regex that breaks the first time a label gains a comma:
+ *
+ *     vercel logs <deployment> | grep AI_USAGE | scripts/answer-lengths.mjs
+ *
+ * `answerShare` is why this exists. The pricing model assumes a typical answer
+ * runs at some fraction of the budget it was allowed, and that fraction moves
+ * the bill more than anything else in it. This is the only place the real
+ * fraction is observable.
+ *
+ * Observable, but not durable: these lines live as long as the platform keeps
+ * function logs and nothing aggregates them. If the number ever needs to be
+ * trusted rather than sampled, it wants a row in a table, written after the
+ * call the way the quota counter is written before it.
  */
-function logCall(config, { usage, budget }, elapsedMs) {
+export const USAGE_LOG_MARKER = 'AI_USAGE';
+
+function logCall(feature, config, { usage, budget }, elapsedMs) {
   const reasoning = usage?.output_tokens_details?.reasoning_tokens;
   // Reasoning is counted inside output_tokens, so the answer is what is left.
   // Floored: a usage shape that disagrees should read as odd, not as negative.
   const answer = Math.max(0, (usage?.output_tokens ?? 0) - (reasoning ?? 0));
   const cached = usage?.input_tokens_details?.cached_tokens ?? 0;
+  const output = usage?.output_tokens ?? null;
 
   console.log(
-    `${config.label}: ${(elapsedMs / 1000).toFixed(1)}s, ` +
-      `${reasoning ?? '?'} reasoning + ${answer} answer of ${budget} allowed, ` +
-      `${usage?.input_tokens ?? '?'} in (${cached} cached).`
+    `${USAGE_LOG_MARKER} ${JSON.stringify({
+      feature,
+      label: config.label,
+      model: config.model ?? null,
+      effort: config.effort ?? null,
+      seconds: Number((elapsedMs / 1000).toFixed(1)),
+      inputTokens: usage?.input_tokens ?? null,
+      cachedTokens: cached,
+      reasoningTokens: reasoning ?? null,
+      answerTokens: answer,
+      outputTokens: output,
+      // What the call was allowed to write, reasoning room included. The
+      // denominator of the assumption this exists to replace.
+      outputBudget: budget,
+      // Null rather than zero when the budget is missing: a share of an
+      // unknown budget is not 0%, it is unknown, and averaging a fake zero
+      // into the sample would quietly drag the answer down.
+      answerShare:
+        budget > 0 && output !== null ? Number((output / budget).toFixed(4)) : null,
+    })}`
   );
 }
 
