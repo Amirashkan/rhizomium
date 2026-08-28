@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { buildWGSL } from '../src/codegen/glslBuilder.js';
 import { MAX_MAPPED_SURFACES } from '../src/data/nodes/UtilityNodes.js';
+import { SHARED_SAMPLER_CLAMP } from '../src/gpu/sharedSamplers.js';
 
 function makeGraph(inputs, extraNodes = []) {
   return {
@@ -103,7 +104,8 @@ describe('ProjectionMap codegen', () => {
     // fragment bridge, published under its own id.
     const wgsl = compile(makeGraph(['5']));
     expect(wgsl).toMatch(/var compute_node_5: texture_2d<f32>/);
-    expect(wgsl).toMatch(/var sampler_compute_node_5: sampler/);
+    // Sampled to its very edge, so it takes the clamped shared sampler.
+    expect(wgsl).toContain(`var ${SHARED_SAMPLER_CLAMP}: sampler;`);
   });
 
   it('binds a Texture2D source under its own texture pair instead of bridging it', () => {
@@ -148,7 +150,7 @@ describe('ProjectionMap codegen', () => {
     // non-uniform control source; textureSample's implicit derivatives are
     // rejected there and the whole shader fails to compile.
     const wgsl = compile(makeGraph(['5']));
-    expect(wgsl).toContain('textureSampleLevel(compute_node_5, sampler_compute_node_5, suv_12_s0, 0.0)');
+    expect(wgsl).toContain(`textureSampleLevel(compute_node_5, ${SHARED_SAMPLER_CLAMP}, suv_12_s0, 0.0)`);
     expect(wgsl).not.toMatch(/textureSample\(compute_node_5/);
   });
 

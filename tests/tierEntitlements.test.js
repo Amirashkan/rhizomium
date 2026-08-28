@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EntitlementsClient, GrantError } from '../src/ai/entitlements.js';
 import {
   FEATURES,
+  TIER_LABELS,
+  gateFor,
   hasFeature,
+  holdsAddon,
   tierAtLeast,
   quotaFor,
   resolveTier,
@@ -72,6 +75,20 @@ describe('vendored tier catalogue', () => {
     expect(hasFeature('cloude_plus', 'ai.creative_director')).toBe(true);
   });
 
+  it('keeps patch refactor behind a subscription', () => {
+    // It writes a whole patch back, which makes it the dearest call the editor
+    // makes and the only one that overwrites the artist's document. Drawing it
+    // as free is how the editor takes a 402 in front of someone.
+    expect(hasFeature('free', 'ai.patch_refactor')).toBe(false);
+    expect(hasFeature('cloude', 'ai.patch_refactor')).toBe(true);
+  });
+
+  it('labels cloude_plus as Studio without moving the key', () => {
+    // The key is in stored grants; only the label changed.
+    expect(TIER_LABELS.cloude_plus).toBe('Studio');
+    expect(FEATURES['ai.creative_director'].tier).toBe('cloude_plus');
+  });
+
   it('orders the tiers', () => {
     expect(tierAtLeast('cloude_plus', 'free')).toBe(true);
     expect(tierAtLeast('free', 'cloude')).toBe(false);
@@ -85,7 +102,7 @@ describe('vendored tier catalogue', () => {
 
   it('returns no quota for unmetered features and a zero backstop off-tier', () => {
     expect(quotaFor('cloude_plus', 'output.ndi')).toBeNull();
-    expect(quotaFor('cloude', 'ai.patch_review')).toEqual({ limit: 200, windowSeconds: 86400 });
+    expect(quotaFor('cloude', 'ai.patch_review')).toEqual({ limit: 5, windowSeconds: 86400 });
     // Not sold at this tier: the tier check refuses first, this is the backstop.
     expect(quotaFor('free', 'ai.patch_generator').limit).toBe(0);
   });
@@ -103,6 +120,39 @@ describe('vendored tier catalogue', () => {
     expect(editor).toContain('ai.patch_review');
     expect(editor).not.toContain('viewer.web');
     expect(editor).not.toContain('gallery.pro_artist_panel');
+  });
+
+  it('gates the add-on features on the add-on, not the tier', () => {
+    // The panel is included from Cloude, so subscribers keep it...
+    expect(hasFeature('cloude', 'gallery.pro_artist_panel')).toBe(true);
+    expect(hasFeature('free', 'gallery.pro_artist_panel')).toBe(false);
+    expect(holdsAddon('free', 'addon.pro_artist_panel', ['addon.pro_artist_panel'])).toBe(true);
+
+    // ...while rendering is bundled with nothing and cannot be served, so it
+    // is refused on every tier, held or not. Availability beats entitlement.
+    for (const tier of ['free', 'cloude', 'cloude_plus']) {
+      expect(hasFeature(tier, 'render.server_side')).toBe(false);
+      expect(hasFeature(tier, 'render.server_side', ['addon.server_side_rendering'])).toBe(false);
+    }
+  });
+
+  it('reports which of the three refusals applies', () => {
+    expect(gateFor('ai.patch_refactor')).toEqual({ kind: 'tier', tier: 'cloude' });
+    expect(gateFor('gallery.pro_artist_panel')).toMatchObject({
+      kind: 'addon',
+      addon: 'addon.pro_artist_panel',
+      includedFrom: 'cloude',
+    });
+    // Nothing to buy: an upsell here would sell a plan that refuses too.
+    const ssr = gateFor('render.server_side');
+    expect(ssr.kind).toBe('unavailable');
+    expect(ssr.reason).toBeTruthy();
+  });
+
+  it('draws no allowance for an add-on feature', () => {
+    // Its allowance follows the add-on, and there is no add-on allowance yet.
+    // A plan's number here would be a promise nothing can keep.
+    expect(quotaFor('cloude_plus', 'render.server_side').limit).toBe(0);
   });
 
   it('marks the AI features as metered and the output flags as not', () => {

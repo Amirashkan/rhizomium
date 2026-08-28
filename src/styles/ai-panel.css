@@ -102,7 +102,7 @@
   background: var(--rz-surface);
 }
 
-/* The persistent tier badge. Cloude and Cloude Plus earn the accent; free is
+/* The persistent tier badge. Cloude and Studio earn the accent; free is
    deliberately quiet, so the badge reads as information, not a nag. */
 .ai-panel-tier {
   margin-left: auto;

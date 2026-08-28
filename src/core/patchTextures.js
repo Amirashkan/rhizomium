@@ -21,6 +21,46 @@
 import { dataUrlToBlob } from './dataUrl.js';
 
 /**
+ * Put a decoded bitmap on the GPU under `nodeId`, registered exactly the way a
+ * fresh upload registers it — `{ texture, textureView, sampler }` in
+ * `gpuTextures`. TextureManager.uploadToGPU is that one path, so use it when the
+ * manager has it; the inline fallback keeps this module usable with the minimal
+ * texture-manager stand-ins the viewer tests build, and registers the same shape.
+ */
+async function uploadImageToGPU(textureManager, nodeId, bitmap, width, height) {
+  if (typeof textureManager.uploadToGPU === 'function') {
+    await textureManager.uploadToGPU(nodeId, bitmap);
+    return;
+  }
+
+  const texture = textureManager.device.createTexture({
+    size: [width, height, 1],
+    format: 'rgba8unorm',
+    usage:
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+
+  textureManager.device.queue.copyExternalImageToTexture(
+    { source: bitmap },
+    { texture },
+    [width, height],
+  );
+
+  const sampler = textureManager.device.createSampler({
+    magFilter: 'linear',
+    minFilter: 'linear',
+    addressModeU: 'repeat',
+    addressModeV: 'repeat',
+  });
+
+  // gpuTextures is what the renderer checks when it binds.
+  if (!textureManager.gpuTextures) textureManager.gpuTextures = new Map();
+  textureManager.gpuTextures.set(nodeId, { texture, textureView: texture.createView(), sampler });
+}
+
+/**
  * Restore an inline image into the texture manager and upload it to the GPU.
  *
  * @param {object} textureManager the live TextureManager
@@ -50,31 +90,15 @@ export async function restoreImageTexture(textureManager, nodeId, dataUrl, filen
             dataUrl,
           });
 
-          const gpuTexture = textureManager.device.createTexture({
-            size: [img.width, img.height, 1],
-            format: 'rgba8unorm',
-            usage:
-              GPUTextureUsage.TEXTURE_BINDING |
-              GPUTextureUsage.COPY_DST |
-              GPUTextureUsage.RENDER_ATTACHMENT,
-          });
-
-          textureManager.device.queue.copyExternalImageToTexture(
-            { source: bitmap },
-            { texture: gpuTexture },
-            [img.width, img.height],
-          );
-
-          const sampler = textureManager.device.createSampler({
-            magFilter: 'linear',
-            minFilter: 'linear',
-            addressModeU: 'repeat',
-            addressModeV: 'repeat',
-          });
-
-          // gpuTextures is what the renderer checks when it binds.
-          if (!textureManager.gpuTextures) textureManager.gpuTextures = new Map();
-          textureManager.gpuTextures.set(nodeId, { texture: gpuTexture, sampler });
+          // Upload through TextureManager itself rather than by hand. Doing it here
+          // registered { texture, sampler } and NO textureView, while a freshly
+          // uploaded image registers { texture, textureView, sampler }. The main
+          // renderer papers over the difference (it creates a missing view on the
+          // fly), but the fragment/preview path requires the view to be there and
+          // otherwise falls through to its 1x1 white dummy — so every Texture 2D in
+          // an OPENED project kept its filename and rendered flat white, in its
+          // thumbnail and in anything the node was bridged into.
+          await uploadImageToGPU(textureManager, nodeId, bitmap, img.width, img.height);
 
           // New textures invalidate the cached bind group.
           textureManager.bindGroup = null;

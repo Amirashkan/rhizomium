@@ -173,6 +173,12 @@ export const SHORTCUT_SECTIONS = [
         note: "Lay the patch out across several displays. Desktop / Vite build only.",
       },
       {
+        id: "btn-ndi-output",
+        label: "NDI Output",
+        keys: "Mod+Shift+N",
+        note: "Desktop / Vite build only; needs the local NDI bridge running.",
+      },
+      {
         label: "Frame selected nodes",
         keys: "F",
         dispatch: false,
@@ -216,6 +222,7 @@ export const SHORTCUT_SECTIONS = [
     items: [
       { id: "btn-account", label: "Account…", keys: "Mod+Alt+L" },
       { id: "btn-ai-panel", label: "AI Assistant", keys: "Mod+Shift+A" },
+      { id: "btn-collab", label: "Collab Space…", keys: "Mod+Shift+J" },
       {
         id: "btn-script-editor",
         label: "Script Editor / Python Console",

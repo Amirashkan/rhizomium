@@ -21,6 +21,7 @@
 
 import { MAX_MAPPED_SURFACES, MAX_MASK_POINTS } from '../../data/nodes/UtilityNodes.js';
 import { getInputCount } from '../../data/nodeInputs.js';
+import { SHARED_SAMPLER, SHARED_SAMPLER_CLAMP } from '../../gpu/sharedSamplers.js';
 
 /** Below this the surface has collapsed to a line and has nothing to sample. */
 const W_EPSILON = '1e-6';
@@ -396,12 +397,12 @@ export class ProjectionMapNodes {
     const sid = String(sourceId).replace(/[^a-zA-Z0-9_]/g, '_');
     // Text rasterises under the same texture_<id> pair as Texture2D.
     if (sourceNode.kind === 'Texture2D' || sourceNode.kind === 'Text') {
-      return { texture: `texture_${sid}`, sampler: `sampler_${sid}` };
+      return { texture: `texture_${sid}`, sampler: SHARED_SAMPLER };
     }
     // Compute outputs and fragment subgraphs bridged for this node both live in
     // nodeOutputs, so both bind under the compute_node_<id> pair.
     const bare = sid.startsWith('node_') ? sid.substring(5) : sid;
-    return { texture: `compute_node_${bare}`, sampler: `sampler_compute_node_${bare}` };
+    return { texture: `compute_node_${bare}`, sampler: SHARED_SAMPLER_CLAMP };
   }
 
   /**

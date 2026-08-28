@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SaveLoadManager } from '../src/core/SaveLoadManager.js';
+import { canCompressProjects, decodeProjectFile } from '../src/core/projectFile.js';
 
 const P = SaveLoadManager.prototype;
 
@@ -20,6 +21,8 @@ function makeStub(overrides = {}) {
     _sanitizeFileName: P._sanitizeFileName,
     _suggestedFileName: P._suggestedFileName,
     _writeToHandle: P._writeToHandle,
+    _encodeForFile: P._encodeForFile,
+    _fileMimeType: P._fileMimeType,
     _promptForName: P._promptForName,
     saveProject: P.saveProject,
     saveProjectAs: P.saveProjectAs,
@@ -72,8 +75,12 @@ describe('SaveLoadManager.saveProject routing', () => {
     const ok = await P.saveProject.call(stub);
 
     expect(ok).toBe(true);
-    expect(write).toHaveBeenCalledWith(handle, expect.any(String));
     expect(stub._saveProjectAs).not.toHaveBeenCalled();
+
+    // A .rz is written compressed; what matters is that it reads back.
+    const [, written] = write.mock.calls[0];
+    const json = JSON.parse(await decodeProjectFile(new Blob([written])));
+    expect(json.app).toBe('Rhizomium-Web');
     expect(stub.hasUnsavedChanges).toBe(false);
   });
 
@@ -129,10 +136,12 @@ describe('SaveLoadManager.saveProjectAs download fallback', () => {
 
     expect(ok).toBe(true);
     expect(stub.downloadFile).toHaveBeenCalledWith(
-      expect.any(String),
+      expect.anything(),
       'My Cool Scene.rz',
-      'application/json',
+      canCompressProjects() ? 'application/gzip' : 'application/json',
     );
+    const [content] = stub.downloadFile.mock.calls[0];
+    expect(JSON.parse(await decodeProjectFile(new Blob([content]))).app).toBe('Rhizomium-Web');
     expect(stub.currentProjectName).toBe('My Cool Scene.rz');
     expect(stub.currentFileHandle).toBe(null);
     expect(stub.hasUnsavedChanges).toBe(false);

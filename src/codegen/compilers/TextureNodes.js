@@ -2,6 +2,7 @@
 // Texture nodes that *register global WGSL bindings* (group 0) and only emit sampling code in-line.
 
 import { ensureTextTexture } from '../../core/TextRasterizer.js';
+import { SHARED_SAMPLER } from '../../gpu/sharedSamplers.js';
 
 export class TextureNodes {
   constructor() {
@@ -60,7 +61,7 @@ export class TextureNodes {
     // Flip Y coordinate to fix upside-down texture
     // Sample once and store in a variable for channel extraction
     const line = `let uv_${nodeId} = vec2<f32>(${uv}.x, 1.0 - ${uv}.y);
-    let node_${nodeId}_rgba = textureSample(texture_${textureId}, sampler_${textureId}, uv_${nodeId});
+    let node_${nodeId}_rgba = textureSample(texture_${textureId}, ${SHARED_SAMPLER}, uv_${nodeId});
     let node_${nodeId} = node_${nodeId}_rgba;`;
 
     // Single Color (RGBA) output. Channels are extracted downstream with a
@@ -116,7 +117,7 @@ export class TextureNodes {
     // Y flip matches Texture2D / Compute sampling, so the text reads the right way up.
     line += `
     let uv_${nodeId} = vec2<f32>(fituv_${nodeId}.x, 1.0 - fituv_${nodeId}.y);
-    let node_${nodeId}_rgba = textureSample(texture_${nodeId}, sampler_${nodeId}, uv_${nodeId});`;
+    let node_${nodeId}_rgba = textureSample(texture_${nodeId}, ${SHARED_SAMPLER}, uv_${nodeId});`;
 
     // In clamp mode the texture's edge pixels would otherwise smear outward forever once the fit
     // or a transform pushes the coordinate past the unit square — including across the whole
@@ -149,7 +150,7 @@ export class TextureNodes {
       "normalize(vec3<f32>(in.uv.x * 2.0 - 1.0, in.uv.y * 2.0 - 1.0, 1.0))");
     const textureId = nodeId;
     
-    const line = `let node_${nodeId}_rgba = textureSample(textureCube_${textureId}, samplerCube_${textureId}, ${dir});
+    const line = `let node_${nodeId}_rgba = textureSample(textureCube_${textureId}, ${SHARED_SAMPLER}, ${dir});
     let node_${nodeId} = node_${nodeId}_rgba;`;
 
     // Single Color (RGBA) output. Use a Split Vec4 node for channels.

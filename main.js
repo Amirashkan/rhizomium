@@ -1,5 +1,6 @@
 // main.js - Complete version with Undo System and Event System
 import { GPURenderer } from "./src/gpu/gpuRenderer.js";
+import { requestDeviceWithTextureLimits } from "./src/gpu/deviceLimits.js";
 import { RenderLoop } from "./src/core/RenderLoop.js";
 import { buildWGSL } from "./src/codegen/glslBuilder.js";
 import { Editor } from "./src/core/Editor.js";
@@ -7,6 +8,7 @@ import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { FileManager } from "./src/ui/FileManager.js";
 import { getAIPanel } from "./src/ui/AIPanel.js";
+import { getCollabPanel } from "./src/ui/CollabPanel.js";
 import { showAccountDialog } from "./src/ui/accountSession.js";
 import { entitlements } from "./src/ai/entitlements.js";
 import { requireOutputFeature, checkOutputFeature } from "./src/ai/outputGating.js";
@@ -28,6 +30,7 @@ import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 import { MIDIManager } from './src/midi/MIDIManager.js';
 import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
+import { NDIOutput } from './src/output/NDIOutput.js';
 import { OSCManager } from './src/osc/OSCManager.js';
 import { OSCParameterBinding } from './src/osc/OSCParameterBinding.js';
 import { getOSCSettingsPanel } from './src/ui/OSCSettingsPanel.js';
@@ -88,6 +91,11 @@ import {
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
 
 // Verify timeline imports loaded
+
+// The NDI publisher, built the first time the artist switches NDI output on.
+// Kept at module scope so the source-name field and the menu button address the
+// same publisher, and so switching off and on again does not lose its settings.
+let ndiOutput = null;
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -221,7 +229,10 @@ async function initialize() {
     const adapter = await navigator.gpu.requestAdapter(
       isWindows ? undefined : { powerPreference: "high-performance" }
     );
-    const device = await adapter.requestDevice();
+    // Ask for more than the spec's 16 sampled textures per stage where the
+    // machine allows it: a patch with more texture-ish nodes than that compiled
+    // to a shader naming bindings the device would not grant, and died.
+    const device = await requestDeviceWithTextureLimits(adapter);
     // Retain the adapter: if it gets garbage-collected, Chromium drops the
     // Dawn instance behind it and later buffer.mapAsync calls fail with "A
     // valid external Instance reference no longer exists" (breaks 3D readback)
@@ -1721,6 +1732,89 @@ function setupUIEventHandlers() {
     }
   }
 
+  // NDI output. Publishes the render onto the network as an NDI source that a
+  // vision mixer, OBS or a monitor on another machine can subscribe to.
+  //
+  // Vite/desktop build only, like the second monitor, and for a stronger
+  // reason: a browser cannot speak NDI at all, so the frames go to a local
+  // bridge process (ndi_bridge_server.py) that owns the actual sender.
+  const ndiBtn = removeExistingHandlers("btn-ndi-output");
+  if (ndiBtn && isViteBuild()) {
+    document.getElementById("sep-ndi-output")?.style.removeProperty("display");
+    ndiBtn.style.removeProperty("display");
+    document.getElementById("row-ndi-source-name")?.style.removeProperty("display");
+    setNdiButtonState(false);
+
+    const ndiNameInput = removeExistingHandlers("ndi-source-name");
+    ndiNameInput?.addEventListener("change", (e) => {
+      const name = String(e.target.value || "").trim();
+      if (!name) {
+        // An empty name would leave the source unnamed on the network; put the
+        // running one back rather than accepting it.
+        e.target.value = ndiOutput?.sourceName || "Rhizomium";
+        return;
+      }
+      ndiOutput?.setSourceName(name);
+    });
+
+    ndiBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+
+      // Stopping is never gated - a tier that lapsed mid-show should not strand
+      // a source published on the network with no way to take it down.
+      if (ndiOutput?.isEnabled) {
+        ndiOutput.disable();
+        setNdiButtonState(false);
+        if (typeof updateStatus === "function") updateStatus("NDI output stopped");
+        return;
+      }
+
+      // NDI output is a Cloude Plus entitlement.
+      if (!requireOutputFeature("output.ndi", {
+        onRefused: (message, check) => {
+          if (typeof updateStatus === "function") {
+            updateStatus(`${message} See ${check.upgradeUrl}`, "warning");
+          }
+        },
+      })) {
+        return;
+      }
+
+      try {
+        if (!ndiOutput) {
+          ndiOutput = new NDIOutput({
+            sourceName: ndiNameInput?.value?.trim() || undefined,
+          });
+        }
+        await ndiOutput.initialize(window.gpuRenderer);
+        setNdiButtonState(true);
+
+        const status = ndiOutput.getStatus();
+        if (typeof updateStatus === "function") {
+          if (status.ndiAvailable) {
+            updateStatus(`NDI output live as "${status.sourceName}"`);
+          } else {
+            // The bridge is running but cannot publish - usually a missing NDI
+            // runtime. It knows exactly why, so pass that on rather than
+            // reporting a generic failure.
+            updateStatus(`NDI unavailable: ${status.ndiError}`, "warning");
+          }
+        }
+      } catch {
+        // Nothing is listening. Stop rather than retrying in the background,
+        // so the button keeps telling the truth about whether output is on.
+        ndiOutput?.disable();
+        setNdiButtonState(false);
+        if (typeof updateStatus === "function") {
+          updateStatus(
+            "Could not reach the NDI bridge. Start it with: python3 ndi_bridge_server.py",
+            "error"
+          );
+        }
+      }
+    });
+  }
+
   // Resolution selector (removed - resolution settings now in Preview/Export Settings window)
   // The resolution selector functionality has been moved to the Preview/Export Settings window
 
@@ -2468,6 +2562,20 @@ function setupRhizomiumMenu() {
       // A dock, not a dialog: the same menu entry opens and closes it.
       Promise.resolve(getAIPanel().toggle()).catch((error) => {
         console.warn("[main.js] AI panel could not be toggled:", error);
+      });
+    });
+  }
+
+  // Collab space. The panel does its own gating (src/collab/collabGate.js) and
+  // draws the refusal itself, so the menu entry is never hidden — an artist who
+  // cannot use it should still find out it exists.
+  const collabBtn = document.getElementById("btn-collab");
+  if (collabBtn) {
+    collabBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      Promise.resolve(getCollabPanel().toggle()).catch((error) => {
+        console.warn("[main.js] Collab panel could not be toggled:", error);
       });
     });
   }
@@ -3520,8 +3628,14 @@ async function updateShaderFromGraph() {
     }
 
     // Initialize compute nodes BEFORE setting shader source
-    // This ensures compute textures exist when bind groups are created
-    if (computeExecutor && window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
+    // This ensures compute textures exist when bind groups are created.
+    // An EMPTY registry is not a reason to skip it once the executor has managers:
+    // that is a graph whose last compute node just went away (deleted, or replaced
+    // wholesale by a project load), and initialize() is what tears the old managers
+    // down — safely, holding their textures alive until the new bind groups are in
+    // place. Skipping it left them dispatching every frame for a graph that no
+    // longer contains them.
+    if (computeExecutor && (window.computeNodeRegistry?.size > 0 || computeExecutor.initialized)) {
       await computeExecutor.initialize();
     }
 
@@ -3618,6 +3732,14 @@ function setSecondMonitorButtonState(active) {
   const count = screenModel ? screenModel.enabledScreens().length : (active ? 1 : 0);
   const many = count > 1 ? ` (${count} screens)` : "";
   btn.textContent = active ? `Close Output${many}` : `Open Output${many}`;
+  btn.style.backgroundColor = active ? "rgba(0, 170, 0, 0.8)" : "";
+  btn.style.borderColor = active ? "rgba(0, 255, 0, 0.4)" : "";
+}
+
+function setNdiButtonState(active) {
+  const btn = document.getElementById("btn-ndi-output");
+  if (!btn) return;
+  btn.textContent = active ? "Stop NDI Output" : "NDI Output";
   btn.style.backgroundColor = active ? "rgba(0, 170, 0, 0.8)" : "";
   btn.style.borderColor = active ? "rgba(0, 255, 0, 0.4)" : "";
 }

@@ -22,7 +22,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://art.tenderworld.org https://studio.tenderworld.org ws://localhost:8765 http://localhost:8765 ws://127.0.0.1:8766 ws://localhost:8767 ws://127.0.0.1:8767; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://art.tenderworld.org https://studio.tenderworld.org ws://localhost:8765 http://localhost:8765 ws://127.0.0.1:8766 ws://localhost:8767 ws://127.0.0.1:8767 ws://localhost:8768 ws://127.0.0.1:8768; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
     />
     <title>GLSL Node Editor</title>
     <!-- tokens.css declares the design variables every other stylesheet reads,
@@ -368,6 +368,19 @@
             <span>Long edge:</span>
             <input type="number" id="second-monitor-display-custom" inputmode="numeric" min="256" max="7680" step="1" value="1920" />
           </label>
+          <!-- NDI output. Publishes the render to the network as an NDI source.
+               Like the second monitor this needs the Vite/desktop build, and it
+               also needs the local bridge (ndi_bridge_server.py) that owns the
+               NDI sender, so it ships hidden and main.js reveals it. -->
+          <div class="menu-separator" id="sep-ndi-output" style="display:none"></div>
+          <button id="btn-ndi-output" style="display:none">NDI Output</button>
+          <!-- The name receivers list this machine under. Two machines both
+               announcing "Rhizomium" is a confusing show. Revealed with the
+               button. -->
+          <label class="snap-size" id="row-ndi-source-name" style="display:none">
+            <span>NDI Name:</span>
+            <input type="text" id="ndi-source-name" maxlength="64" value="Rhizomium" />
+          </label>
         </div>
       </div>
 
@@ -400,6 +413,7 @@
         <div class="menu-dropdown" id="dropdown-tools">
           <button id="btn-account">Account…</button>
           <button id="btn-ai-panel">AI Assistant</button>
+          <button id="btn-collab">Collab Space…</button>
           <div class="menu-separator"></div>
           <button id="btn-script-editor">Script Editor / Python Console</button>
           <div class="menu-separator"></div>

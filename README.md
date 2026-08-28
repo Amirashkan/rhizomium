@@ -173,6 +173,21 @@ To map a control: select a node, click the parameter field, click **Start OSC
 Learn**, then move the control. Full details — input ranges, multi-argument
 messages, network exposure — are in [src/osc/README.md](src/osc/README.md).
 
+## 📡 NDI Output
+
+Publishes the render onto the network as an NDI source, for a vision mixer, OBS
+or a monitor on another machine. NDI is a native protocol a browser cannot
+speak, so a local bridge owns the sender: run `npm run ndi`, then open
+**View → NDI Output** (`Mod+Shift+N`).
+
+NDI itself needs the runtime from <https://ndi.video/> and `pip install
+cyndilib`. Both are optional — without them the bridge still runs and tells the
+editor which one is missing, rather than leaving a dead toggle.
+
+Like OSC and the external viewer, this is a local-only feature: it cannot work
+on the static web deploy. Full details — the wire protocol, the bandwidth it
+costs, diagnostics — are in [src/output/README.md](src/output/README.md).
+
 ## 🎨 Using the External Viewer
 
 **⚠️ Local-Only Feature:** The external viewer requires running the Python server locally. It will NOT work on cloud-hosted deployments (Vercel, Netlify, etc.). See [DEPLOYMENT_NOTES.md](DEPLOYMENT_NOTES.md).

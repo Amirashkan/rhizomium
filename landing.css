@@ -670,6 +670,37 @@ img { max-width: 100%; }
   font-size: 11px;
   color: rgba(236, 229, 219, 0.3);
 }
+.tier-footnote a { color: inherit; }
+.tier-footnote a:hover { color: var(--rust-hi); }
+
+/* Add-ons and planned work: beside the tiers, not inside one. An add-on works
+   on any plan, and a planned feature is included in none — so neither belongs
+   in a column that reads as "what this price buys". */
+.tier-extra {
+  margin: 32px 0 0;
+  padding: 22px 0 0;
+  border-top: 1px solid var(--rust-line-soft);
+}
+
+.tier-extra-title {
+  margin: 0 0 18px;
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+
+.tier-extra-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px 32px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Dimmer than a tier's own list: present, readable, and visibly not part of
+   what the price above buys. */
+.tier-extra .tier-item { color: rgba(236, 229, 219, 0.72); }
+.tier-extra .tier-detail { margin-left: 18px; }
 
 /* --- Sign-up ------------------------------------------------------------ */
 

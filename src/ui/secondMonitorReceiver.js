@@ -70,6 +70,7 @@
 import { letterboxRect } from './letterbox.js';
 import { isTauri } from '../utils/isTauri.js';
 import { GPURenderer } from '../gpu/gpuRenderer.js';
+import { requestDeviceWithTextureLimits } from '../gpu/deviceLimits.js';
 import {
   FULL_REGION,
   sanitizeRegion,
@@ -92,7 +93,9 @@ async function defaultCreateRenderer(canvas) {
   try {
     const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
     if (!adapter) return null;
-    const device = await adapter.requestDevice();
+    // Same texture-binding headroom the editor asks for: this window compiles
+    // the very same WGSL.
+    const device = await requestDeviceWithTextureLimits(adapter);
     if (!device) return null;
     const renderer = new GPURenderer(device, canvas);
     renderer.externalUniformMode = true; // uniforms come from the editor's snapshots

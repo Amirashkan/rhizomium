@@ -174,11 +174,11 @@ describe('unmetered output feature gate', () => {
 
     const check = checkOutputFeature('output.multiscreen');
     expect(check.allowed).toBe(false);
-    expect(check.requiredTierLabel).toBe('Cloude Plus');
+    expect(check.requiredTierLabel).toBe('Studio');
 
     const refusals = [];
     expect(requireOutputFeature('output.multiscreen', { onRefused: (m) => refusals.push(m) })).toBe(false);
-    expect(refusals[0]).toMatch(/Cloude Plus/);
+    expect(refusals[0]).toMatch(/Studio/);
   });
 
   it('allows when the live answer grants it', () => {
