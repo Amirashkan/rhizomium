@@ -29,6 +29,22 @@
  * rebases on it. Edits made while the socket was down are lost, on purpose: a
  * best-effort replay of an unknown gap is how two canvases quietly stop
  * matching, and a quiet mismatch is worse than a visible loss.
+ *
+ * ## Showing a pass at the door
+ *
+ * A relay run with `--grant-secret` admits only peers carrying a grant the
+ * gallery signed (collab_room_server.py). When `getGrant` is supplied, this
+ * session asks for one before every hello — every hello, including the
+ * reconnect's, because the relay spends a grant when it admits a peer and a
+ * reused one is refused as a replay. See src/collab/collabGrant.js.
+ *
+ * Not supplying `getGrant` is a valid way to run: a loopback relay asks for
+ * nothing, and the tests drive the protocol without a gallery. So the hello
+ * goes out either way and the relay decides — with one exception. A refusal
+ * the relay marks fatal (a bad pass, a full room, a wrong token) is not
+ * retried: reconnecting six times over a minute cannot change any of those
+ * answers, and burying the one sentence that explains the problem under
+ * "Reconnecting…" is how an artist ends up reporting the wrong bug.
  */
 
 import {
@@ -53,6 +69,23 @@ const SNAPSHOT_TIMEOUT_MS = 5000;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 16000;
 const MAX_RECONNECT_ATTEMPTS = 6;
+
+/**
+ * Relay refusals that reconnecting cannot fix.
+ *
+ * Each of these is a decision about this peer rather than a hiccup on the wire:
+ * the room is full, the token is wrong, the pass was missing or not accepted.
+ * Retrying spends a minute to arrive at the same sentence, so the session stops
+ * and keeps the sentence instead. Anything not listed here — a relay restart, a
+ * dropped socket — is still worth another try.
+ */
+const FATAL_REFUSALS = new Set([
+  'bad_token',
+  'grant_required',
+  'grant_invalid',
+  'no_room',
+  'room_full',
+]);
 
 /** Connection states, in the order a healthy session passes through them. */
 export const STATES = {
@@ -84,11 +117,14 @@ export class CollabSession {
    * @param {() => object} options.getGraph - returns the live graph
    * @param {() => void} [options.onGraphChanged] - called after remote ops land
    * @param {typeof WebSocket} [options.socketFactory] - injected for tests
+   * @param {() => Promise<string|null>} [options.getGrant] - a fresh admission
+   *   grant for each hello. Omit it for a relay that does not ask for one.
    */
-  constructor({ url, getGraph, onGraphChanged, socketFactory } = {}) {
+  constructor({ url, getGraph, onGraphChanged, socketFactory, getGrant } = {}) {
     this.url = url;
     this.getGraph = getGraph;
     this.onGraphChanged = onGraphChanged;
+    this.getGrant = getGrant || null;
     this.socketFactory = socketFactory || (typeof WebSocket !== 'undefined' ? WebSocket : null);
 
     this.room = null;
@@ -116,6 +152,8 @@ export class CollabSession {
     this.reconnectTimer = null;
     this.wantsConnection = false;
     this.awaitingSnapshot = false;
+    /** Set when the relay refused for a reason retrying cannot change. */
+    this.refused = null;
 
     this.listeners = new Map();
   }
@@ -167,6 +205,9 @@ export class CollabSession {
     this.identity = identity;
     this.wantsConnection = true;
     this.reconnectAttempts = 0;
+    // A second attempt is judged on its own: the artist may have signed in, or
+    // the room may have emptied, since the last refusal.
+    this.refused = null;
     return this.connect();
   }
 
@@ -199,8 +240,7 @@ export class CollabSession {
       socket.onopen = () => {
         this.reconnectAttempts = 0;
         this.snapshotRetried = false;
-        this.send({ t: 'hello', room: this.room, identity: this.identity });
-        this.setState(STATES.SYNCING);
+        this.sayHello(socket);
         if (!settled) { settled = true; resolve(true); }
       };
 
@@ -220,7 +260,11 @@ export class CollabSession {
         this.cursors.clear();
         this.emit('peers', this.roster);
 
-        if (!this.wantsConnection) {
+        if (this.refused) {
+          // onRelayError already set FAILED with the relay's own sentence.
+          // Overwriting it here with "Left the room" would throw away the only
+          // explanation the artist is going to get.
+        } else if (!this.wantsConnection) {
           this.setState(STATES.CLOSED);
         } else if (this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           this.scheduleReconnect();
@@ -258,6 +302,7 @@ export class CollabSession {
   /** Leave the room. Idempotent. */
   leave() {
     this.wantsConnection = false;
+    this.refused = null;
     this.clearReconnectTimer();
     this.stopDiffLoop();
     if (this.ws && this.ws.readyState === 1) {
@@ -274,6 +319,37 @@ export class CollabSession {
   // ------------------------------------------------------------------
   // Transport
   // ------------------------------------------------------------------
+
+  /**
+   * Introduce this peer to the relay, with a pass when one can be had.
+   *
+   * Synchronous when there is no `getGrant`, because that is the shape the
+   * protocol has always had and a relay that asks for nothing should not wait
+   * on a promise to find out. With one, the hello waits for the gallery — and
+   * checks on the way back that this is still the socket it was called for,
+   * since a slow grant and a dropped connection race.
+   *
+   * @returns {Promise<boolean>} whether the hello went out.
+   */
+  sayHello(socket) {
+    const hello = { t: 'hello', room: this.room, identity: this.identity };
+
+    if (!this.getGrant) {
+      this.send(hello);
+      this.setState(STATES.SYNCING);
+      return Promise.resolve(true);
+    }
+
+    return Promise.resolve()
+      .then(() => this.getGrant())
+      .catch(() => null) // A grant source that throws is a source with no grant.
+      .then((grant) => {
+        if (this.ws !== socket || socket.readyState !== 1) return false;
+        this.send(grant ? { ...hello, grant } : hello);
+        this.setState(STATES.SYNCING);
+        return true;
+      });
+  }
 
   send(message) {
     if (!this.ws || this.ws.readyState !== 1) return false;
@@ -317,7 +393,7 @@ export class CollabSession {
         this.onSnapshot(message);
         break;
       case 'error':
-        this.emit('error', { message: message.message || 'The relay refused that.' });
+        this.onRelayError(message);
         break;
       default:
         break;
@@ -327,6 +403,26 @@ export class CollabSession {
   // ------------------------------------------------------------------
   // Protocol
   // ------------------------------------------------------------------
+
+  /**
+   * The relay said no. Decide whether that is worth retrying.
+   *
+   * A fatal refusal stops the session where it stands: `wantsConnection` goes
+   * false so the close that follows does not schedule a reconnect, and the
+   * state carries the relay's own words, which are more specific than anything
+   * this file could invent about someone else's configuration.
+   */
+  onRelayError(message) {
+    const text = message.message || 'The relay refused that.';
+    this.emit('error', { message: text, code: message.code || null });
+
+    if (!FATAL_REFUSALS.has(message.code)) return;
+
+    this.refused = message.code;
+    this.wantsConnection = false;
+    this.clearReconnectTimer();
+    this.setState(STATES.FAILED, text);
+  }
 
   onWelcome(message) {
     this.peerId = message.peerId;

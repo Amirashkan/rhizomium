@@ -27,6 +27,7 @@
 import { openExternal } from '../utils/openExternal.js';
 import { CollabSession, STATES, peerColor } from '../collab/CollabSession.js';
 import { resolveCollabAccess, refusalMessage } from '../collab/collabGate.js';
+import { collabGrantGetter } from '../collab/collabGrant.js';
 
 const STORE_KEY = 'rhizomium.collab.prefs';
 
@@ -149,6 +150,7 @@ export class CollabPanel {
     this.root = null;
     this.overlay = null;
     this.session = null;
+    this.grants = null;
     this.open = false;
     this.access = null;
     this.prefs = loadPrefs();
@@ -357,9 +359,16 @@ export class CollabPanel {
     else if (state === STATES.FAILED) dot.classList.add('bad');
     else if (state !== STATES.CLOSED) dot.classList.add('busy');
     const label = document.createElement('span');
-    label.textContent = this.session.lastError && state !== STATES.LIVE
-      ? `${STATE_COPY[state] || state} — ${this.session.lastError}`
-      : (STATE_COPY[state] || state);
+    if (this.session.refused) {
+      // The relay turned this peer away and said why. Its sentence is the whole
+      // answer; prefixing it with "Could not reach the room" would be wrong as
+      // well as redundant — the room was reached, and it said no.
+      label.textContent = this.session.lastError;
+    } else if (this.session.lastError && state !== STATES.LIVE) {
+      label.textContent = `${STATE_COPY[state] || state} — ${this.session.lastError}`;
+    } else {
+      label.textContent = STATE_COPY[state] || state;
+    }
     row.append(dot, label);
 
     const peers = document.createElement('ul');
@@ -426,10 +435,16 @@ export class CollabPanel {
       return;
     }
 
+    // A pass for the door, fetched fresh for every hello this session sends.
+    // A relay on loopback will not ask for one; one on a public address will,
+    // and the gallery is the only thing that can issue it (collabGrant.js).
+    this.grants = collabGrantGetter();
+
     this.session = new CollabSession({
       url: this.prefs.relay,
       getGraph: () => this.graph(),
       onGraphChanged: () => this.requestRedraw(),
+      getGrant: this.grants,
     });
 
     this.session.on('state', () => this.render());
@@ -449,6 +464,7 @@ export class CollabPanel {
   endSession() {
     this.session?.leave();
     this.session = null;
+    this.grants = null;
     this.untrackPointer();
     this.clearCursors();
     this.render();

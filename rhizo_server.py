@@ -268,6 +268,7 @@ def status():
         'collab': {
             'enabled': collab_room_server is not None,
             'rooms': len(collab_room_server.rooms) if collab_room_server else 0,
+            'grantRequired': bool(collab_room_server.grant_secret) if collab_room_server else False,
             'url': f'ws://localhost:{COLLAB_WS_PORT}/room'
         },
         'endpoints': {
@@ -449,7 +450,11 @@ def start_collab_room_server():
         collab_room_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(collab_room_loop)
 
-        collab_room_server = CollabRoomServer()
+        # This server is the local, single-machine way to run the relay, so it
+        # binds loopback and asks for nothing. `TIER_GRANT_SECRET` is still
+        # honoured, because an operator who has set it has said what they want
+        # and would not expect this one relay to be the open door.
+        collab_room_server = CollabRoomServer(grant_secret=os.environ.get('TIER_GRANT_SECRET'))
 
         try:
             collab_room_loop.run_until_complete(collab_room_server.start())
