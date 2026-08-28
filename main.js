@@ -8,6 +8,7 @@ import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { FileManager } from "./src/ui/FileManager.js";
 import { getAIPanel } from "./src/ui/AIPanel.js";
+import { getCollabPanel } from "./src/ui/CollabPanel.js";
 import { showAccountDialog } from "./src/ui/accountSession.js";
 import { entitlements } from "./src/ai/entitlements.js";
 import { requireOutputFeature } from "./src/ai/outputGating.js";
@@ -2399,6 +2400,20 @@ function setupRhizomiumMenu() {
       // A dock, not a dialog: the same menu entry opens and closes it.
       Promise.resolve(getAIPanel().toggle()).catch((error) => {
         console.warn("[main.js] AI panel could not be toggled:", error);
+      });
+    });
+  }
+
+  // Collab space. The panel does its own gating (src/collab/collabGate.js) and
+  // draws the refusal itself, so the menu entry is never hidden — an artist who
+  // cannot use it should still find out it exists.
+  const collabBtn = document.getElementById("btn-collab");
+  if (collabBtn) {
+    collabBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      Promise.resolve(getCollabPanel().toggle()).catch((error) => {
+        console.warn("[main.js] Collab panel could not be toggled:", error);
       });
     });
   }

@@ -51,8 +51,11 @@ export function isTier(value) {
  * and both projects' source. Renaming one is a migration, so add rather than
  * rename.
  *
- * `surface` is 'editor', 'gallery' or 'output' — filter on it to build UI
- * without having to know about the gallery-only features.
+ * `surface` is 'editor', 'gallery', 'output' or 'collab' — filter on it to
+ * build UI without having to know about the gallery-only features. 'collab' is
+ * its own surface rather than 'editor' because the editor-surface catalogue is
+ * what the AI panel draws feature cards from, and the collab space is not an
+ * AI action: it has a panel of its own (src/ui/CollabPanel.js).
  *
  * `metered` means a call spends quota. Unmetered features are flags: checking
  * access is free and costs nothing from the allowance.
@@ -98,6 +101,13 @@ export const FEATURES = {
     label: 'Node generator',
     description: 'Writes a new custom node, GLSL included, from a description.',
     metered: true,
+  },
+  'collab.space': {
+    tier: 'cloude',
+    surface: 'collab',
+    label: 'Collab space',
+    description: 'Opens a patch to other artists: one shared canvas, live presence, edits as they happen.',
+    metered: false,
   },
   'viewer.web': {
     tier: 'cloude',
