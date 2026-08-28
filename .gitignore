@@ -10,3 +10,6 @@ dist/
 # Tauri / Rust build artifacts
 src-tauri/target/
 src-tauri/gen/
+
+# Python bytecode cache (the local bridge servers)
+__pycache__/

@@ -30,6 +30,7 @@ import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 import { MIDIManager } from './src/midi/MIDIManager.js';
 import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
+import { NDIOutput } from './src/output/NDIOutput.js';
 import { OSCManager } from './src/osc/OSCManager.js';
 import { OSCParameterBinding } from './src/osc/OSCParameterBinding.js';
 import { getOSCSettingsPanel } from './src/ui/OSCSettingsPanel.js';
@@ -87,6 +88,11 @@ import {
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
 
 // Verify timeline imports loaded
+
+// The NDI publisher, built the first time the artist switches NDI output on.
+// Kept at module scope so the source-name field and the menu button address the
+// same publisher, and so switching off and on again does not lose its settings.
+let ndiOutput = null;
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -1651,6 +1657,89 @@ function setupUIEventHandlers() {
         e.target.value = String(secondMonitorViewer.displayMaxDim);
       });
     }
+  }
+
+  // NDI output. Publishes the render onto the network as an NDI source that a
+  // vision mixer, OBS or a monitor on another machine can subscribe to.
+  //
+  // Vite/desktop build only, like the second monitor, and for a stronger
+  // reason: a browser cannot speak NDI at all, so the frames go to a local
+  // bridge process (ndi_bridge_server.py) that owns the actual sender.
+  const ndiBtn = removeExistingHandlers("btn-ndi-output");
+  if (ndiBtn && isViteBuild()) {
+    document.getElementById("sep-ndi-output")?.style.removeProperty("display");
+    ndiBtn.style.removeProperty("display");
+    document.getElementById("row-ndi-source-name")?.style.removeProperty("display");
+    setNdiButtonState(false);
+
+    const ndiNameInput = removeExistingHandlers("ndi-source-name");
+    ndiNameInput?.addEventListener("change", (e) => {
+      const name = String(e.target.value || "").trim();
+      if (!name) {
+        // An empty name would leave the source unnamed on the network; put the
+        // running one back rather than accepting it.
+        e.target.value = ndiOutput?.sourceName || "Rhizomium";
+        return;
+      }
+      ndiOutput?.setSourceName(name);
+    });
+
+    ndiBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+
+      // Stopping is never gated - a tier that lapsed mid-show should not strand
+      // a source published on the network with no way to take it down.
+      if (ndiOutput?.isEnabled) {
+        ndiOutput.disable();
+        setNdiButtonState(false);
+        if (typeof updateStatus === "function") updateStatus("NDI output stopped");
+        return;
+      }
+
+      // NDI output is a Cloude Plus entitlement.
+      if (!requireOutputFeature("output.ndi", {
+        onRefused: (message, check) => {
+          if (typeof updateStatus === "function") {
+            updateStatus(`${message} See ${check.upgradeUrl}`, "warning");
+          }
+        },
+      })) {
+        return;
+      }
+
+      try {
+        if (!ndiOutput) {
+          ndiOutput = new NDIOutput({
+            sourceName: ndiNameInput?.value?.trim() || undefined,
+          });
+        }
+        await ndiOutput.initialize(window.gpuRenderer);
+        setNdiButtonState(true);
+
+        const status = ndiOutput.getStatus();
+        if (typeof updateStatus === "function") {
+          if (status.ndiAvailable) {
+            updateStatus(`NDI output live as "${status.sourceName}"`);
+          } else {
+            // The bridge is running but cannot publish - usually a missing NDI
+            // runtime. It knows exactly why, so pass that on rather than
+            // reporting a generic failure.
+            updateStatus(`NDI unavailable: ${status.ndiError}`, "warning");
+          }
+        }
+      } catch {
+        // Nothing is listening. Stop rather than retrying in the background,
+        // so the button keeps telling the truth about whether output is on.
+        ndiOutput?.disable();
+        setNdiButtonState(false);
+        if (typeof updateStatus === "function") {
+          updateStatus(
+            "Could not reach the NDI bridge. Start it with: python3 ndi_bridge_server.py",
+            "error"
+          );
+        }
+      }
+    });
   }
 
   // Resolution selector (removed - resolution settings now in Preview/Export Settings window)
@@ -3564,6 +3653,14 @@ function setSecondMonitorButtonState(active) {
   const btn = document.getElementById("btn-second-monitor");
   if (!btn) return;
   btn.textContent = active ? "Close Second Monitor" : "Second Monitor Viewer";
+  btn.style.backgroundColor = active ? "rgba(0, 170, 0, 0.8)" : "";
+  btn.style.borderColor = active ? "rgba(0, 255, 0, 0.4)" : "";
+}
+
+function setNdiButtonState(active) {
+  const btn = document.getElementById("btn-ndi-output");
+  if (!btn) return;
+  btn.textContent = active ? "Stop NDI Output" : "NDI Output";
   btn.style.backgroundColor = active ? "rgba(0, 170, 0, 0.8)" : "";
   btn.style.borderColor = active ? "rgba(0, 255, 0, 0.4)" : "";
 }

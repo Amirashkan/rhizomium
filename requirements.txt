@@ -16,3 +16,10 @@ websockets>=11.0
 
 # Audio Engine (existing)
 sounddevice>=0.4.6
+
+# NDI Output (ndi_bridge_server.py) - OPTIONAL
+# Needs the NDI runtime from https://ndi.video/ as well; cyndilib is only the
+# binding to it. Left optional on purpose: the bridge starts without either and
+# reports what is missing, so nothing else here breaks on a machine that will
+# never send NDI.
+# cyndilib>=0.0.6
