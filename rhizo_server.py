@@ -25,6 +25,12 @@ from osc_bridge_server import (
     DEFAULT_WS_PORT as OSC_WS_PORT,
 )
 
+# Import the collab room relay (peer-to-peer graph ops for the collab space)
+from collab_room_server import (
+    CollabRoomServer,
+    DEFAULT_PORT as COLLAB_WS_PORT,
+)
+
 # Get the directory where this script is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -241,7 +247,7 @@ def health():
 @app.route('/api/status', methods=['GET'])
 def status():
     """Get server status and configuration."""
-    global frame_stream_server, osc_bridge_server
+    global frame_stream_server, osc_bridge_server, collab_room_server
     return jsonify({
         'status': 'running',
         'base_dir': BASE_DIR,
@@ -258,6 +264,11 @@ def status():
             'packets': osc_bridge_server.packet_count if osc_bridge_server else 0,
             'udp_port': OSC_UDP_PORT,
             'url': f'ws://localhost:{OSC_WS_PORT}/ws'
+        },
+        'collab': {
+            'enabled': collab_room_server is not None,
+            'rooms': len(collab_room_server.rooms) if collab_room_server else 0,
+            'url': f'ws://localhost:{COLLAB_WS_PORT}/room'
         },
         'endpoints': {
             'static': ['/', '/studio', '/editor', '/viewer'],
@@ -335,6 +346,10 @@ frame_stream_thread = None
 osc_bridge_server = None
 osc_bridge_loop = None
 osc_bridge_thread = None
+
+collab_room_server = None
+collab_room_loop = None
+collab_room_thread = None
 
 
 def start_frame_stream_server():
@@ -417,13 +432,57 @@ def start_osc_bridge_server():
     return thread
 
 
+def start_collab_room_server():
+    """
+    Start the collab room relay in its own thread.
+
+    Non-fatal on failure, for the same reason the OSC bridge is: the editor is
+    a complete single-artist tool without it, and losing the whole server
+    because port 8767 is busy would be a poor trade. The collab panel reports
+    the relay as unreachable, which is the truth.
+    """
+    global collab_room_server, collab_room_loop
+
+    def run_server():
+        global collab_room_server, collab_room_loop
+
+        collab_room_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(collab_room_loop)
+
+        collab_room_server = CollabRoomServer()
+
+        try:
+            collab_room_loop.run_until_complete(collab_room_server.start())
+            print("[rhizo_server] Collab room relay started")
+            collab_room_loop.run_forever()
+        except OSError as e:
+            print(f"[rhizo_server] Collab relay could not start on port {COLLAB_WS_PORT}: {e}")
+            collab_room_server = None
+        except Exception as e:
+            print(f"[rhizo_server] Collab relay error: {e}")
+            import traceback
+            traceback.print_exc()
+            collab_room_server = None
+        finally:
+            if collab_room_server:
+                collab_room_loop.run_until_complete(collab_room_server.stop())
+            collab_room_loop.close()
+
+    thread = threading.Thread(target=run_server, daemon=True)
+    thread.start()
+
+    time.sleep(1)
+
+    return thread
+
+
 # ============================================================================
 # Main Entry Point
 # ============================================================================
 
 def main():
     """Start the Rhizomium integrated server."""
-    global frame_stream_thread, osc_bridge_thread
+    global frame_stream_thread, osc_bridge_thread, collab_room_thread
 
     print("=" * 70)
     print("🌿 Rhizomium Integrated Server with Frame Streaming")
@@ -439,6 +498,10 @@ def main():
     print("Starting OSC bridge...")
     osc_bridge_thread = start_osc_bridge_server()
 
+    # Start the collab room relay
+    print("Starting collab room relay...")
+    collab_room_thread = start_collab_room_server()
+
     print()
     print("Available URLs:")
     print("  Landing Page:  http://127.0.0.1:5000/")
@@ -449,6 +512,7 @@ def main():
     print("WebSocket:")
     print("  Frame Stream:  ws://127.0.0.1:8766/ws")
     print(f"  OSC Bridge:    ws://127.0.0.1:{OSC_WS_PORT}/ws")
+    print(f"  Collab Rooms:  ws://127.0.0.1:{COLLAB_WS_PORT}/room")
     print()
     print("OSC:")
     print(f"  Send OSC to:   udp://<this machine>:{OSC_UDP_PORT}")
