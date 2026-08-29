@@ -129,14 +129,27 @@
   color: var(--rz-text-2);
 }
 
+/* Open work is the accent, the way live state is everywhere else in the editor
+   — NOT amber. Amber is this app's warning colour and it already means
+   "Change" on the tag pills; spending it on the open count made an ordinary
+   question look like something wrong, and made the two amber things on screen
+   mean different things. Resolved takes the brighter success tone rather than
+   the muted surface green, which is too dim to read at this weight. */
 .review-stat.is-open .review-stat-value {
-  color: var(--rz-warn);
+  color: var(--rz-accent);
 }
 .review-stat.is-resolved .review-stat-value {
-  color: var(--rz-success);
+  color: var(--rz-success-dot);
 }
 .review-stat.is-blockers .review-stat-value {
   color: var(--rz-error);
+}
+
+/* A count of zero is good news and must not shout it in red: an empty tile
+   drops back to the ordinary text ramp, so colour on this row always means
+   "there is something here". */
+.review-stat.is-empty .review-stat-value {
+  color: var(--rz-text-disabled);
 }
 
 .review-stat-label {

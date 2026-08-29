@@ -3,6 +3,7 @@ import { NodeDefs, updateNodeIdCounter } from "../data/NodeDefs.js";
 import { AddNodePalette } from "./AddNodePalette.js";
 import { nodeDisplayName, hasCustomNodeName } from "../core/nodeName.js";
 import { cloneNode, cloneConnections } from "../core/cloneGraph.js";
+import { getReviewPanel } from "./ReviewPanel.js";
 
 export class MenuManager {
   constructor(graph, onChange) {
@@ -140,6 +141,22 @@ export class MenuManager {
         () => {
           this._duplicateSelected();
           this.hide();
+        },
+        nodeType,
+      ),
+    );
+
+    // Add Comment — the canvas-side way into the review layer
+    // (src/ui/ReviewPanel.js). Opens the dock with the compose form already
+    // aimed at this node, so leaving a note never means picking the node back
+    // out of a dropdown. Acts on the clicked node only, like Rename: a comment
+    // is about one node.
+    el.appendChild(
+      this._createMenuItem(
+        "Add Comment…",
+        () => {
+          this.hide();
+          getReviewPanel().composeFor(node.id);
         },
         nodeType,
       ),

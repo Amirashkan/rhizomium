@@ -154,7 +154,67 @@ class ReviewPanel {
     };
     window.addEventListener('resize', this.onWindowResize);
 
+    this.watchGraph();
     this.render();
+  }
+
+  /**
+   * Follow the canvas.
+   *
+   * Two different things have to reach this panel, and neither of them is a
+   * change to the comments themselves:
+   *
+   *   GRAPH_CHANGED — a node was deleted, restored by undo, or a whole project
+   *     was loaded. A comment whose node just disappeared has to say so
+   *     immediately; without this the card went on naming a node that was no
+   *     longer there until something unrelated happened to redraw the panel,
+   *     which is the "nothing happens when I delete a node" of it.
+   *
+   *   the selection — the compose button names the node it will file against,
+   *     and a button naming the node you selected two clicks ago is worse than
+   *     one that names none. The app has no selection event, so this reads the
+   *     selection after the input events that can change it and redraws only
+   *     when it actually moved.
+   */
+  watchGraph() {
+    const editor = window.editor;
+    if (editor?.eventSystem?.on) {
+      this.onGraphChanged = () => this.render();
+      editor.eventSystem.on('GRAPH_CHANGED', this.onGraphChanged);
+    }
+
+    this.lastSelectionKey = this.selectionKey();
+    this.onSelectionMaybeChanged = () => {
+      const key = this.selectionKey();
+      if (key === this.lastSelectionKey) return;
+      this.lastSelectionKey = key;
+      // Only the header depends on the selection, and rebuilding the list would
+      // throw away a reply someone is part-way through typing.
+      if (!this.composing) this.renderTop();
+    };
+    document.addEventListener('mouseup', this.onSelectionMaybeChanged);
+    document.addEventListener('keyup', this.onSelectionMaybeChanged);
+  }
+
+  unwatchGraph() {
+    const editor = window.editor;
+    if (this.onGraphChanged && editor?.eventSystem?.off) {
+      editor.eventSystem.off('GRAPH_CHANGED', this.onGraphChanged);
+    }
+    this.onGraphChanged = null;
+
+    if (this.onSelectionMaybeChanged) {
+      document.removeEventListener('mouseup', this.onSelectionMaybeChanged);
+      document.removeEventListener('keyup', this.onSelectionMaybeChanged);
+      this.onSelectionMaybeChanged = null;
+    }
+  }
+
+  /** A cheap signature of the canvas selection, for change detection. */
+  selectionKey() {
+    const selection = this.graph?.selection;
+    if (!selection || selection.size === 0) return '';
+    return Array.from(selection).join(',');
   }
 
   hide() {
@@ -163,11 +223,24 @@ class ReviewPanel {
     this.isOpen = false;
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.unwatchGraph();
 
     if (this.onWindowResize) {
       window.removeEventListener('resize', this.onWindowResize);
       this.onWindowResize = null;
     }
+
+    // Put the composer away with the panel. Reopening the dock to a half-filled
+    // form is confusing on its own, and actively wrong once the draft's node is
+    // no longer the node the artist is looking at — the exact staleness
+    // openComposer() exists to avoid. The tag is a mode, like the filter, so it
+    // survives; the text and the target do not.
+    this.composing = false;
+    this.drafts.text = '';
+    this.drafts.nodeId = null;
+    this.drafts.reply = '';
+    this.focusField = null;
+    this.pendingScrollId = null;
 
     // Clear the canvas highlight with the panel — a node left ringed by a panel
     // that is no longer open is a selection nobody can explain.
@@ -280,6 +353,10 @@ class ReviewPanel {
   }
 
   renderTop() {
+    // Reachable on its own from the selection watcher, which can fire a beat
+    // after the dock has gone.
+    if (!this.dock) return;
+
     const store = this.store;
     const counts = store.counts();
 
@@ -287,20 +364,17 @@ class ReviewPanel {
     total.textContent = counts.total === 1 ? '1 comment' : `${counts.total} comments`;
 
     const top = this.dock.querySelector('#review-top');
+    const tile = (kind, value, label) =>
+      `<div class="review-stat is-${kind}${value === 0 ? ' is-empty' : ''}">
+         <div class="review-stat-value">${value}</div>
+         <div class="review-stat-label">${label}</div>
+       </div>`;
+
     top.innerHTML = `
       <div class="review-stats">
-        <div class="review-stat is-open">
-          <div class="review-stat-value">${counts.open}</div>
-          <div class="review-stat-label">Open</div>
-        </div>
-        <div class="review-stat is-resolved">
-          <div class="review-stat-value">${counts.resolved}</div>
-          <div class="review-stat-label">Resolved</div>
-        </div>
-        <div class="review-stat is-blockers">
-          <div class="review-stat-value">${counts.blockers}</div>
-          <div class="review-stat-label">Blockers</div>
-        </div>
+        ${tile('open', counts.open, 'Open')}
+        ${tile('resolved', counts.resolved, 'Resolved')}
+        ${tile('blockers', counts.blockers, 'Blockers')}
       </div>
       <div class="review-filters" role="tablist" aria-label="Filter comments">
         ${['all', 'open', 'resolved']
@@ -314,7 +388,7 @@ class ReviewPanel {
           .join('')}
       </div>
       <button class="review-compose-toggle" id="review-compose-toggle">
-        ${this.composing ? 'Cancel' : '+ New comment'}
+        ${this.composing ? 'Cancel' : escapeHtml(this.composeToggleLabel())}
       </button>
       ${this.composing ? this.composeMarkup() : ''}`;
 
@@ -323,8 +397,11 @@ class ReviewPanel {
     }
 
     top.querySelector('#review-compose-toggle').addEventListener('click', () => {
-      this.composing = !this.composing;
-      if (this.composing) this.focusField = 'compose-text';
+      if (this.composing) {
+        this.composing = false;
+      } else {
+        this.openComposer();
+      }
       this.render();
     });
 
@@ -347,21 +424,25 @@ class ReviewPanel {
               </div>`;
     }
 
-    const selected = this.defaultComposeNode(nodes);
+    // What the two dropdowns should land on. Held for wireCompose to APPLY as a
+    // `.value`, rather than trusting a `selected` attribute in this markup: a
+    // dropdown built by innerHTML does not reliably adopt that attribute as its
+    // selectedIndex when the element is being replaced on a re-render, and a
+    // compose form silently aimed at the wrong node is the worst way for this
+    // panel to fail — the comment lands, just not where anyone asked.
+    this.composeTarget = String(this.defaultComposeNode(nodes));
+
     const options = nodes
-      .map((node) => {
-        const label = `${nodeDisplayName(node)} · #${node.id}`;
-        return `<option value="${escapeAttr(node.id)}"${
-          String(node.id) === String(selected) ? ' selected' : ''
-        }>${escapeHtml(label)}</option>`;
-      })
+      .map(
+        (node) =>
+          `<option value="${escapeAttr(node.id)}">${escapeHtml(
+            `${nodeDisplayName(node)} · #${node.id}`,
+          )}</option>`,
+      )
       .join('');
 
     const tags = TAG_IDS.map(
-      (id) =>
-        `<option value="${id}"${this.drafts.tag === id ? ' selected' : ''}>${
-          ANNOTATION_TAGS[id].label
-        }</option>`,
+      (id) => `<option value="${id}">${ANNOTATION_TAGS[id].label}</option>`,
     ).join('');
 
     return `
@@ -380,17 +461,79 @@ class ReviewPanel {
       </div>`;
   }
 
-  /** The node a new comment defaults to: the draft's, else the canvas selection, else the first. */
+  /**
+   * The node a new comment is filed against.
+   *
+   * The draft's node wins, but ONLY once this composer session has actually
+   * chosen one — `openComposer()` clears it precisely so that opening the form
+   * always re-reads the canvas. Letting a stale draft win was what made "select
+   * a node, click New comment" file the comment against whatever node was
+   * picked the last time the form was open.
+   */
   defaultComposeNode(nodes) {
     const known = new Set(nodes.map((n) => String(n.id)));
     if (this.drafts.nodeId && known.has(String(this.drafts.nodeId))) return this.drafts.nodeId;
 
-    const selection = this.graph?.selection;
-    if (selection?.size) {
-      const first = Array.from(selection)[0];
-      if (known.has(String(first))) return first;
-    }
+    const selected = this.selectedCanvasNode();
+    if (selected && known.has(String(selected.id))) return selected.id;
+
     return nodes[0].id;
+  }
+
+  /** The node selected on the canvas, when exactly one thing is selected. */
+  selectedCanvasNode() {
+    const selection = this.graph?.selection;
+    if (!selection || selection.size !== 1) return null;
+    return this.findNode(Array.from(selection)[0]);
+  }
+
+  /**
+   * Open the compose form, aimed at whatever is selected on the canvas.
+   *
+   * Clearing the draft node is the whole point: the form is a fresh question
+   * about the node the artist is looking at now, not a continuation of the one
+   * they asked about earlier.
+   */
+  openComposer(nodeId = null) {
+    this.composing = true;
+    this.drafts.nodeId = nodeId ? String(nodeId) : null;
+    this.focusField = 'compose-text';
+  }
+
+  /**
+   * Comment on one node, from anywhere: the canvas context menu, a shortcut,
+   * anything that knows a node id. Opens the dock if it is closed.
+   */
+  composeFor(nodeId) {
+    const node = this.findNode(nodeId);
+    if (!node) return false;
+
+    // Select it on the canvas too, so the form's target and the highlighted
+    // node are never two different nodes.
+    const graph = this.graph;
+    if (graph) {
+      if (!(graph.selection instanceof Set)) graph.selection = new Set();
+      graph.selection.clear();
+      graph.selection.add(node.id);
+    }
+    window.editor?.markDirty?.('annotation-compose', 'full', { full: true });
+
+    this.openComposer(node.id);
+    if (!this.isOpen) this.show();
+    else this.render();
+    return true;
+  }
+
+  /**
+   * What the compose button says.
+   *
+   * Naming the target on the button is what makes the selection visible before
+   * the form is even open — the difference between "did it hear which node I
+   * picked?" and being able to read the answer off the button.
+   */
+  composeToggleLabel() {
+    const node = this.selectedCanvasNode();
+    return node ? `+ Comment on ${nodeDisplayName(node)}` : '+ New comment';
   }
 
   wireCompose(root) {
@@ -399,6 +542,10 @@ class ReviewPanel {
     const text = root.querySelector('#review-compose-text');
     const post = root.querySelector('#review-post');
     if (!nodeSelect || !text || !post) return;
+
+    // Apply the intended selection as a property. See composeMarkup().
+    if (this.composeTarget) nodeSelect.value = this.composeTarget;
+    tagSelect.value = this.drafts.tag;
 
     this.drafts.nodeId = nodeSelect.value;
     text.value = this.drafts.text;
@@ -434,6 +581,9 @@ class ReviewPanel {
     if (!added) return;
 
     this.drafts.text = '';
+    // Let go of the target too, so the NEXT comment reads the canvas afresh
+    // rather than inheriting the node this one happened to be filed against.
+    this.drafts.nodeId = null;
     this.composing = false;
     this.focusField = null;
     this.pendingScrollId = added.id;
