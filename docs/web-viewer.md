@@ -30,8 +30,14 @@ gallery. Looking at your own work should not mean publishing it first. The
 handed-over copy stays readable for 24 hours, so reloading the viewer tab works;
 after that the link is dead and the editor has to send it again.
 
-The entry is hidden in the desktop app, whose WebView blocks `window.open()`
-outright. **View → Second Monitor Viewer** is the desktop equivalent.
+The entry is **disabled**, not hidden, in the desktop app, whose WebView blocks
+`window.open()` outright and whose bundle does not carry the viewer page at all.
+It used to be removed from the menu, and an absent entry reads as a feature that
+does not exist — there is no way to tell "not here" from "not built". Hovering it
+says which, and points at **View → Open Output**, the desktop equivalent.
+
+**File → Web Viewer Controls…** (`Ctrl/⌘+Alt+V`) is next to it, and stays
+enabled everywhere — see below.
 
 ### Which URLs the viewer will fetch
 
@@ -72,6 +78,89 @@ render rather than leaving a visitor guessing:
   scene, which the viewer does not load.
 
 `Esc`-free controls: **F** or double-click toggles fullscreen.
+
+---
+
+## Controls: the knobs a patch hands its visitor
+
+A patch normally plays and that is all. Sometimes the work is not the frame but
+the range — a piece worth turning a knob on. **File → Web Viewer Controls…**
+(`Ctrl/⌘+Alt+V`) is where an artist says which knobs.
+
+Nothing is offered unless it is put there, so a patch with no controls shows no
+panel and behaves exactly as every patch published before this existed.
+
+### Setting them up
+
+Pick a node and one of its parameters, and it appears in the list. Each row
+carries what the viewer will call it and, for a slider, the range and step a
+visitor may travel — the range is a composition decision ("this is interesting
+between 0.2 and 0.8"), not the parameter's full span, so it is stored per
+control. Rows reorder; the order is the order a visitor meets them in. Twelve
+controls is the limit: past a dozen the visitor is reading a mixing desk rather
+than looking at a piece.
+
+Three kinds, decided by the parameter's own type:
+
+| Parameter type | Control |
+|---|---|
+| `float`, `f32`, `int`, `slider`, `dynamic` | A slider, with a range and step |
+| `bool`, `boolean` | A switch |
+| `select` with more than one option | A menu of that parameter's own modes |
+
+Everything else — a colour, a colour ramp, a font, a texture file, a block of
+GLSL — is an authoring surface rather than a knob, and is not offered.
+
+**A formula owns its parameter.** A parameter holding an expression
+(`=sin(time)`) cannot be offered, and one that becomes an expression later stops
+being offered. The formula is the author's, and a slider that silently replaced
+it would make a worse patch, not a more interactive one. This is the rule MIDI
+and OSC already follow (`src/parameters/ExternalParameterControl.js`).
+
+### What travels, and what does not
+
+A control names a *parameter*, not a value: it stores the node id, the parameter
+name, and how to present it. The value stays in `node.params`, where the
+compiler, the editor and the viewer already read it — so a control cannot drift
+from the patch, and removing one changes nothing about what the patch renders.
+
+The list saves in the project file as `viewerControls` and rides into the
+published `.rz` with everything else, which is why the panel is available in the
+desktop app too: a patch authored on the desktop is viewed on the web like any
+other. A control whose node has been deleted is left out of the file but kept in
+the panel, marked — the delete may be one Ctrl+Z away, and saving in between
+should not be what makes it unrecoverable.
+
+The viewer resolves the saved list against the graph it actually loaded, and
+drops what no longer works: a node that is gone, a parameter the node kind does
+not declare, a presentation that no longer matches the parameter's type, a
+parameter a formula has taken over. A choice's options come from the node
+definition rather than the file, so a hand-edited patch cannot offer a mode the
+node does not have.
+
+### In the viewer
+
+The panel sits over the render and fades out when nothing is happening — the
+piece is being looked at, not operated. Any pointer movement brings it back, and
+**C** pins it open. **Reset** puts every control back to the value the patch was
+published with.
+
+### How a moved control reaches the GPU
+
+Two paths, chosen by the compiler rather than by the panel:
+
+- **A uniform write.** `NodeCompiler.getParam` registers every plain numeric
+  parameter it reads as a uniform, so a new value is a four-byte buffer write and
+  the next frame already shows it. This is what makes a slider a slider — the
+  same path MIDI and OSC take in the editor.
+- **A rebuild.** A parameter baked into the WGSL — a mode a branch is chosen by,
+  a boolean an `if` is written from — has no uniform to write, so it recompiles,
+  debounced. A shader module compile is measured in milliseconds and a visitor
+  flipping a switch can afford one; a visitor dragging a slider cannot afford
+  sixty a second.
+
+Either way the value is written onto `node.params`, so the two paths agree and a
+later rebuild carries every control the visitor has moved.
 
 ---
 
@@ -122,7 +211,10 @@ that trusts the local origin.
 | `src/viewer/viewerGate.js` | The `viewer.web` check, and why it fails closed. |
 | `src/viewer/patchSource.js` | Where a patch may come from; the origin allowlist. |
 | `src/viewer/patchHandoff.js` | The editor's IndexedDB handoff. |
-| `src/viewer/PatchRuntime.js` | Graph → WGSL → renderer → render loop. |
+| `src/viewer/PatchRuntime.js` | Graph → WGSL → renderer → render loop, and `setControlValue`. |
+| `src/viewer/ViewerControls.js` | The controls document: what may be offered, and what a saved control means. |
+| `src/viewer/viewerControlsUi.js` | The panel a visitor turns the knobs with. |
+| `src/ui/ViewerControlsPanel.js` | The editor panel that decides which knobs. |
 | `src/ui/openInWebViewer.js` | The editor's File menu entry. |
 | `src/core/graphHydration.js` | Saved records → live graph, shared with the editor. |
 | `src/core/patchTextures.js` | Inline media → GPU, shared with the editor. |

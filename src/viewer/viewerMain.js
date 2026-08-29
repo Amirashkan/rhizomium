@@ -18,11 +18,13 @@ import { resolveWebViewerAccess, refusalMessage, VIEWER_FEATURE } from './viewer
 import { describePatchSource, fetchPatch, parsePatchText, PatchSourceError } from './patchSource.js';
 import { takeHandoff } from './patchHandoff.js';
 import { PatchRuntime, PatchRuntimeError } from './PatchRuntime.js';
+import { ViewerControlsUi } from './viewerControlsUi.js';
 import { FEATURES } from '../ai/tiers.js';
 import { GALLERY_ORIGIN } from '../ai/entitlements.js';
 
 const dom = {};
 let runtime = null;
+let controlsUi = null;
 
 function el(id) {
   return document.getElementById(id);
@@ -173,6 +175,12 @@ async function play(patchData, title) {
   );
   dom.notes.hidden = runtime.notes.length === 0;
 
+  // The knobs this patch's author offered, if any. Built after the first frame
+  // is on its way, so a patch with controls still appears as fast as one
+  // without.
+  controlsUi = new ViewerControlsUi(dom.controls, runtime);
+  controlsUi.mount();
+
   show('playing');
 }
 
@@ -243,10 +251,12 @@ function bindFileDrop() {
 
 function bindFullscreen() {
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'f' || event.key === 'F') {
-      if (document.fullscreenElement) document.exitFullscreen?.();
-      else document.documentElement.requestFullscreen?.().catch(() => {});
-    }
+    if (event.key !== 'f' && event.key !== 'F') return;
+    // A patch with controls has real form fields on the page; a keystroke aimed
+    // at one of those is not a request to go full-screen.
+    if (event.target instanceof HTMLElement && event.target.closest('#viewer-controls')) return;
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else document.documentElement.requestFullscreen?.().catch(() => {});
   });
   dom.canvas.addEventListener('dblclick', () => {
     if (document.fullscreenElement) document.exitFullscreen?.();
@@ -262,6 +272,7 @@ function boot() {
   dom.overlayActions = el('viewer-overlay-actions');
   dom.filePicker = el('viewer-file');
   dom.notes = el('viewer-notes');
+  dom.controls = el('viewer-controls');
 
   bindFileDrop();
   bindFullscreen();

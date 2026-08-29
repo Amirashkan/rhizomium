@@ -38,6 +38,8 @@ import { MappingModel } from './src/mapping/MappingModel.js';
 import { getMappingPanel } from './src/ui/MappingPanel.js';
 import { ScreenModel, MAIN_SCREEN_ID } from './src/screens/ScreenModel.js';
 import { getScreensPanel } from './src/ui/ScreensPanel.js';
+import { ViewerControlsModel } from './src/viewer/ViewerControls.js';
+import { getViewerControlsPanel } from './src/ui/ViewerControlsPanel.js';
 import { getOutputAspect } from './src/ui/OutputFormat.js';
 import { getShaderCompilerWindow } from './src/ui/ShaderCompilerWindow.js';
 import { findProjectionMapNode, syncMappingToNode } from './src/mapping/projectionMapNode.js';
@@ -184,6 +186,11 @@ let secondMonitorViewer = null;
 // windows to match it.
 let screenModel = null;
 let screensPanel = null;
+// The parameters this patch hands to whoever opens it in the web viewer. Same
+// shape as the rig above: a document the panel edits and the project file
+// carries, read by the viewer page rather than by anything in the editor.
+let viewerControlsModel = null;
+let viewerControlsPanel = null;
 let previewExportSettingsWindow = null;
 let preferencesWindow = null;
 let renderLoopController = null;
@@ -658,6 +665,16 @@ async function initialize() {
         console.error("ERROR creating projection mapping tool:", error);
       }
     }
+
+    // Web viewer controls: the parameters this patch offers to whoever opens it
+    // in the web viewer. A document like the rig and the mapping — the panel
+    // edits it, the project file carries it, the viewer reads it — and it is
+    // created on every build, not just the desktop one, because the surface it
+    // configures is the web.
+    viewerControlsModel = new ViewerControlsModel();
+    window.viewerControlsModel = viewerControlsModel;
+    editor.viewerControlsModel = viewerControlsModel;
+    viewerControlsModel.onChange(() => editor.markDirty?.("viewer-controls"));
 
     window.graph = graph;
     window.editor = editor;
@@ -2210,7 +2227,16 @@ function setupRhizomiumMenu() {
     // The desktop app renders in the OS WebView, which blocks window.open()
     // outright, and its bundle does not carry the viewer page at all (see
     // vite.config.js). Second Monitor Viewer is the desktop equivalent.
-    webViewerBtn.style.display = "none";
+    //
+    // The item is DISABLED rather than removed. It used to be hidden, and a
+    // menu entry that is simply absent reads as a feature that does not exist —
+    // there is no way to tell "not here" from "not built". Disabled with a
+    // reason says which one this is, and where the equivalent lives.
+    webViewerBtn.disabled = true;
+    webViewerBtn.title =
+      "The web viewer runs in a browser tab, which the desktop app has none of. " +
+      "Open this patch in the browser editor to use it, or use View \u2192 Open Output " +
+      "for a full-screen render on this machine.";
   } else if (webViewerBtn) {
     webViewerBtn.addEventListener("click", async (e) => {
       e.preventDefault();
@@ -2218,6 +2244,35 @@ function setupRhizomiumMenu() {
       await openInWebViewer({
         onStatus: (message, type = "info") => updateStatus(message, type),
       });
+    });
+  }
+
+  // Web Viewer Controls - which parameters the viewer page hands to a visitor.
+  // Available in the desktop app too: what it edits is part of the published
+  // document, and a patch authored on the desktop is viewed on the web like any
+  // other.
+  const viewerControlsBtn = document.getElementById("btn-viewer-controls");
+  if (viewerControlsBtn) {
+    viewerControlsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!viewerControlsModel) {
+        updateStatus("The viewer controls are not ready yet.", "warning");
+        return;
+      }
+      if (!viewerControlsPanel) {
+        viewerControlsPanel = getViewerControlsPanel(viewerControlsModel, {
+          getNodes: () => window.editor?.graph?.nodes || [],
+          onStatus: (message, kind) => updateStatus(message, kind),
+          onPreview: () =>
+            openInWebViewer({
+              onStatus: (message, type = "info") => updateStatus(message, type),
+            }),
+          canPreview: () => !isTauri(),
+        });
+        window.viewerControlsPanel = viewerControlsPanel;
+      }
+      viewerControlsPanel.toggle();
     });
   }
 

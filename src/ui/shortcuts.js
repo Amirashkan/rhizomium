@@ -66,6 +66,12 @@ export const SHORTCUT_SECTIONS = [
         keys: "Mod+Alt+U",
       },
       { id: "btn-web-viewer", label: "Open in Web Viewer", keys: "Mod+Shift+W" },
+      {
+        id: "btn-viewer-controls",
+        label: "Web Viewer Controls…",
+        keys: "Mod+Alt+V",
+        note: "Which parameters the web viewer hands to a visitor.",
+      },
       { id: "btn-backups", label: "Backups", keys: "Mod+B" },
       { id: "btn-exit", label: "Exit", keys: "Mod+Alt+Q" },
       {

@@ -266,6 +266,11 @@ exportProject(options = {}) {
       // rather than being rebuilt from the menu each time.
       outputScreens: this.exportOutputScreens(),
 
+      // Viewer controls: the parameters this patch offers to whoever opens it
+      // in the web viewer. Part of the published work — the piece is the range,
+      // not just the frame — so it travels with the document.
+      viewerControls: this.exportViewerControls(),
+
       // Editor state
       ...(includeViewport && {
         viewport: this.exportViewport(),
@@ -417,6 +422,19 @@ exportOutputScreens() {
   return null;
 }
 
+/**
+ * Export the viewer controls — the parameters this patch hands to a visitor.
+ *
+ * Controls pointing at nodes that are no longer in the graph are left out of
+ * the file rather than written and skipped on the way back in. The model itself
+ * is not touched: a node deleted by accident is one Ctrl+Z away, and saving in
+ * between must not be what makes its control unrecoverable.
+ */
+exportViewerControls() {
+  if (!window.viewerControlsModel) return null;
+  return window.viewerControlsModel.serialize(this.graph?.nodes || []);
+}
+
 
 async importProject(projectData, options = {}) {
   try {
@@ -519,6 +537,9 @@ async importProject(projectData, options = {}) {
     if (projectData.outputScreens) {
       this.importOutputScreens(projectData.outputScreens);
     }
+
+    // Restore the viewer controls. Unconditional: see importViewerControls.
+    this.importViewerControls(projectData.viewerControls);
 
     // Restore previews if requested
     if (restorePreviews && projectData.previews) {
@@ -2407,6 +2428,25 @@ importConnections(connectionData) {
 
       window.errorHandler?.handleError(error, {
         component: 'screens-import'
+      });
+    }
+  }
+
+  /**
+   * Import the viewer controls this patch offers.
+   *
+   * Always called, even for a project that carries none, so that opening a
+   * second patch clears the first one's controls instead of leaving its sliders
+   * pointing at node ids that now mean something else entirely.
+   */
+  importViewerControls(controlData) {
+    try {
+      if (!window.viewerControlsModel) return;
+      window.viewerControlsModel.deserialize(controlData);
+      window.viewerControlsModel.prune(this.graph?.nodes || []);
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'viewer-controls-import'
       });
     }
   }
