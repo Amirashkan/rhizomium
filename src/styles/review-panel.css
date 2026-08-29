@@ -1,0 +1,589 @@
+/* --- Review dock -----------------------------------------------------------
+   Code review for a patch (src/ui/ReviewPanel.js). A dock on the right edge:
+   the canvases are inset by its width (--rz-canvas-inset-right, see
+   src/ui/dockLayout.js) so the graph stays visible and clickable while the
+   comments are open — every comment in here is about a node, and a panel that
+   covered the node would make reading one a two-step affair.
+
+   Tag colour comes from the --rz-tag-* variables in tokens.css, which are the
+   semantic ramp under another name: a blocker is an error, a change request is
+   a warning, praise is a success, a question is information. The same values
+   paint the numbered badges on the canvas (src/core/theme.js). */
+
+.review-dock {
+  position: fixed;
+  top: 40px; /* under the menu bar, like the canvases */
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  z-index: 900; /* over the canvas, under menus (1000+) and modals */
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(var(--rz-panel-top), var(--rz-panel-bottom));
+  border-left: 1px solid var(--rz-line-strong);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+  font-family: var(--rz-font-ui);
+  color: var(--rz-text);
+}
+
+/* The drag edge: an invisible target either side of the 1px border, because a
+   hairline is not a thing anyone can grab. */
+.review-dock-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.review-dock-resizer:hover,
+.review-dock-resizer:focus-visible {
+  background: var(--rz-accent-14);
+  outline: none;
+}
+
+.review-dock-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  flex: 0 0 auto;
+}
+
+.review-dock-header h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.review-total {
+  margin-left: auto;
+  font-family: var(--rz-font-mono);
+  font-size: 11px;
+  color: var(--rz-text-faint);
+  white-space: nowrap;
+}
+
+.review-icon-button {
+  background: none;
+  border: none;
+  color: var(--rz-text-faint);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+}
+
+.review-icon-button:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+/* Counts, filter and composer stay put; only the thread list scrolls. The
+   counts are the state of the review and should not have to be scrolled to. */
+.review-dock-top {
+  flex: 0 0 auto;
+  padding: 12px;
+  border-bottom: 1px solid var(--rz-line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.review-dock-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* --- Counts -------------------------------------------------------------- */
+
+.review-stats {
+  display: flex;
+  gap: 8px;
+}
+
+.review-stat {
+  flex: 1;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line);
+  border-radius: var(--rz-r-field);
+  padding: 7px 9px;
+}
+
+.review-stat-value {
+  font-family: var(--rz-font-mono);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--rz-text-2);
+}
+
+.review-stat.is-open .review-stat-value {
+  color: var(--rz-warn);
+}
+.review-stat.is-resolved .review-stat-value {
+  color: var(--rz-success);
+}
+.review-stat.is-blockers .review-stat-value {
+  color: var(--rz-error);
+}
+
+.review-stat-label {
+  margin-top: 3px;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--rz-text-faint);
+}
+
+/* --- Filter -------------------------------------------------------------- */
+
+.review-filters {
+  display: flex;
+  gap: 2px;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line);
+  border-radius: var(--rz-r-field);
+  padding: 3px;
+}
+
+.review-filter {
+  flex: 1;
+  padding: 5px 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--rz-text-3);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.review-filter:hover {
+  color: var(--rz-text);
+  background: var(--rz-hover);
+}
+
+.review-filter.is-active {
+  background: var(--rz-accent);
+  color: var(--rz-accent-ink);
+  font-weight: 600;
+}
+
+/* --- Composer ------------------------------------------------------------ */
+
+.review-compose-toggle {
+  width: 100%;
+  padding: 8px;
+  border: 1px dashed var(--rz-line-strong);
+  border-radius: var(--rz-r-field);
+  background: var(--rz-well);
+  color: var(--rz-text-2);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.review-compose-toggle:hover {
+  border-color: var(--rz-accent-30);
+  color: var(--rz-text);
+}
+
+.review-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--rz-surface-raised);
+  border: 1px solid var(--rz-line);
+  border-radius: var(--rz-r-row);
+}
+
+.review-compose-row {
+  display: flex;
+  gap: 8px;
+}
+
+.review-select {
+  flex: 1;
+  min-width: 0;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 6px;
+  color: var(--rz-text);
+  font-family: var(--rz-font-mono);
+  font-size: 11.5px;
+  padding: 6px 8px;
+}
+
+.review-select-tag {
+  flex: 0 0 auto;
+  font-family: var(--rz-font-ui);
+}
+
+.review-textarea,
+.review-input {
+  width: 100%;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 6px;
+  color: var(--rz-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.45;
+  padding: 8px;
+  resize: vertical;
+}
+
+.review-textarea:focus,
+.review-input:focus,
+.review-select:focus {
+  outline: none;
+  border-color: var(--rz-accent-30);
+}
+
+.review-primary {
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: var(--rz-accent);
+  color: var(--rz-accent-ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.review-primary:hover {
+  background: var(--rz-accent-hover);
+}
+
+/* --- Comment cards ------------------------------------------------------- */
+
+/* The tag's colour rides on the card's left border — the one place it can be
+   read down a column of cards without colouring the text itself. */
+.review-card {
+  border: 1px solid var(--rz-line);
+  border-left: 3px solid var(--rz-tag-note);
+  border-radius: var(--rz-r-row);
+  background: var(--rz-surface);
+  padding: 11px 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.review-card:hover {
+  background: var(--rz-surface-raised);
+}
+
+.review-card.is-active {
+  background: var(--rz-surface-raised);
+  border-color: var(--rz-line-strong);
+  border-left-color: inherit;
+}
+
+/* Resolved comments stay in the list but stop competing for attention. */
+.review-card.is-resolved {
+  opacity: 0.72;
+}
+
+.review-card.is-orphan {
+  border-style: dashed;
+}
+
+.review-card.tag-question {
+  border-left-color: var(--rz-tag-question);
+}
+.review-card.tag-change {
+  border-left-color: var(--rz-tag-change);
+}
+.review-card.tag-blocker {
+  border-left-color: var(--rz-tag-blocker);
+}
+.review-card.tag-praise {
+  border-left-color: var(--rz-tag-praise);
+}
+.review-card.tag-note {
+  border-left-color: var(--rz-tag-note);
+}
+
+.review-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+/* The number here is the number on the canvas badge — that pairing is the
+   whole navigation model, so the two are drawn the same size and weight. */
+.review-num {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--rz-accent-ink);
+  background: var(--rz-tag-note);
+}
+
+.tag-question .review-num {
+  background: var(--rz-tag-question);
+}
+.tag-change .review-num {
+  background: var(--rz-tag-change);
+}
+.tag-blocker .review-num {
+  background: var(--rz-tag-blocker);
+}
+.tag-praise .review-num {
+  background: var(--rz-tag-praise);
+}
+.is-resolved .review-num {
+  background: var(--rz-success);
+}
+
+.review-node-name {
+  font-family: var(--rz-font-mono);
+  font-size: 11.5px;
+  color: var(--rz-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.review-tag {
+  margin-left: auto;
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--rz-r-pill);
+  white-space: nowrap;
+  color: var(--rz-tag-note);
+  background: var(--rz-tag-note-soft);
+  border: 1px solid var(--rz-tag-note-line);
+}
+
+.tag-question .review-tag {
+  color: var(--rz-tag-question);
+  background: var(--rz-tag-question-soft);
+  border-color: var(--rz-tag-question-line);
+}
+.tag-change .review-tag {
+  color: var(--rz-tag-change);
+  background: var(--rz-tag-change-soft);
+  border-color: var(--rz-tag-change-line);
+}
+.tag-blocker .review-tag {
+  color: var(--rz-tag-blocker);
+  background: var(--rz-tag-blocker-soft);
+  border-color: var(--rz-tag-blocker-line);
+}
+.tag-praise .review-tag {
+  color: var(--rz-tag-praise);
+  background: var(--rz-tag-praise-soft);
+  border-color: var(--rz-tag-praise-line);
+}
+
+/* Comments are prose people typed, newlines and all. */
+.review-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--rz-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-byline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.review-avatar {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--rz-accent-ink);
+}
+
+.review-avatar.is-small {
+  width: 16px;
+  height: 16px;
+  font-size: 8.5px;
+  margin-top: 1px;
+}
+
+.review-author {
+  font-size: 11.5px;
+  color: var(--rz-text-2);
+}
+
+.review-time {
+  font-size: 11px;
+  color: var(--rz-text-faint);
+}
+
+.review-resolved-flag {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--rz-success);
+  white-space: nowrap;
+}
+
+/* --- Replies ------------------------------------------------------------- */
+
+.review-replies:not(:empty) {
+  margin-top: 9px;
+  padding-left: 7px;
+  border-left: 1px solid var(--rz-line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-reply {
+  display: flex;
+  gap: 7px;
+}
+
+.review-reply-meta {
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+}
+
+.review-reply-author {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rz-text-2);
+}
+
+.review-reply-text {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--rz-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-reply-compose {
+  display: flex;
+  gap: 6px;
+}
+
+.review-reply-compose .review-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+/* --- Actions ------------------------------------------------------------- */
+
+.review-actions {
+  display: flex;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.review-action {
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 6px;
+  background: none;
+  color: var(--rz-text-2);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 5px 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.review-action:hover:not(:disabled) {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+.review-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.review-resolve {
+  color: var(--rz-success);
+  border-color: var(--rz-success-line);
+}
+
+.is-resolved .review-resolve {
+  color: var(--rz-warn);
+  border-color: rgba(245, 165, 36, 0.32);
+}
+
+.review-delete {
+  margin-left: auto;
+  color: var(--rz-text-faint);
+  padding: 5px 8px;
+}
+
+.review-delete:hover {
+  color: var(--rz-error);
+  border-color: var(--rz-error-line);
+}
+
+.review-send {
+  flex: none;
+}
+
+/* --- Empty and orphan states --------------------------------------------- */
+
+.review-empty {
+  padding: 32px 14px;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--rz-text-faint);
+}
+
+.review-compose-empty {
+  padding: 14px;
+}
+
+.review-orphan-note {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--rz-text-faint);
+  border-top: 1px solid var(--rz-line);
+  padding-top: 9px;
+}

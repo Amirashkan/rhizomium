@@ -8,6 +8,7 @@ import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { FileManager } from "./src/ui/FileManager.js";
 import { getAIPanel } from "./src/ui/AIPanel.js";
+import { getReviewPanel } from "./src/ui/ReviewPanel.js";
 import { getCollabPanel } from "./src/ui/CollabPanel.js";
 import { showAccountDialog } from "./src/ui/accountSession.js";
 import { entitlements } from "./src/ai/entitlements.js";
@@ -2563,6 +2564,21 @@ function setupRhizomiumMenu() {
       Promise.resolve(getAIPanel().toggle()).catch((error) => {
         console.warn("[main.js] AI panel could not be toggled:", error);
       });
+    });
+  }
+
+  // Patch review. A dock like the AI panel, and for the same reason: the
+  // comments are about nodes, so the graph has to stay visible beside them.
+  const reviewPanelBtn = document.getElementById("btn-review-panel");
+  if (reviewPanelBtn) {
+    reviewPanelBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        getReviewPanel().toggle();
+      } catch (error) {
+        console.warn("[main.js] Review panel could not be toggled:", error);
+      }
     });
   }
 

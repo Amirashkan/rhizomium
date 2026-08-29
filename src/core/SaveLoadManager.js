@@ -8,6 +8,7 @@ import { hydrateNodes, hydrateConnections } from './graphHydration.js';
 import { dataUrlToBlob } from './dataUrl.js';
 import { restorePatchTextures, restoreImageTexture, restoreVideoTexture } from './patchTextures.js';
 import { encodeProjectFile, decodeProjectFile } from './projectFile.js';
+import { getAnnotationStore } from './AnnotationStore.js';
 
 // Re-exported: this module was the decoder's home before the web viewer
 // needed it without the rest of the save/load stack.
@@ -1358,6 +1359,16 @@ async reinitializeWebGPU() {
       document.title = name ? `${marker}${name} — ${app}` : app;
     } catch {
       /* document may be unavailable in non-DOM contexts */
+    }
+
+    // Review comments are stored per project (src/core/AnnotationStore.js), and
+    // every path that binds this manager to a different file — open, Save,
+    // Save As — lands here. Repointing the store from one place is what keeps
+    // one patch's review from showing up on another's nodes.
+    try {
+      getAnnotationStore().setProjectKey(this.getProjectName());
+    } catch {
+      /* the review layer is never worth failing a save or an open over */
     }
   }
 

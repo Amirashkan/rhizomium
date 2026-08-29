@@ -111,6 +111,35 @@ export const CATEGORY_COLORS = {
 export const CATEGORY_DEFAULT = "#7f766a";
 
 /**
+ * Review annotations. A third, deliberately small system: what a COMMENT means,
+ * not what a node is or what a wire carries.
+ *
+ * These borrow the semantic ramp rather than inventing a palette, because that
+ * is what they mean — a blocker is an error, a requested change is a warning,
+ * praise is a success, a question is information. Reusing SEMANTIC keeps the
+ * review layer legible against a canvas already using category and type colour
+ * for everything else, and means a pin never reads as a node's identity.
+ *
+ * `ink` is what to draw ON the filled pin. The mid-tone fills take the deep
+ * surface; nothing here is light enough to need a light ink.
+ *
+ * Mirrored in tokens.css as --rz-tag-* for the DOM side of the review panel.
+ */
+export const ANNOTATION_TAGS = {
+  question: { label: "Question", color: SEMANTIC.info },
+  change: { label: "Change", color: SEMANTIC.warn },
+  blocker: { label: "Blocker", color: SEMANTIC.error },
+  praise: { label: "Praise", color: SEMANTIC.success },
+  note: { label: "Note", color: TEXT.tertiary },
+};
+
+/** Fill for a resolved pin, whatever tag it carries — resolved outranks tag. */
+export const ANNOTATION_RESOLVED_COLOR = SEMANTIC.success;
+
+/** Text/glyph colour on a filled annotation pin. */
+export const ANNOTATION_PIN_INK = SURFACE.deep;
+
+/**
  * The live signal. Keys are pin types as they appear in NodeDefs `pinsOut` /
  * `pinsIn` (`f32`, `vec2`, …), plus the wider names TypeSystem.js uses, so a
  * pin declared either way resolves to the same colour.
