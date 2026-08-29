@@ -38,7 +38,7 @@ function getPreview() {
  * exception — it asks the artist, since silently dropping the patch after they
  * chose to publish it is worse than a question.
  */
-async function buildPatch() {
+export async function buildPatch() {
   const manager = window.saveLoadManager;
   if (!manager || typeof manager.exportProject !== 'function') return null;
 
@@ -70,6 +70,83 @@ async function buildPatch() {
   }
 
   return { blob, filename };
+}
+
+/** The GPU is not in a state to be captured from. Not an upload failure. */
+export class CaptureNotReadyError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'CaptureNotReadyError';
+  }
+}
+
+/**
+ * Capture one frame of the current render as a WebP blob.
+ *
+ * Lifted out of publishImage() so the web viewer tool can reuse it: a viewer
+ * link needs a still for the same reason a publish does — the gallery stores
+ * the patch beside a piece of media, and a link with no thumbnail behind it is
+ * a link to a blank card.
+ *
+ * A GPU that is not ready to be captured from throws a CaptureNotReadyError:
+ * "open the preview first" is a thing the artist can act on, and it deserves a
+ * plain sentence rather than the upload-failure treatment.
+ *
+ * @param {(percent: number, message: string, detail?: string) => void} [onProgress]
+ * @returns {Promise<{blob: Blob, filename: string, width: number, height: number}>}
+ * @throws {CaptureNotReadyError|Error}
+ */
+export async function captureStill(onProgress = () => {}) {
+  const preview = getPreview();
+  const canvas = preview?.gpuCanvas;
+  if (!canvas) throw new CaptureNotReadyError('Canvas not available. Open the preview first.');
+
+  if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
+    try {
+      await window.initWebGPU(canvas, true);
+    } catch {
+      // Fall through - the renderer check below reports the real problem.
+    }
+  }
+
+  const renderer = window.gpuRenderer;
+  if (!renderer || typeof renderer.captureFrame !== 'function') {
+    throw new CaptureNotReadyError('Renderer not ready. Render the preview at least once.');
+  }
+
+  const { width, height } = captureSize(canvas);
+  onProgress(20, 'Capturing frame from GPU...', `${width}x${height}`);
+  const { pixels, bytesPerRow } = await renderer.captureFrame({ width, height });
+
+  onProgress(40, 'Processing image data...', 'Converting pixel format...');
+  const exportCanvas = document.createElement('canvas');
+  exportCanvas.width = width;
+  exportCanvas.height = height;
+  const ctx = exportCanvas.getContext('2d');
+  const imageData = ctx.createImageData(width, height);
+
+  for (let y = 0; y < height; y++) {
+    const srcOffset = y * bytesPerRow;
+    const dstOffset = y * width * 4;
+
+    for (let x = 0; x < width; x++) {
+      const si = srcOffset + x * 4;
+      const di = dstOffset + x * 4;
+
+      // Swap B and R channels (BGRA -> RGBA)
+      imageData.data[di + 0] = pixels[si + 2];
+      imageData.data[di + 1] = pixels[si + 1];
+      imageData.data[di + 2] = pixels[si + 0];
+      imageData.data[di + 3] = pixels[si + 3];
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  onProgress(60, 'Creating image file...', 'Encoding WebP...');
+  const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
+  if (!blob) throw new Error('Failed to create image blob');
+
+  return { blob, filename: `shader-${Date.now()}.webp`, width, height };
 }
 
 function captureSize(canvas) {
@@ -241,81 +318,26 @@ async function handleUploadError(err, sizeHint) {
 
 /** Capture the current frame and publish it to the gallery. */
 export async function publishImage() {
-  const preview = getPreview();
-  const canvas = preview?.gpuCanvas;
-  if (!canvas) {
-    await modalManager.alert('Canvas not available. Open the preview first.', 'Error');
-    return;
-  }
-
-  if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
-    try {
-      await window.initWebGPU(canvas, true);
-    } catch {
-      // Fall through - the renderer check below reports the real problem.
-    }
-  }
-
-  const renderer = window.gpuRenderer;
-  if (!renderer || typeof renderer.captureFrame !== 'function') {
-    await modalManager.alert('Renderer not ready. Render the preview at least once.', 'Error');
-    return;
-  }
-
   // Serialize the patch before the progress dialog opens: it can ask about an
   // oversize patch, and stacking that on top of a progress modal reads badly.
   const patch = await buildPatch();
   if (patch?.cancelled) return;
 
-  const { width, height } = captureSize(canvas);
   const progress = modalManager.showProgress('Publishing Image', 'Capturing frame...');
-  let blob = null;
+  let still = null;
 
   try {
-    progress.update(20, 'Capturing frame from GPU...', `${width}x${height}`);
-    const { pixels, bytesPerRow } = await renderer.captureFrame({ width, height });
+    still = await captureStill((percent, message, detail) =>
+      progress.update(percent, message, detail));
 
-    progress.update(40, 'Processing image data...', 'Converting pixel format...');
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = width;
-    exportCanvas.height = height;
-    const ctx = exportCanvas.getContext('2d');
-    const imageData = ctx.createImageData(width, height);
-
-    for (let y = 0; y < height; y++) {
-      const srcOffset = y * bytesPerRow;
-      const dstOffset = y * width * 4;
-
-      for (let x = 0; x < width; x++) {
-        const si = srcOffset + x * 4;
-        const di = dstOffset + x * 4;
-
-        // Swap B and R channels (BGRA -> RGBA)
-        imageData.data[di + 0] = pixels[si + 2];
-        imageData.data[di + 1] = pixels[si + 1];
-        imageData.data[di + 2] = pixels[si + 0];
-        imageData.data[di + 3] = pixels[si + 3];
-      }
-    }
-    ctx.putImageData(imageData, 0, 0);
-
-    progress.update(60, 'Creating image file...', 'Encoding WebP...');
-    blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
-    if (!blob) {
-      progress.close();
-      await modalManager.alert('Failed to create image blob', 'Error');
-      return;
-    }
-
-    const filename = `shader-${Date.now()}.webp`;
     progress.update(
       70,
       'Preparing upload...',
-      `File size: ${(blob.size / 1024).toFixed(2)} KB` +
+      `File size: ${(still.blob.size / 1024).toFixed(2)} KB` +
         (patch ? ` + patch ${(patch.blob.size / 1024).toFixed(2)} KB` : '')
     );
 
-    const { data, patchDropped } = await uploadArtwork(blob, filename, (loaded, total) => {
+    const { data, patchDropped } = await uploadArtwork(still.blob, still.filename, (loaded, total) => {
       progress.update(
         70 + (loaded / total) * 25,
         'Uploading to gallery...',
@@ -337,10 +359,15 @@ export async function publishImage() {
     }, 500);
   } catch (err) {
     progress.close();
-    const fileSizeMB = (blob?.size || 0) / 1024 / 1024;
+    if (err instanceof CaptureNotReadyError) {
+      await modalManager.alert(err.message, 'Error');
+      return;
+    }
+    const fileSizeMB = (still?.blob?.size || 0) / 1024 / 1024;
+    const at = still ? ` at ${still.width}x${still.height}` : '';
     await handleUploadError(
       err,
-      `Size: ${fileSizeMB.toFixed(2)} MB at ${width}x${height}. Lower the export size in View → Preview / Export Settings.`
+      `Size: ${fileSizeMB.toFixed(2)} MB${at}. Lower the export size in View → Preview / Export Settings.`
     );
   }
 }

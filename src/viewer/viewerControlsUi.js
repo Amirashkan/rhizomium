@@ -31,11 +31,15 @@ export class ViewerControlsUi {
   /**
    * @param {HTMLElement} root the panel element
    * @param {import('./PatchRuntime.js').PatchRuntime} runtime
+   * @param {{mode?: 'auto'|'pinned'|'hidden'}} [page] what the patch asked for
    */
-  constructor(root, runtime) {
+  constructor(root, runtime, page = {}) {
     this.root = root;
     this.runtime = runtime;
-    this.pinned = false;
+    this.mode = page.mode || 'auto';
+    // 'pinned' is a starting position, not a lock: a visitor can still press C
+    // and let the panel fade, the same as they can pin an auto one.
+    this.pinned = this.mode === 'pinned';
     this._idleTimer = null;
     this._bound = false;
   }
@@ -45,7 +49,10 @@ export class ViewerControlsUi {
     const entries = this.runtime?.controls || [];
     this.root.replaceChildren();
 
-    if (!entries.length) {
+    // 'hidden' is the artist saying the piece is finished, not adjustable — the
+    // controls stay in the document (a later edit turns them back on) but the
+    // page shows a render and nothing else.
+    if (!entries.length || this.mode === 'hidden') {
       this.root.hidden = true;
       return false;
     }
@@ -74,6 +81,7 @@ export class ViewerControlsUi {
     });
     this.root.append(reset);
 
+    this.root.classList.toggle('is-pinned', this.pinned);
     this.root.hidden = false;
     this._bind();
     this.wake();

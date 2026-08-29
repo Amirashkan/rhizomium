@@ -55,6 +55,20 @@ body[data-state="playing"] #viewer-canvas {
   display: block;
 }
 
+/* `cover`: fill the window and let the render run off two of its edges, for a
+   piece meant to be a wall rather than a picture on one. Unlike the default,
+   the element box no longer coincides with the bitmap — object-fit crops it —
+   so this is the framing an artist chooses when losing the edges matters less
+   than filling the window. The render itself is unchanged: still the patch's
+   authored size, still the artist's composition, just cropped rather than
+   letterboxed. */
+body[data-fit="cover"] #viewer-canvas {
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
+  object-fit: cover;
+}
+
 body[data-state="playing"] {
   cursor: none;
 }

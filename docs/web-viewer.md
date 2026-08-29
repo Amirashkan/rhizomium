@@ -36,8 +36,8 @@ It used to be removed from the menu, and an absent entry reads as a feature that
 does not exist — there is no way to tell "not here" from "not built". Hovering it
 says which, and points at **View → Open Output**, the desktop equivalent.
 
-**File → Web Viewer Controls…** (`Ctrl/⌘+Alt+V`) is next to it, and stays
-enabled everywhere — see below.
+**File → Web Viewer Tool…** (`Ctrl/⌘+Alt+V`) is next to it, and stays enabled
+everywhere — see below.
 
 ### Which URLs the viewer will fetch
 
@@ -81,11 +81,62 @@ render rather than leaving a visitor guessing:
 
 ---
 
+## The Web Viewer tool
+
+**File → Web Viewer Tool…** (`Ctrl/⌘+Alt+V`) is one window for the page a link
+leads to, in the order the questions come up:
+
+| Tab | What it answers |
+|---|---|
+| **Page** | What the page looks like around the render |
+| **Controls** | Which parameters a visitor may move |
+| **Link** | What to send, and which of the two kinds of link it is |
+
+It edits two documents — `ViewerPageModel` and `ViewerControlsModel` — and asks
+`viewerLink.js` for URLs. It holds no state of its own beyond what is being
+typed and the last link produced, so closing and reopening it shows the patch as
+it stands rather than as the tool last remembered it.
+
+It stays available in the desktop app. What it edits is part of the published
+document, and the link is a URL — it can be copied and sent from a machine that
+cannot open it in a second tab.
+
+---
+
+## Page: the room the piece hangs in
+
+| Setting | What it does |
+|---|---|
+| **Title** | The browser tab. Empty falls back to the project name. |
+| **Ground** | The colour behind the render, wherever the composition does not reach. |
+| **Framing** | **Fit** letterboxes the whole composition; **Fill** fills the window and crops the edges. |
+| **Controls** | **Fade**, **Always** or **Hidden** — how the controls panel behaves. |
+| **Note** | Whether the "what the viewer cannot play" line shows. |
+
+Every one has the value the viewer always used as its default, and **a page
+nobody has touched serializes to nothing**: a patch that takes the page as it
+comes carries no `viewerPage` key at all, and a `.rz` saved today reads like one
+saved before the setting existed.
+
+The ground colour is **hex only** (`normalizeColor` in `ViewerPage.js`). The
+value is written into the page's background, and a document that could put
+arbitrary CSS there is a document that can put a `url()` in it — a beacon to
+whatever host the patch's author chose, which is exactly what `patchSource.js`
+and `patchTextures.js` refuse one level up.
+
+Settings travel in the **document**, not the URL: a link is a thing people paste
+into chat clients that mangle query strings, and the gallery shows the same patch
+without any link of ours around it. `?title=` is the one exception, and it
+predates this — the page's own title wins over it, then the URL's, then the
+patch's own.
+
+---
+
 ## Controls: the knobs a patch hands its visitor
 
 A patch normally plays and that is all. Sometimes the work is not the frame but
-the range — a piece worth turning a knob on. **File → Web Viewer Controls…**
-(`Ctrl/⌘+Alt+V`) is where an artist says which knobs.
+the range — a piece worth turning a knob on. The **Controls** tab is where an
+artist says which knobs.
 
 Nothing is offered unless it is put there, so a patch with no controls shows no
 panel and behaves exactly as every patch published before this existed.
@@ -145,6 +196,11 @@ piece is being looked at, not operated. Any pointer movement brings it back, and
 **C** pins it open. **Reset** puts every control back to the value the patch was
 published with.
 
+The Page tab's **Controls** setting chooses the starting behaviour: *Fade* is
+that; *Always* starts pinned; *Hidden* shows a render and nothing else, leaving
+the controls in the patch for a later edit to turn back on. *Always* is a
+starting position, not a lock — **C** still works either way.
+
 ### How a moved control reaches the GPU
 
 Two paths, chosen by the compiler rather than by the panel:
@@ -161,6 +217,43 @@ Two paths, chosen by the compiler rather than by the panel:
 
 Either way the value is written onto `node.params`, so the two paths agree and a
 later rebuild carries every control the visitor has moved.
+
+---
+
+## Link: what to send
+
+There are two links, and conflating them is what the **Link** tab exists to
+prevent. "I sent the link and my friend got an error" is the failure a single
+unlabelled Copy button produces, so each one says which it is, and a share link
+is marked in the accent colour while a preview link is muted.
+
+| | Preview | Share |
+|---|---|---|
+| URL | `/viewer?handoff=<id>` | `/viewer?patch=<url>` |
+| Where the patch is | This browser's IndexedDB | The gallery |
+| Works for | You, on this machine, for 24 hours | Anyone you send it to |
+| Costs | Nothing; nothing is uploaded | An upload, and a publish |
+
+**Make a preview link** is instant and private — it is how the page looks, not
+something to send. **Publish & make a link** asks first, then uploads the patch
+with a still frame of it (the pair the gallery stores — a viewer link with no
+thumbnail behind it is a link to a blank card) and builds a link pointing at the
+published `.rz`. If the gallery stores the media but not the patch, that is
+reported as a failure rather than as a link: there would be nothing for a viewer
+link to point at, and handing back the media URL would produce a link that opens
+a WebP in the viewer.
+
+**Already published?** paste the patch's address and the tool builds the link
+without uploading anything. The address is held to the viewer's own allowlist
+here rather than at the far end, so a wrong URL is refused while the artist can
+still fix it — not by a friend who clicked it. A refusal clears the link on
+screen and says why under the field; leaving the previous link sitting there is
+how someone copies a preview link believing it is the share link they just asked
+for.
+
+Copying goes through the async Clipboard API, which needs a secure context and a
+permission a WebView may not grant. When it fails the field is selected and the
+tool says so, rather than a Copy button that silently did nothing.
 
 ---
 
@@ -213,8 +306,10 @@ that trusts the local origin.
 | `src/viewer/patchHandoff.js` | The editor's IndexedDB handoff. |
 | `src/viewer/PatchRuntime.js` | Graph → WGSL → renderer → render loop, and `setControlValue`. |
 | `src/viewer/ViewerControls.js` | The controls document: what may be offered, and what a saved control means. |
+| `src/viewer/ViewerPage.js` | The page document: title, ground, framing, apparatus. |
 | `src/viewer/viewerControlsUi.js` | The panel a visitor turns the knobs with. |
-| `src/ui/ViewerControlsPanel.js` | The editor panel that decides which knobs. |
+| `src/ui/WebViewerTool.js` | The editor's Page / Controls / Link window. |
+| `src/ui/viewerLink.js` | The two links, and the refusal to confuse them. |
 | `src/ui/openInWebViewer.js` | The editor's File menu entry. |
 | `src/core/graphHydration.js` | Saved records → live graph, shared with the editor. |
 | `src/core/patchTextures.js` | Inline media → GPU, shared with the editor. |

@@ -1,0 +1,442 @@
+/* src/styles/web-viewer-tool.css
+   The web viewer tool: a floating tool window, like the screens and mapping
+   panels, holding everything about the page a link leads to.
+
+   Three tabbed sections in the order the questions come up — Page (the room the
+   piece hangs in), Controls (what a visitor may move), Link (what to send). The
+   tabs rather than one long column because the three are used at different
+   moments: the page is set once, the controls while building, the link at the
+   end. */
+
+#web-viewer-tool {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 540px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 110px);
+  display: none;
+  flex-direction: column;
+  background: linear-gradient(var(--rz-panel-top), var(--rz-panel-bottom));
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 10px;
+  box-shadow: var(--rz-shadow-pop, 0 12px 40px rgba(0, 0, 0, 0.6));
+  color: var(--rz-text);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+#web-viewer-tool.rz-wv-open {
+  display: flex;
+}
+
+/* --- header + tabs ------------------------------------------------------ */
+
+.rz-wv-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  cursor: move;
+  user-select: none;
+}
+
+.rz-wv-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.rz-wv-close {
+  background: none;
+  border: none;
+  color: var(--rz-text-3);
+  font-size: 18px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.rz-wv-close:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+.rz-wv-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--rz-line);
+}
+
+.rz-wv-tab {
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--rz-text-3);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.rz-wv-tab:hover {
+  color: var(--rz-text);
+}
+
+.rz-wv-tab.is-active {
+  color: var(--rz-text);
+  border-bottom-color: var(--rz-accent);
+}
+
+.rz-wv-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+/* --- shared bits -------------------------------------------------------- */
+
+.rz-wv-intro,
+.rz-wv-note {
+  margin: 0 0 12px;
+  color: var(--rz-text-3);
+  line-height: 1.55;
+}
+
+.rz-wv-note {
+  margin: 8px 0;
+  font-size: 11px;
+}
+
+.rz-wv-empty {
+  padding: 18px 4px;
+  margin: 0 0 12px;
+  color: var(--rz-text-3);
+  line-height: 1.6;
+  text-align: center;
+}
+
+.rz-wv-btn {
+  padding: 5px 9px;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  background: var(--rz-fill-soft);
+  color: var(--rz-text-2);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rz-wv-btn:hover:not(:disabled) {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+.rz-wv-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rz-wv-btn.rz-wv-primary {
+  background: var(--rz-accent);
+  border-color: var(--rz-accent);
+  color: var(--rz-accent-ink);
+  font-weight: 600;
+}
+
+.rz-wv-btn.rz-wv-primary:hover:not(:disabled) {
+  background: var(--rz-accent-hover);
+}
+
+.rz-wv-select,
+.rz-wv-field input[type='text'],
+.rz-wv-field select {
+  min-width: 0;
+  padding: 5px 7px;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  color: var(--rz-text-2);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.rz-wv-select {
+  flex: 1;
+}
+
+.rz-wv-select:disabled {
+  opacity: 0.5;
+}
+
+.rz-wv-select.is-bad {
+  border-color: var(--rz-error);
+}
+
+.rz-wv-error {
+  margin: 6px 0 0;
+  color: var(--rz-error);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.rz-wv-spacer {
+  flex: 1;
+}
+
+.rz-wv-mono {
+  color: var(--rz-text-3);
+  font-family: var(--rz-font-mono);
+  font-size: 10.5px;
+}
+
+.rz-wv-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rz-line);
+  color: var(--rz-text-3);
+  font-size: 11px;
+}
+
+/* --- page --------------------------------------------------------------- */
+
+.rz-wv-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.rz-wv-field > span:first-child {
+  width: 66px;
+  flex: none;
+  color: var(--rz-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+
+.rz-wv-field input[type='text'] {
+  flex: 1;
+}
+
+/* No `background`: the swatch IS the value, and overriding it paints the
+   picker's own preview out. Only the chrome around it is ours. */
+.rz-wv-field input[type='color'] {
+  width: 34px;
+  height: 24px;
+  padding: 2px;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  cursor: pointer;
+}
+
+.rz-wv-hint {
+  flex: 1;
+  color: var(--rz-text-3);
+  font-size: 10.5px;
+}
+
+.rz-wv-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  color: var(--rz-text-2);
+}
+
+.rz-wv-check input {
+  accent-color: var(--rz-accent);
+}
+
+/* --- controls ----------------------------------------------------------- */
+
+.rz-wv-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.rz-wv-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rz-line);
+}
+
+.rz-wv-row:last-child {
+  border-bottom: none;
+}
+
+/* A control whose node has been deleted. Kept visible — the delete may be one
+   Ctrl+Z away — but marked, because it will not be written to the file. */
+.rz-wv-missing {
+  opacity: 0.55;
+}
+
+.rz-wv-row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rz-wv-kind {
+  padding: 2px 6px;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 999px;
+  color: var(--rz-text-3);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.rz-wv-label {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  color: var(--rz-text);
+  font-family: inherit;
+  font-size: 11.5px;
+}
+
+.rz-wv-move,
+.rz-wv-remove {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--rz-text-3);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rz-wv-move:hover:not(:disabled),
+.rz-wv-remove:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+.rz-wv-move:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.rz-wv-row-source {
+  margin: 4px 0 0 2px;
+  color: var(--rz-text-3);
+  font-size: 10.5px;
+}
+
+.rz-wv-row-range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.rz-wv-row-range label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--rz-text-3);
+  font-size: 10.5px;
+}
+
+.rz-wv-row-range input {
+  width: 72px;
+  padding: 3px 6px;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  color: var(--rz-text-2);
+  font-family: var(--rz-font-mono);
+  font-size: 10.5px;
+}
+
+.rz-wv-row-note {
+  color: var(--rz-text-3);
+  font-size: 10.5px;
+  font-style: italic;
+}
+
+/* --- link --------------------------------------------------------------- */
+
+/* The two kinds of link are told apart by colour before they are read: a share
+   link is the accent, a preview link is muted, because handing someone a
+   preview link is the mistake this section exists to prevent. */
+.rz-wv-link {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--rz-line-strong);
+  border-left: 3px solid var(--rz-text-3);
+  border-radius: 8px;
+  background: var(--rz-fill-soft);
+}
+
+.rz-wv-link.is-share {
+  border-left-color: var(--rz-accent);
+}
+
+.rz-wv-link-kind {
+  margin-bottom: 6px;
+  color: var(--rz-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+
+.rz-wv-link.is-share .rz-wv-link-kind {
+  color: var(--rz-accent);
+}
+
+.rz-wv-link-field {
+  width: 100%;
+  padding: 5px 7px;
+  background: var(--rz-well);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  color: var(--rz-text);
+  font-family: var(--rz-font-mono);
+  font-size: 10.5px;
+}
+
+.rz-wv-link-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rz-wv-group {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rz-line);
+}
+
+.rz-wv-group:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.rz-wv-group h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+}

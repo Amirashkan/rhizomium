@@ -271,6 +271,11 @@ exportProject(options = {}) {
       // not just the frame — so it travels with the document.
       viewerControls: this.exportViewerControls(),
 
+      // The viewer page itself: the ground behind the render, how it is fitted,
+      // what apparatus shows. The room the piece hangs in, which is the artist's
+      // decision and not the machine's, so it travels with the document too.
+      viewerPage: this.exportViewerPage(),
+
       // Editor state
       ...(includeViewport && {
         viewport: this.exportViewport(),
@@ -435,6 +440,18 @@ exportViewerControls() {
   return window.viewerControlsModel.serialize(this.graph?.nodes || []);
 }
 
+/**
+ * Export the viewer page settings.
+ *
+ * Null when the artist has changed nothing, so a patch that takes the page as
+ * it comes carries no `viewerPage` key at all and reads identically to one
+ * saved before the setting existed.
+ */
+exportViewerPage() {
+  if (!window.viewerPageModel) return null;
+  return window.viewerPageModel.serialize();
+}
+
 
 async importProject(projectData, options = {}) {
   try {
@@ -538,8 +555,10 @@ async importProject(projectData, options = {}) {
       this.importOutputScreens(projectData.outputScreens);
     }
 
-    // Restore the viewer controls. Unconditional: see importViewerControls.
+    // Restore the viewer controls and the page they appear on. Unconditional
+    // for the same reason: opening a second patch must clear the first one's.
     this.importViewerControls(projectData.viewerControls);
+    this.importViewerPage(projectData.viewerPage);
 
     // Restore previews if requested
     if (restorePreviews && projectData.previews) {
@@ -2447,6 +2466,20 @@ importConnections(connectionData) {
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'viewer-controls-import'
+      });
+    }
+  }
+
+  /**
+   * Import the viewer page settings. Absent data restores the defaults rather
+   * than keeping the last patch's ground colour behind this one's work.
+   */
+  importViewerPage(pageData) {
+    try {
+      window.viewerPageModel?.deserialize(pageData);
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'viewer-page-import'
       });
     }
   }
