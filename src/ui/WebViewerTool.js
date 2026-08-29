@@ -295,10 +295,16 @@ export class WebViewerTool {
         this.onStatus('Published. The link works for anyone.');
       } catch (error) {
         progress.close();
+        // An upload the browser never sent is the dev-server case: the gallery
+        // does not answer this origin. The preview link below still works and
+        // needs no network, so point at it rather than leaving a dead end.
+        const message = error.code === 'upload_blocked'
+          ? `${error.message} A preview link, below, still works from here.`
+          : error.message;
         // The gallery's own refusals are worth a dialog rather than a toast:
         // the artist has just spent an upload on this.
-        await modalManager.alert(error.message, 'Could not make a link');
-        this._failLink(error.message);
+        await modalManager.alert(message, 'Could not make a link');
+        this._failLink(message);
       }
     });
   }

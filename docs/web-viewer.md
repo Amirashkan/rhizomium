@@ -255,6 +255,49 @@ Copying goes through the async Clipboard API, which needs a secure context and a
 permission a WebView may not grant. When it fails the field is selected and the
 tool says so, rather than a Copy button that silently did nothing.
 
+### Publishing from a dev server does not work
+
+`npm run dev` serves the editor from `http://localhost:5173`, and the gallery's
+upload endpoint does not name that origin in its CORS allow-list — so the browser
+refuses to send the request at all:
+
+```
+Access to XMLHttpRequest at 'https://art.tenderworld.org/api/rhizo-upload'
+from origin 'http://localhost:5173' has been blocked by CORS policy
+```
+
+This is not specific to viewer links: **File → Publish → Publish Image** and
+**Publish Animation** go through the same `uploadBlob`, and have always failed
+the same way from a dev server. The Web Viewer tool's "Publish & make a link" is
+a third door into it, not a new fault.
+
+Nothing in this repository can work around it. A same-origin dev proxy would
+solve the CORS half and break the other half: the endpoint authenticates with the
+gallery's session cookie, and a browser will not attach an
+`art.tenderworld.org` cookie to a request aimed at `localhost` — the proxy has no
+cookie jar of its own to make up the difference. The fix is on the gallery: its
+upload endpoint has to answer the preflight with `Access-Control-Allow-Origin`
+naming the dev origin, and `Access-Control-Allow-Credentials: true` alongside it,
+since the request carries cookies. `api/_lib/cors.js` in this repo is the same
+shape of allow-list for this deployment's own endpoints, including its
+`LOCAL_DEV` pattern for loopback on any port.
+
+Until then, from a dev server:
+
+- **Preview links work.** They touch no network at all.
+- **Everything else in the tool works** — the page, the controls, pasting an
+  already-published patch address to build a share link.
+- **Publishing works from the deployed studio**, whose origin the gallery does
+  answer.
+
+XHR reports a blocked request and a dead network identically — an `error` event,
+status 0, no body — so the editor cannot tell which happened and does not guess.
+It names both, and names the origin: "Upload failed" with no origin in it is what
+turns a one-line configuration change into an afternoon (`UploadBlockedError` in
+`src/ui/publish.js`). A blocked upload is also never retried without the patch,
+the way a gallery-side patch failure is: a request the browser never sent was not
+refused over its contents.
+
 ---
 
 ## The gate

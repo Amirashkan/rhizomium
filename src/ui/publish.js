@@ -28,6 +28,15 @@ function getPreview() {
   return window.floatingPreview || null;
 }
 
+/** Where this page is served from, for an error that has to name it. */
+function pageOrigin() {
+  try {
+    return window.location.origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Serialize the current graph as a `.rz` patch to publish alongside the media,
  * so a visitor can download the source document and reopen the work here.
@@ -70,6 +79,40 @@ export async function buildPatch() {
   }
 
   return { blob, filename };
+}
+
+/**
+ * The upload never left the browser.
+ *
+ * XHR reports a blocked cross-origin request and a dead network identically:
+ * an `error` event, status 0, no headers, no body — the browser deliberately
+ * tells the page nothing about a response CORS refused. So this cannot say
+ * which of the two it was, and does not pretend to; it names both, and names
+ * the origin, because "Upload failed" with no origin in it is what turns a
+ * one-line configuration fix into an afternoon.
+ *
+ * The common case, by far, is publishing from a dev server: the gallery's
+ * upload endpoint answers `studio.tenderworld.org` and not
+ * `http://localhost:5173`. That is a gallery-side allow-list and nothing in
+ * this repo can work around it — a same-origin dev proxy would strip the
+ * session cookie the endpoint authenticates with. See `api/_lib/cors.js` for
+ * how this deployment's own endpoints answer the same question.
+ */
+export class UploadBlockedError extends Error {
+  constructor(origin, endpoint) {
+    const from = origin || 'this page';
+    super(
+      `The upload did not reach the gallery. Either there is no connection, or the ` +
+        `gallery does not accept uploads from ${from} — its endpoint has to name this ` +
+        `origin in its CORS allow-list before a browser will send the request. ` +
+        `Publishing works from the deployed studio; from a dev server it needs that ` +
+        `origin allowed.`,
+    );
+    this.name = 'UploadBlockedError';
+    this.code = 'upload_blocked';
+    this.origin = origin || null;
+    this.endpoint = endpoint || null;
+  }
 }
 
 /** The GPU is not in a state to be captured from. Not an upload failure. */
@@ -203,7 +246,8 @@ function uploadBlob(blob, filename, onProgress, patch = null) {
       }
     });
 
-    xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+    xhr.addEventListener('error', () =>
+      reject(new UploadBlockedError(pageOrigin(), UPLOAD_ENDPOINT)));
     xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
   });
 
@@ -235,6 +279,9 @@ export function describeUpload(kind, patch, patchDropped) {
  */
 export function isPatchAttributable(err) {
   if (!err || err.status === 401 || err.status === 413) return false;
+  // A request the browser never sent was not refused over its contents. Retrying
+  // it without the patch spends a second upload to fail identically.
+  if (err.code === 'upload_blocked') return false;
   return /patch/i.test(err.message || '') || err.status === 500;
 }
 
@@ -310,6 +357,11 @@ async function handleUploadError(err, sizeHint) {
       `Upload failed: file is too large.\n\n${sizeHint}\n\nThe server limit is around 50-100 MB.`,
       'File Too Large'
     );
+    return;
+  }
+
+  if (err instanceof UploadBlockedError) {
+    await modalManager.alert(message, 'The gallery could not be reached');
     return;
   }
 

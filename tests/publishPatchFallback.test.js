@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { isPatchAttributable, describeUpload, uploadArtwork } from '../src/ui/publish.js';
+import {
+  isPatchAttributable,
+  describeUpload,
+  uploadArtwork,
+  UploadBlockedError,
+} from '../src/ui/publish.js';
 
 // Minimal XMLHttpRequest stand-in. Each instance takes its outcome from the
 // queue the test set up, so a first-attempt failure and a second-attempt
@@ -182,5 +187,48 @@ describe('describeUpload', () => {
 
     expect(message).toMatch(/could not store the patch/);
     expect(message).not.toMatch(/and patch uploaded/);
+  });
+});
+
+// An upload the browser refused to send at all — the CORS case, which is what
+// publishing from a dev server hits. XHR reports it identically to being
+// offline, so what matters is that the failure names the origin instead of
+// saying "Upload failed", and that it is not retried without the patch.
+describe('an upload that never left the browser', () => {
+  it('names the origin and both possible causes', async () => {
+    responses = [{ networkError: true }];
+
+    await expect(uploadArtwork(media(), 'shader.webp', null, patch()))
+      .rejects.toThrow(UploadBlockedError);
+
+    responses = [{ networkError: true }];
+    const error = await uploadArtwork(media(), 'shader.webp', null, patch()).catch((e) => e);
+
+    expect(error.code).toBe('upload_blocked');
+    expect(error.message).toMatch(/no connection/i);
+    expect(error.message).toMatch(/allow-list/i);
+    // happy-dom serves the page from localhost, which is the origin the
+    // developer hitting this actually needs to see in the message.
+    expect(error.message).toContain(window.location.origin);
+  });
+
+  it('is not the patch’s fault, so it is not retried without it', async () => {
+    expect(isPatchAttributable(new UploadBlockedError('http://localhost:5173', 'https://g/api')))
+      .toBe(false);
+
+    responses = [{ networkError: true }];
+    await uploadArtwork(media(), 'shader.webp', null, patch()).catch(() => {});
+    // One attempt, not two: a blocked request is blocked whatever is in it.
+    expect(requests).toHaveLength(1);
+  });
+
+  it('still retries without the patch when the gallery answered and blamed it', async () => {
+    responses = [
+      { status: 500, body: { error: 'Patch upload failed: Bucket not found' } },
+      { status: 200, body: { url: 'https://cdn/img.webp' } },
+    ];
+    const result = await uploadArtwork(media(), 'shader.webp', null, patch());
+    expect(result.patchDropped).toBe(true);
+    expect(requests).toHaveLength(2);
   });
 });
