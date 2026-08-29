@@ -10,6 +10,7 @@
 import { modalManager } from './ModalManager.js';
 import { openExternal } from '../utils/openExternal.js';
 import { signInToGallery } from './accountSession.js';
+import { desktopAuthHeaders } from '../ai/desktopToken.js';
 import { resolveResolution } from './OutputFormat.js';
 import { serializePatch, patchFilename, checkPatchSize } from '../core/patchSerializer.js';
 import { APP_VERSION } from '../utils/appVersion.js';
@@ -206,6 +207,14 @@ function captureSize(canvas) {
  *
  * Both objects go in one request: that is a single round trip and one shared
  * timestamp, so the gallery stores them as a matched pair.
+ *
+ * Authentication is whichever of the two the caller has. `withCredentials`
+ * carries the gallery's session cookie, which is what a browser on a
+ * tenderworld.org host has; the desktop app is a different site and never gets
+ * one, so it carries a bearer token instead (desktopToken.js). This sent
+ * neither header and relied on the cookie alone, which meant a paired desktop
+ * app could read its entitlements and then not publish — the request arrived
+ * anonymous and the gallery answered 401.
  */
 function uploadBlob(blob, filename, onProgress, patch = null) {
   const formData = new FormData();
@@ -253,6 +262,12 @@ function uploadBlob(blob, filename, onProgress, patch = null) {
 
   xhr.open('POST', UPLOAD_ENDPOINT);
   xhr.withCredentials = true;
+  // Set after open(), which is the only point XHR accepts headers. Absent
+  // everywhere but the desktop app, so a browser upload is byte-for-byte what
+  // it was.
+  for (const [name, value] of Object.entries(desktopAuthHeaders())) {
+    xhr.setRequestHeader(name, value);
+  }
   xhr.send(formData);
 
   return uploadPromise;

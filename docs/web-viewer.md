@@ -271,24 +271,40 @@ This is not specific to viewer links: **File → Publish → Publish Image** and
 the same way from a dev server. The Web Viewer tool's "Publish & make a link" is
 a third door into it, not a new fault.
 
-Nothing in this repository can work around it. A same-origin dev proxy would
-solve the CORS half and break the other half: the endpoint authenticates with the
-gallery's session cookie, and a browser will not attach an
-`art.tenderworld.org` cookie to a request aimed at `localhost` — the proxy has no
-cookie jar of its own to make up the difference. The fix is on the gallery: its
-upload endpoint has to answer the preflight with `Access-Control-Allow-Origin`
-naming the dev origin, and `Access-Control-Allow-Credentials: true` alongside it,
-since the request carries cookies. `api/_lib/cors.js` in this repo is the same
-shape of allow-list for this deployment's own endpoints, including its
-`LOCAL_DEV` pattern for loopback on any port.
+The gallery side of this is fixed: its upload endpoint used to carry its own
+two-origin allow-list and its own cookie-only authentication, both narrower than
+the rest of its API by accident. It now shares one origin policy (`lib/cors.ts`)
+and one caller resolution (`resolveCaller`) with every other studio-facing route,
+so `DESKTOP_DEV_ORIGINS` and the desktop bearer token both reach it. A dev origin
+is opt-in there, empty by default, and belongs on a preview deployment:
 
-Until then, from a dev server:
+```
+DESKTOP_DEV_ORIGINS=http://localhost:5173
+```
+
+**That is only half of it, and the other half cannot be fixed the same way.**
+Allowing the origin gets the request sent; it still has to authenticate.
+`localhost` is a different *site* from `tenderworld.org`, so the gallery's
+`SameSite=Lax` session cookie is not sent with a cross-site request from it
+however permissive CORS is — and loosening that cookie to `SameSite=None` would
+make the gallery's session a third-party cookie everywhere, for the sake of one
+caller. So a plain browser at `http://localhost:5173` gets past CORS and lands
+on `401`.
+
+An off-site caller authenticates with a bearer token instead, which is what the
+desktop app does and what `npm run tauri:dev` gets you: the Tauri webview points
+at the Vite dev server, `isTauri()` is true, the paired token is sent, and the
+upload works with `DESKTOP_DEV_ORIGINS` set. `uploadBlob` sends that token now;
+it used to send no headers at all, so even an installed, paired desktop app
+could read its entitlements and then fail to publish.
+
+So, from a plain `npm run dev` in a browser:
 
 - **Preview links work.** They touch no network at all.
 - **Everything else in the tool works** — the page, the controls, pasting an
   already-published patch address to build a share link.
-- **Publishing works from the deployed studio**, whose origin the gallery does
-  answer.
+- **Publishing needs either the deployed studio, or `tauri:dev` with a paired
+  token and `DESKTOP_DEV_ORIGINS` set.**
 
 XHR reports a blocked request and a dead network identically — an `error` event,
 status 0, no body — so the editor cannot tell which happened and does not guess.

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { resetDesktopTokenCache } from '../src/ai/desktopToken.js';
 import {
   isPatchAttributable,
   describeUpload,
@@ -17,19 +18,32 @@ class FakeXHR {
     this.upload = { addEventListener: () => {} };
     this._listeners = {};
     this.withCredentials = false;
+    this.headers = {};
+    this.opened = false;
   }
 
   addEventListener(type, fn) {
     this._listeners[type] = fn;
   }
 
-  open() {}
+  open() {
+    this.opened = true;
+  }
+
+  setRequestHeader(name, value) {
+    // XHR throws if this is called before open(); the real one would, and a
+    // stub that did not would hide the ordering bug it exists to catch.
+    if (!this.opened) throw new Error('setRequestHeader before open');
+    this.headers[name] = value;
+  }
 
   send(formData) {
     const outcome = responses.shift() || { status: 200, body: {} };
     requests.push({
       hasPatch: formData.has('patch'),
       hasFile: formData.has('file'),
+      headers: { ...this.headers },
+      withCredentials: this.withCredentials,
     });
 
     queueMicrotask(() => {
@@ -230,5 +244,62 @@ describe('an upload that never left the browser', () => {
     const result = await uploadArtwork(media(), 'shader.webp', null, patch());
     expect(result.patchDropped).toBe(true);
     expect(requests).toHaveLength(2);
+  });
+});
+
+// How an upload says who is making it. A browser on a tenderworld.org host has
+// the session cookie; the desktop app is a different site, never gets one, and
+// carries a bearer token instead. The upload used to send neither header and
+// rely on the cookie alone, so a paired desktop app read its entitlements fine
+// and then got 401 on publish.
+describe('who the upload says it is', () => {
+  afterEach(() => {
+    resetDesktopTokenCache();
+    delete window.__TAURI__;
+    try {
+      window.localStorage.removeItem('rhizomium.gallery.desktopToken');
+    } catch {
+      // A storage-less environment is the signed-out case, which is the default.
+    }
+  });
+
+  it('sends the cookie and no Authorization header from a browser', async () => {
+    responses = [{ status: 200, body: { url: 'https://cdn/img.webp' } }];
+    await uploadArtwork(media(), 'shader.webp', null, null);
+
+    expect(requests[0].withCredentials).toBe(true);
+    expect(requests[0].headers.Authorization).toBeUndefined();
+  });
+
+  it('sends the desktop token when there is one', async () => {
+    // getDesktopToken() is gated on the Tauri globals, so both are needed for
+    // this to be the desktop case rather than a browser with a stale key.
+    window.__TAURI__ = {};
+    window.localStorage.setItem('rhizomium.gallery.desktopToken', 'tok-123');
+    resetDesktopTokenCache();
+
+    responses = [{ status: 200, body: { url: 'https://cdn/img.webp' } }];
+    await uploadArtwork(media(), 'shader.webp', null, null);
+
+    expect(requests[0].headers.Authorization).toBe('Bearer tok-123');
+    // Still set: a desktop token and a cookie are not exclusive, and the
+    // gallery takes whichever it finds.
+    expect(requests[0].withCredentials).toBe(true);
+  });
+
+  it('sends the token on the retry that drops the patch too', async () => {
+    window.__TAURI__ = {};
+    window.localStorage.setItem('rhizomium.gallery.desktopToken', 'tok-123');
+    resetDesktopTokenCache();
+
+    responses = [
+      { status: 500, body: { error: 'Patch upload failed: Bucket not found' } },
+      { status: 200, body: { url: 'https://cdn/img.webp' } },
+    ];
+    await uploadArtwork(media(), 'shader.webp', null, patch());
+
+    expect(requests).toHaveLength(2);
+    // An unauthenticated retry would turn a patch problem into a 401.
+    expect(requests[1].headers.Authorization).toBe('Bearer tok-123');
   });
 });
