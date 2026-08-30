@@ -295,9 +295,9 @@ export class WebViewerTool {
         this.onStatus('Published. The link works for anyone.');
       } catch (error) {
         progress.close();
-        // An upload the browser never sent is the dev-server case: the gallery
-        // does not answer this origin. The preview link below still works and
-        // needs no network, so point at it rather than leaving a dead end.
+        // An upload the browser never sent leaves nothing to act on. The
+        // preview link below still works and needs no network, so point at it
+        // rather than leaving a dead end.
         const message = error.code === 'upload_blocked'
           ? `${error.message} A preview link, below, still works from here.`
           : error.message;

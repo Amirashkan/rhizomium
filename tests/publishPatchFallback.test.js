@@ -219,8 +219,9 @@ describe('an upload that never left the browser', () => {
     const error = await uploadArtwork(media(), 'shader.webp', null, patch()).catch((e) => e);
 
     expect(error.code).toBe('upload_blocked');
-    expect(error.message).toMatch(/no connection/i);
-    expect(error.message).toMatch(/allow-list/i);
+    // Both causes, because XHR cannot tell them apart and neither can we.
+    expect(error.message).toMatch(/offline/i);
+    expect(error.message).toMatch(/does not allow that origin/i);
     // happy-dom serves the page from localhost, which is the origin the
     // developer hitting this actually needs to see in the message.
     expect(error.message).toContain(window.location.origin);

@@ -15,10 +15,15 @@ import {
   TITLE_X_INSET,
   HEADER_CONTROLS_W,
   HEADER_CONTROLS_GAP,
+  ANNOTATION_PIN_RADIUS,
+  annotationPinCenter,
 } from "./pinLayout.js";
 import { nodeDisplayName } from "./nodeName.js";
 import {
   ACCENT,
+  ANNOTATION_PIN_INK,
+  ANNOTATION_RESOLVED_COLOR,
+  ANNOTATION_TAGS,
   NODE_STYLE,
   SEMANTIC,
   SURFACE,
@@ -29,6 +34,7 @@ import {
   FONT_UI,
   FONT_MONO,
 } from "./theme.js";
+import { getAnnotationStore } from "./AnnotationStore.js";
 import {
   getDynamicInputSpec,
   getInputCount,
@@ -72,6 +78,15 @@ const NODE_META_PX = 9;
 // Wire weight. Wires are the one thing on the canvas that must stay readable at every zoom level,
 // so they are drawn a touch heavier than the hairlines around them.
 const WIRE_WIDTH = 2.5;
+
+// Review-annotation pins. The geometry itself lives in pinLayout.js, with the
+// rest of the node anatomy the hit-tester also has to agree with; only how the
+// badge is PAINTED is decided here.
+//
+// Enlargement for the hovered or selected pin. Small on purpose: a pin that
+// grows a lot covers the node it is commenting on.
+const PIN_ACTIVE_SCALE = 1.18;
+const PIN_LABEL_PX = 10;
 
 export class Renderer {
   constructor(ctx, viewport, schedulerConfig = null) {
@@ -257,6 +272,11 @@ export class Renderer {
 
     // Render nodes
     this._renderNodes(nodesToRender, renderState.selection);
+
+    // Review annotations, on top of every node: a pin overhangs its node's
+    // corner, so drawing it inside _renderNode would let the NEXT node in the
+    // list paint over it wherever two nodes sit close together.
+    this._renderAnnotations(nodesToRender);
 
     // Render selection box if active
     if (renderState.boxSelect) {
@@ -1418,6 +1438,142 @@ export class Renderer {
     return labelText.replace(/-?\d+(?:\.(\d+))?/g, (_m, dec) =>
       "-" + intPart + (dec ? "." + "0".repeat(dec.length) : "")
     );
+  }
+
+  // --- Review annotations ---------------------------------------------------
+
+  /**
+   * The numbered pins that mark commented nodes (src/core/AnnotationStore.js).
+   *
+   * One pin per node, not one per comment: a node with four comments still gets
+   * one badge, carrying the number of the comment it stands for and a count
+   * ring when there is more than one. Four overlapping badges on one corner is
+   * how an annotation layer stops being readable at exactly the moment it has
+   * something to say.
+   *
+   * A pin shows a tick instead of a number once every comment on its node is
+   * resolved, and drops to the success colour with it — so "what is still open
+   * here" is answerable from the canvas alone, without opening the dock.
+   */
+  _renderAnnotations(nodes) {
+    const store = this._annotationStore();
+    if (!store || store.all().length === 0) return;
+
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    for (const node of nodes) {
+      if (!node?.id) continue;
+      const pin = store.pinFor(node.id);
+      if (!pin) continue;
+      this._renderAnnotationPin(node, pin, store);
+    }
+
+    ctx.restore();
+  }
+
+  _renderAnnotationPin(node, pin, store) {
+    const ctx = this.ctx;
+    const { annotation, number, count, resolved } = pin;
+
+    const active = store.selectedId === annotation.id || store.hoveredId === annotation.id;
+    const scale = active ? PIN_ACTIVE_SCALE : 1;
+    const r = ANNOTATION_PIN_RADIUS * scale;
+    const { x: cx, y: cy } = annotationPinCenter(node);
+    const fill = resolved
+      ? ANNOTATION_RESOLVED_COLOR
+      : ANNOTATION_TAGS[annotation.tag]?.color || ANNOTATION_TAGS.note.color;
+
+    // The selected pin gets a halo rather than a bigger badge — it has to read
+    // as "this one" from across a zoomed-out patch, where 2px of extra radius
+    // is invisible but a soft ring is not.
+    if (store.selectedId === annotation.id) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+      ctx.fillStyle = withAlpha(fill, 0.28);
+      ctx.fill();
+    }
+
+    // A ring in the canvas colour separates the pin from whatever is behind it
+    // — the node's own border, a wire, or another node.
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = SURFACE.deep;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.fill();
+
+    ctx.fillStyle = ANNOTATION_PIN_INK;
+    ctx.font = `700 ${PIN_LABEL_PX * scale}px ${FONT_UI}`;
+    // The tick is drawn rather than typed: the glyph's vertical metrics differ
+    // per platform font, and a check that sits a pixel low in one browser and a
+    // pixel high in another is the kind of thing nobody can unsee.
+    if (resolved) {
+      this._drawPinCheck(cx, cy, r);
+    } else {
+      ctx.fillText(String(number ?? "•"), cx, cy + 0.5);
+    }
+
+    // More than one comment on this node: a small count, tucked under the pin.
+    if (count > 1) {
+      const badgeR = 5.5 * scale;
+      const bx = cx + r * 0.72;
+      const by = cy + r * 0.72;
+      ctx.beginPath();
+      ctx.arc(bx, by, badgeR + 1.2, 0, Math.PI * 2);
+      ctx.fillStyle = SURFACE.deep;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
+      ctx.fillStyle = SURFACE.nodeTop;
+      ctx.fill();
+      ctx.strokeStyle = withAlpha(fill, 0.55);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = TEXT.secondary;
+      ctx.font = `600 ${7 * scale}px ${FONT_UI}`;
+      ctx.fillText(count > 9 ? "9+" : String(count), bx, by + 0.5);
+    }
+  }
+
+  /** The resolved tick, stroked to the pin's size. */
+  _drawPinCheck(cx, cy, r) {
+    const ctx = this.ctx;
+    const s = r * 0.5;
+    ctx.save();
+    ctx.strokeStyle = ANNOTATION_PIN_INK;
+    ctx.lineWidth = Math.max(1.4, r * 0.22);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(cx - s, cy);
+    ctx.lineTo(cx - s * 0.25, cy + s * 0.7);
+    ctx.lineTo(cx + s, cy - s * 0.6);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * The shared store, looked up lazily and cached.
+   *
+   * The renderer is constructed before anything has had a chance to open a
+   * project, and it runs in tests with no localStorage at all, so it must not
+   * demand a store at construction time — and must survive not getting one.
+   */
+  _annotationStore() {
+    if (this._annotations === undefined) {
+      try {
+        this._annotations = getAnnotationStore();
+      } catch {
+        this._annotations = null;
+      }
+    }
+    return this._annotations;
   }
 
   _renderSelectionOutline(node) {

@@ -154,3 +154,48 @@ export function nodePinPositions(node, inCount, outCount, previewH) {
   }
   return { inputs, outputs };
 }
+
+// --- Review-annotation pins -------------------------------------------------
+//
+// The numbered badge a commented node carries (src/core/AnnotationStore.js).
+// Here rather than in the renderer for the same reason everything else in this
+// file is here: the renderer draws it and the event handler has to be able to
+// click it, and a badge you can see but not press is worse than no badge.
+//
+// The pin sits ON the node's top-right corner, overhanging it on both axes.
+// That corner is the only part of the card carrying nothing else — the title,
+// the #id and the three control chips all live inside the header band, and the
+// ports own both side edges.
+
+export const ANNOTATION_PIN_RADIUS = 9;
+
+/** How far the pin's centre sits inside the corner it hangs on. */
+export const ANNOTATION_PIN_OVERHANG = 2;
+
+/**
+ * Extra slack on the hit target over the drawn radius.
+ *
+ * The pin is a 9px circle in WORLD units, so at a zoomed-out viewport it is a
+ * few screen pixels across. Rather than scale the target with the zoom — which
+ * would make it overlap its node's header when zoomed in — it is simply drawn
+ * small and pressed large, the way the +/− chips already are.
+ */
+const ANNOTATION_PIN_HIT_SLACK = 3;
+
+/** Centre of a node's annotation pin, in world units. */
+export function annotationPinCenter(node) {
+  return {
+    x: (node?.x || 0) + (node?.w || 0) - ANNOTATION_PIN_OVERHANG,
+    y: (node?.y || 0) + ANNOTATION_PIN_OVERHANG,
+  };
+}
+
+/** Whether a world-space point presses a node's annotation pin. */
+export function hitAnnotationPin(node, x, y) {
+  if (!node) return false;
+  const c = annotationPinCenter(node);
+  const dx = x - c.x;
+  const dy = y - c.y;
+  const r = ANNOTATION_PIN_RADIUS + ANNOTATION_PIN_HIT_SLACK;
+  return dx * dx + dy * dy <= r * r;
+}

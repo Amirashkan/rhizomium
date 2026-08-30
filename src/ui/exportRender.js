@@ -1,14 +1,35 @@
 /**
  * exportRender.js - Save the render to a local file (PNG frame / video).
  *
- * Reached from File → Export and from the Preview / Export Settings window.
- * Both entry points capture at the 'export' role's size (see OutputFormat.js):
- * the output format, or the per-export override. The internal sims keep their
- * own authored resolution - only the composite is re-rendered at this size.
+ * Reached from File → Export, which opens the export panel, and from the
+ * Preview / Export Settings window. Both capture at the 'export' role's size
+ * (see OutputFormat.js): the output format, or the per-export override. The
+ * internal sims keep their own authored resolution - only the composite is
+ * re-rendered at this size.
+ *
+ * Everything else about an export - length, frame rate, bitrate, audio, the
+ * file's name - arrives as an options object, defaulting to what the artist set
+ * in the panel (exportSettings.js). Nothing here asks a question mid-export:
+ * a recording that stops to ask how long it should be is a recording the artist
+ * has to stand over, and the answers belong on the panel where they can be seen
+ * together and changed before anything starts.
  */
 
 import { modalManager } from './ModalManager.js';
 import { resolveResolution } from './OutputFormat.js';
+import {
+  AUDIO_BITRATE,
+  applyFrameRate,
+  hasRecordableAudio,
+  openAudioTap,
+  selectRecordingMimeType,
+} from '../audio/recordingAudio.js';
+import {
+  buildExportFilename,
+  formatFileSize,
+  getExportSettings,
+  resolveVideoBitrate,
+} from './exportSettings.js';
 
 function getPreview() {
   return window.floatingPreview || null;
@@ -59,13 +80,35 @@ function downloadBlob(blob, filename, revokeAfterMs = 100) {
   return link.download;
 }
 
-/** Capture the current frame and download it as a PNG. */
-export async function exportPNG() {
-  const preview = getPreview();
-  const canvas = preview?.gpuCanvas;
+/**
+ * Can this browser record the canvas at all? The panel asks before the artist
+ * has set anything up, so the answer can be shown next to the Export button
+ * rather than sprung on them after a click.
+ */
+export function isVideoExportSupported() {
+  const canvas = getPreview()?.gpuCanvas;
+  return !!(
+    canvas &&
+    typeof canvas.captureStream === 'function' &&
+    typeof MediaRecorder !== 'undefined' &&
+    selectRecordingMimeType({ withAudio: false })
+  );
+}
+
+/** Is there a loaded audio track a recording could carry? */
+export function canRecordAudio() {
+  return hasRecordableAudio(window.audioCapture);
+}
+
+/**
+ * Bring the GPU up if it is not, and confirm the renderer can do the asked-for
+ * work. Returns the canvas and renderer, or null after reporting why not.
+ */
+async function prepareRenderer(need = 'captureFrame') {
+  const canvas = getPreview()?.gpuCanvas;
   if (!canvas) {
     await modalManager.alert('Canvas not available. Make sure the preview window is open.', 'Error');
-    return;
+    return null;
   }
 
   if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
@@ -77,11 +120,30 @@ export async function exportPNG() {
   }
 
   const renderer = window.gpuRenderer;
-  if (!renderer || typeof renderer.captureFrame !== 'function') {
-    await modalManager.alert('GPU renderer not ready for capture. Render the preview at least once before exporting.', 'Error');
-    return;
+  if (!renderer || typeof renderer[need] !== 'function') {
+    await modalManager.alert(
+      'GPU renderer not ready. Render the preview at least once before exporting.',
+      'Error'
+    );
+    return null;
   }
 
+  return { canvas, renderer };
+}
+
+/**
+ * Capture the current frame and download it as a PNG.
+ *
+ * @param {object} [options] filenamePrefix; anything else comes from the panel.
+ * @returns {Promise<{ok: boolean, filename?: string, error?: string}>}
+ */
+export async function exportPNG(options = {}) {
+  const settings = { ...getExportSettings(), ...options };
+
+  const ready = await prepareRenderer('captureFrame');
+  if (!ready) return { ok: false, error: 'renderer-not-ready' };
+
+  const { canvas, renderer } = ready;
   const { width, height } = captureSize(canvas);
   const progress = modalManager.showProgress('Exporting PNG', 'Capturing frame...');
 
@@ -97,55 +159,65 @@ export async function exportPNG() {
     if (!blob) {
       progress.close();
       await modalManager.alert('Failed to create image blob', 'Error');
-      return;
+      return { ok: false, error: 'encode-failed' };
     }
 
-    progress.update(95, 'Preparing download...', `File size: ${(blob.size / 1024).toFixed(2)} KB`);
+    progress.update(95, 'Preparing download...', `File size: ${formatFileSize(blob.size)}`);
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    const filename = downloadBlob(blob, `shader-${width}x${height}-${timestamp}.png`);
+    const filename = downloadBlob(
+      blob,
+      buildExportFilename({
+        prefix: settings.filenamePrefix,
+        width,
+        height,
+        extension: 'png',
+      })
+    );
 
     progress.update(100, 'Export complete!', filename);
     setTimeout(() => {
       progress.close();
       modalManager.toast(`PNG exported: ${filename}`, 'success', 'Export Complete');
     }, 500);
+
+    return { ok: true, filename, width, height, size: blob.size };
   } catch (error) {
     progress.close();
     await modalManager.alert(
       'Export failed: ' + error.message + '\n\nMake sure the preview is actively rendering.',
       'Export Error'
     );
+    return { ok: false, error: error.message };
   }
 }
 
-/** Record an animation at the export resolution and download it. */
-export async function exportAnimation() {
+/**
+ * Record an animation at the export resolution and download it.
+ *
+ * @param {object} [options] fps, duration, quality, includeAudio,
+ *   filenamePrefix - each defaulting to the panel's current setting.
+ * @returns {Promise<{ok: boolean, filename?: string, error?: string}>}
+ */
+export async function exportAnimation(options = {}) {
+  const settings = { ...getExportSettings(), ...options };
+  const fps = Math.round(settings.fps);
+  const duration = settings.duration;
+
   const preview = getPreview();
   const canvas = preview?.gpuCanvas;
   if (!canvas || typeof canvas.captureStream !== 'function') {
     await modalManager.alert('Canvas streaming is not supported in this browser.', 'Browser Compatibility');
-    return;
+    return { ok: false, error: 'no-capture-stream' };
   }
   if (typeof MediaRecorder === 'undefined') {
     await modalManager.alert('MediaRecorder API is not available. Try a Chromium-based browser.', 'Browser Compatibility');
-    return;
+    return { ok: false, error: 'no-media-recorder' };
   }
 
-  if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
-    try {
-      await window.initWebGPU(canvas, true);
-    } catch {
-      // Fall through - the renderer check below reports the real problem.
-    }
-  }
+  const ready = await prepareRenderer('render');
+  if (!ready) return { ok: false, error: 'renderer-not-ready' };
 
-  const renderer = window.gpuRenderer;
-  if (!renderer || typeof renderer.render !== 'function') {
-    await modalManager.alert('GPU renderer not ready. Render the preview before exporting animation.', 'Error');
-    return;
-  }
-
+  const { renderer } = ready;
   const { width: targetWidth, height: targetHeight } = captureSize(canvas);
 
   const originalWidth = canvas.width;
@@ -153,103 +225,71 @@ export async function exportAnimation() {
   const originalStyleWidth = canvas.style.width;
   const originalStyleHeight = canvas.style.height;
 
-  const defaultFps = Math.max(1, preview?.settings?.settings?.refreshRate || 60);
-  const fpsInput = await modalManager.prompt('Frames per second for the recording (1-120)?', 'Animation Settings', String(defaultFps), {
-    inputType: 'number',
-    placeholder: '60',
-    validator: (value) => {
-      const fps = Number(value);
-      if (!Number.isFinite(fps) || fps <= 0 || fps > 120) {
-        return 'Please enter a valid FPS value between 1 and 120';
-      }
-      return null;
-    }
-  });
-  if (fpsInput === null) return;
-
-  const fps = Math.min(120, Math.max(1, Number(fpsInput)));
-
-  const durationInput = await modalManager.prompt('Duration in seconds (1-300)?', 'Animation Settings', '5', {
-    inputType: 'number',
-    placeholder: '5',
-    validator: (value) => {
-      const duration = Number(value);
-      if (!Number.isFinite(duration) || duration <= 0 || duration > 300) {
-        return 'Please enter a valid duration between 1 and 300 seconds';
-      }
-      return null;
-    }
-  });
-  if (durationInput === null) return;
-
-  const duration = Math.min(300, Math.max(1, Number(durationInput)));
-
-  // Prefer MP4/H.264, fall back to WebM where it is unavailable.
-  const mimeCandidates = [
-    'video/mp4;codecs=avc1.42E01E',
-    'video/mp4;codecs=avc1.4D001E',
-    'video/mp4;codecs=avc1.64001E',
-    'video/mp4;codecs=h264',
-    'video/mp4;codecs=avc1',
-    'video/mp4',
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm',
-  ];
-  const mimeType = mimeCandidates.find((candidate) => {
+  // Tap the loaded audio, if the artist asked for it and there is one. The
+  // local export carries the music for the same reason a published one does:
+  // a recording of an audio-reactive patch that plays silent is a recording of
+  // something dancing to nothing.
+  let audioTap = null;
+  if (settings.includeAudio && hasRecordableAudio(window.audioCapture)) {
     try {
-      return MediaRecorder.isTypeSupported(candidate);
-    } catch {
-      return false;
+      audioTap = await openAudioTap(window.audioCapture);
+    } catch (err) {
+      console.warn('Could not tap the audio graph, recording without sound:', err);
     }
-  });
-
-  if (!mimeType) {
-    await modalManager.alert('No supported video encoder found for this browser.', 'Browser Compatibility');
-    return;
+    if (!audioTap) {
+      modalManager.toast('Audio could not be captured — recording video only.', 'warning', 'Export');
+    }
   }
 
+  // The container has to be chosen knowing whether an audio track is coming: a
+  // video-only mime type drops the track without a word.
+  const mimeType = selectRecordingMimeType({ withAudio: !!audioTap });
+  if (!mimeType) {
+    audioTap?.stop();
+    await modalManager.alert('No supported video encoder found for this browser.', 'Browser Compatibility');
+    return { ok: false, error: 'no-encoder' };
+  }
   if (!mimeType.includes('mp4')) {
     console.warn(`MP4/H.264 not available, using fallback: ${mimeType}.`);
   }
 
   const fileExt = mimeType.includes('mp4') ? 'mp4' : 'webm';
+  const audioBitrate = audioTap ? AUDIO_BITRATE : 0;
 
-  // Bitrate tuned per-resolution to keep files manageable.
-  const pixels = targetWidth * targetHeight;
-  const megapixels = pixels / 1_000_000;
+  // The same function the panel drew its estimate with, so the file that lands
+  // is the size the artist was shown. No upload budget applies to a download,
+  // so none is passed.
+  const videoBitrate = resolveVideoBitrate({
+    width: targetWidth,
+    height: targetHeight,
+    fps,
+    quality: settings.quality,
+    duration,
+    audioBitrate,
+  });
 
-  let baseBitrate;
-  if (megapixels <= 1) {
-    baseBitrate = pixels * 1.5;
-  } else if (megapixels <= 2.5) {
-    baseBitrate = pixels * 1.2;
-  } else if (megapixels <= 8) {
-    baseBitrate = pixels * 1.0;
-  } else {
-    baseBitrate = pixels * 0.8;
-  }
-
-  const fpsMultiplier = Math.max(1, Math.sqrt(fps / 30));
-  const estimatedBitrate = Math.floor(baseBitrate * fpsMultiplier);
-  const estimatedFileSizeMB = (estimatedBitrate * duration) / (8 * 1024 * 1024);
-  const maxTargetSizeMB = 50;
-
-  let adaptiveBitrate = estimatedBitrate;
-  if (estimatedFileSizeMB > maxTargetSizeMB) {
-    const scaleFactor = maxTargetSizeMB / estimatedFileSizeMB;
-    adaptiveBitrate = Math.floor(estimatedBitrate * scaleFactor * 0.95);
-  }
-  adaptiveBitrate = Math.max(1_000_000, Math.min(50_000_000, adaptiveBitrate));
-
-  const progress = modalManager.showProgress('Exporting Animation', 'Preparing export...');
+  let stopRequested = false;
+  let recorder = null;
+  const progress = modalManager.showProgress('Exporting Animation', 'Preparing export...', {
+    actions: [
+      {
+        id: 'stop',
+        label: 'Stop & Save',
+        onClick: () => {
+          stopRequested = true;
+          if (recorder && recorder.state === 'recording') recorder.stop();
+        },
+      },
+    ],
+  });
+  // Nothing to stop until the recorder is rolling.
+  progress.setActionEnabled('stop', false);
 
   try {
     progress.update(5, 'Resizing canvas to export resolution...', `${targetWidth}x${targetHeight}`);
 
-    const gpuRenderer = window.gpuRenderer;
-    if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
-      await gpuRenderer.resizeCanvasSync(targetWidth, targetHeight);
+    if (renderer.resizeCanvasSync) {
+      await renderer.resizeCanvasSync(targetWidth, targetHeight);
     } else {
       canvas.width = targetWidth;
       canvas.height = targetHeight;
@@ -259,19 +299,15 @@ export async function exportAnimation() {
 
     progress.update(8, 'Initializing renderer...', '');
 
-    if (typeof window.render === 'function') {
-      window.render();
-    } else {
-      renderer.render();
-    }
-
+    renderFrame(renderer);
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
-    const estimatedSizeMB = ((adaptiveBitrate * duration) / (8 * 1024 * 1024)).toFixed(1);
+    const estimatedBytes = ((videoBitrate + audioBitrate) * duration) / 8;
     progress.update(
       10,
       'Starting recording...',
-      `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS | Bitrate: ${(adaptiveBitrate / 1_000_000).toFixed(1)} Mbps | Est. size: ~${estimatedSizeMB} MB`
+      `${mimeType.split(';')[0]} @ ${fps} FPS · ${(videoBitrate / 1_000_000).toFixed(1)} Mbps` +
+        `${audioTap ? ' + audio' : ''} · ~${formatFileSize(estimatedBytes)}`
     );
 
     const stream = canvas.captureStream(fps);
@@ -285,6 +321,9 @@ export async function exportAnimation() {
         console.warn('Could not set frame rate constraint:', err);
       }
     }
+
+    // The canvas stream is pixels only; the audio joins it here.
+    if (audioTap) stream.addTrack(audioTap.track);
 
     const chunks = [];
 
@@ -305,11 +344,7 @@ export async function exportAnimation() {
 
       if (currentTime - lastRenderTime >= frameIntervalMs) {
         try {
-          if (typeof window.render === 'function') {
-            window.render();
-          } else if (renderer?.render) {
-            renderer.render();
-          }
+          renderFrame(renderer);
         } catch (error) {
           console.warn('Render tick failed during animation export:', error);
         }
@@ -323,32 +358,32 @@ export async function exportAnimation() {
 
     // Warm up a few frames before recording starts.
     for (let i = 0; i < 3; i++) {
-      if (typeof window.render === 'function') {
-        window.render();
-      } else if (renderer?.render) {
-        renderer.render();
-      }
+      renderFrame(renderer);
       await new Promise((resolve) => setTimeout(resolve, frameIntervalMs));
     }
 
-    let recorder;
-    try {
-      const recorderOptions = { mimeType, videoBitsPerSecond: adaptiveBitrate };
-      const baseMimeType = mimeType.split(';')[0];
-      if (MediaRecorder.isTypeSupported(`${baseMimeType};framerate=${fps}`)) {
-        recorderOptions.mimeType = `${baseMimeType};framerate=${fps}`;
-      }
-      recorder = new MediaRecorder(stream, recorderOptions);
-    } catch (error) {
+    const releaseRecording = () => {
       isRecording = false;
       if (renderRequestId) cancelAnimationFrame(renderRequestId);
       if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
         mainRenderLoop.start();
       }
       stream.getTracks().forEach((track) => track.stop());
+      audioTap?.stop();
+    };
+
+    try {
+      const recorderOptions = {
+        mimeType: applyFrameRate(mimeType, fps),
+        videoBitsPerSecond: videoBitrate,
+      };
+      if (audioTap) recorderOptions.audioBitsPerSecond = AUDIO_BITRATE;
+      recorder = new MediaRecorder(stream, recorderOptions);
+    } catch (error) {
+      releaseRecording();
       progress.close();
       await modalManager.alert('Unable to start recorder: ' + error.message, 'Recording Error');
-      return;
+      return { ok: false, error: error.message };
     }
 
     const recordingPromise = new Promise((resolve, reject) => {
@@ -359,7 +394,19 @@ export async function exportAnimation() {
       recorder.onstop = () => resolve();
     });
 
+    // Roll the music last: started any earlier, the seconds spent resizing the
+    // canvas and warming up frames would play out before the recorder is
+    // listening, and the video would open mid-phrase.
+    if (audioTap) {
+      try {
+        await audioTap.startPlayback();
+      } catch (err) {
+        console.warn('Could not start audio playback for the recording:', err);
+      }
+    }
+
     recorder.start(100);
+    progress.setActionEnabled('stop', true);
 
     const startTime = Date.now();
     const totalDurationMs = duration * 1000;
@@ -368,12 +415,12 @@ export async function exportAnimation() {
       const elapsed = Date.now() - startTime;
       const progressPercent = Math.min(90, 10 + (elapsed / totalDurationMs) * 80);
       const remaining = Math.max(0, duration - elapsed / 1000);
-      const capturedMB = chunks.reduce((sum, c) => sum + c.size, 0) / 1024 / 1024;
+      const capturedBytes = chunks.reduce((sum, c) => sum + c.size, 0);
 
       progress.update(
         progressPercent,
-        `Recording... ${remaining.toFixed(1)}s remaining`,
-        `${capturedMB.toFixed(2)} MB captured`
+        stopRequested ? 'Finishing up…' : `Recording... ${remaining.toFixed(1)}s remaining`,
+        `${formatFileSize(capturedBytes)} captured`
       );
     }, 100);
 
@@ -389,44 +436,66 @@ export async function exportAnimation() {
       console.error('Animation export failed:', error);
       progress.close();
       await modalManager.alert('Animation export failed: ' + error.message, 'Export Error');
-      return;
+      return { ok: false, error: error.message };
     } finally {
       clearTimeout(stopTimer);
-      isRecording = false;
-      if (renderRequestId) cancelAnimationFrame(renderRequestId);
-      if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
-        mainRenderLoop.start();
-      }
-      stream.getTracks().forEach((track) => track.stop());
+      progress.setActionEnabled('stop', false);
+      releaseRecording();
     }
 
     if (!chunks.length) {
       progress.close();
       await modalManager.alert('Recording produced no data.', 'Export Error');
-      return;
+      return { ok: false, error: 'no-data' };
     }
 
     progress.update(90, 'Finalizing video...', 'Creating blob...');
 
     const blob = new Blob(chunks, { type: mimeType });
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const recordedSeconds = Math.min(duration, (Date.now() - startTime) / 1000);
 
-    progress.update(95, 'Preparing download...', `File size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
+    progress.update(95, 'Preparing download...', `File size: ${formatFileSize(blob.size)}`);
 
     const filename = downloadBlob(
       blob,
-      `shader-${targetWidth}x${targetHeight}-${fps}fps-${timestamp}.${fileExt}`,
+      buildExportFilename({
+        prefix: settings.filenamePrefix,
+        width: targetWidth,
+        height: targetHeight,
+        fps,
+        extension: fileExt,
+      }),
       1000
     );
 
     progress.update(100, 'Export complete!', filename);
     setTimeout(() => {
       progress.close();
-      modalManager.toast(`Animation exported: ${filename}`, 'success', 'Export Complete');
+      modalManager.toast(
+        stopRequested
+          ? `Animation exported (stopped at ${recordedSeconds.toFixed(1)}s): ${filename}`
+          : `Animation exported: ${filename}`,
+        'success',
+        'Export Complete'
+      );
     }, 500);
+
+    return {
+      ok: true,
+      filename,
+      width: targetWidth,
+      height: targetHeight,
+      fps,
+      duration: recordedSeconds,
+      size: blob.size,
+      stoppedEarly: stopRequested,
+    };
   } catch (error) {
     progress.close();
-    throw error;
+    audioTap?.stop();
+    console.error('Animation export failed:', error);
+    await modalManager.alert('Export failed: ' + error.message, 'Export Error');
+    return { ok: false, error: error.message };
   } finally {
     const activeRenderer = window.gpuRenderer;
     if (activeRenderer && activeRenderer.resizeCanvasSync) {
@@ -439,4 +508,19 @@ export async function exportAnimation() {
     canvas.style.height = originalStyleHeight;
     preview?.updateSize?.();
   }
+}
+
+/** One frame, through the app's render entry point if it has one. */
+function renderFrame(renderer) {
+  if (typeof window.render === 'function') {
+    window.render();
+  } else if (renderer?.render) {
+    renderer.render();
+  }
+}
+
+/** Run whichever export the settings currently describe. */
+export async function runExport(options = {}) {
+  const settings = { ...getExportSettings(), ...options };
+  return settings.format === 'png' ? exportPNG(settings) : exportAnimation(settings);
 }

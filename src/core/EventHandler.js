@@ -5,7 +5,9 @@ import { getPerfProbe } from '../utils/PerfProbe.js';
 import { modalManager } from '../ui/ModalManager.js';
 import { NodeReferenceDrop } from '../ui/NodeReferenceDrop.js';
 import { NodeDefs } from '../data/NodeDefs.js';
-import { dynamicInputButtons, hitChip, hitNodeTitle, nodePreviewHeight } from './pinLayout.js';
+import { dynamicInputButtons, hitAnnotationPin, hitChip, hitNodeTitle, nodePreviewHeight } from './pinLayout.js';
+import { getAnnotationStore } from './AnnotationStore.js';
+import { getReviewPanel } from '../ui/ReviewPanel.js';
 import { getDynamicInputSpec, getInputCount } from '../data/nodeInputs.js';
 
 export class EventHandler {
@@ -642,6 +644,14 @@ export class EventHandler {
         return;
       }
 
+      // A review-annotation badge on a commented node. Checked before the chips
+      // and the node hit-test: the badge overhangs its node's corner, so the
+      // press lands inside the node box too, and without this it would start a
+      // node drag instead of opening the comment.
+      if (this.checkAnnotationPinClick(pos)) {
+        return;
+      }
+
       // "+ / −" chips on nodes with expandable inputs (Mix, Switch, …). Checked before the pin and
       // node hit-tests so clicking a chip adds a pin instead of starting a node drag.
       if (this.checkDynamicInputClick(pos)) {
@@ -880,6 +890,7 @@ export class EventHandler {
         // Not dragging anything - still need to track cursor for paste/duplicate
         const pos = this._getCanvasPosition(e);
         this.lastCanvasPos = { x: pos.x, y: pos.y };
+        this._updateAnnotationHover(pos);
       }
     });
 
@@ -1152,6 +1163,85 @@ export class EventHandler {
   // the same pinLayout helper the renderer draws with, so the hit area is the drawn chip.
   // Returns true when the click was consumed (including a click on a disabled chip, which must not
   // fall through and start dragging the node).
+  /**
+   * Press on a node's review-annotation badge: select that comment and bring the
+   * review dock up on it.
+   *
+   * Clicking the badge of the already-selected comment deselects it (see
+   * AnnotationStore.select), which is what makes the badge a toggle rather than
+   * a one-way trip into the panel.
+   */
+  checkAnnotationPinClick(pos) {
+    const store = this._annotationStore();
+    if (!store || store.all().length === 0) return false;
+
+    const nodes = this.selection?.graph?.nodes || [];
+    // Front-to-back, matching _hitNode: where two nodes overlap, the one drawn
+    // last is the one under the cursor.
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const node = nodes[i];
+      if (!node?.id) continue;
+      const pin = store.pinFor(node.id);
+      if (!pin) continue;
+      if (!hitAnnotationPin(node, pos.x, pos.y)) continue;
+
+      store.select(pin.annotation.id);
+      // Only open the dock on the way IN. Deselecting by clicking the badge
+      // again should not also throw a panel open over the canvas.
+      if (store.selectedId) {
+        try {
+          getReviewPanel().revealComment(pin.annotation.id);
+        } catch (error) {
+          console.warn('[EventHandler] Review panel could not be opened:', error);
+        }
+      }
+      this._requestDraw('annotation-select');
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Grow the badge under the cursor.
+   *
+   * Runs on every idle mousemove, so it does as little as it can: nothing at
+   * all until a patch actually has comments on it, and a redraw only when the
+   * hovered badge CHANGED — a mousemove stream that redrew the graph per event
+   * would cost more than the whole annotation layer is worth.
+   */
+  _updateAnnotationHover(pos) {
+    const store = this._annotationStore();
+    if (!store || store.all().length === 0) return;
+
+    let hovered = null;
+    const nodes = this.selection?.graph?.nodes || [];
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const node = nodes[i];
+      if (!node?.id) continue;
+      const pin = store.pinFor(node.id);
+      if (pin && hitAnnotationPin(node, pos.x, pos.y)) {
+        hovered = pin.annotation.id;
+        break;
+      }
+    }
+
+    if (store.setHovered(hovered)) {
+      this._requestDraw('annotation-hover');
+    }
+  }
+
+  /** The shared review store, or null where there is none (tests, no storage). */
+  _annotationStore() {
+    if (this._annotations === undefined) {
+      try {
+        this._annotations = getAnnotationStore();
+      } catch {
+        this._annotations = null;
+      }
+    }
+    return this._annotations;
+  }
+
   checkDynamicInputClick(pos) {
     if (!this.editor) return false;
 

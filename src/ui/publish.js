@@ -10,6 +10,7 @@
 import { modalManager } from './ModalManager.js';
 import { openExternal } from '../utils/openExternal.js';
 import { signInToGallery } from './accountSession.js';
+import { GALLERY_ORIGIN, galleryApiUrl } from '../utils/galleryEndpoint.js';
 import { desktopAuthHeaders } from '../ai/desktopToken.js';
 import { resolveResolution } from './OutputFormat.js';
 import { serializePatch, patchFilename, checkPatchSize } from '../core/patchSerializer.js';
@@ -22,8 +23,18 @@ import {
   selectRecordingMimeType,
 } from '../audio/recordingAudio.js';
 
-const UPLOAD_ENDPOINT = 'https://art.tenderworld.org/api/rhizo-upload';
-const GALLERY_ORIGIN = 'https://art.tenderworld.org';
+/**
+ * Where the upload goes.
+ *
+ * Resolved per call rather than at import: on the Vite dev server this is the
+ * same-origin proxy path, and the gallery's own origin everywhere else. The
+ * gallery answers this route with no Access-Control-Allow-Origin at all, so a
+ * publish from `npm run dev` or `tauri dev` used to fail its preflight before
+ * a single byte was sent — see ../utils/galleryEndpoint.js.
+ */
+function uploadEndpoint() {
+  return galleryApiUrl('/api/rhizo-upload');
+}
 
 function getPreview() {
   return window.floatingPreview || null;
@@ -87,30 +98,33 @@ export async function buildPatch() {
  *
  * XHR reports a blocked cross-origin request and a dead network identically:
  * an `error` event, status 0, no headers, no body — the browser deliberately
- * tells the page nothing about a response CORS refused. So this cannot say
- * which of the two it was, and does not pretend to; it names both, and names
- * the origin, because "Upload failed" with no origin in it is what turns a
- * one-line configuration fix into an afternoon.
+ * tells the page nothing about a response CORS refused, and puts the reason in
+ * the console only. So this cannot say which of the two it was and does not
+ * pretend to; it names both, and names the origin, because "Upload failed"
+ * with no origin in it is what turns a one-line configuration fix into an
+ * afternoon.
  *
- * The common case, by far, is publishing from a dev server: the gallery's
- * upload endpoint answers `studio.tenderworld.org` and not
- * `http://localhost:5173`. That is a gallery-side allow-list and nothing in
- * this repo can work around it — a same-origin dev proxy would strip the
- * session cookie the endpoint authenticates with. See `api/_lib/cors.js` for
- * how this deployment's own endpoints answer the same question.
+ * A distinct type rather than a bare Error so callers can treat it as the
+ * situation it is: `handleUploadError` gives it its own dialog instead of the
+ * "Publish failed:" one, `isPatchAttributable` refuses to retry it without the
+ * patch, and the web viewer tool points at the preview link, which needs no
+ * network. `status` is 0 to match what an XHR that never got a response
+ * carries elsewhere in this file.
+ *
+ * On the Vite dev server the upload goes through the same-origin proxy (see
+ * ../utils/galleryEndpoint.js) and cannot hit the CORS case at all, so a
+ * blocked upload here means an installed build, or a genuinely dead network.
  */
 export class UploadBlockedError extends Error {
   constructor(origin, endpoint) {
-    const from = origin || 'this page';
     super(
-      `The upload did not reach the gallery. Either there is no connection, or the ` +
-        `gallery does not accept uploads from ${from} — its endpoint has to name this ` +
-        `origin in its CORS allow-list before a browser will send the request. ` +
-        `Publishing works from the deployed studio; from a dev server it needs that ` +
-        `origin allowed.`,
+      `The gallery did not accept an upload from ${origin || 'this page'}. ` +
+        'Either this machine is offline, or the gallery does not allow that ' +
+        'origin (the browser console will say which).'
     );
     this.name = 'UploadBlockedError';
     this.code = 'upload_blocked';
+    this.status = 0;
     this.origin = origin || null;
     this.endpoint = endpoint || null;
   }
@@ -255,16 +269,22 @@ function uploadBlob(blob, filename, onProgress, patch = null) {
       }
     });
 
+    // status 0 and no response: the request never reached the gallery, so
+    // there is nothing to read a reason out of. The browser knows why (a
+    // refused preflight, a dropped connection) and tells the console only, so
+    // name the two things it can be rather than showing a bare "Upload
+    // failed" the artist can do nothing with.
     xhr.addEventListener('error', () =>
-      reject(new UploadBlockedError(pageOrigin(), UPLOAD_ENDPOINT)));
+      reject(new UploadBlockedError(pageOrigin(), uploadEndpoint())));
     xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
   });
 
-  xhr.open('POST', UPLOAD_ENDPOINT);
+  xhr.open('POST', uploadEndpoint());
+  // The web session is a cookie the browser attaches; the desktop app has no
+  // cookie the gallery will honour and carries a bearer token instead. Set it
+  // after open() and before send(), which is the only window in which
+  // setRequestHeader is legal.
   xhr.withCredentials = true;
-  // Set after open(), which is the only point XHR accepts headers. Absent
-  // everywhere but the desktop app, so a browser upload is byte-for-byte what
-  // it was.
   for (const [name, value] of Object.entries(desktopAuthHeaders())) {
     xhr.setRequestHeader(name, value);
   }

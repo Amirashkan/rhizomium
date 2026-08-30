@@ -18,6 +18,7 @@
  */
 
 import { desktopAuthHeaders, clearDesktopToken, getDesktopToken } from './desktopToken.js';
+import { GALLERY_ORIGIN, galleryApiBase } from '../utils/galleryEndpoint.js';
 import {
   FEATURES,
   FEATURE_KEYS,
@@ -27,7 +28,11 @@ import {
   requiredTier,
 } from './tiers.js';
 
-export const GALLERY_ORIGIN = 'https://art.tenderworld.org';
+// Re-exported so the many callers that only want "where is the gallery" keep
+// one import. The constant itself lives with the endpoint logic, because
+// *which* URL an API call should use is a question with two answers — see
+// ../utils/galleryEndpoint.js.
+export { GALLERY_ORIGIN };
 
 /** Where to send someone whose tier is too low. Overridden by the live payload. */
 const DEFAULT_UPGRADE_URL = `${GALLERY_ORIGIN}/pricing`;
@@ -107,7 +112,10 @@ function fallbackEntitlements(reason) {
 
 export class EntitlementsClient {
   constructor(options = {}) {
-    this.baseUrl = options.baseUrl || GALLERY_ORIGIN;
+    // Not GALLERY_ORIGIN: on the Vite dev server this resolves to the
+    // same-origin proxy path instead, so a dev run is not at the mercy of the
+    // gallery's CORS allow-list. Identical everywhere else.
+    this.baseUrl = options.baseUrl || galleryApiBase();
     this.fetchImpl = options.fetch || ((...args) => globalThis.fetch(...args));
     /** Resolved payload, or the fallback. Never null after the first load(). */
     this.entitlements = null;

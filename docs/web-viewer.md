@@ -255,64 +255,51 @@ Copying goes through the async Clipboard API, which needs a secure context and a
 permission a WebView may not grant. When it fails the field is selected and the
 tool says so, rather than a Copy button that silently did nothing.
 
-### Publishing from a dev server does not work
+### Publishing from a dev server
 
-`npm run dev` serves the editor from `http://localhost:5173`, and the gallery's
-upload endpoint does not name that origin in its CORS allow-list — so the browser
-refuses to send the request at all:
+`npm run dev` serves the editor from `http://localhost:5173`, which is neither
+of the origins the gallery answers, so a publish used to die before it left the
+browser:
 
 ```
 Access to XMLHttpRequest at 'https://art.tenderworld.org/api/rhizo-upload'
 from origin 'http://localhost:5173' has been blocked by CORS policy
 ```
 
-This is not specific to viewer links: **File → Publish → Publish Image** and
-**Publish Animation** go through the same `uploadBlob`, and have always failed
-the same way from a dev server. The Web Viewer tool's "Publish & make a link" is
-a third door into it, not a new fault.
+This was never specific to viewer links: **Publish Image** and **Publish
+Animation** go through the same `uploadBlob`.
 
-The gallery side of this is fixed: its upload endpoint used to carry its own
-two-origin allow-list and its own cookie-only authentication, both narrower than
-the rest of its API by accident. It now shares one origin policy (`lib/cors.ts`)
-and one caller resolution (`resolveCaller`) with every other studio-facing route,
-so `DESKTOP_DEV_ORIGINS` and the desktop bearer token both reach it. A dev origin
-is opt-in there, empty by default, and belongs on a preview deployment:
+**In dev the call no longer leaves our origin.** `vite.config.js` proxies
+`/gallery-api/*` to the gallery server-side, and `src/utils/galleryEndpoint.js`
+is the one place that decides which URL a gallery call gets — the proxy path on
+the dev server, the gallery's own origin everywhere else. That puts the hop
+outside the browser and takes CORS out of the picture.
 
-```
-DESKTOP_DEV_ORIGINS=http://localhost:5173
-```
+The proxy fixes reaching the gallery, not being *someone* to it. A browser at
+`localhost` has no gallery cookie to send, and the proxy has no cookie jar of
+its own, so a dev run authenticates with the desktop bearer token or not at all
+— which is what `tauri dev` does anyway. `uploadBlob` sends that token; it used
+to send no headers at all, so even an installed, paired desktop app could read
+its entitlements and then fail to publish.
 
-**That is only half of it, and the other half cannot be fixed the same way.**
-Allowing the origin gets the request sent; it still has to authenticate.
-`localhost` is a different *site* from `tenderworld.org`, so the gallery's
-`SameSite=Lax` session cookie is not sent with a cross-site request from it
-however permissive CORS is — and loosening that cookie to `SameSite=None` would
-make the gallery's session a third-party cookie everywhere, for the sake of one
-caller. So a plain browser at `http://localhost:5173` gets past CORS and lands
-on `401`.
-
-An off-site caller authenticates with a bearer token instead, which is what the
-desktop app does and what `npm run tauri:dev` gets you: the Tauri webview points
-at the Vite dev server, `isTauri()` is true, the paired token is sent, and the
-upload works with `DESKTOP_DEV_ORIGINS` set. `uploadBlob` sends that token now;
-it used to send no headers at all, so even an installed, paired desktop app
-could read its entitlements and then fail to publish.
+An **installed** desktop app calls the gallery directly and has no proxy, so it
+needs the gallery itself to allow `tauri://localhost` and read the
+`Authorization` header. See `TENDERWORLD_API_INTEGRATION.md` for that contract.
 
 So, from a plain `npm run dev` in a browser:
 
 - **Preview links work.** They touch no network at all.
 - **Everything else in the tool works** — the page, the controls, pasting an
   already-published patch address to build a share link.
-- **Publishing needs either the deployed studio, or `tauri:dev` with a paired
-  token and `DESKTOP_DEV_ORIGINS` set.**
+- **Publishing needs a credential**: `tauri dev` with a paired token, or the
+  deployed studio.
 
-XHR reports a blocked request and a dead network identically — an `error` event,
-status 0, no body — so the editor cannot tell which happened and does not guess.
-It names both, and names the origin: "Upload failed" with no origin in it is what
-turns a one-line configuration change into an afternoon (`UploadBlockedError` in
-`src/ui/publish.js`). A blocked upload is also never retried without the patch,
-the way a gallery-side patch failure is: a request the browser never sent was not
-refused over its contents.
+An upload that never left the browser is reported as one. XHR cannot tell a
+refused preflight from a dead network — an `error` event, status 0, no body,
+with the reason in the console only — so the editor names both and names the
+origin (`UploadBlockedError` in `src/ui/publish.js`). It is never retried
+without the patch the way a gallery-side patch failure is: a request the
+browser never sent was not refused over its contents.
 
 ---
 
