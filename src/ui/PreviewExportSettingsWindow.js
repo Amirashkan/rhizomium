@@ -3,12 +3,13 @@
  *
  * Opened from View -> Preview / Export Settings and from the floating preview's
  * gear button. Every control here is wired to something that actually runs: the
- * output format, the quality knobs derived from it, the render loop, or the
- * exporters. Publishing to the gallery lives in File -> Publish.
+ * output format, the quality knobs derived from it, or the render loop. The
+ * export itself is set up in the export panel (File -> Export), which this
+ * window links to; publishing to the gallery lives in File -> Publish.
  */
 
 import { makeDraggable } from './utils/draggable.js';
-import { exportPNG, exportAnimation } from './exportRender.js';
+import { showExportPanel } from './ExportPanel.js';
 import {
   MAX_HEIGHT,
   MAX_WIDTH,
@@ -24,7 +25,6 @@ import {
   matchPreset,
   resetOutputFormat,
   resolveResolution,
-  setExportTarget,
   setOutputFormat,
   setPreviewQuality,
   setSimQuality,
@@ -442,67 +442,27 @@ export class PreviewExportSettingsWindow {
     return section;
   }
 
+  /**
+   * A pointer, not a second set of controls.
+   *
+   * Export size used to be edited here and nowhere else, so an export was
+   * assembled across two windows and two modal prompts. It is set up in the
+   * export panel now - this section says what the export currently is and
+   * opens that panel, so there is only ever one place the answer lives.
+   */
   _createExportSection() {
     const section = this._createSection(
       "Export",
       "Saves to your machine. To share to the gallery use File → Publish.",
     );
 
-    const target = getExportTarget();
-
-    const modeControl = this._createDropdown(
-      "Export Size",
-      [
-        { value: "output", label: "Output format" },
-        { value: "custom", label: "Custom…" },
-      ],
-      target.mode,
-      (value) => {
-        if (value === "custom") {
-          const size = getExportTarget();
-          setExportTarget({ mode: "custom", width: size.width, height: size.height }, "settingsWindow");
-        } else {
-          setExportTarget({ mode: "output" }, "settingsWindow");
-        }
-        this._syncExportControls();
-      },
-    );
-    section.appendChild(modeControl.container);
-
-    const sizeRow = document.createElement("div");
-    sizeRow.style.cssText = "display: flex; gap: 8px; margin-bottom: 12px;";
-
-    const widthInput = this._createSizeInput("Width", target.width, MIN_WIDTH, MAX_WIDTH);
-    const heightInput = this._createSizeInput("Height", target.height, MIN_HEIGHT, MAX_HEIGHT);
-
-    const commit = () => {
-      setExportTarget({
-        mode: "custom",
-        width: parseInt(widthInput.input.value, 10),
-        height: parseInt(heightInput.input.value, 10),
-      }, "settingsWindow");
-      this._syncExportControls();
-    };
-    widthInput.input.addEventListener("change", commit);
-    heightInput.input.addEventListener("change", commit);
-
-    sizeRow.appendChild(widthInput.container);
-    sizeRow.appendChild(heightInput.container);
-    section.appendChild(sizeRow);
-
     const exportNote = this._createNote("");
     section.appendChild(exportNote);
 
-    const buttons = document.createElement("div");
-    buttons.style.cssText = "display: flex; flex-direction: column; gap: 8px;";
-    buttons.appendChild(this._createButton("Export as PNG", () => exportPNG()));
-    buttons.appendChild(this._createButton("Export Animation (MP4/WebM)", () => exportAnimation()));
-    section.appendChild(buttons);
+    section.appendChild(
+      this._createButton("Open Export panel…", () => showExportPanel()),
+    );
 
-    this._controls.exportMode = modeControl.select;
-    this._controls.exportWidth = widthInput.input;
-    this._controls.exportHeight = heightInput.input;
-    this._controls.exportSizeRow = sizeRow;
     this._controls.exportNote = exportNote;
     this._syncExportControls();
 
@@ -767,20 +727,16 @@ export class PreviewExportSettingsWindow {
   }
 
   _syncExportControls() {
-    const { exportMode, exportWidth, exportHeight, exportSizeRow, exportNote } = this._controls;
+    const { exportNote } = this._controls;
+    if (!exportNote) return;
+
     const target = getExportTarget();
     const size = resolveResolution("export");
+    const sim = resolveResolution("sim");
 
-    if (exportMode) exportMode.value = target.mode;
-    if (exportSizeRow) exportSizeRow.style.display = target.mode === "custom" ? "flex" : "none";
-    if (exportWidth) exportWidth.value = size.width;
-    if (exportHeight) exportHeight.value = size.height;
-    if (exportNote) {
-      const sim = resolveResolution("sim");
-      exportNote.textContent = target.mode === "custom"
-        ? `Exporting ${size.width} × ${size.height}. The composite is re-rendered at this size; the sims stay at ${sim.width} × ${sim.height}, so their detail does not change.`
-        : `Exporting at the output format, ${size.width} × ${size.height}.`;
-    }
+    exportNote.textContent = target.mode === "custom"
+      ? `Exporting ${size.width} × ${size.height}. The composite is re-rendered at this size; the sims stay at ${sim.width} × ${sim.height}, so their detail does not change.`
+      : `Exporting at the output format, ${size.width} × ${size.height}.`;
   }
 
   /**
