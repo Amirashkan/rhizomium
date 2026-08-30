@@ -10,6 +10,8 @@
 import { modalManager } from './ModalManager.js';
 import { openExternal } from '../utils/openExternal.js';
 import { signInToGallery } from './accountSession.js';
+import { GALLERY_ORIGIN, galleryApiUrl } from '../utils/galleryEndpoint.js';
+import { desktopAuthHeaders } from '../ai/desktopToken.js';
 import { resolveResolution } from './OutputFormat.js';
 import { serializePatch, patchFilename, checkPatchSize } from '../core/patchSerializer.js';
 import { APP_VERSION } from '../utils/appVersion.js';
@@ -21,8 +23,18 @@ import {
   selectRecordingMimeType,
 } from '../audio/recordingAudio.js';
 
-const UPLOAD_ENDPOINT = 'https://art.tenderworld.org/api/rhizo-upload';
-const GALLERY_ORIGIN = 'https://art.tenderworld.org';
+/**
+ * Where the upload goes.
+ *
+ * Resolved per call rather than at import: on the Vite dev server this is the
+ * same-origin proxy path, and the gallery's own origin everywhere else. The
+ * gallery answers this route with no Access-Control-Allow-Origin at all, so a
+ * publish from `npm run dev` or `tauri dev` used to fail its preflight before
+ * a single byte was sent — see ../utils/galleryEndpoint.js.
+ */
+function uploadEndpoint() {
+  return galleryApiUrl('/api/rhizo-upload');
+}
 
 function getPreview() {
   return window.floatingPreview || null;
@@ -126,12 +138,32 @@ function uploadBlob(blob, filename, onProgress, patch = null) {
       }
     });
 
-    xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+    // status 0 and no response: the request never reached the gallery, so
+    // there is nothing to read a reason out of. The browser knows why (a
+    // refused preflight, a dropped connection) and tells the console only, so
+    // name the two things it can be rather than showing a bare "Upload
+    // failed" the artist can do nothing with.
+    xhr.addEventListener('error', () => {
+      const err = new Error(
+        `The gallery did not accept an upload from ${window.location.origin}. ` +
+        'Either this machine is offline, or the gallery does not allow that ' +
+        'origin (the browser console will say which).'
+      );
+      err.status = 0;
+      reject(err);
+    });
     xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
   });
 
-  xhr.open('POST', UPLOAD_ENDPOINT);
+  xhr.open('POST', uploadEndpoint());
+  // The web session is a cookie the browser attaches; the desktop app has no
+  // cookie the gallery will honour and carries a bearer token instead. Set it
+  // after open() and before send(), which is the only window in which
+  // setRequestHeader is legal.
   xhr.withCredentials = true;
+  for (const [name, value] of Object.entries(desktopAuthHeaders())) {
+    xhr.setRequestHeader(name, value);
+  }
   xhr.send(formData);
 
   return uploadPromise;
