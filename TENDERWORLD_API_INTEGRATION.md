@@ -350,6 +350,10 @@ Cookie: session_id=xxx
 - Enable CORS for `https://studio.tenderworld.org` (or your editor domain)
 - Include credentials: `Access-Control-Allow-Credentials: true`
 - Set appropriate `Access-Control-Allow-Origin`
+- Answer `OPTIONS` on every route the editor calls, including
+  `/api/rhizo-upload` — see [Callers that are not the website](#callers-that-are-not-the-website)
+- Allow the `Authorization` request header, which is how the desktop app
+  identifies itself
 
 ### 5. Input Validation
 - Validate all input parameters
@@ -481,6 +485,64 @@ https://art.tenderworld.org/api/...
 ```
 
 Ensure the base URL matches what's configured in the FileManager component (`editor/src/ui/FileManager.js`).
+
+---
+
+## Callers that are not the website
+
+The endpoints above are specified around a session cookie, which is the whole
+story for a browser on `studio.tenderworld.org`. Two of the editor's three
+surfaces are not that, and both need something from this API.
+
+### The desktop app: a bearer token, not a cookie
+
+The desktop app's pages are served from `tauri://localhost`
+(`http://tauri.localhost` on Windows). That is a different site from the
+gallery, so the gallery's session cookie is never sent on its requests no
+matter how CORS is configured — an artist who signs in on the website has an
+app window that is still anonymous.
+
+It therefore carries the bearer token issued by the pairing handshake
+(`/api/desktop/pair/*`, already used by `/api/entitlements`) and sends it as:
+
+```http
+Authorization: Bearer <token>
+```
+
+For this to work, every endpoint in this document has to accept that header as
+an alternative to the cookie, and the CORS configuration has to allow the
+header and the desktop origins:
+
+```
+tauri://localhost
+http://tauri.localhost
+https://tauri.localhost
+```
+
+Until then a paired desktop app reads as signed out in the File Manager, no
+matter what it holds.
+
+### `/api/rhizo-upload` currently answers no cross-origin caller
+
+Publishing from anywhere other than the website fails at the preflight:
+
+```
+Access to XMLHttpRequest at 'https://art.tenderworld.org/api/rhizo-upload'
+from origin 'http://localhost:5173' has been blocked by CORS policy:
+Response to preflight request doesn't pass access control check:
+No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
+
+The request never leaves the browser, so there is nothing in the gallery's
+logs to find. The route needs the same CORS treatment as the rest: an `OPTIONS`
+answer naming the calling origin, `Access-Control-Allow-Credentials: true`,
+and `Authorization` in `Access-Control-Allow-Headers`.
+
+Until the gallery does that, the editor works around it in development only:
+`vite.config.js` proxies `/gallery-api/*` to the gallery server-side, so a
+`npm run dev` or `tauri dev` request is same-origin and never preflighted (see
+`src/utils/galleryEndpoint.js`). That workaround does not exist in an installed
+desktop app, which calls the gallery directly.
 
 ---
 

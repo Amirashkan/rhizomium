@@ -3,6 +3,8 @@ import { modalManager } from './ModalManager.js';
 import { iconMarkup } from './iconSprite.js';
 import { isTauri } from '../utils/isTauri.js';
 import { signInToGallery } from './accountSession.js';
+import { galleryApiUrl } from '../utils/galleryEndpoint.js';
+import { desktopAuthHeaders, getDesktopToken } from '../ai/desktopToken.js';
 
 export class FileManager {
   constructor(saveLoadManager) {
@@ -13,7 +15,30 @@ export class FileManager {
     this.files = [];
     this.loading = false;
     this.userInfo = null;
-    this.tenderworldBaseUrl = 'https://art.tenderworld.org';
+  }
+
+  /**
+   * A gallery API URL. Absolute in every deployment; a same-origin proxy path
+   * on the Vite dev server, where the gallery's CORS allow-list would
+   * otherwise decide whether the file manager works — see
+   * ../utils/galleryEndpoint.js.
+   */
+  apiUrl(path) {
+    return galleryApiUrl(path);
+  }
+
+  /**
+   * Headers that say who is asking.
+   *
+   * On the web that is the session cookie, which rides along on its own with
+   * `credentials: 'include'` and needs nothing here. The desktop app has no
+   * cookie the gallery will accept — its pages are a different site — and
+   * carries a bearer token instead (see ../ai/desktopToken.js). Sending only
+   * the cookie is why an app that had just been signed in still reported
+   * "Not signed in" here: the credential existed, this file never offered it.
+   */
+  authHeaders(extra = {}) {
+    return { ...extra, ...desktopAuthHeaders() };
   }
 
   show() {
@@ -531,81 +556,129 @@ export class FileManager {
     document.addEventListener("keydown", handler);
   }
 
+  /**
+   * Can a gallery API call get out of here at all?
+   *
+   * Three surfaces can reach it: the desktop app, which names the gallery
+   * outright and carries its own credential; a page on tenderworld.org, where
+   * the gallery is same-site; and a local dev server, where either the Vite
+   * proxy forwards the call server-side or the gallery accepts the loopback
+   * origin. Anything else — the editor opened from a file:// path, or hosted
+   * somewhere the gallery has never heard of — is a request the browser will
+   * refuse before it is sent, and saying so beats a console full of CORS.
+   */
+  canReachGallery() {
+    const origin = window.location.origin;
+    return (
+      isTauri() ||
+      origin.includes('tenderworld.org') ||
+      origin.includes('localhost') ||
+      origin.includes('127.0.0.1')
+    );
+  }
+
+  /**
+   * Draw the signed-out state.
+   *
+   * Being signed out is a normal condition, not a failure: the remedy is the
+   * Sign in button, so it is shown and the reason is stated plainly. In the
+   * desktop app the sign-in is a pairing rather than a browser session, which
+   * is worth saying — an artist who signed in on the gallery's website in
+   * another window has done something that cannot help this window.
+   */
+  showSignedOut() {
+    const userInfoEl = this.dialog.querySelector("#file-manager-user-info");
+    const loginBtn = this.dialog.querySelector("#file-manager-login-btn");
+    const infoEl = this.dialog.querySelector("#file-manager-info");
+
+    this.userInfo = null;
+    userInfoEl.textContent = 'Not signed in';
+    userInfoEl.classList.remove('authenticated');
+    loginBtn.style.display = 'block';
+    infoEl.textContent = isTauri()
+      ? 'Sign in to reach your cloud files. The desktop app connects to the ' +
+        'gallery with its own credential, so signing in on the website in ' +
+        'another window will not do it — use the button here.'
+      : 'Please sign in to TenderWorld to access your cloud files';
+    this.showEmptyState('Please sign in to access your files');
+  }
+
+  /** Draw the "the gallery is not answering us" state. */
+  showUnreachable() {
+    const userInfoEl = this.dialog.querySelector("#file-manager-user-info");
+    const loginBtn = this.dialog.querySelector("#file-manager-login-btn");
+    const infoEl = this.dialog.querySelector("#file-manager-info");
+
+    this.userInfo = null;
+    userInfoEl.textContent = 'Cloud file manager unavailable';
+    userInfoEl.classList.remove('authenticated');
+    loginBtn.style.display = 'none';
+    infoEl.textContent =
+      `The gallery did not answer a request from ${window.location.origin}. ` +
+      'This machine may be offline, or the gallery may not accept that origin ' +
+      'yet. Local save and load still work.';
+    this.showEmptyState('Could not reach the gallery');
+  }
+
   async checkAuthAndLoadFiles() {
     if (!this.dialog) return;
     const userInfoEl = this.dialog.querySelector("#file-manager-user-info");
     const loginBtn = this.dialog.querySelector("#file-manager-login-btn");
     const infoEl = this.dialog.querySelector("#file-manager-info");
 
+    if (!this.canReachGallery()) {
+      userInfoEl.textContent = 'Cloud file manager unavailable';
+      userInfoEl.classList.remove('authenticated');
+      loginBtn.style.display = 'none';
+      infoEl.textContent = 'File Manager is only available when running on TenderWorld domains. Use local save/load instead.';
+      this.showEmptyState('File Manager requires TenderWorld domain access');
+      return;
+    }
+
+    // In the desktop app there is no cookie to fall back on: with no paired
+    // token this call is anonymous by construction, so ask for the sign-in
+    // rather than spending a round trip to be told what we already know.
+    if (isTauri() && !getDesktopToken()) {
+      this.showSignedOut();
+      return;
+    }
+
+    let authData;
     try {
-      // Check if we're on a domain that can access TenderWorld API.
-      //
-      // The desktop app passes on the 'localhost' arm — its origin is
-      // tauri://localhost (http://tauri.localhost on Windows) — which is the
-      // answer we want, but by accident rather than on purpose. Say so, so a
-      // later tightening of this test does not silently remove the cloud files
-      // from the desktop build.
-      const currentOrigin = window.location.origin;
-      const isTenderWorldDomain = isTauri() ||
-                                   currentOrigin.includes('tenderworld.org') ||
-                                   currentOrigin.includes('localhost') ||
-                                   currentOrigin.includes('127.0.0.1');
-
-      if (!isTenderWorldDomain) {
-        // CORS will block this request, show helpful message
-        userInfoEl.textContent = 'Cloud file manager unavailable';
-        userInfoEl.classList.remove('authenticated');
-        loginBtn.style.display = 'none';
-        infoEl.textContent = 'File Manager is only available when running on TenderWorld domains. Use local save/load instead.';
-        this.showEmptyState('File Manager requires TenderWorld domain access');
-        return;
-      }
-
-      // Check authentication
-      const authResponse = await fetch(`${this.tenderworldBaseUrl}/api/auth/check`, {
+      const authResponse = await fetch(this.apiUrl('/api/auth/check'), {
         method: 'GET',
-        credentials: 'include'
-      }).catch(err => {
-        // Handle network/CORS errors gracefully
-        if (err.name === 'TypeError' && err.message.includes('fetch')) {
-          throw new Error('Network error: Unable to connect to TenderWorld API. This may be a CORS issue.');
-        }
-        throw err;
+        credentials: 'include',
+        headers: this.authHeaders({ Accept: 'application/json' })
       });
 
-      if (authResponse.ok) {
-        const authData = await authResponse.json();
-        if (authData.authenticated && authData.user) {
-          this.userInfo = authData.user;
-          userInfoEl.textContent = `Logged in as ${authData.user.email || authData.user.username || 'User'}`;
-          userInfoEl.classList.add('authenticated');
-          loginBtn.style.display = 'none';
-          infoEl.textContent = `Managing files for ${authData.user.email || authData.user.username || 'your account'}`;
-          await this.loadFiles();
-        } else {
-          throw new Error('Not authenticated');
-        }
-      } else {
-        throw new Error('Auth check failed');
+      // 401 is the gallery saying "nobody", which is an answer, not a fault.
+      if (!authResponse.ok && authResponse.status !== 401) {
+        throw new Error(`Auth check failed (${authResponse.status})`);
       }
+      authData = authResponse.ok ? await authResponse.json().catch(() => ({})) : {};
     } catch (error) {
-      console.error('Authentication check failed:', error);
-      const errorMessage = error.message || 'Unknown error';
-      const isCorsError = errorMessage.includes('CORS') || errorMessage.includes('fetch') || 
-                         errorMessage.includes('blocked');
-      
-      userInfoEl.textContent = 'Not signed in';
-      userInfoEl.classList.remove('authenticated');
-      loginBtn.style.display = isCorsError ? 'none' : 'block';
-      
-      if (isCorsError) {
-        infoEl.textContent = 'File Manager unavailable: CORS restrictions prevent access to TenderWorld API from this domain.';
-        this.showEmptyState('File Manager requires TenderWorld domain access');
-      } else {
-        infoEl.textContent = 'Please sign in to TenderWorld to access your cloud files';
-        this.showEmptyState('Please sign in to access your files');
-      }
+      // A CORS rejection, an offline machine and a DNS failure are the same
+      // TypeError here; none of them is something the artist did.
+      console.warn('[FileManager] Could not reach the gallery:', error);
+      if (!this.dialog) return;
+      this.showUnreachable();
+      return;
     }
+
+    if (!this.dialog) return;
+
+    if (!authData?.authenticated || !authData.user) {
+      this.showSignedOut();
+      return;
+    }
+
+    const { user } = authData;
+    this.userInfo = user;
+    userInfoEl.textContent = `Logged in as ${user.email || user.username || 'User'}`;
+    userInfoEl.classList.add('authenticated');
+    loginBtn.style.display = 'none';
+    infoEl.textContent = `Managing files for ${user.email || user.username || 'your account'}`;
+    await this.loadFiles();
   }
 
   async loadFiles() {
@@ -620,10 +693,11 @@ export class FileManager {
       // Fetch files from TenderWorld API
       // Note: This endpoint needs to be created in tenderworld project
       const response = await fetch(
-        `${this.tenderworldBaseUrl}/api/files/list?path=${encodeURIComponent(this.currentPath)}`,
+        this.apiUrl(`/api/files/list?path=${encodeURIComponent(this.currentPath)}`),
         {
           method: 'GET',
-          credentials: 'include'
+          credentials: 'include',
+          headers: this.authHeaders({ Accept: 'application/json' })
         }
       );
 
@@ -746,10 +820,11 @@ export class FileManager {
   async handleFileOpen(filePath) {
     try {
       const response = await fetch(
-        `${this.tenderworldBaseUrl}/api/files/download?path=${encodeURIComponent(filePath)}`,
+        this.apiUrl(`/api/files/download?path=${encodeURIComponent(filePath)}`),
         {
           method: 'GET',
-          credentials: 'include'
+          credentials: 'include',
+          headers: this.authHeaders()
         }
       );
 
@@ -811,10 +886,11 @@ export class FileManager {
 
     try {
       const response = await fetch(
-        `${this.tenderworldBaseUrl}/api/files/delete?path=${encodeURIComponent(filePath)}`,
+        this.apiUrl(`/api/files/delete?path=${encodeURIComponent(filePath)}`),
         {
           method: 'DELETE',
-          credentials: 'include'
+          credentials: 'include',
+          headers: this.authHeaders()
         }
       );
 
@@ -875,11 +951,12 @@ export class FileManager {
       formData.append('path', this.currentPath);
 
       const response = await fetch(
-        `${this.tenderworldBaseUrl}/api/files/upload`,
+        this.apiUrl('/api/files/upload'),
         {
           method: 'POST',
           body: formData,
-          credentials: 'include'
+          credentials: 'include',
+          headers: this.authHeaders()
         }
       );
 
@@ -927,11 +1004,12 @@ export class FileManager {
         formData.append('path', this.currentPath);
 
         const response = await fetch(
-          `${this.tenderworldBaseUrl}/api/files/upload`,
+          this.apiUrl('/api/files/upload'),
           {
             method: 'POST',
             body: formData,
-            credentials: 'include'
+            credentials: 'include',
+            headers: this.authHeaders()
           }
         );
 
@@ -962,12 +1040,10 @@ export class FileManager {
 
     try {
       const response = await fetch(
-        `${this.tenderworldBaseUrl}/api/files/create-folder`,
+        this.apiUrl('/api/files/create-folder'),
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: this.authHeaders({ 'Content-Type': 'application/json' }),
           credentials: 'include',
           body: JSON.stringify({
             path: this.currentPath,

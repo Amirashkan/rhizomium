@@ -101,10 +101,31 @@ export default defineConfig(({ mode }) => {
       // demands a grant the gallery signed, exactly as in production. Point
       // API_PROXY at a preview deployment or a `vercel dev` on another port to
       // develop against those instead.
+      //
+      // `/gallery-api/*` is the same trick for the *gallery*
+      // (art.tenderworld.org), which owns accounts, cloud files and the
+      // publish endpoint. That server is a different deployment with its own
+      // CORS allow-list, and a developer's loopback port is not on it — a
+      // publish from `npm run dev` or `tauri dev` died on the preflight to
+      // `/api/rhizo-upload` with no Access-Control-Allow-Origin at all.
+      // Forwarding it here makes the browser's request same-origin, so there
+      // is no preflight to fail. `Origin` is rewritten along with the host so
+      // the gallery sees a request from itself rather than from a loopback
+      // port it has every reason to refuse. See src/utils/galleryEndpoint.js,
+      // which is what decides to use this path; GALLERY_PROXY points it at a
+      // preview gallery.
       proxy: {
         '/api': {
           target: process.env.API_PROXY || 'https://studio.tenderworld.org',
           changeOrigin: true,
+        },
+        '/gallery-api': {
+          target: process.env.GALLERY_PROXY || 'https://art.tenderworld.org',
+          changeOrigin: true,
+          headers: {
+            Origin: process.env.GALLERY_PROXY || 'https://art.tenderworld.org',
+          },
+          rewrite: (path) => path.replace(/^\/gallery-api/, ''),
         },
       },
     },

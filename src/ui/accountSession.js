@@ -34,6 +34,7 @@ import { modalManager } from './ModalManager.js';
 import { openExternal } from '../utils/openExternal.js';
 import { isTauri } from '../utils/isTauri.js';
 import { entitlements, GALLERY_ORIGIN } from '../ai/entitlements.js';
+import { galleryApiUrl } from '../utils/galleryEndpoint.js';
 import { clearDesktopToken, getDesktopToken, setDesktopToken } from '../ai/desktopToken.js';
 import { TIER_LABELS } from '../ai/tiers.js';
 
@@ -178,7 +179,7 @@ async function pairDesktop({ onStatus }) {
 
   let pairing;
   try {
-    const res = await fetch(`${GALLERY_ORIGIN}/api/desktop/pair/start`, {
+    const res = await fetch(galleryApiUrl('/api/desktop/pair/start'), {
       method: 'POST',
       headers: { Accept: 'application/json' },
     });
@@ -263,7 +264,7 @@ function waitForToken(pairingId, page) {
       if (finished) return null;
       try {
         const res = await fetch(
-          `${GALLERY_ORIGIN}/api/desktop/pair/poll?pairingId=${encodeURIComponent(pairingId)}`,
+          galleryApiUrl(`/api/desktop/pair/poll?pairingId=${encodeURIComponent(pairingId)}`),
           { headers: { Accept: 'application/json' } }
         );
         if (!res.ok) return null;
