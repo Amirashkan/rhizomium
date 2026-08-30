@@ -106,6 +106,27 @@
   --rz-cat-text: #b98a5e;
   --rz-cat-default: #7f766a;
 
+  /* ---- Review annotation tags -----------------------------------------
+     What a review COMMENT means, not what a node is. Borrowed from the
+     semantic ramp above on purpose: a blocker IS an error, a change request IS
+     a warning, praise IS a success, a question IS information. Mirrored in
+     src/core/theme.js (ANNOTATION_TAGS) for the pins the renderer draws. */
+  --rz-tag-question: var(--rz-info);
+  --rz-tag-question-soft: rgba(34, 211, 238, 0.12);
+  --rz-tag-question-line: rgba(34, 211, 238, 0.32);
+  --rz-tag-change: var(--rz-warn);
+  --rz-tag-change-soft: rgba(245, 165, 36, 0.14);
+  --rz-tag-change-line: rgba(245, 165, 36, 0.32);
+  --rz-tag-blocker: var(--rz-error);
+  --rz-tag-blocker-soft: rgba(248, 97, 90, 0.14);
+  --rz-tag-blocker-line: rgba(248, 97, 90, 0.34);
+  --rz-tag-praise: var(--rz-success);
+  --rz-tag-praise-soft: rgba(70, 168, 131, 0.12);
+  --rz-tag-praise-line: rgba(70, 168, 131, 0.3);
+  --rz-tag-note: var(--rz-text-3);
+  --rz-tag-note-soft: rgba(143, 134, 122, 0.12);
+  --rz-tag-note-line: rgba(143, 134, 122, 0.3);
+
   /* ---- Data-type colours (the live signal — bright) -------------------- */
   --rz-type-tex: #22d3ee;
   --rz-type-float: #f5a524;
