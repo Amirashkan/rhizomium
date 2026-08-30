@@ -18,11 +18,14 @@ import { resolveWebViewerAccess, refusalMessage, VIEWER_FEATURE } from './viewer
 import { describePatchSource, fetchPatch, parsePatchText, PatchSourceError } from './patchSource.js';
 import { takeHandoff } from './patchHandoff.js';
 import { PatchRuntime, PatchRuntimeError } from './PatchRuntime.js';
+import { ViewerControlsUi } from './viewerControlsUi.js';
+import { resolveViewerPage } from './ViewerPage.js';
 import { FEATURES } from '../ai/tiers.js';
 import { GALLERY_ORIGIN } from '../ai/entitlements.js';
 
 const dom = {};
 let runtime = null;
+let controlsUi = null;
 
 function el(id) {
   return document.getElementById(id);
@@ -138,9 +141,27 @@ async function resolvePatch(source) {
   return record.patch;
 }
 
+/**
+ * Dress the page the way the patch asks for.
+ *
+ * Everything here is a document setting with a safe default (see ViewerPage.js),
+ * so a patch that says nothing gets exactly the page the viewer always had.
+ */
+function applyPage(page) {
+  document.body.dataset.fit = page.fit;
+  // A hex colour, checked by normalizeColor: nothing from the patch reaches CSS
+  // that could name a URL.
+  document.documentElement.style.setProperty('--viewer-bg', page.background);
+  return page;
+}
+
 /** Compile and play. */
 async function play(patchData, title) {
   overlay({ state: 'loading', title: 'Loading…', message: title || 'Compiling the patch' });
+
+  // Before the first frame, so the ground is already the artist's colour rather
+  // than flashing the default one behind the render.
+  const page = applyPage(resolveViewerPage(patchData?.viewerPage));
 
   runtime?.dispose();
   runtime = new PatchRuntime(dom.canvas);
@@ -163,7 +184,13 @@ async function play(patchData, title) {
 
   runtime.start();
 
-  document.title = title ? `${title} — Rhizomium` : 'Rhizomium viewer';
+  // The page's own title wins. It is the artist's decision about what a visitor
+  // sees; `?title=` is a label a link carries so the tab is named before the
+  // patch has finished loading, and the patch's own title is the filename it was
+  // saved under. Most specific to least.
+  const pageTitle = page.title || title || patchData?.title || '';
+  document.title = pageTitle ? `${pageTitle} — Rhizomium` : 'Rhizomium viewer';
+
   dom.notes.replaceChildren(
     ...runtime.notes.map((note) => {
       const li = document.createElement('li');
@@ -171,7 +198,16 @@ async function play(patchData, title) {
       return li;
     }),
   );
-  dom.notes.hidden = runtime.notes.length === 0;
+  // A patch shown as a finished piece can ask for the footnotes to stay off.
+  // The notes are for a visitor wondering why it looks static, and an artist
+  // who knows their patch needs no audio can say so once.
+  dom.notes.hidden = runtime.notes.length === 0 || !page.showNotes;
+
+  // The knobs this patch's author offered, if any. Built after the first frame
+  // is on its way, so a patch with controls still appears as fast as one
+  // without.
+  controlsUi = new ViewerControlsUi(dom.controls, runtime, { mode: page.controls });
+  controlsUi.mount();
 
   show('playing');
 }
@@ -243,10 +279,12 @@ function bindFileDrop() {
 
 function bindFullscreen() {
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'f' || event.key === 'F') {
-      if (document.fullscreenElement) document.exitFullscreen?.();
-      else document.documentElement.requestFullscreen?.().catch(() => {});
-    }
+    if (event.key !== 'f' && event.key !== 'F') return;
+    // A patch with controls has real form fields on the page; a keystroke aimed
+    // at one of those is not a request to go full-screen.
+    if (event.target instanceof HTMLElement && event.target.closest('#viewer-controls')) return;
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else document.documentElement.requestFullscreen?.().catch(() => {});
   });
   dom.canvas.addEventListener('dblclick', () => {
     if (document.fullscreenElement) document.exitFullscreen?.();
@@ -262,6 +300,7 @@ function boot() {
   dom.overlayActions = el('viewer-overlay-actions');
   dom.filePicker = el('viewer-file');
   dom.notes = el('viewer-notes');
+  dom.controls = el('viewer-controls');
 
   bindFileDrop();
   bindFullscreen();

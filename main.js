@@ -39,6 +39,9 @@ import { MappingModel } from './src/mapping/MappingModel.js';
 import { getMappingPanel } from './src/ui/MappingPanel.js';
 import { ScreenModel, MAIN_SCREEN_ID } from './src/screens/ScreenModel.js';
 import { getScreensPanel } from './src/ui/ScreensPanel.js';
+import { ViewerControlsModel } from './src/viewer/ViewerControls.js';
+import { ViewerPageModel } from './src/viewer/ViewerPage.js';
+import { getWebViewerTool } from './src/ui/WebViewerTool.js';
 import { getOutputAspect } from './src/ui/OutputFormat.js';
 import { getShaderCompilerWindow } from './src/ui/ShaderCompilerWindow.js';
 import { findProjectionMapNode, syncMappingToNode } from './src/mapping/projectionMapNode.js';
@@ -184,6 +187,14 @@ let secondMonitorViewer = null;
 // windows to match it.
 let screenModel = null;
 let screensPanel = null;
+// The parameters this patch hands to whoever opens it in the web viewer. Same
+// shape as the rig above: a document the panel edits and the project file
+// carries, read by the viewer page rather than by anything in the editor.
+let viewerControlsModel = null;
+// The page those controls appear on: ground colour, framing, what apparatus
+// shows. Same shape, and the same journey into the project file.
+let viewerPageModel = null;
+let webViewerTool = null;
 let previewExportSettingsWindow = null;
 let preferencesWindow = null;
 let renderLoopController = null;
@@ -658,6 +669,21 @@ async function initialize() {
         console.error("ERROR creating projection mapping tool:", error);
       }
     }
+
+    // Web viewer controls: the parameters this patch offers to whoever opens it
+    // in the web viewer. A document like the rig and the mapping — the panel
+    // edits it, the project file carries it, the viewer reads it — and it is
+    // created on every build, not just the desktop one, because the surface it
+    // configures is the web.
+    viewerControlsModel = new ViewerControlsModel();
+    window.viewerControlsModel = viewerControlsModel;
+    editor.viewerControlsModel = viewerControlsModel;
+    viewerControlsModel.onChange(() => editor.markDirty?.("viewer-controls"));
+
+    viewerPageModel = new ViewerPageModel();
+    window.viewerPageModel = viewerPageModel;
+    editor.viewerPageModel = viewerPageModel;
+    viewerPageModel.onChange(() => editor.markDirty?.("viewer-page"));
 
     window.graph = graph;
     window.editor = editor;
@@ -2058,7 +2084,16 @@ function setupRhizomiumMenu() {
     // The desktop app renders in the OS WebView, which blocks window.open()
     // outright, and its bundle does not carry the viewer page at all (see
     // vite.config.js). Second Monitor Viewer is the desktop equivalent.
-    webViewerBtn.style.display = "none";
+    //
+    // The item is DISABLED rather than removed. It used to be hidden, and a
+    // menu entry that is simply absent reads as a feature that does not exist —
+    // there is no way to tell "not here" from "not built". Disabled with a
+    // reason says which one this is, and where the equivalent lives.
+    webViewerBtn.disabled = true;
+    webViewerBtn.title =
+      "The web viewer runs in a browser tab, which the desktop app has none of. " +
+      "Open this patch in the browser editor to use it, or use View \u2192 Open Output " +
+      "for a full-screen render on this machine.";
   } else if (webViewerBtn) {
     webViewerBtn.addEventListener("click", async (e) => {
       e.preventDefault();
@@ -2066,6 +2101,42 @@ function setupRhizomiumMenu() {
       await openInWebViewer({
         onStatus: (message, type = "info") => updateStatus(message, type),
       });
+    });
+  }
+
+  // Web Viewer Tool - the page a link leads to, the controls it hands a visitor,
+  // and the link itself. Available in the desktop app too: what it edits is part
+  // of the published document, and a patch authored on the desktop is viewed on
+  // the web like any other.
+  const webViewerToolBtn = document.getElementById("btn-web-viewer-tool");
+  if (webViewerToolBtn) {
+    webViewerToolBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!viewerControlsModel || !viewerPageModel) {
+        updateStatus("The web viewer tool is not ready yet.", "warning");
+        return;
+      }
+      if (!webViewerTool) {
+        webViewerTool = getWebViewerTool(
+          { page: viewerPageModel, controls: viewerControlsModel },
+          {
+            getNodes: () => window.editor?.graph?.nodes || [],
+            getProjectName: () => window.saveLoadManager?.getProjectName?.() || "",
+            onStatus: (message, kind) => updateStatus(message, kind),
+            onOpenViewer: () =>
+              openInWebViewer({
+                onStatus: (message, type = "info") => updateStatus(message, type),
+              }),
+            // The desktop WebView blocks window.open(), so there is no second
+            // tab for the viewer to appear in. The link itself still works —
+            // it is a URL, and it can be copied and sent from here.
+            canOpenViewer: () => !isTauri(),
+          },
+        );
+        window.webViewerTool = webViewerTool;
+      }
+      webViewerTool.toggle();
     });
   }
 

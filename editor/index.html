@@ -36,6 +36,7 @@
     <link rel="stylesheet" href="../src/styles/review-panel.css" />
     <link rel="stylesheet" href="../src/styles/mapping-panel.css" />
     <link rel="stylesheet" href="../src/styles/screens-panel.css" />
+    <link rel="stylesheet" href="../src/styles/web-viewer-tool.css" />
     <link rel="stylesheet" href="../src/styles/shader-compiler.css" />
     <link rel="stylesheet" href="../src/vj/vj-control-panel.css" />
     <style>
@@ -248,9 +249,18 @@
             </div>
           </div>
           
+          <div class="menu-separator"></div>
           <!-- The web viewer: this patch, playing on its own page, the way a
-               gallery visitor sees it. A Cloude entitlement (viewer.web). -->
+               gallery visitor sees it. A Cloude entitlement (viewer.web).
+               The desktop app cannot open a second tab, so main.js disables
+               this rather than removing it — a missing menu item reads as a
+               missing feature. -->
           <button id="btn-web-viewer">Open in Web Viewer</button>
+          <!-- The page that link leads to: how it looks, which parameters it
+               hands a visitor, and the link itself. Part of the published
+               document, so it is available wherever a patch is authored,
+               desktop included. -->
+          <button id="btn-web-viewer-tool">Web Viewer Tool…</button>
 
           <div class="menu-separator"></div>
           <button id="btn-backups">Backups</button>

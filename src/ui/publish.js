@@ -40,6 +40,15 @@ function getPreview() {
   return window.floatingPreview || null;
 }
 
+/** Where this page is served from, for an error that has to name it. */
+function pageOrigin() {
+  try {
+    return window.location.origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Serialize the current graph as a `.rz` patch to publish alongside the media,
  * so a visitor can download the source document and reopen the work here.
@@ -50,7 +59,7 @@ function getPreview() {
  * exception — it asks the artist, since silently dropping the patch after they
  * chose to publish it is worse than a question.
  */
-async function buildPatch() {
+export async function buildPatch() {
   const manager = window.saveLoadManager;
   if (!manager || typeof manager.exportProject !== 'function') return null;
 
@@ -84,6 +93,120 @@ async function buildPatch() {
   return { blob, filename };
 }
 
+/**
+ * The upload never left the browser.
+ *
+ * XHR reports a blocked cross-origin request and a dead network identically:
+ * an `error` event, status 0, no headers, no body — the browser deliberately
+ * tells the page nothing about a response CORS refused, and puts the reason in
+ * the console only. So this cannot say which of the two it was and does not
+ * pretend to; it names both, and names the origin, because "Upload failed"
+ * with no origin in it is what turns a one-line configuration fix into an
+ * afternoon.
+ *
+ * A distinct type rather than a bare Error so callers can treat it as the
+ * situation it is: `handleUploadError` gives it its own dialog instead of the
+ * "Publish failed:" one, `isPatchAttributable` refuses to retry it without the
+ * patch, and the web viewer tool points at the preview link, which needs no
+ * network. `status` is 0 to match what an XHR that never got a response
+ * carries elsewhere in this file.
+ *
+ * On the Vite dev server the upload goes through the same-origin proxy (see
+ * ../utils/galleryEndpoint.js) and cannot hit the CORS case at all, so a
+ * blocked upload here means an installed build, or a genuinely dead network.
+ */
+export class UploadBlockedError extends Error {
+  constructor(origin, endpoint) {
+    super(
+      `The gallery did not accept an upload from ${origin || 'this page'}. ` +
+        'Either this machine is offline, or the gallery does not allow that ' +
+        'origin (the browser console will say which).'
+    );
+    this.name = 'UploadBlockedError';
+    this.code = 'upload_blocked';
+    this.status = 0;
+    this.origin = origin || null;
+    this.endpoint = endpoint || null;
+  }
+}
+
+/** The GPU is not in a state to be captured from. Not an upload failure. */
+export class CaptureNotReadyError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'CaptureNotReadyError';
+  }
+}
+
+/**
+ * Capture one frame of the current render as a WebP blob.
+ *
+ * Lifted out of publishImage() so the web viewer tool can reuse it: a viewer
+ * link needs a still for the same reason a publish does — the gallery stores
+ * the patch beside a piece of media, and a link with no thumbnail behind it is
+ * a link to a blank card.
+ *
+ * A GPU that is not ready to be captured from throws a CaptureNotReadyError:
+ * "open the preview first" is a thing the artist can act on, and it deserves a
+ * plain sentence rather than the upload-failure treatment.
+ *
+ * @param {(percent: number, message: string, detail?: string) => void} [onProgress]
+ * @returns {Promise<{blob: Blob, filename: string, width: number, height: number}>}
+ * @throws {CaptureNotReadyError|Error}
+ */
+export async function captureStill(onProgress = () => {}) {
+  const preview = getPreview();
+  const canvas = preview?.gpuCanvas;
+  if (!canvas) throw new CaptureNotReadyError('Canvas not available. Open the preview first.');
+
+  if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
+    try {
+      await window.initWebGPU(canvas, true);
+    } catch {
+      // Fall through - the renderer check below reports the real problem.
+    }
+  }
+
+  const renderer = window.gpuRenderer;
+  if (!renderer || typeof renderer.captureFrame !== 'function') {
+    throw new CaptureNotReadyError('Renderer not ready. Render the preview at least once.');
+  }
+
+  const { width, height } = captureSize(canvas);
+  onProgress(20, 'Capturing frame from GPU...', `${width}x${height}`);
+  const { pixels, bytesPerRow } = await renderer.captureFrame({ width, height });
+
+  onProgress(40, 'Processing image data...', 'Converting pixel format...');
+  const exportCanvas = document.createElement('canvas');
+  exportCanvas.width = width;
+  exportCanvas.height = height;
+  const ctx = exportCanvas.getContext('2d');
+  const imageData = ctx.createImageData(width, height);
+
+  for (let y = 0; y < height; y++) {
+    const srcOffset = y * bytesPerRow;
+    const dstOffset = y * width * 4;
+
+    for (let x = 0; x < width; x++) {
+      const si = srcOffset + x * 4;
+      const di = dstOffset + x * 4;
+
+      // Swap B and R channels (BGRA -> RGBA)
+      imageData.data[di + 0] = pixels[si + 2];
+      imageData.data[di + 1] = pixels[si + 1];
+      imageData.data[di + 2] = pixels[si + 0];
+      imageData.data[di + 3] = pixels[si + 3];
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  onProgress(60, 'Creating image file...', 'Encoding WebP...');
+  const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
+  if (!blob) throw new Error('Failed to create image blob');
+
+  return { blob, filename: `shader-${Date.now()}.webp`, width, height };
+}
+
 function captureSize(canvas) {
   const resolution = resolveResolution('export');
   return {
@@ -98,6 +221,14 @@ function captureSize(canvas) {
  *
  * Both objects go in one request: that is a single round trip and one shared
  * timestamp, so the gallery stores them as a matched pair.
+ *
+ * Authentication is whichever of the two the caller has. `withCredentials`
+ * carries the gallery's session cookie, which is what a browser on a
+ * tenderworld.org host has; the desktop app is a different site and never gets
+ * one, so it carries a bearer token instead (desktopToken.js). This sent
+ * neither header and relied on the cookie alone, which meant a paired desktop
+ * app could read its entitlements and then not publish — the request arrived
+ * anonymous and the gallery answered 401.
  */
 function uploadBlob(blob, filename, onProgress, patch = null) {
   const formData = new FormData();
@@ -143,15 +274,8 @@ function uploadBlob(blob, filename, onProgress, patch = null) {
     // refused preflight, a dropped connection) and tells the console only, so
     // name the two things it can be rather than showing a bare "Upload
     // failed" the artist can do nothing with.
-    xhr.addEventListener('error', () => {
-      const err = new Error(
-        `The gallery did not accept an upload from ${window.location.origin}. ` +
-        'Either this machine is offline, or the gallery does not allow that ' +
-        'origin (the browser console will say which).'
-      );
-      err.status = 0;
-      reject(err);
-    });
+    xhr.addEventListener('error', () =>
+      reject(new UploadBlockedError(pageOrigin(), uploadEndpoint())));
     xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
   });
 
@@ -190,6 +314,9 @@ export function describeUpload(kind, patch, patchDropped) {
  */
 export function isPatchAttributable(err) {
   if (!err || err.status === 401 || err.status === 413) return false;
+  // A request the browser never sent was not refused over its contents. Retrying
+  // it without the patch spends a second upload to fail identically.
+  if (err.code === 'upload_blocked') return false;
   return /patch/i.test(err.message || '') || err.status === 500;
 }
 
@@ -268,86 +395,36 @@ async function handleUploadError(err, sizeHint) {
     return;
   }
 
+  if (err instanceof UploadBlockedError) {
+    await modalManager.alert(message, 'The gallery could not be reached');
+    return;
+  }
+
   await modalManager.alert(`Publish failed: ${message}`, 'Upload Error');
 }
 
 /** Capture the current frame and publish it to the gallery. */
 export async function publishImage() {
-  const preview = getPreview();
-  const canvas = preview?.gpuCanvas;
-  if (!canvas) {
-    await modalManager.alert('Canvas not available. Open the preview first.', 'Error');
-    return;
-  }
-
-  if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
-    try {
-      await window.initWebGPU(canvas, true);
-    } catch {
-      // Fall through - the renderer check below reports the real problem.
-    }
-  }
-
-  const renderer = window.gpuRenderer;
-  if (!renderer || typeof renderer.captureFrame !== 'function') {
-    await modalManager.alert('Renderer not ready. Render the preview at least once.', 'Error');
-    return;
-  }
-
   // Serialize the patch before the progress dialog opens: it can ask about an
   // oversize patch, and stacking that on top of a progress modal reads badly.
   const patch = await buildPatch();
   if (patch?.cancelled) return;
 
-  const { width, height } = captureSize(canvas);
   const progress = modalManager.showProgress('Publishing Image', 'Capturing frame...');
-  let blob = null;
+  let still = null;
 
   try {
-    progress.update(20, 'Capturing frame from GPU...', `${width}x${height}`);
-    const { pixels, bytesPerRow } = await renderer.captureFrame({ width, height });
+    still = await captureStill((percent, message, detail) =>
+      progress.update(percent, message, detail));
 
-    progress.update(40, 'Processing image data...', 'Converting pixel format...');
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = width;
-    exportCanvas.height = height;
-    const ctx = exportCanvas.getContext('2d');
-    const imageData = ctx.createImageData(width, height);
-
-    for (let y = 0; y < height; y++) {
-      const srcOffset = y * bytesPerRow;
-      const dstOffset = y * width * 4;
-
-      for (let x = 0; x < width; x++) {
-        const si = srcOffset + x * 4;
-        const di = dstOffset + x * 4;
-
-        // Swap B and R channels (BGRA -> RGBA)
-        imageData.data[di + 0] = pixels[si + 2];
-        imageData.data[di + 1] = pixels[si + 1];
-        imageData.data[di + 2] = pixels[si + 0];
-        imageData.data[di + 3] = pixels[si + 3];
-      }
-    }
-    ctx.putImageData(imageData, 0, 0);
-
-    progress.update(60, 'Creating image file...', 'Encoding WebP...');
-    blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
-    if (!blob) {
-      progress.close();
-      await modalManager.alert('Failed to create image blob', 'Error');
-      return;
-    }
-
-    const filename = `shader-${Date.now()}.webp`;
     progress.update(
       70,
       'Preparing upload...',
-      `File size: ${(blob.size / 1024).toFixed(2)} KB` +
+      `File size: ${(still.blob.size / 1024).toFixed(2)} KB` +
         (patch ? ` + patch ${(patch.blob.size / 1024).toFixed(2)} KB` : '')
     );
 
-    const { data, patchDropped } = await uploadArtwork(blob, filename, (loaded, total) => {
+    const { data, patchDropped } = await uploadArtwork(still.blob, still.filename, (loaded, total) => {
       progress.update(
         70 + (loaded / total) * 25,
         'Uploading to gallery...',
@@ -369,10 +446,15 @@ export async function publishImage() {
     }, 500);
   } catch (err) {
     progress.close();
-    const fileSizeMB = (blob?.size || 0) / 1024 / 1024;
+    if (err instanceof CaptureNotReadyError) {
+      await modalManager.alert(err.message, 'Error');
+      return;
+    }
+    const fileSizeMB = (still?.blob?.size || 0) / 1024 / 1024;
+    const at = still ? ` at ${still.width}x${still.height}` : '';
     await handleUploadError(
       err,
-      `Size: ${fileSizeMB.toFixed(2)} MB at ${width}x${height}. Lower the export size in View → Preview / Export Settings.`
+      `Size: ${fileSizeMB.toFixed(2)} MB${at}. Lower the export size in View → Preview / Export Settings.`
     );
   }
 }

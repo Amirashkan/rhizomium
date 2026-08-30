@@ -48,6 +48,8 @@ import { CountNodeProcessor } from '../core/CountNodeProcessor.js';
 import { FeedbackResetProcessor } from '../core/FeedbackResetProcessor.js';
 import { VideoResetProcessor } from '../core/VideoResetProcessor.js';
 import { TextNodeProcessor } from '../core/TextNodeProcessor.js';
+import { applyControlValue, writeParameterUniform } from '../parameters/ExternalParameterControl.js';
+import { coerceControlValue, resolveViewerControls } from './ViewerControls.js';
 
 export class PatchRuntimeError extends Error {
   constructor(message, code = 'runtime_error') {
@@ -84,7 +86,10 @@ export class PatchRuntime {
     this.graph = new Graph();
     this.loop = null;
     this.notes = [];
+    /** @type {Array<{control: object, node: object, def: object|null, value: *}>} */
+    this.controls = [];
     this.size = { width: 0, height: 0 };
+    this._recompileTimer = null;
 
     // Per-frame CPU state the shader alone cannot carry: the Trigger node's
     // pulses, a Wave's sync origin, the Hold latch, the Count counter, feedback
@@ -177,6 +182,11 @@ export class PatchRuntime {
 
     this.notes = describeUnsupported(nodes);
 
+    // What this patch offers a visitor to move. Resolved against the graph that
+    // was just hydrated, so a control naming a node the patch no longer has
+    // simply is not there.
+    this.controls = resolveViewerControls(projectData.viewerControls, nodes);
+
     // Textures are inlined in the patch, so this is a decode rather than a
     // fetch. One bad texture leaves its node blank and the patch still runs.
     await restorePatchTextures(this.textureManager, projectData.textures);
@@ -231,6 +241,78 @@ export class PatchRuntime {
     this.renderer.setShaderSource(result.wgsl);
   }
 
+  /**
+   * Move one of the controls this patch offers.
+   *
+   * There are two ways a parameter reaches the GPU, and which one applies is
+   * decided by the compiler, not here:
+   *
+   *   - **A uniform.** NodeCompiler registers every plain numeric parameter it
+   *     reads as a uniform (see `getParam`), so the new value is a four-byte
+   *     buffer write and the next frame already shows it. This is what makes a
+   *     slider a slider rather than a series of stutters — it is the same path
+   *     MIDI and OSC take in the editor.
+   *   - **A rebuild.** A parameter the compiler baked into the WGSL — a mode a
+   *     branch is chosen by, a boolean an `if` is written from — has no uniform
+   *     to write. Those recompile, debounced, because a shader module compile
+   *     is measured in milliseconds and a visitor flipping a switch can afford
+   *     one; a visitor dragging a slider cannot afford sixty a second.
+   *
+   * The value is written onto `node.params` either way, so the two paths agree
+   * and a later rebuild carries every control the visitor has moved.
+   *
+   * @param {object} control the control record being moved
+   * @param {*} value whatever the input produced
+   * @returns {*} the value actually stored, after clamping and coercion
+   */
+  setControlValue(control, value) {
+    const entry = this.controls.find(
+      (c) => c.control.nodeId === control?.nodeId && c.control.param === control?.param,
+    );
+    if (!entry) return undefined;
+
+    const next = coerceControlValue(entry.control, value);
+    const { node, control: spec } = entry;
+
+    // Writes params and props, and leaves a parameter holding a formula alone —
+    // though resolveViewerControls has already refused to offer one of those.
+    applyControlValue(node, spec.param, next);
+    entry.value = next;
+
+    const uniformManager = window.nodeCompiler?.uniformManager;
+    const hasUniform = !!uniformManager?.uniformValues?.has(`${node.id}.${spec.param}`);
+
+    if (hasUniform && typeof next === 'number') {
+      writeParameterUniform(node.id, spec.param, next);
+      return next;
+    }
+
+    this._recompileSoon();
+    return next;
+  }
+
+  /** Every control back to the value the patch was published with. */
+  resetControls() {
+    for (const entry of this.controls) {
+      this.setControlValue(entry.control, entry.authored);
+    }
+  }
+
+  /**
+   * Rebuild the shader shortly, collapsing a burst of changes into one build.
+   *
+   * A failed rebuild is deliberately swallowed: the patch is already on screen
+   * with the previous shader, and a visitor who moved a dropdown should get the
+   * old render back rather than an error page over a piece that still works.
+   */
+  _recompileSoon() {
+    if (this._recompileTimer) clearTimeout(this._recompileTimer);
+    this._recompileTimer = setTimeout(() => {
+      this._recompileTimer = null;
+      this.compile().catch((error) => console.warn('[viewer] control rebuild failed', error));
+    }, 120);
+  }
+
   /** Start playing. */
   start() {
     if (this.loop) return;
@@ -255,6 +337,8 @@ export class PatchRuntime {
   /** Stop and let go of the GPU. */
   dispose() {
     this.stop();
+    if (this._recompileTimer) clearTimeout(this._recompileTimer);
+    this._recompileTimer = null;
     if (window.renderLoop === this.loop) window.renderLoop = null;
     this.loop = null;
     try {
