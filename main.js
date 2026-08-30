@@ -63,7 +63,7 @@ import { showTestCube } from './show-test-cube.js';
 import { Vec3 } from './src/scene/math/Vec3.js';
 import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindow.js';
 import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
-import { exportPNG, exportAnimation } from './src/ui/exportRender.js';
+import { showExportPanel } from './src/ui/ExportPanel.js';
 import { publishImage, publishAnimation } from './src/ui/publish.js';
 import { openInWebViewer } from './src/ui/openInWebViewer.js';
 import { modalManager } from './src/ui/ModalManager.js';
@@ -80,7 +80,6 @@ import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
 import { TextNodeProcessor } from "./src/core/TextNodeProcessor.js";
 import { setupTauriFileAssociation } from "./src/core/tauriFileOpen.js";
 import { startCompositionFormatSync } from "./src/core/CompositionFormatSync.js";
-import { makeDraggable } from "./src/ui/utils/draggable.js";
 import {
   applyMenuShortcutHints,
   installShortcutDispatcher,
@@ -1956,158 +1955,6 @@ function setupUIEventHandlers() {
   });
 }
 
-
-// Export Window Manager
-let exportWindow = null;
-
-function showExportWindow() {
-  if (exportWindow) {
-    exportWindow.style.display = "flex";
-    exportWindow.style.opacity = "1";
-    exportWindow.style.transform = "translate(-50%, -50%) scale(1)";
-    return;
-  }
-
-  exportWindow = document.createElement("div");
-  exportWindow.id = "export-window";
-  exportWindow.style.cssText = `
-    position: fixed;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 320px;
-    background: rgba(28, 28, 30, 0.98);
-    backdrop-filter: blur(20px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    z-index: 1001;
-    display: flex;
-    flex-direction: column;
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.95);
-    transition: all 0.2s ease;
-  `;
-
-  const header = document.createElement("div");
-  header.style.cssText = `
-    padding: 12px 16px;
-    background: rgba(255, 255, 255, 0.05);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: move;
-  `;
-
-  const title = document.createElement("div");
-  title.textContent = "Export";
-  title.style.cssText = "color: #fff; font-size: 14px; font-weight: 600;";
-
-  const closeBtn = document.createElement("button");
-  closeBtn.textContent = "×";
-  closeBtn.style.cssText = `
-    background: transparent;
-    border: none;
-    color: #fff;
-    cursor: pointer;
-    font-size: 18px;
-    padding: 4px;
-    border-radius: 4px;
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  `;
-  closeBtn.onclick = () => hideExportWindow();
-
-  header.appendChild(title);
-  header.appendChild(closeBtn);
-
-  const content = document.createElement("div");
-  content.style.cssText = "padding: 16px; display: flex; flex-direction: column; gap: 12px;";
-
-  const exportPngBtn = document.createElement("button");
-  exportPngBtn.textContent = "Export as PNG";
-  exportPngBtn.className = "submenu-button";
-  exportPngBtn.style.cssText = `
-    width: 100%;
-    padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
-    color: #fff;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    text-align: left;
-  `;
-  exportPngBtn.onmouseenter = () => {
-    exportPngBtn.style.background = "rgba(255, 255, 255, 0.15)";
-  };
-  exportPngBtn.onmouseleave = () => {
-    exportPngBtn.style.background = "rgba(255, 255, 255, 0.1)";
-  };
-  exportPngBtn.onclick = async () => {
-    await exportPNG();
-  };
-
-  const exportAnimBtn = document.createElement("button");
-  exportAnimBtn.textContent = "Export Animation (WebM)";
-  exportAnimBtn.className = "submenu-button";
-  exportAnimBtn.style.cssText = `
-    width: 100%;
-    padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
-    color: #fff;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    text-align: left;
-  `;
-  exportAnimBtn.onmouseenter = () => {
-    exportAnimBtn.style.background = "rgba(255, 255, 255, 0.15)";
-  };
-  exportAnimBtn.onmouseleave = () => {
-    exportAnimBtn.style.background = "rgba(255, 255, 255, 0.1)";
-  };
-  exportAnimBtn.onclick = async () => {
-    await exportAnimation();
-  };
-
-  content.appendChild(exportPngBtn);
-  content.appendChild(exportAnimBtn);
-
-  exportWindow.appendChild(header);
-  exportWindow.appendChild(content);
-  document.body.appendChild(exportWindow);
-
-  // Make draggable
-  makeDraggable(exportWindow, header);
-
-  requestAnimationFrame(() => {
-    exportWindow.style.opacity = "1";
-    exportWindow.style.transform = "translate(-50%, -50%) scale(1)";
-  });
-}
-
-function hideExportWindow() {
-  if (exportWindow) {
-    exportWindow.style.opacity = "0";
-    exportWindow.style.transform = "translate(-50%, -50%) scale(0.95)";
-    setTimeout(() => {
-      if (exportWindow) {
-        exportWindow.style.display = "none";
-      }
-    }, 200);
-  }
-}
-
 function setupRhizomiumMenu() {
   if (!saveLoadManager || !editor || !graph) {
     console.warn("Required components not available for menu setup");
@@ -2172,13 +2019,13 @@ function setupRhizomiumMenu() {
     });
   }
 
-  // Export button - opens export window
+  // Export - the panel where a whole export is set up and started.
   const exportBtn = document.getElementById("btn-export");
   if (exportBtn) {
     exportBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      showExportWindow();
+      showExportPanel();
     });
   }
 

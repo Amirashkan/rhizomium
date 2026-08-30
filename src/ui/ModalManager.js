@@ -285,6 +285,20 @@ export class ModalManager {
         margin-top: 8px;
         font-family: ${FONT_MONO};
       }
+
+      /* Actions on a progress dialog: a way out of work that is already
+         running, for the jobs long enough that an artist can change their
+         mind halfway through. */
+      .progress-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .progress-actions:empty {
+        display: none;
+      }
     `;
     document.head.appendChild(styles);
   }
@@ -605,8 +619,13 @@ export class ModalManager {
   /**
    * Show a progress bar modal
    * Returns an object with methods to update progress
+   *
+   * `options.actions` adds buttons under the bar - `[{ label, onClick, variant,
+   * closeOnClick }]`. A job the user can abandon halfway (a two-minute video
+   * recording, say) needs somewhere to say so; without one the only exit from a
+   * long export is reloading the page and losing the patch.
    */
-  showProgress(title = 'Processing...', initialMessage = '') {
+  showProgress(title = 'Processing...', initialMessage = '', options = {}) {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.style.pointerEvents = 'auto';
@@ -636,12 +655,36 @@ export class ModalManager {
     detailsEl.className = 'progress-details';
     detailsEl.textContent = '';
 
+    const actionsEl = document.createElement('div');
+    actionsEl.className = 'progress-actions';
+
+    const actionButtons = new Map();
+    (options.actions || []).forEach((action) => {
+      if (!action?.label) return;
+      const button = document.createElement('button');
+      button.className = `modal-button${action.variant ? ` ${action.variant}` : ''}`;
+      button.textContent = action.label;
+      button.addEventListener('click', () => {
+        // A long job's button is easy to double-press. Disabling on the first
+        // click means "stop" cannot be asked for twice and land as two stops.
+        if (action.once !== false) button.disabled = true;
+        try {
+          action.onClick?.();
+        } catch (err) {
+          console.warn('[ModalManager] progress action failed:', err);
+        }
+      });
+      actionsEl.appendChild(button);
+      actionButtons.set(action.id || action.label, button);
+    });
+
     progressContainer.appendChild(progressFill);
     modal.appendChild(titleEl);
     modal.appendChild(messageEl);
     modal.appendChild(progressContainer);
     modal.appendChild(percentageEl);
     modal.appendChild(detailsEl);
+    modal.appendChild(actionsEl);
     overlay.appendChild(modal);
 
     // Set z-index
@@ -696,6 +739,19 @@ export class ModalManager {
         } else {
           progressFill.classList.remove('indeterminate');
         }
+      },
+      /**
+       * Retire an action once it can no longer do anything - the recording it
+       * would have stopped has stopped on its own, and a live-looking button
+       * that does nothing is worse than no button.
+       */
+      setActionEnabled: (id, enabled) => {
+        const button = actionButtons.get(id);
+        if (button) button.disabled = !enabled;
+      },
+      setActionLabel: (id, label) => {
+        const button = actionButtons.get(id);
+        if (button) button.textContent = label;
       }
     };
   }
