@@ -48,7 +48,12 @@ import { setRightDockWidth, notifyCanvasResize } from './dockLayout.js';
 /** Features that need something typed before they can run. */
 const PROMPTED = {
   'ai.patch_generator': {
-    placeholder: 'A slow plasma in deep blues, drifting',
+    // Two things in one line: what to type, and that asking for 3D or for
+    // something that listens to the music is a thing this can answer. The
+    // backend knows about the field visualiser, the audio envelopes and live
+    // parameter expressions (api/_lib/features.js); an artist reading a
+    // placeholder about drifting plasma would not think to ask.
+    placeholder: 'A torus in 3D, turning slowly, its surface breathing with the bass',
     inputKey: 'prompt',
     action: 'Generate patch',
   },

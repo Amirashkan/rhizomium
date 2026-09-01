@@ -101,9 +101,9 @@ says so plainly rather than failing as an invalid grant.
 
 ### What a call is allowed to spend
 
-The input is not what costs the time. A review sends about 7,000 tokens —
-5,800 of catalogue and instructions, cached across calls, and roughly a
-thousand of patch — and prefilling that is a moment. Everything after it is
+The input is not what costs the time. A review sends about 8,500 tokens —
+7,400 of catalogue, capability notes and instructions, cached across calls, and
+roughly a thousand of patch — and prefilling that is a moment. Everything after it is
 decode, so three settings in `features.js` decide how long a feature takes:
 
 | | what it does |
@@ -375,13 +375,19 @@ tests in `tests/tierEntitlements.test.js` are what catch it.
 ### The backend validates generated patches against the real node registry
 
 `api/_lib/nodeCatalog.js` imports the editor's own `NodeDefs`, so the model is
-told exactly which of the 142 node kinds exist, and anything it invents anyway
+told exactly which of the 143 node kinds exist, and anything it invents anyway
 is caught before it reaches a canvas. A patch with an unknown node kind, or with
 no output node, is answered `502` rather than handed over — a document that
 cannot open is a failed call, not a result.
 
+Each kind travels as one line — its category, its name on the canvas, its pins,
+and every parameter it declares with the range it is clamped to and the sentence
+the node file wrote about it. What is left out is what a model could not fill
+in: a parameter the node hides (ProjectionMap's corner coordinates are 362 of
+the registry's 738), and any parameter holding a file, a font or a button.
+
 The catalogue text is built once per process and byte-identical on every
-request, so those ~8,600 tokens sit at the front of a prefix the model's own
+request, so those ~5,400 tokens sit at the front of a prefix the model's own
 cache can find and are billed in full once per cache window rather than once
 per call.
 
@@ -663,6 +669,28 @@ and the parameter is left off the request entirely.
 mid-sentence and comes back `incomplete` — a spent call with nothing to show.
 That case is reported as `502 answer_truncated`, not handed over as a partial
 result, because half a patch is not a patch.
+
+**The registry is not the whole of what the model is told.** A pin list says
+which nodes exist; it does not say what this editor can do with them, and a
+model that only has the pin list answers every brief with a static graph of
+Math nodes. `EDITOR_CAPABILITIES` in `features.js` is the other half, ~1,200
+tokens inside the same cached prefix, and it is shared by every feature:
+
+| | what the features are told |
+|---|---|
+| Live parameters | Any numeric parameter takes `"=time*30"` instead of a number and is evaluated every frame — with the variables and functions `UnifiedExpressionSystem.js` actually resolves, and the rule that select, bool, colour and text parameters do not take one. |
+| Sound | The `audioEnvelope*` variables and the `AudioAnalysis` node's pins, plus the reason a patch must still look like something in silence. |
+| 3D | `ComputeFieldMapper` is the whole of it: its two modes, that its rendered view comes back as an ordinary colour texture for `OutputFinal`, and that nothing else here is 3D. |
+| Compute and fragment | Which kinds are which, that they mix in both directions with no bridging node, and what a compute node costs per frame. |
+| Adjustable pins | `dynamic-in(min-max)` and the `inputCount` that answers it. |
+| Code nodes, Text | `Expr`, `CustomGLSL` (including the `inputTypes` the compiler reads), and Text's `{node_7}` interpolation. |
+| What needs the artist | `ProjectionMap` and the texture nodes, which need something only a person can supply. |
+
+Every claim in it is checkable in the editor, and
+`tests/aiEditorCapabilities.test.js` holds the two sides together: the
+variables and functions the prompt promises are run through the real expression
+system, and a promise the generator cannot resolve fails the test rather than
+quietly zeroing one parameter of a generated patch.
 
 **Caching is automatic.** The system prompt goes in `instructions`, where it is
 the stable prefix of every request for a feature; the node catalogue is most of

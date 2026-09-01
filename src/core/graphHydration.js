@@ -23,6 +23,13 @@ const STRUCTURAL_KEYS = ['id', 'kind', 'position', 'size', 'inputs', 'outputs'];
 const PARAMETER_KEYS = ['min', 'max', 'step', 'default', 'label', 'units', 'precision'];
 
 /**
+ * Parameters that also live in a field of their own on the node, mirrored from
+ * `params` below. The list is applyNodeParameterValue()'s in NodeDefs.js —
+ * the same three names, from the other end of the round trip.
+ */
+const MIRRORED_PARAMS = ['value', 'expr', 'code'];
+
+/**
  * Rebuild the node list from saved records.
  *
  * IDs are preserved exactly as saved rather than regenerated: parameter
@@ -59,6 +66,20 @@ export function hydrateNodes(nodeData) {
     for (const [key, value] of Object.entries(data)) {
       if (!STRUCTURAL_KEYS.includes(key) && !Object.hasOwn(node, key)) {
         node[key] = value;
+      }
+    }
+
+    // Three parameters live in two places: `node.params`, where nearly
+    // everything reads them, and a field of their own that a few readers check
+    // first — the Expression node's compiler reads `node.expr` and nothing
+    // else. applyNodeParameterValue() writes both, so a project saved out of
+    // the editor always carries both. A patch that was *written* rather than
+    // saved — the AI patch generator, a hand-edited file — carries only
+    // `params`, and an Expression node in one would come back holding the
+    // default "a" with the expression silently dropped.
+    for (const name of MIRRORED_PARAMS) {
+      if (node[name] === undefined && data.params?.[name] !== undefined) {
+        node[name] = data.params[name];
       }
     }
 

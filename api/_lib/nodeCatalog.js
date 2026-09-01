@@ -25,6 +25,66 @@ const UNSUPPORTED_IN_GENERATED_PATCHES = new Set([
   'TextureCube',
 ]);
 
+/**
+ * How much of a parameter's own description travels.
+ *
+ * Long enough for the sentence the node file actually wrote — the longest in
+ * the registry today is 88 characters — and short enough that one verbose node
+ * cannot push the catalogue past the shared prompt's budget on its own.
+ */
+const MAX_PARAM_DESCRIPTION = 90;
+
+/** The same, for the node's one-line description. */
+const MAX_NODE_DESCRIPTION = 140;
+
+/**
+ * Parameters a model must never be shown as something it can set.
+ *
+ * `file` and `font` hold something the artist chose from their own disk, and
+ * `button` is an action rather than a value. Listing them invites a generated
+ * patch that points at a file nobody has, which renders black with no
+ * explanation — the same reason Texture2D is refused outright below.
+ *
+ * They are only hidden from the *catalogue*: sanitizeParams() still carries
+ * one through when a patch already has it, so a refactor of a patch with a
+ * loaded font does not delete the font.
+ */
+const UNSETTABLE_PARAM_TYPES = new Set(['file', 'font', 'button']);
+
+/**
+ * Parameters the editor reads but the node file does not declare.
+ *
+ * `inputTypes` on a CustomGLSL node is the shape of each pin, written by the
+ * node generator and read by the compiler (UtilityNodes.js). Without it a
+ * generated shader body that swizzles a vec2 pin gets a scalar and fails to
+ * compile, so a patch generator that can write CustomGLSL code has to be able
+ * to write these too.
+ */
+const UNDECLARED_PARAMS = {
+  CustomGLSL: new Set(['inputTypes']),
+};
+
+/** One sentence, cut at a word boundary rather than mid-word. */
+function shorten(text, limit) {
+  const clean = String(text).replace(/\s+/g, ' ').trim();
+  if (clean.length <= limit) return clean;
+  const cut = clean.slice(0, limit);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > limit * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
+/**
+ * Parameters worth showing the model: everything the node declares except the
+ * ones it keeps for itself (ProjectionMap's corner coordinates, which the
+ * artist drags, are 362 of the registry's 738 parameters) and the ones nothing
+ * a model writes could fill in.
+ */
+function visibleParams(def) {
+  return (def.params || []).filter(
+    (param) => param && !param.hidden && !UNSETTABLE_PARAM_TYPES.has(param.type)
+  );
+}
+
 function describeParam(param) {
   const bits = [`${param.name}:${param.type}`];
   if (Array.isArray(param.options) && param.options.length) {
@@ -33,6 +93,21 @@ function describeParam(param) {
     const value = typeof param.default === 'object' ? JSON.stringify(param.default) : String(param.default);
     if (value.length <= 24) bits.push(`=${value}`);
   }
+
+  // The range the editor's own control is clamped to. A generated patch that
+  // sets a parameter outside it is a patch whose slider is pinned at one end,
+  // and the artist has no way of knowing why.
+  if (Number.isFinite(param.min) && Number.isFinite(param.max)) {
+    bits.push(`[${param.min}..${param.max}]`);
+  }
+
+  // What the node file says this parameter is for. The name alone carries a
+  // lot ("scale", "speed") and nothing at all for the ones that matter most
+  // — "depth" on ComputeParticles is the pseudo-3D control, which no model
+  // would guess from four letters.
+  const note = param.description || (param.displayName !== param.name ? param.displayName : '');
+  if (note) bits.push(`{${shorten(note, MAX_PARAM_DESCRIPTION)}}`);
+
   return bits.join('');
 }
 
@@ -49,6 +124,12 @@ function describePin(pin) {
 function describeNode(kind, def) {
   const parts = [`${kind} [${def.cat}]`];
 
+  // The name on the canvas, when it is not just the kind again. This is the
+  // single cheapest thing in the catalogue and one of the most useful: nothing
+  // in "ComputeFieldMapper" says "3D Field Visualizer", so a model asked for
+  // something in 3D had no way of finding the node that does it.
+  if (def.label && def.label !== kind) parts.push(JSON.stringify(def.label));
+
   const pinsIn = (def.pinsIn || []).map(describePin).filter(Boolean).join(',');
   parts.push(`in(${def.inputs || 0}${pinsIn ? `: ${pinsIn}` : ''})`);
 
@@ -59,10 +140,11 @@ function describeNode(kind, def) {
     parts.push(`dynamic-in(${def.dynamicInputs.min}-${def.dynamicInputs.max})`);
   }
 
-  const params = (def.params || []).map(describeParam).join(' ');
+  const params = visibleParams(def).map(describeParam).join(' ');
   if (params) parts.push(`params: ${params}`);
 
-  return parts.join(' ');
+  const line = parts.join(' ');
+  return def.description ? `${line}\n  ${shorten(def.description, MAX_NODE_DESCRIPTION)}` : line;
 }
 
 /**
@@ -164,6 +246,7 @@ export function validateGeneratedPatch(patch) {
 
     const def = NodeDefs[kind];
     const name = typeof node.name === 'string' ? node.name.trim() : '';
+    const pins = requestedInputCount(def, node);
 
     return {
       id,
@@ -175,7 +258,12 @@ export function validateGeneratedPatch(patch) {
       // artist's screen — and naming nodes is something the refactor is asked
       // to do.
       ...(name ? { name } : {}),
-      params: sanitizeParams(def, node.params),
+      // Only on the nodes that have a choice about it. A Mix with five inputs
+      // and an Expression over six signals are ordinary things to ask for, and
+      // until this travelled every such node came back at the pin count its
+      // definition happens to declare — with the wires past that dropped.
+      ...(pins === null ? {} : { inputCount: pins }),
+      params: sanitizeParams(def, node.params, kind),
     };
   });
 
@@ -203,7 +291,7 @@ export function validateGeneratedPatch(patch) {
     const toPin = Number(conn.to.pin ?? 0) || 0;
 
     const outCount = NodeDefs[fromNode.kind].pinsOut?.length || 1;
-    const inCount = inputCountFor(toNode);
+    const inCount = inputCapacityFor(toNode);
 
     if (fromPin < 0 || fromPin >= outCount) {
       warnings.push(`Dropped a connection from ${fromNode.kind}: it has no output pin ${fromPin}.`);
@@ -220,42 +308,101 @@ export function validateGeneratedPatch(patch) {
     });
   }
 
+  growInputCounts(cleanNodes, cleanConnections);
+
   return { patch: { nodes: cleanNodes, connections: cleanConnections }, warnings };
 }
 
-/** A node's input count, honouring dynamic-input nodes like CustomGLSL. */
-function inputCountFor(node) {
+/**
+ * The pin count a model asked a dynamic-input node for, clamped to what that
+ * node allows — or null for a node whose pins are fixed, which is every node
+ * the property means nothing on.
+ *
+ * Read from the node itself and from `params`, because a model that has been
+ * told a node's pin count is adjustable puts it in whichever of the two it
+ * thinks of first, and both mean the same thing here.
+ */
+function requestedInputCount(def, node) {
+  const spec = def.dynamicInputs;
+  if (!spec) return null;
+
+  const requested = Number(node?.inputCount ?? node?.params?.inputCount);
+  if (!Number.isFinite(requested)) return null;
+
+  return Math.min(spec.max, Math.max(spec.min, Math.floor(requested)));
+}
+
+/**
+ * The highest input pin a node can be wired to.
+ *
+ * Permissive for a dynamic-input node: its pin count is not settled until the
+ * wires are known — a wire into pin 4 of a Mix is a request for five pins, not
+ * a mistake — so the check here only catches a wire to a pin the node could
+ * never have, and growInputCounts() below settles the count afterwards.
+ */
+function inputCapacityFor(node) {
   const def = NodeDefs[node.kind];
-  if (def.dynamicInputs) {
-    // Dynamic-input nodes carry their pin count on the node itself. A model
-    // rarely sets one, and the permissive default (max) is the right fallback
-    // here: this check exists to catch a wire to pin 40, not to police pin 5.
-    const requested = Number(node.inputCount ?? node.params?.inputCount);
-    if (Number.isFinite(requested)) {
-      return Math.min(def.dynamicInputs.max, Math.max(def.dynamicInputs.min, requested));
-    }
-    return def.dynamicInputs.max;
-  }
+  if (def.dynamicInputs) return def.dynamicInputs.max;
   return def.inputs || 0;
+}
+
+/**
+ * Give every dynamic-input node enough pins for the wires that reached it.
+ *
+ * Without this a patch could be internally inconsistent in a way nothing
+ * reported: the wire into pin 4 survived validation, and then the node opened
+ * on the canvas with the two pins its definition declares and the wire went
+ * nowhere. The node's own request wins where it is larger, so a Mix asked for
+ * six inputs with three wired keeps three empty pins for the artist to fill.
+ *
+ * @param {Array<Object>} nodes - the cleaned nodes, mutated in place.
+ * @param {Array<Object>} connections - the cleaned connections.
+ */
+function growInputCounts(nodes, connections) {
+  const highestPin = new Map();
+  for (const conn of connections) {
+    const id = conn.to.nodeId;
+    highestPin.set(id, Math.max(highestPin.get(id) ?? -1, conn.to.pin));
+  }
+
+  for (const node of nodes) {
+    const spec = NodeDefs[node.kind].dynamicInputs;
+    if (!spec) continue;
+
+    const wired = (highestPin.get(node.id) ?? -1) + 1;
+    if (wired <= (node.inputCount ?? NodeDefs[node.kind].inputs ?? 0)) continue;
+
+    node.inputCount = Math.min(spec.max, Math.max(spec.min, wired));
+  }
 }
 
 /**
  * Keep only parameters the node actually declares.
  *
  * A stray key would ride along into the saved document and mean nothing to
- * anything that reads it later.
+ * anything that reads it later — with the exception of UNDECLARED_PARAMS,
+ * which the editor reads without the node file declaring them.
  */
-function sanitizeParams(def, params) {
+function sanitizeParams(def, params, kind) {
   if (!params || typeof params !== 'object') return {};
 
   const declared = new Map((def.params || []).map((param) => [param.name, param]));
+  const undeclared = UNDECLARED_PARAMS[kind];
   const clean = {};
 
   for (const [name, value] of Object.entries(params)) {
-    const spec = declared.get(name);
-    if (!spec) continue;
     if (value === null || value === undefined) continue;
 
+    const spec = declared.get(name);
+    if (!spec) {
+      if (undeclared?.has(name)) clean[name] = value;
+      continue;
+    }
+
+    // A select whose value is not one of its options, expression or not: a
+    // select is compiled as a branch, not evaluated per frame, so "=…" is as
+    // meaningless here as any other word the compiler has no case for.
+    // Dropping it leaves the node at its default, which renders something.
     if (spec.type === 'select' && Array.isArray(spec.options) && !spec.options.includes(value)) {
       continue;
     }
