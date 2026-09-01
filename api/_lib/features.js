@@ -52,6 +52,19 @@ const PATCH_SCHEMA = {
           },
           x: { type: 'number', description: 'Canvas position. Lay signal flow out left to right, ~220 apart.' },
           y: { type: 'number', description: 'Canvas position. Separate parallel branches by ~140.' },
+          /**
+           * Optional, and meaningful only on the handful of nodes the registry
+           * marks `dynamic-in(min-max)` — Mix, Switch, Expr, CustomGLSL,
+           * ProjectionMap. Without it a five-input Mix was not something either
+           * generative feature could return: the node came back at the pin
+           * count its definition declares and the wires past that were dropped
+           * on the way to the canvas.
+           */
+          inputCount: {
+            type: 'integer',
+            description:
+              'How many input pins this node has. Only for nodes marked dynamic-in in the registry; leave it out for every other node.',
+          },
           params: {
             type: 'object',
             description: 'Parameter values by name. Omit any you are leaving at its default.',
@@ -112,10 +125,72 @@ Artists use this live — patches run every frame at 60fps. Node count and textu
 
 ${nodeCatalogText()}
 
+A node's line is: kind [category] "its name on the canvas" in(pins) out(pins) params: name:type=default[min..max]{what it is for}. A parameter set outside its [min..max] is a control the artist finds pinned at one end.
+
 Use only node kinds listed above, spelled exactly as they appear. Never invent one. If the registry has no node for what is wanted, say so in your answer rather than inventing a kind.
+
+${EDITOR_CAPABILITIES}
 
 ${PATCH_FORMAT_LEGEND}`;
 }
+
+/**
+ * What this editor can do that reading the node registry alone does not show.
+ *
+ * The registry says which nodes exist and what pins they have. It does not say
+ * that a parameter takes a live expression, that one node is the whole of the
+ * 3D support, or that a fragment chain may feed a compute node — and a model
+ * that does not know those things writes patches out of Math nodes and wonders
+ * why the artist asked for something it could not build. Every claim here is
+ * checkable in the editor: the expression grammar is UnifiedExpressionSystem.js,
+ * the bridging is ComputeExecutor._renderFragmentInputs, the 3D is
+ * src/scene/.
+ *
+ * It sits inside the cached prefix with the catalogue, so its cost is paid
+ * once per cache window rather than once per call.
+ */
+const EDITOR_CAPABILITIES = `# What this editor can do beyond wiring nodes together
+
+## Live parameters
+Any numeric parameter — written above as :float, :int or :slider — takes a string beginning with "=" instead of a number, compiled into the shader and evaluated every frame:
+
+  "rotateY": "=time*30"                a turntable
+  "scale": "=8+audioEnvelopeBass*6"    the noise breathes with the kick
+  "amount": "=0.5+sin(time*0.7)*0.5"   a slow sweep, no extra nodes
+
+In scope: time (seconds), audioEnvelope, audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull (each 0..1), aspect, PI, E, and node_<id> for another node's value.
+Functions: sin cos tan asin acos atan atan2 sqrt abs pow exp log log2 floor ceil round min max sign clamp step smoothstep fract mod lerp length distance normalize dot, and "condition ? a : b".
+This is how a static patch is made to move. Prefer an expression when one parameter needs the movement; wire a Time/Wave/Math chain instead when several nodes share the signal, or when the artist should be able to grab it on the canvas.
+Only numeric parameters take one: select, bool, color and text parameters take literal values, and a file, font or button parameter is not yours to set at all.
+
+## Sound
+Two ways in, and they combine: the audioEnvelope* variables in any numeric parameter, and the AudioAnalysis node, whose pins carry level, low, mid, high, kick/snare/hat with their trigger and meter forms, centroid and density into the graph as ordinary signals.
+Audio is silent until the artist enables an input, so keep a base value and add the audio on top ("=0.4+audioEnvelopeBass*0.6") rather than multiplying the picture by something that is zero until someone plays music.
+
+## 3D
+ComputeFieldMapper ("3D Field Visualizer") is the 3D of this editor. Wire any texture-producing chain into its Field Input and it renders real geometry in the floating 3D viewport, which opens with the node:
+- mode=surface maps the field onto a plane, sphere, box or torus and displaces it along its normals by the field's brightness ("resolution" is the tessellation).
+- mode=instances puts a cube, sphere or camera-facing quad in every cell of an instanceCount x instanceCount grid, driving each one's height, size, colour and culling from the field there.
+It also outputs the rendered view as an ordinary colour texture, so wire its output into OutputFinal — directly or through more 2D nodes — and the 3D lands on the main canvas too. Its translate*/rotate* parameters move the object and take expressions, so "rotateY": "=time*20" turns it.
+Nothing else here is 3D: the Blend SDF nodes combine distance fields inside a 2D render, and ComputeParticles' "depth" is parallax, not a camera.
+
+## Compute and fragment nodes
+Every kind beginning with "Compute" runs as a compute shader over a whole texture; every other node is evaluated per pixel in the fragment shader. They mix in both directions with no bridging node — a fragment chain feeding a compute input is rendered to a texture for it each frame, and a compute node's texture is sampled by the fragment nodes downstream — so pick whichever node does the job.
+Compute is where simulation lives (ComputeFluidSim, ComputeReactionDiffusion, ComputeParticles, ComputeCellular, ComputeFeedbackField) and where whole-image effects belong (blur, glitch, kaleidoscope, edge detect, convolution), which need neighbouring pixels that a per-pixel expression cannot reach. Each one runs over every pixel every frame: two or three in a patch is a budget, eight is not.
+
+## Nodes whose pin count is yours to choose
+"dynamic-in(min-max)" on a node's line means its input pins can be added and removed — Mix, Switch, Expr, CustomGLSL, ProjectionMap. Set "inputCount" to the number of pins you want, then wire them, and wire nothing into a pin you did not ask for.
+
+## Nodes that carry code
+- Expr emits its "expr" parameter into the shader with its pins substituted in as a, b, c… in order: "expr": "a * sin(b * time)". This one is WGSL, not the grammar above — "mix(a, b, 0.5)" rather than "lerp", no "? :", and floats need a decimal point. time, uv, pi and the audioEnvelope* names are in scope.
+- CustomGLSL runs the WGSL body in "code", reading pins as input0, input1, … and evaluating to "outputType". uv, time, pi, E and the audioEnvelope* names are in scope. Declare each pin's shape in "inputTypes" (e.g. ["vec2","f32"]) or the compiler guesses from the code and gets it wrong for a pin the body only multiplies.
+Reach for either when no node does the maths that is wanted — never to reimplement one that exists.
+
+## Text
+Text draws a string as a texture. "{node_7}" inside it shows that node's live value, and a text field beginning with "=" is one expression: "BPM {node_7}" and "=time" both work.
+
+## What needs the artist, not you
+ProjectionMap warps the image onto surfaces whose corners are dragged by hand, and Texture2D/TextureCube need a file from the artist's disk. Use them only when asked for by name, and say in your notes what is left to set up.`;
 
 /**
  * How a patch is written when it is shown to the model.
@@ -397,13 +472,17 @@ Your task is to build a complete patch from a description.
 
 Build the smallest graph that actually produces what was asked for. Every node must earn its place, and every branch must reach the Output node — a node whose output goes nowhere is a bug, not a flourish.
 
+Decide first which of the editor's capabilities the description is asking for, and build with it: 3D means ComputeFieldMapper; reacting to sound means the audioEnvelope variables or an AudioAnalysis node; movement means an expression on the parameter that should move; smoke, fluid, growth, swarms and feedback are what the Dynamics nodes do. A patch that imitates one of those out of Math nodes is worse than the one node that does it.
+
 Rules that make the difference between a patch that opens and one that wastes the artist's call:
 - Exactly one OutputFinal node, and something must be wired into it.
 - Lay the graph out left to right: sources at the left, output at the right, about 220 apart horizontally and 140 between parallel branches.
 - Set parameters to values that render something visible on the first frame. A patch that opens black is a failure even if the graph is correct.
-- Keep it live: this runs every frame, so prefer the cheaper node when two would look the same.
+- Keep every value inside the [min..max] the registry gives it.
+- Name a node when its kind does not say what it is doing here.
+- Keep it live: this runs every frame, so prefer the cheaper node when two would look the same, and keep the compute nodes to the two or three that earn their cost.
 
-Say in your notes what the artist should reach for first to make it their own.`,
+In your notes, name the node and the parameter to reach for first, and say what has to be set up outside the patch — an audio input for a patch that listens, the 3D viewport for one that opens it.`,
     format: {
       name: 'generated_patch',
       description: 'The finished patch.',

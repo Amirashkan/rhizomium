@@ -148,6 +148,13 @@ export async function replaceGraphWithPatch(
       position: { x: node.x ?? 0, y: node.y ?? 0 },
       params: preserveLongParams ? keepLongParams(node, before) : node.params || {},
       ...(node.name ? { name: node.name } : {}),
+      // The pin count of an expandable node (Mix, Switch, Expr, CustomGLSL,
+      // ProjectionMap). The backend only sets it on nodes that have one, and
+      // has already clamped it to the node's own spec; hydrateNodes copies it
+      // through like any other saved property, and getInputCount() reads it.
+      // Dropping it here would put the wires the model drew into pins the node
+      // does not show.
+      ...(Number.isFinite(node.inputCount) ? { inputCount: node.inputCount } : {}),
     })),
     connections: patch.connections || [],
     ...(title ? { metadata: { name: title } } : {}),

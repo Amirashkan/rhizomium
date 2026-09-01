@@ -101,20 +101,29 @@ describe('the token cost of every AI feature', () => {
   );
 
   it('carries the same shared prompt for every feature', () => {
-    // The node registry and the format legend are the bulk of it, identical
-    // across features, which is what makes prefix caching worth having. If
-    // these ever diverge by much, one feature has grown its own preamble.
+    // The node registry, the capability notes and the format legend are the
+    // bulk of it, identical across features, which is what makes prefix
+    // caching worth having. If these ever diverge by much, one feature has
+    // grown its own preamble.
+    //
+    // The spread is ~270 tokens today and the patch generator is all of it:
+    // its task text says which capability to reach for, which is the one thing
+    // that genuinely belongs to it rather than to every feature. Anything
+    // beyond this is a preamble to move into sharedContext().
     const system = ranges.map((range) => range.input.system);
     const spread = Math.max(...system) - Math.min(...system);
-    expect(spread).toBeLessThan(200);
+    expect(spread).toBeLessThan(400);
   });
 
-  it('keeps the shared prompt under 8,000 tokens', () => {
+  it('keeps the shared prompt under 9,000 tokens', () => {
     // Paid in full on a cold call, and on every call for a feature nobody has
-    // run recently. The registry is ~5,200 tokens of it today; this is the
-    // line at which adding to the catalogue stops being free.
+    // run recently. Two things make it up today: the registry at ~5,400 tokens
+    // and EDITOR_CAPABILITIES at ~1,200, which is what the features know about
+    // expressions, audio, 3D and compute nodes — none of which is visible in
+    // the registry's pin lists. This is the line at which adding to either
+    // stops being free.
     for (const range of ranges) {
-      expect(range.input.system).toBeLessThan(8000);
+      expect(range.input.system).toBeLessThan(9000);
     }
   });
 
