@@ -184,6 +184,11 @@ export class WaveSyncProcessor {
         // `kickTrig`/`snareTrig`/`hatTrig` are the natural sync sources — one pulse per drum hit.
         return audioAnalysisPinValue(node, outPin);
 
+      case 'AudioValue':
+        // One channel of that same live analysis, chosen by the node's Channel parameter and
+        // written every frame by the same processor.
+        return typeof node.__audio_value === 'number' ? node.__audio_value : 0;
+
       default:
         return this._toScalar(node.__preview);
     }

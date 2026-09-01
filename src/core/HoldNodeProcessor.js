@@ -183,6 +183,11 @@ export class HoldNodeProcessor {
         // shared with the node definition and the compiler; see core/audioAnalysisPins.js.
         return audioAnalysisPinValue(node, outPin);
 
+      case 'AudioValue':
+        // One channel of that same live analysis, chosen by the node's Channel parameter and
+        // written every frame by the same processor.
+        return typeof node.__audio_value === 'number' ? node.__audio_value : 0;
+
       default:
         return this._toScalar(node.__preview);
     }

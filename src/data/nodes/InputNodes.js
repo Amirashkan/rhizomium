@@ -5,6 +5,11 @@ import {
   TRIGGER_DEFAULT_MIN_CHANGE,
 } from '../../core/triggerMode.js';
 import { WAVE_SHAPES, DEFAULT_WAVE_SHAPE } from '../../core/waveform.js';
+import {
+  AUDIO_TAP_CHANNELS,
+  AUDIO_TAP_LABELS,
+  DEFAULT_AUDIO_TAP_CHANNEL,
+} from '../../audio/audioAnalysisTaps.js';
 
 /**
  * Input node definitions for constants, data sources, and textures
@@ -247,6 +252,37 @@ export const InputNodes = {
       { name: "release", type: "float", default: 120.0, label: "Release (ms)", group: "Meter Shape" },
       // Manual trim on top of the automatic gain, for material the auto-gain lands badly.
       { name: "gain", type: "float", default: 1.0, label: "Gain", group: "Meter Shape" },
+    ],
+  },
+
+  AudioValue: {
+    label: "Audio Value",
+    cat: "Input",
+    inputs: 0,
+    pinsIn: [],
+    pinsOut: [{ label: "out", type: "f32" }],
+    // One channel of the live audio analysis, as a single float — the node the Audio panel deploys
+    // when you press ＋ next to a meter.
+    //
+    // The analysis is shared: there is one engine, one set of meters, one set of drum triggers, all
+    // shaped and thresholded from the panel (see audio/audioAnalysisSettings.js). This node names a
+    // channel and reads it, so two taps on `kickTrig` fire on the same frame and the number here is
+    // the number the panel is showing. That is what makes a threshold findable — watch the meter in
+    // the panel, set the threshold under where it peaks, deploy the trigger.
+    //
+    // Everything it reads has memory across frames (the meters' followers, each trigger's armed
+    // state), which a fragment shader has none of, so the value is computed on the CPU in
+    // AudioAnalysisProcessor and arrives as a per-frame uniform. The uniform's name does not depend
+    // on the channel, so switching channels is a different number in the same slot rather than a
+    // shader rebuild.
+    params: [
+      {
+        name: "channel",
+        type: "select",
+        options: AUDIO_TAP_CHANNELS.map((name) => ({ value: name, label: AUDIO_TAP_LABELS[name] })),
+        default: DEFAULT_AUDIO_TAP_CHANNEL,
+        label: "Channel",
+      },
     ],
   },
 

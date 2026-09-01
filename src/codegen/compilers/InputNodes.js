@@ -39,7 +39,7 @@ export class InputNodes {
     return [
       'UV', 'Time', 'ConstFloat', 'ConstVec2', 'ConstVec3', 'ConstVec4',
       'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold', 'Count', 'RandomValue',
-      'Wave', 'AudioAnalysis'
+      'Wave', 'AudioAnalysis', 'AudioValue'
     ].includes(kind);
   }
 
@@ -277,6 +277,19 @@ export class InputNodes {
               type: "f32",
             })),
           };
+        }
+        // Fallback (uniform registration unavailable): emit 0 so the node still compiles.
+        return { line: `let node_${nodeId} = 0.0;`, outputType: "f32" };
+      }
+
+      case 'AudioValue': {
+        // A single channel of the shared audio analysis. Which channel is a CPU-side decision —
+        // AudioAnalysisProcessor writes the named channel's live value into this one uniform every
+        // frame — so the emitted code is the same whatever the Channel parameter says, and changing
+        // it costs no recompile.
+        const valueRef = getParam ? getParam('value', 0.0) : null;
+        if (valueRef) {
+          return { line: `let node_${nodeId} = ${valueRef};`, outputType: "f32" };
         }
         // Fallback (uniform registration unavailable): emit 0 so the node still compiles.
         return { line: `let node_${nodeId} = 0.0;`, outputType: "f32" };

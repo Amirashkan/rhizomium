@@ -85,10 +85,23 @@ function visibleParams(def) {
   );
 }
 
+/**
+ * What a select parameter actually accepts. An option is either the value itself or a
+ * `{ value, label }` pair — the editor's dropdown takes both, so anything reading a definition has
+ * to as well, or the pair renders as "[object Object]" and no value ever validates.
+ */
+function optionValues(param) {
+  if (!Array.isArray(param?.options)) return [];
+  return param.options
+    .map((option) => (option !== null && typeof option === 'object' ? option.value : option))
+    .filter((value) => value !== undefined);
+}
+
 function describeParam(param) {
   const bits = [`${param.name}:${param.type}`];
-  if (Array.isArray(param.options) && param.options.length) {
-    bits.push(`(${param.options.join('|')})`);
+  const options = optionValues(param);
+  if (options.length) {
+    bits.push(`(${options.join('|')})`);
   } else if (param.default !== undefined && param.type !== 'glsl') {
     const value = typeof param.default === 'object' ? JSON.stringify(param.default) : String(param.default);
     if (value.length <= 24) bits.push(`=${value}`);
@@ -403,7 +416,8 @@ function sanitizeParams(def, params, kind) {
     // select is compiled as a branch, not evaluated per frame, so "=…" is as
     // meaningless here as any other word the compiler has no case for.
     // Dropping it leaves the node at its default, which renders something.
-    if (spec.type === 'select' && Array.isArray(spec.options) && !spec.options.includes(value)) {
+    if (spec.type === 'select' && Array.isArray(spec.options)
+        && !optionValues(spec).includes(value)) {
       continue;
     }
     clean[name] = value;

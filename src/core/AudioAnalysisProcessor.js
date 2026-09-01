@@ -1,6 +1,13 @@
 // src/core/AudioAnalysisProcessor.js
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
+import { getAudioAnalysisSettings } from '../audio/audioAnalysisSettings.js';
+import {
+  AUDIO_TAP_CHANNELS,
+  audioTapsWanted,
+  clearAudioTapValues,
+  setAudioTapValues,
+} from '../audio/audioAnalysisTaps.js';
 
 /**
  * Drives the Audio Analysis node.
@@ -65,6 +72,9 @@ export class AudioAnalysisProcessor {
   constructor() {
     // nodeId -> { lastTime, inst: { kick|snare|hat: { armed, env, lastTrigTime } } }
     this._state = new Map();
+    // The same shape, once, for the shared taps every Audio Value node reads. Null while nothing
+    // is asking for them, so a patch with no taps and a closed panel costs nothing.
+    this._tapState = null;
     this._lastConfigJson = null;
     this._audioClient = undefined;
   }
@@ -95,6 +105,26 @@ export class AudioAnalysisProcessor {
         gain: Math.max(0, this._numericParam(node, 'gain', 1, ctx)),
       },
     };
+    this._pushConfig(config);
+  }
+
+  /**
+   * The same push, from the Audio panel's shared settings. Only one of the two runs on a frame —
+   * the node's, if there is a node — so they share the de-dupe key: switching between them changes
+   * the JSON and therefore pushes.
+   */
+  _applySettingsConfig(settings) {
+    this._pushConfig({
+      analysis: {
+        attack_ms: Math.max(1, settings.attack),
+        release_ms: Math.max(1, settings.release),
+        gain: Math.max(0, settings.gain),
+      },
+    });
+  }
+
+  /** Send an engine config, skipping the call when nothing about it changed. */
+  _pushConfig(config) {
     const json = JSON.stringify(config);
     if (json === this._lastConfigJson) return;
     this._lastConfigJson = json;
@@ -114,11 +144,19 @@ export class AudioAnalysisProcessor {
    * @param {Object} opts.uniformManager - the active ParameterUniformManager
    */
   update(graph, { time = 0, now, uniformManager } = {}) {
-    if (!graph?.nodes?.length) return;
+    const allNodes = graph?.nodes || [];
+    // The legacy all-in-one node, each with its own thresholds and trigger state...
+    const nodes = allNodes.filter((n) => n?.kind === 'AudioAnalysis');
+    // ...and the taps deployed from the Audio panel, which all read one shared set of values.
+    const valueNodes = allNodes.filter((n) => n?.kind === 'AudioValue');
+    // The panel keeps the taps live while it is on screen so its meters move before anything has
+    // been deployed — otherwise the thresholds would have to be set against a dead readout.
+    const needTaps = valueNodes.length > 0 || audioTapsWanted();
 
-    const nodes = graph.nodes.filter((n) => n?.kind === 'AudioAnalysis');
-    if (nodes.length === 0) {
+    if (nodes.length === 0 && !needTaps) {
       if (this._state.size) this._state.clear();
+      this._tapState = null;
+      clearAudioTapValues();
       return;
     }
 
@@ -137,17 +175,8 @@ export class AudioAnalysisProcessor {
       live.add(node.id);
       this._applyEngineConfig(node, ctx);
 
-      let st = this._state.get(node.id);
-      if (!st) {
-        st = { lastTime: clock, inst: {} };
-        for (const name of INSTRUMENTS) {
-          st.inst[name] = { armed: true, env: 0, peak: 0, lastTrigTime: -Infinity };
-        }
-        this._state.set(node.id, st);
-      }
-      const dt = Math.min(0.1, Math.max(0, clock - st.lastTime));
-      st.lastTime = clock;
-      const decay = Math.exp(-dt / (ENVELOPE_RELEASE_MS / 1000));
+      const st = this._nodeState(this._state, node.id, clock);
+      const decay = this._advance(st, clock);
 
       // Continuous meters straight through — no decision involved.
       for (const name of METERS) {
@@ -158,41 +187,15 @@ export class AudioAnalysisProcessor {
 
       // One threshold per instrument, decided on this frame's meter.
       for (const name of INSTRUMENTS) {
-        const meter = bands[name] || 0;
-        const sounding = bands.presence ? bands.presence[name] !== false : true;
-        const threshold = Math.min(1, Math.max(0, this._numericParam(node, `${name}Thresh`, 0.5, ctx)));
-        const inst = st.inst[name];
+        const threshold = this._numericParam(node, `${name}Thresh`, 0.5, ctx);
+        const out = this._stepInstrument(st.inst[name], name, bands, threshold, decay, clock);
 
-        inst.env *= decay;
-        if (inst.env < 1e-4) inst.env = 0;
-
-        // Re-arm once the meter has dropped clear of the threshold, so one hit gives one trigger
-        // however long the meter stays up — or, failing that, once it has fallen well off the peak
-        // of the hit that fired, so the instrument can never latch shut. See the constants above.
-        if (!inst.armed) {
-          if (meter > inst.peak) inst.peak = meter;
-          if (meter < threshold * (1 - HYSTERESIS_FRACTION) ||
-              meter < inst.peak * PEAK_FALLBACK_FRACTION) {
-            inst.armed = true;
-          }
-        }
-
-        let trig = 0;
-        const pastRetrigger = (clock - inst.lastTrigTime) * 1000 >= MIN_RETRIGGER_MS;
-        if (inst.armed && sounding && threshold > 0 && meter >= threshold && pastRetrigger) {
-          inst.armed = false;
-          inst.lastTrigTime = clock;
-          inst.peak = meter;
-          inst.env = 1;
-          trig = 1;
-        }
-
-        node[`__audio_${name}`] = inst.env;
-        node[`__audio_${name}Trig`] = trig;
-        node[`__audio_${name}Meter`] = meter;
-        this._writeUniform(uniformManager, `${node.id}.${name}`, inst.env);
-        this._writeUniform(uniformManager, `${node.id}.${name}Trig`, trig);
-        this._writeUniform(uniformManager, `${node.id}.${name}Meter`, meter);
+        node[`__audio_${name}`] = out.env;
+        node[`__audio_${name}Trig`] = out.trig;
+        node[`__audio_${name}Meter`] = out.meter;
+        this._writeUniform(uniformManager, `${node.id}.${name}`, out.env);
+        this._writeUniform(uniformManager, `${node.id}.${name}Trig`, out.trig);
+        this._writeUniform(uniformManager, `${node.id}.${name}Meter`, out.meter);
       }
     }
 
@@ -201,6 +204,116 @@ export class AudioAnalysisProcessor {
         if (!live.has(id)) this._state.delete(id);
       }
     }
+
+    if (needTaps) {
+      this._updateTaps(bands, clock, valueNodes, uniformManager, nodes.length === 0);
+    } else {
+      this._tapState = null;
+      clearAudioTapValues();
+    }
+  }
+
+  /**
+   * The shared channel values every Audio Value node taps, and the panel displays.
+   *
+   * One set of trigger state for the whole patch, not one per node: two taps on `kickTrig` are two
+   * views of the same kick, so they must fire on the same frame. The thresholds come from the
+   * shared settings for the same reason — they sit next to the meters in the panel, which is where
+   * a threshold is actually found.
+   *
+   * @param {boolean} ownsEngine - whether the panel's meter shaping should drive the engine. An
+   *   Audio Analysis node in the graph keeps pushing its own (patches made before the panel existed
+   *   go on behaving exactly as they did), so the settings only take the engine when there is none.
+   */
+  _updateTaps(bands, clock, valueNodes, uniformManager, ownsEngine) {
+    const settings = getAudioAnalysisSettings();
+    if (ownsEngine) this._applySettingsConfig(settings);
+
+    if (!this._tapState) this._tapState = this._newState(clock);
+    const st = this._tapState;
+    const decay = this._advance(st, clock);
+
+    const taps = {};
+    for (const name of METERS) taps[name] = bands[name] || 0;
+    for (const name of INSTRUMENTS) {
+      const threshold = settings[`${name}Thresh`];
+      const out = this._stepInstrument(st.inst[name], name, bands, threshold, decay, clock);
+      taps[name] = out.env;
+      taps[`${name}Trig`] = out.trig;
+      taps[`${name}Meter`] = out.meter;
+    }
+    setAudioTapValues(taps);
+
+    // Each tap node carries one number, under a fixed uniform name — so switching a node's channel
+    // is a different value written into the same uniform, with no shader rebuild behind it.
+    for (const node of valueNodes) {
+      const channel = node.params?.channel;
+      const value = typeof taps[channel] === 'number' ? taps[channel] : taps[AUDIO_TAP_CHANNELS[0]];
+      node.__audio_value = value;
+      this._writeUniform(uniformManager, `${node.id}.value`, value);
+    }
+  }
+
+  /** Fresh per-instrument state: nothing has fired yet, so everything is armed. */
+  _newState(clock) {
+    const st = { lastTime: clock, inst: {} };
+    for (const name of INSTRUMENTS) {
+      st.inst[name] = { armed: true, env: 0, peak: 0, lastTrigTime: -Infinity };
+    }
+    return st;
+  }
+
+  /** The state for one node, created on first sight. */
+  _nodeState(map, id, clock) {
+    let st = map.get(id);
+    if (!st) {
+      st = this._newState(clock);
+      map.set(id, st);
+    }
+    return st;
+  }
+
+  /** Advance a state's clock; returns this frame's envelope decay factor. */
+  _advance(st, clock) {
+    const dt = Math.min(0.1, Math.max(0, clock - st.lastTime));
+    st.lastTime = clock;
+    return Math.exp(-dt / (ENVELOPE_RELEASE_MS / 1000));
+  }
+
+  /**
+   * One instrument, one frame: meter -> above threshold? -> rising edge -> trigger.
+   * Mutates `inst` (the armed/envelope/peak memory) and returns what the outputs read.
+   */
+  _stepInstrument(inst, name, bands, rawThreshold, decay, clock) {
+    const meter = bands[name] || 0;
+    const sounding = bands.presence ? bands.presence[name] !== false : true;
+    const threshold = Math.min(1, Math.max(0, rawThreshold));
+
+    inst.env *= decay;
+    if (inst.env < 1e-4) inst.env = 0;
+
+    // Re-arm once the meter has dropped clear of the threshold, so one hit gives one trigger
+    // however long the meter stays up — or, failing that, once it has fallen well off the peak
+    // of the hit that fired, so the instrument can never latch shut. See the constants above.
+    if (!inst.armed) {
+      if (meter > inst.peak) inst.peak = meter;
+      if (meter < threshold * (1 - HYSTERESIS_FRACTION) ||
+          meter < inst.peak * PEAK_FALLBACK_FRACTION) {
+        inst.armed = true;
+      }
+    }
+
+    let trig = 0;
+    const pastRetrigger = (clock - inst.lastTrigTime) * 1000 >= MIN_RETRIGGER_MS;
+    if (inst.armed && sounding && threshold > 0 && meter >= threshold && pastRetrigger) {
+      inst.armed = false;
+      inst.lastTrigTime = clock;
+      inst.peak = meter;
+      inst.env = 1;
+      trig = 1;
+    }
+
+    return { env: inst.env, trig, meter };
   }
 
   _writeUniform(uniformManager, key, value) {

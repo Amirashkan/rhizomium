@@ -625,6 +625,11 @@ export class FragmentTextureRenderer {
         const live = audioAnalysisPinValues(refNode);
         for (const name of AUDIO_ANALYSIS_PINS) hash += `${refId}.${name}:${live[name]};`;
       }
+      // An Audio Value tap carries one channel of the same live analysis, invisible to this node's
+      // params for the same reason, so fold it in too.
+      if (refNode?.kind === 'AudioValue' && typeof refNode.__audio_value === 'number') {
+        hash += `${refId}.value:${refNode.__audio_value};`;
+      }
     }
 
     // Fold in the EVALUATED value of every `=expression` parameter. The raw
@@ -1206,7 +1211,8 @@ export class FragmentTextureRenderer {
   }
 
   /**
-   * Overwrite each Audio Analysis `<id>.level` / `.kick` / `.trig` entry in a (detached) uniform
+   * Overwrite each Audio Analysis `<id>.level` / `.kick` / `.trig` entry — and each Audio Value
+   * tap's `<id>.value` — in a (detached) uniform
    * snapshot with the live value from its node (__audio_<pin>, advanced every
    * frame by AudioAnalysisProcessor and written into the MAIN uniform manager). This preview builds
    * its OWN manager, so those uniforms would otherwise stay at their compile-time default and any node
@@ -1217,7 +1223,11 @@ export class FragmentTextureRenderer {
   _syncAudioUniforms(uniformManager) {
     const values = uniformManager?.uniformValues;
     if (!values || values.size === 0) return;
-    const suffixProp = AUDIO_ANALYSIS_PINS.map((name) => [`.${name}`, `__audio_${name}`]);
+    // `.value` is the Audio Value tap's single uniform; the rest are the Audio Analysis pins.
+    const suffixProp = [
+      ...AUDIO_ANALYSIS_PINS.map((name) => [`.${name}`, `__audio_${name}`]),
+      ['.value', '__audio_value'],
+    ];
     for (const key of values.keys()) {
       // Longest suffix first, so `.kickTrig` is not mistaken for `.kick`.
       const match = suffixProp
@@ -1228,7 +1238,7 @@ export class FragmentTextureRenderer {
       const nodeId = key.slice(0, -sfx.length);
       const node = window.graph?.getNode?.(nodeId)
         || window.editor?.graph?.nodes?.find(n => String(n.id) === nodeId);
-      if (node?.kind !== 'AudioAnalysis') continue;
+      if (node?.kind !== 'AudioAnalysis' && node?.kind !== 'AudioValue') continue;
       const v = node[prop];
       if (typeof v === 'number' && isFinite(v)) {
         values.set(key, v);

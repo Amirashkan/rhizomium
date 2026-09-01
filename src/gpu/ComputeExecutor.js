@@ -30,12 +30,13 @@ import { getDynamicInputSpec, getInputCount } from '../data/nodeInputs.js';
 import { MAX_SIM_EDGE, fitToLongEdge, resolveResolution } from '../ui/OutputFormat.js';
 
 // Node kinds whose output moves every frame on its own, with nothing wired in. The clock-driven
-// Input nodes, plus Audio Analysis: its meters follow the live signal and are advanced on the CPU
-// each frame by AudioAnalysisProcessor. This is the set Editor._hasIntrinsicTimeNodes keeps the
-// render loop alive for, and a compute node that reads one from a parameter has to keep
-// dispatching for the same reason — its uniforms are only re-evaluated when it dispatches, so an
-// undispatched node renders whatever the reference held when something else last marked it dirty.
-const LIVE_INPUT_KINDS = new Set(['Time', 'Wave', 'RandomValue', 'AudioAnalysis']);
+// Input nodes, plus Audio Analysis and Audio Value: their meters follow the live signal and are
+// advanced on the CPU each frame by AudioAnalysisProcessor. This is the set
+// Editor._hasIntrinsicTimeNodes keeps the render loop alive for, and a compute node that reads one
+// from a parameter has to keep dispatching for the same reason — its uniforms are only
+// re-evaluated when it dispatches, so an undispatched node renders whatever the reference held
+// when something else last marked it dirty.
+const LIVE_INPUT_KINDS = new Set(['Time', 'Wave', 'RandomValue', 'AudioAnalysis', 'AudioValue']);
 
 /**
  * Find a node by id. computeNodeRegistry only holds COMPUTE nodes, so anything else — the Input

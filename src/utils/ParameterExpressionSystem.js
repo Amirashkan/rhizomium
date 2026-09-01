@@ -547,8 +547,15 @@ buildEvaluationContext(context, node, paramName = null) {
    */
   _liveInputNodeValue(node) {
     const kind = node?.kind?.toLowerCase();
-    if (kind !== 'time' && kind !== 'mouse' && kind !== 'audioanalysis' && kind !== 'wave') {
+    if (kind !== 'time' && kind !== 'mouse' && kind !== 'audioanalysis' && kind !== 'wave'
+        && kind !== 'audiovalue') {
       return undefined;
+    }
+
+    // An Audio Value tap is one channel of that same live analysis, so it resolves to the live
+    // number rather than to the throttled preview value.
+    if (kind === 'audiovalue') {
+      return typeof node.__audio_value === 'number' ? node.__audio_value : 0;
     }
 
     // Audio Analysis is driven by the live audio signal, not graph computation, and its outputs are

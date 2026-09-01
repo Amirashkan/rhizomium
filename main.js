@@ -1360,17 +1360,17 @@ function setupUIEventHandlers() {
 
           // Update button appearance based on panel state
           if (audioPanel.visible) {
-            audioSettingsBtn.textContent = "Audio Settings ✓";
+            audioSettingsBtn.textContent = "Audio ✓";
             audioSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
             audioSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
           } else {
-            audioSettingsBtn.textContent = "Audio Settings";
+            audioSettingsBtn.textContent = "Audio…";
             audioSettingsBtn.style.backgroundColor = "";
             audioSettingsBtn.style.borderColor = "";
           }
 
           if (typeof updateStatus === "function") {
-            updateStatus(audioPanel.visible ? "Audio settings opened" : "Audio settings closed");
+            updateStatus(audioPanel.visible ? "Audio panel opened" : "Audio panel closed");
           }
         } else {
           console.error('[main.js] Audio panel is invalid:', audioPanel);

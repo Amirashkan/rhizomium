@@ -362,6 +362,14 @@ export class PreviewComputer {
       break;
     }
 
+    case "AudioValue": {
+      // One channel of the shared live analysis, advanced every frame on the CPU by
+      // AudioAnalysisProcessor (which channel is the node's Channel parameter). A plain scalar,
+      // unlike Audio Analysis above: the node has one pin, so there is nothing to split.
+      result = typeof node.__audio_value === 'number' ? node.__audio_value : 0.0;
+      break;
+    }
+
     case "Wave": {
       // Same curve the shader gets (see core/waveform.js). The cycle origin is advanced
       // every frame by WaveSyncProcessor — this preview pass is throttled to ~10fps and
@@ -2107,6 +2115,15 @@ _renderOutputThumbnail(ctx, size, color, node) {
         const changed = !prevVals || prevVals.length !== live.length
           || live.some((v, i) => prevVals[i] !== v);
         if (changed) {
+          this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
+          this._invalidateNodeValueComputerCacheForNode(node.id);
+        }
+      }
+
+      // An Audio Value tap is the same story with one number instead of fifteen.
+      if (node.kind === 'AudioValue') {
+        const live = typeof node.__audio_value === 'number' ? node.__audio_value : 0;
+        if (this.lastComputedValues.get(node.id) !== live) {
           this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
           this._invalidateNodeValueComputerCacheForNode(node.id);
         }
