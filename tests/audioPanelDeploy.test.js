@@ -18,6 +18,7 @@ function stubEditor() {
   const nodes = [];
   return {
     nodes,
+    graph: { nodes },
     canvas: { clientWidth: 1000, clientHeight: 800 },
     viewport: { screenToCanvas: (x, y) => ({ x, y }) },
     createNode(kind, x, y) {
@@ -121,6 +122,42 @@ describe('Audio panel', () => {
     // The marker on the kick METER row is what a threshold is actually set against.
     const mark = rowFor(panel, 'kickMeter').querySelector('.rzap-bar-mark');
     expect(mark.style.left).toBe('75%');
+  });
+
+  it('hands a deployed trigger node the threshold currently set against the meter', () => {
+    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
+    slider.value = '0.62';
+    slider.dispatchEvent(new Event('input'));
+
+    rowFor(panel, 'kickTrig').querySelector('.rzap-add').click();
+    // From here the number lives on the node, where it can be MIDI-mapped.
+    expect(window.editor.nodes.at(-1).params.threshold).toBeCloseTo(0.62);
+  });
+
+  it('leaves a channel that takes no threshold without one', () => {
+    rowFor(panel, 'level').querySelector('.rzap-add').click();
+    expect(window.editor.nodes.at(-1).params.threshold).toBeUndefined();
+  });
+
+  it('marks the meter with the deployed nodes’ live thresholds, not the panel default', () => {
+    const marks = () => [...rowFor(panel, 'kickMeter').querySelectorAll('.rzap-bar-mark')]
+      .map((m) => ({ left: m.style.left, isDefault: m.classList.contains('is-default') }));
+
+    // Nothing deployed: one dim marker, showing where the next one would start.
+    panel.show();
+    expect(marks()).toEqual([{ left: '50%', isDefault: true }]);
+
+    // Two taps at different thresholds — including one resolved from an expression this frame.
+    window.editor.nodes.push(
+      { id: '9', kind: 'AudioValue', params: { channel: 'kickTrig', threshold: 0.8 } },
+      { id: '10', kind: 'AudioValue', params: { channel: 'kick', threshold: '=midi' }, __audio_threshold: 0.25 },
+    );
+    panel._refresh();
+
+    expect(marks()).toEqual([
+      { left: '25%', isDefault: false },
+      { left: '80%', isDefault: false },
+    ]);
   });
 
   it('writes the meter shaping sliders to the shared settings', () => {

@@ -16,6 +16,10 @@
  */
 
 import { NodeDefs } from '../../src/data/NodeDefs.js';
+// An option is either the value itself or a `{ value, label }` pair — the editor's dropdown takes
+// both, so anything reading a definition has to as well, or the pair renders as "[object Object]"
+// and no value ever validates.
+import { optionValues } from '../../src/utils/discreteParams.js';
 
 /** Kinds a generated patch may not contain, whatever the model says. */
 const UNSUPPORTED_IN_GENERATED_PATCHES = new Set([
@@ -83,18 +87,6 @@ function visibleParams(def) {
   return (def.params || []).filter(
     (param) => param && !param.hidden && !UNSETTABLE_PARAM_TYPES.has(param.type)
   );
-}
-
-/**
- * What a select parameter actually accepts. An option is either the value itself or a
- * `{ value, label }` pair — the editor's dropdown takes both, so anything reading a definition has
- * to as well, or the pair renders as "[object Object]" and no value ever validates.
- */
-function optionValues(param) {
-  if (!Array.isArray(param?.options)) return [];
-  return param.options
-    .map((option) => (option !== null && typeof option === 'object' ? option.value : option))
-    .filter((value) => value !== undefined);
 }
 
 function describeParam(param) {

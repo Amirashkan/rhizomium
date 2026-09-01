@@ -13,10 +13,16 @@ import { AUDIO_ANALYSIS_PINS } from '../src/core/audioAnalysisPins.js';
 import {
   AUDIO_TAP_CHANNELS,
   AUDIO_TAP_LABELS,
+  AUDIO_THRESHOLD_CHANNELS,
   DEFAULT_AUDIO_TAP_CHANNEL,
   getAudioTapValues,
   setAudioTapsWanted,
 } from '../src/audio/audioAnalysisTaps.js';
+import {
+  clearExternalReadings,
+  recordExternalReading,
+} from '../src/parameters/ExternalParameterControl.js';
+import { MIDIParameterBinding } from '../src/midi/MIDIParameterBinding.js';
 import {
   getAudioAnalysisSettings,
   resetAudioAnalysisSettings,
@@ -35,8 +41,8 @@ function makeUniformManager(ids = []) {
   return { uniformValues };
 }
 
-function tapNode(id, channel) {
-  return { id, kind: 'AudioValue', params: { channel }, inputs: [] };
+function tapNode(id, channel, params = {}) {
+  return { id, kind: 'AudioValue', params: { channel, ...params }, inputs: [] };
 }
 
 function stubClient() {
@@ -83,6 +89,8 @@ describe('Audio Value node', () => {
     delete window._audioBands;
     resetAudioAnalysisSettings();
     setAudioTapsWanted(false);
+    clearExternalReadings('a');
+    clearExternalReadings('b');
   });
 
   describe('definition', () => {
@@ -90,6 +98,14 @@ describe('Audio Value node', () => {
       const def = InputNodeDefs.AudioValue;
       expect(def.inputs).toBe(0);
       expect(def.pinsOut).toEqual([{ label: 'out', type: 'f32' }]);
+
+      const threshold = def.params.find((p) => p.name === 'threshold');
+      // A node parameter, not a panel setting: that is what makes it MIDI-mappable and saved with
+      // the patch. min/max are what a controller's 0-1 sweep is mapped onto.
+      expect(threshold.min).toBe(0);
+      expect(threshold.max).toBe(1);
+      // Dimmed on the channels where a threshold decides nothing.
+      expect(threshold.activeWhen).toEqual({ channel: AUDIO_THRESHOLD_CHANNELS });
 
       const channel = def.params.find((p) => p.name === 'channel');
       expect(channel.default).toBe(DEFAULT_AUDIO_TAP_CHANNEL);
@@ -153,7 +169,7 @@ describe('Audio Value node', () => {
       expect(tap.__audio_value).toBeCloseTo(0.9);
     });
 
-    it('gives two taps on one channel the same value', () => {
+    it('gives two taps on one channel and one threshold the same value', () => {
       const first = tapNode('a', 'kickTrig');
       const second = tapNode('b', 'kickTrig');
       const rig = makeRig([first, second]);
@@ -175,27 +191,87 @@ describe('Audio Value node', () => {
       expect(tap.__audio_value).toBeCloseTo(0.7);
     });
 
-    it('thresholds each drum from the shared settings, not from the node', () => {
-      const tap = tapNode('a', 'kickTrig');
+    it('decides each trigger tap on its OWN threshold parameter', () => {
+      // Two taps on one drum, thresholded differently: the quiet hit is a kick for one of them and
+      // not for the other. That is the point of the threshold living on the node.
+      const low = tapNode('a', 'kickTrig', { threshold: 0.3 });
+      const high = tapNode('b', 'kickTrig', { threshold: 0.8 });
+      const rig = makeRig([low, high]);
+
+      let lowFired = 0;
+      let highFired = 0;
+      for (const v of [0.05, 0.2, 0.4, 0.2, 0.05]) {
+        rig.step({ kick: v });
+        lowFired += low.__audio_value;
+        highFired += high.__audio_value;
+      }
+      expect(lowFired).toBe(1);
+      expect(highFired).toBe(0);
+    });
+
+    it('follows a threshold written as an expression, including `=midi`', () => {
+      // The reading a MIDI binding records for this parameter is what `midi` resolves to, exactly
+      // as it does on a shader-side parameter — so a knob on the threshold moves the decision the
+      // trigger is actually made on, not just a number in the panel.
+      const tap = tapNode('a', 'kickTrig', { threshold: '=midi' });
       const rig = makeRig([tap]);
 
-      // A hit that peaks at 0.4 clears a 0.3 threshold...
-      updateAudioAnalysisSettings({ kickThresh: 0.3 });
-      let fired = 0;
-      for (const v of [0.05, 0.2, 0.4, 0.2, 0.05]) {
-        rig.step({ kick: v });
-        fired += tap.__audio_value;
-      }
-      expect(fired).toBe(1);
+      const hit = () => {
+        let fired = 0;
+        for (const v of [0.05, 0.2, 0.4, 0.2, 0.05]) {
+          rig.step({ kick: v });
+          fired += tap.__audio_value;
+        }
+        return fired;
+      };
 
-      // ...and does not clear a 0.8 one.
-      updateAudioAnalysisSettings({ kickThresh: 0.8 });
-      fired = 0;
-      for (const v of [0.05, 0.2, 0.4, 0.2, 0.05]) {
-        rig.step({ kick: v });
-        fired += tap.__audio_value;
-      }
-      expect(fired).toBe(0);
+      recordExternalReading('a', 'threshold', 'midi', 0.3);
+      expect(hit()).toBe(1);
+
+      recordExternalReading('a', 'threshold', 'midi', 0.8);
+      expect(hit()).toBe(0);
+
+      // Turned back down, the same hit fires again — the knob is live, not read once.
+      recordExternalReading('a', 'threshold', 'midi', 0.3);
+      expect(hit()).toBe(1);
+    });
+
+    it('exposes the resolved threshold for the panel to draw against the meter', () => {
+      const tap = tapNode('a', 'kick', { threshold: '=midi' });
+      const rig = makeRig([tap]);
+      recordExternalReading('a', 'threshold', 'midi', 0.42);
+      rig.step({ kick: 0.1 });
+      expect(tap.__audio_threshold).toBeCloseTo(0.42);
+    });
+
+    it('reads an envelope channel as the envelope and a trigger channel as the pulse', () => {
+      const env = tapNode('a', 'kick', { threshold: 0.3 });
+      const trig = tapNode('b', 'kickTrig', { threshold: 0.3 });
+      const rig = makeRig([env, trig]);
+
+      rig.step({ kick: 0.05 });
+      rig.step({ kick: 0.9 });
+      // The hit frame: both read 1.
+      expect(env.__audio_value).toBeCloseTo(1);
+      expect(trig.__audio_value).toBe(1);
+
+      rig.step({ kick: 0.9 });
+      // The frame after: the trigger is one frame wide, the envelope decays.
+      expect(trig.__audio_value).toBe(0);
+      expect(env.__audio_value).toBeGreaterThan(0.5);
+      expect(env.__audio_value).toBeLessThan(1);
+    });
+
+    it('forgets a deleted tap’s trigger memory', () => {
+      const tap = tapNode('a', 'kickTrig', { threshold: 0.3 });
+      const rig = makeRig([tap]);
+      rig.step({ kick: 0.9 });
+      expect(rig.proc._state.has('a')).toBe(true);
+
+      rig.graph.nodes.length = 0;
+      setAudioTapsWanted(true);
+      rig.step({ kick: 0.9 });
+      expect(rig.proc._state.has('a')).toBe(false);
     });
 
     it('publishes every channel for the panel to display', () => {
@@ -255,6 +331,73 @@ describe('Audio Value node', () => {
       });
       // The tap is still served — it just does not get to shape the engine.
       expect(rig.graph.getNode('a').__audio_value).toBeCloseTo(0.5);
+    });
+  });
+
+  // The point of the threshold being a node parameter rather than a panel setting: the MIDI
+  // machinery that already exists for every other parameter reaches it, with nothing added.
+  describe('MIDI on the threshold', () => {
+    function makeEventSystem() {
+      const handlers = new Map();
+      return {
+        on(type, fn) {
+          if (!handlers.has(type)) handlers.set(type, []);
+          handlers.get(type).push(fn);
+        },
+        emit(type, data) { (handlers.get(type) || []).forEach((fn) => fn(data)); },
+      };
+    }
+
+    /** A rig with a CC bound to the tap's threshold, and a way to deliver readings. */
+    function makeMidiRig(params) {
+      const tap = tapNode('a', 'kickTrig', params);
+      const rig = makeRig([tap]);
+      const events = makeEventSystem();
+      const binding = new MIDIParameterBinding(rig.graph, events, null);
+      binding.createBinding('dev', 0, 7, 'a', 'threshold', { min: 0, max: 1 });
+
+      const send = (normalized) => events.emit('MIDI_CC', {
+        deviceId: 'dev', channel: 0, cc: 7,
+        value: Math.round(normalized * 127), normalizedValue: normalized,
+      });
+      // A hit peaking at 0.4: above a low threshold, below a high one.
+      const hit = () => {
+        let fired = 0;
+        for (const v of [0.05, 0.2, 0.4, 0.2, 0.05]) {
+          rig.step({ kick: v });
+          fired += tap.__audio_value;
+        }
+        return fired;
+      };
+      return { tap, send, hit };
+    }
+
+    it('moves a plain threshold, and with it the decision the trigger is made on', () => {
+      const { tap, send, hit } = makeMidiRig({ threshold: 0.5 });
+
+      send(0.3);
+      expect(tap.params.threshold).toBeCloseTo(0.3);
+      expect(hit()).toBe(1);
+
+      send(0.8);
+      expect(tap.params.threshold).toBeCloseTo(0.8);
+      expect(hit()).toBe(0);
+    });
+
+    it('feeds a threshold that holds an expression instead of overwriting it', () => {
+      // `=midi * 0.5` — the knob sets the threshold, halved. The formula survives every CC.
+      const { tap, send, hit } = makeMidiRig({ threshold: '=midi * 0.5' });
+
+      send(0.6);
+      expect(hit()).toBe(1);
+      // The formula is still in the field; what it resolved to this frame is half the reading.
+      expect(tap.params.threshold).toBe('=midi * 0.5');
+      expect(tap.__audio_threshold).toBeCloseTo(0.3);
+
+      send(1);
+      expect(hit()).toBe(0);
+      expect(tap.params.threshold).toBe('=midi * 0.5');
+      expect(tap.__audio_threshold).toBeCloseTo(0.5);
     });
   });
 

@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ParameterPanel } from '../src/ui/ParameterPanel.js';
 import { NodeDefs } from '../src/data/NodeDefs.js';
+import { optionValues } from '../src/utils/discreteParams.js';
 
 const makePanel = () => new ParameterPanel({ on() {}, emit() {} }, null, { nodes: [] });
 
@@ -309,9 +310,12 @@ describe('declarations across every node', () => {
           const target = (def.params || []).find((p) => p.name === name);
           expect(target, `${kind}.${param.name} keys off missing parameter "${name}"`).toBeTruthy();
           if (!target.options) continue;
+          // Through optionValues, since an option is either the value itself or a {value, label}
+          // pair and both shapes are in the registry.
+          const allowed = optionValues(target);
           for (const value of Array.isArray(expected) ? expected : [expected]) {
-            expect(target.options, `${kind}.${param.name}: "${value}" is not an option of ${name}`)
-              .toContain(value);
+            expect(allowed, `${kind}.${param.name}: "${value}" is not an option of ${name}`)
+              .toContain(String(value));
           }
         }
         if (param.activeWhenConnected !== undefined) {

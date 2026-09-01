@@ -38,6 +38,23 @@ export const AUDIO_TAP_LABELS = Object.freeze({
   density: 'Noisiness',
 });
 
+/** The drums each channel group is built from, in the order the panel lists them. */
+export const AUDIO_INSTRUMENTS = ['kick', 'snare', 'hat'];
+
+/**
+ * Channels produced by a threshold decision, and therefore the ones a tap's own Threshold applies
+ * to: each drum's envelope and its trigger. A `*Meter` is the signal the threshold is compared TO,
+ * and the continuous meters involve no decision at all, so neither reads a threshold.
+ */
+export const AUDIO_THRESHOLD_CHANNELS = Object.freeze(
+  AUDIO_INSTRUMENTS.flatMap((name) => [name, `${name}Trig`]),
+);
+
+/** The drum a threshold-carrying channel belongs to, or null for one that takes no threshold. */
+export function audioChannelInstrument(channel) {
+  return AUDIO_INSTRUMENTS.find((name) => channel === name || channel === `${name}Trig`) || null;
+}
+
 function zeroTaps() {
   const out = {};
   for (const name of AUDIO_ANALYSIS_PINS) out[name] = 0;

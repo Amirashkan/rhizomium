@@ -1,13 +1,14 @@
 // src/core/AudioAnalysisProcessor.js
-import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 import { getAudioAnalysisSettings } from '../audio/audioAnalysisSettings.js';
 import {
   AUDIO_TAP_CHANNELS,
+  audioChannelInstrument,
   audioTapsWanted,
   clearAudioTapValues,
   setAudioTapValues,
 } from '../audio/audioAnalysisTaps.js';
+import { numericParamValue } from './numericParam.js';
 
 /**
  * Drives the Audio Analysis node.
@@ -199,33 +200,41 @@ export class AudioAnalysisProcessor {
       }
     }
 
+    if (needTaps) {
+      this._updateTaps({ bands, clock, ctx, valueNodes, uniformManager, live, ownsEngine: nodes.length === 0 });
+    } else {
+      this._tapState = null;
+      clearAudioTapValues();
+    }
+
+    // Both loops above record what they touched, so a node that has gone away takes its trigger
+    // memory with it rather than leaking a state entry per deleted node.
     if (this._state.size > live.size) {
       for (const id of this._state.keys()) {
         if (!live.has(id)) this._state.delete(id);
       }
     }
-
-    if (needTaps) {
-      this._updateTaps(bands, clock, valueNodes, uniformManager, nodes.length === 0);
-    } else {
-      this._tapState = null;
-      clearAudioTapValues();
-    }
   }
 
   /**
-   * The shared channel values every Audio Value node taps, and the panel displays.
+   * The shared channel values the panel displays, and then each Audio Value tap's own output.
    *
-   * One set of trigger state for the whole patch, not one per node: two taps on `kickTrig` are two
-   * views of the same kick, so they must fire on the same frame. The thresholds come from the
-   * shared settings for the same reason — they sit next to the meters in the panel, which is where
-   * a threshold is actually found.
+   * The two are not the same thing, and the difference is the whole reason a tap carries a
+   * Threshold. Everything that involves no decision — the band meters, and each drum's `*Meter` —
+   * is one number for the whole patch: two taps reading `low` must agree, and the panel is showing
+   * that same number. But an envelope or a trigger IS a decision, taken against a threshold the tap
+   * owns, so each of those taps runs its own detector: one `kickTrig` at 0.3 and another at 0.8 are
+   * two different instruments off one drum, which is exactly what a per-node threshold is for. Two
+   * taps left at the same threshold still fire on the same frame, because they see the same meter.
+   *
+   * The shared set is computed with the panel's own thresholds, since it is what the panel's
+   * preview rows and its meter markers read.
    *
    * @param {boolean} ownsEngine - whether the panel's meter shaping should drive the engine. An
    *   Audio Analysis node in the graph keeps pushing its own (patches made before the panel existed
    *   go on behaving exactly as they did), so the settings only take the engine when there is none.
    */
-  _updateTaps(bands, clock, valueNodes, uniformManager, ownsEngine) {
+  _updateTaps({ bands, clock, ctx, valueNodes, uniformManager, live, ownsEngine }) {
     const settings = getAudioAnalysisSettings();
     if (ownsEngine) this._applySettingsConfig(settings);
 
@@ -248,7 +257,27 @@ export class AudioAnalysisProcessor {
     // is a different value written into the same uniform, with no shader rebuild behind it.
     for (const node of valueNodes) {
       const channel = node.params?.channel;
-      const value = typeof taps[channel] === 'number' ? taps[channel] : taps[AUDIO_TAP_CHANNELS[0]];
+      const instrument = audioChannelInstrument(channel);
+      let value;
+
+      if (instrument) {
+        live.add(node.id);
+        const nodeState = this._nodeState(this._state, node.id, clock);
+        const nodeDecay = this._advance(nodeState, clock);
+        // Resolved through the shared parameter evaluator, so a threshold written as `=midi` (or
+        // `=midi * 0.6 + 0.2`, or anything reading the clock) is a live number every frame rather
+        // than a string that falls back to the default. See core/numericParam.js.
+        const threshold = this._numericParam(node, 'threshold', 0.5, ctx);
+        const out = this._stepInstrument(
+          nodeState.inst[instrument], instrument, bands, threshold, nodeDecay, clock,
+        );
+        // What the panel draws as this tap's marker, and what its Threshold readout shows.
+        node.__audio_threshold = Math.min(1, Math.max(0, threshold));
+        value = channel === instrument ? out.env : out.trig;
+      } else {
+        value = typeof taps[channel] === 'number' ? taps[channel] : taps[AUDIO_TAP_CHANNELS[0]];
+      }
+
       node.__audio_value = value;
       this._writeUniform(uniformManager, `${node.id}.value`, value);
     }
@@ -348,32 +377,10 @@ export class AudioAnalysisProcessor {
   }
 
   /**
-   * Resolve a numeric param, evaluating `=expr` via the shared expression system so it stays
-   * consistent with the shader. Mirrors CountNodeProcessor.
+   * Resolve a numeric param, evaluating `=expr` (time, audio, `midi`/`osc`, sibling parameters)
+   * the same way the shader does. See core/numericParam.js.
    */
   _numericParam(node, name, def, ctx, fallback) {
-    let raw = node.params?.[name];
-    if (raw === undefined || raw === null) raw = fallback;
-    if (raw === undefined || raw === null) return def;
-    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : def;
-
-    if (typeof raw === 'string') {
-      const trimmed = raw.trim();
-      const isExpression =
-        trimmed.startsWith('=') || /[a-zA-Z_]/.test(trimmed) || trimmed.includes('(');
-      if (isExpression) {
-        try {
-          const expr = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
-          const result = unifiedExpressionSystem.evaluateCPU(expr, ctx);
-          const num = typeof result === 'number' ? result : parseFloat(result);
-          return Number.isFinite(num) ? num : def;
-        } catch {
-          return def;
-        }
-      }
-      const parsed = parseFloat(trimmed);
-      return Number.isFinite(parsed) ? parsed : def;
-    }
-    return def;
+    return numericParamValue(node, name, def, ctx, fallback);
   }
 }

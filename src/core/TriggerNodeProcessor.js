@@ -1,8 +1,8 @@
 // src/core/TriggerNodeProcessor.js
-import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { audioAnalysisPinValue } from './audioAnalysisPins.js';
 import { isTriggerChangeMode, triggerChangePulse, TRIGGER_DEFAULT_MIN_CHANGE } from './triggerMode.js';
 import { evaluateWave, isWaveUnipolar, waveSyncTime } from './waveform.js';
+import { numericParamValue } from './numericParam.js';
 
 /**
  * Drives the Trigger node's "On value change" mode.
@@ -194,33 +194,11 @@ export class TriggerNodeProcessor {
   }
 
   /**
-   * Resolve a numeric param, evaluating `=expr` / time / audio expressions via the shared
-   * expression system so it stays consistent with the shader.
+   * Resolve a numeric param, evaluating `=expr` (time, audio, `midi`/`osc`, sibling parameters)
+   * the same way the shader does. See core/numericParam.js.
    */
   _numericParam(node, name, def, ctx, fallback) {
-    let raw = node.params?.[name];
-    if (raw === undefined || raw === null) raw = fallback;
-    if (raw === undefined || raw === null) return def;
-    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : def;
-
-    if (typeof raw === 'string') {
-      const trimmed = raw.trim();
-      const isExpression =
-        trimmed.startsWith('=') || /[a-zA-Z_]/.test(trimmed) || trimmed.includes('(');
-      if (isExpression) {
-        try {
-          const expr = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
-          const result = unifiedExpressionSystem.evaluateCPU(expr, ctx);
-          const num = typeof result === 'number' ? result : parseFloat(result);
-          return Number.isFinite(num) ? num : def;
-        } catch {
-          return def;
-        }
-      }
-      const parsed = parseFloat(trimmed);
-      return Number.isFinite(parsed) ? parsed : def;
-    }
-    return def;
+    return numericParamValue(node, name, def, ctx, fallback);
   }
 
   _toScalar(v) {

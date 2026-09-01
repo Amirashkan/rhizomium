@@ -8,6 +8,7 @@ import { WAVE_SHAPES, DEFAULT_WAVE_SHAPE } from '../../core/waveform.js';
 import {
   AUDIO_TAP_CHANNELS,
   AUDIO_TAP_LABELS,
+  AUDIO_THRESHOLD_CHANNELS,
   DEFAULT_AUDIO_TAP_CHANNEL,
 } from '../../audio/audioAnalysisTaps.js';
 
@@ -282,6 +283,24 @@ export const InputNodes = {
         options: AUDIO_TAP_CHANNELS.map((name) => ({ value: name, label: AUDIO_TAP_LABELS[name] })),
         default: DEFAULT_AUDIO_TAP_CHANNEL,
         label: "Channel",
+      },
+      // Where this tap decides a hit has landed, on its own drum's 0..1 meter. It is a parameter on
+      // the NODE rather than a panel setting so it is a first-class control like any other: MIDI-
+      // mappable, expression-capable (`=midi`, `=midi * 0.6 + 0.2`), undoable, and saved with the
+      // patch. The panel's slider sets what a freshly deployed tap starts at; from then on the tap
+      // owns it, and the panel draws it as a marker on that drum's meter so a knob sweep is visible
+      // against the signal it is being set against.
+      //
+      // Meaningless on the continuous channels and on a `*Meter` — a meter is what a threshold is
+      // compared TO — so it dims itself there rather than sitting live and doing nothing.
+      {
+        name: "threshold",
+        type: "float",
+        default: 0.5,
+        min: 0,
+        max: 1,
+        label: "Threshold",
+        activeWhen: { channel: AUDIO_THRESHOLD_CHANNELS },
       },
     ],
   },

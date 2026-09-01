@@ -23,7 +23,9 @@ import {
   updateAudioAnalysisSettings,
 } from '../audio/audioAnalysisSettings.js';
 import {
+  AUDIO_INSTRUMENTS,
   AUDIO_TAP_LABELS,
+  audioChannelInstrument,
   getAudioTapValues,
   setAudioTapsWanted,
 } from '../audio/audioAnalysisTaps.js';
@@ -128,6 +130,12 @@ export class AudioSettingsPanel {
                         Channels
                         <span class="rzap-hint">＋ drops a float node on the canvas</span>
                     </div>
+                    <p class="rzap-note">
+                        A drum's Threshold sets where new nodes for it start, and the markers on its
+                        meter show where the deployed ones actually sit. Select a deployed node to
+                        MIDI-map its Threshold or give it an expression
+                        (<code>=midi</code>, <code>=midi * 0.6 + 0.2</code>).
+                    </p>
                     <div id="audio-channels"></div>
                 </section>
 
@@ -204,14 +212,18 @@ export class AudioSettingsPanel {
     }
 
     /**
-     * A drum's threshold, and the marker it draws on that drum's meter. The marker is the point of
-     * the panel: a threshold is set by looking at where it sits against the meter, not by typing a
-     * number and guessing.
+     * A drum's threshold: where the rows below preview at, and what a newly deployed tap starts
+     * with. Once deployed, the tap owns its own Threshold — a node parameter, so it can be
+     * MIDI-mapped or given an expression like any other — and the markers on the meter row follow
+     * those instead. This is where a threshold is FOUND (against a meter you can watch); the node
+     * is where it then lives.
      */
     _buildThresholdSlider(instrument, settings) {
         const key = `${instrument}Thresh`;
         const row = document.createElement('label');
         row.className = 'rzap-slider is-thresh';
+        row.title = 'Where new nodes for this drum start. A deployed node carries its own '
+            + 'Threshold, which can be MIDI-mapped or driven by an expression.';
         row.innerHTML = `
             <span class="rzap-slider-label">Threshold</span>
             <input type="range" min="0" max="1" step="0.01">
@@ -225,7 +237,7 @@ export class AudioSettingsPanel {
         input.addEventListener('input', () => {
             const applied = updateAudioAnalysisSettings({ [key]: parseFloat(input.value) });
             show(applied[key]);
-            this._placeMark(instrument, applied[key]);
+            this._syncMarks(instrument);
         });
         return row;
     }
@@ -238,17 +250,16 @@ export class AudioSettingsPanel {
         row.innerHTML = `
             <button class="rzap-add" title="Add an Audio Value node for ${label}">+</button>
             <span class="rzap-row-name">${label}</span>
-            <span class="rzap-bar"><i class="rzap-bar-fill"></i><i class="rzap-bar-mark"></i></span>
+            <span class="rzap-bar"><i class="rzap-bar-fill"></i><span class="rzap-bar-marks"></span></span>
             <span class="rzap-row-value">0.000</span>
         `;
 
-        const mark = row.querySelector('.rzap-bar-mark');
+        const marks = row.querySelector('.rzap-bar-marks');
         if (instrument && channel === `${instrument}Meter`) {
-            // Only the meter row carries the marker: it is the signal the threshold is compared to.
-            this._marks.set(instrument, mark);
-            this._placeMark(instrument, getAudioAnalysisSettings()[`${instrument}Thresh`], mark);
+            // Only the meter row carries markers: it is the signal a threshold is compared to.
+            this._marks.set(instrument, marks);
         } else {
-            mark.remove();
+            marks.remove();
         }
 
         row.querySelector('.rzap-add').addEventListener('click', () => this.deployChannel(channel));
@@ -261,10 +272,53 @@ export class AudioSettingsPanel {
         return row;
     }
 
-    _placeMark(instrument, threshold, element) {
-        const mark = element || this._marks?.get(instrument);
-        if (!mark) return;
-        mark.style.left = `${Math.min(1, Math.max(0, threshold)) * 100}%`;
+    /**
+     * Draw this drum's thresholds on its meter.
+     *
+     * With taps deployed, the markers are THEIR thresholds — so a knob mapped to a tap's Threshold
+     * is a line sliding across the meter it is being set against, which is the only way to see
+     * whether a mapping is aimed anywhere useful. With none deployed there is nothing live to show,
+     * so the marker falls back to the panel's default: where the next one would start.
+     */
+    _syncMarks(instrument) {
+        const host = this._marks?.get(instrument);
+        if (!host) return;
+
+        const deployed = this._deployedThresholds(instrument);
+        const values = deployed.length
+            ? deployed
+            : [getAudioAnalysisSettings()[`${instrument}Thresh`]];
+
+        // Reuse the elements rather than rebuilding the row every frame: this runs on the refresh
+        // tick, and the marker count only changes when a node is added or removed.
+        while (host.children.length > values.length) host.lastChild.remove();
+        while (host.children.length < values.length) {
+            const mark = document.createElement('i');
+            mark.className = 'rzap-bar-mark';
+            host.appendChild(mark);
+        }
+        values.forEach((value, i) => {
+            const mark = host.children[i];
+            mark.style.left = `${Math.min(1, Math.max(0, value)) * 100}%`;
+            mark.classList.toggle('is-default', deployed.length === 0);
+        });
+    }
+
+    /** The live threshold of every deployed tap on this drum, de-duplicated. */
+    _deployedThresholds(instrument) {
+        const nodes = window.editor?.graph?.nodes || [];
+        const seen = new Set();
+        for (const node of nodes) {
+            if (node?.kind !== 'AudioValue') continue;
+            if (audioChannelInstrument(node.params?.channel) !== instrument) continue;
+            // The resolved number the processor last decided on — which is what an expression or a
+            // MIDI-mapped threshold actually evaluated to this frame, not the string in the field.
+            const live = typeof node.__audio_threshold === 'number'
+                ? node.__audio_threshold
+                : parseFloat(node.params?.threshold);
+            seen.add(Number.isFinite(live) ? Math.min(1, Math.max(0, live)) : 0.5);
+        }
+        return [...seen].sort((a, b) => a - b);
     }
 
     /**
@@ -286,6 +340,12 @@ export class AudioSettingsPanel {
 
         node.params = node.params || {};
         node.params.channel = channel;
+        // Hand the tap the threshold currently set against the meter, then let go of it: from here
+        // the number lives on the node, where it can be MIDI-mapped or given an expression.
+        const instrument = audioChannelInstrument(channel);
+        if (instrument) {
+            node.params.threshold = getAudioAnalysisSettings()[`${instrument}Thresh`];
+        }
         const label = AUDIO_TAP_LABELS[channel] || channel;
         node.name = normalizeNodeName(label, node);
         this._deployed += 1;
@@ -408,6 +468,8 @@ export class AudioSettingsPanel {
             row.fill.style.width = `${Math.min(1, Math.max(0, bar)) * 100}%`;
             row.value.textContent = value.toFixed(3);
         }
+
+        for (const instrument of AUDIO_INSTRUMENTS) this._syncMarks(instrument);
 
         const audioElement = this.audioClient?.audioElement;
         if (audioElement) {
@@ -588,10 +650,13 @@ export class AudioSettingsPanel {
             .rzap-bar-fill {
                 display: block; height: 100%; width: 0%; background: var(--rz-accent);
             }
+            .rzap-bar-marks { position: absolute; inset: 0; pointer-events: none; }
             .rzap-bar-mark {
                 position: absolute; top: -1px; bottom: -1px; width: 2px; left: 50%;
-                background: var(--rz-text); opacity: 0.75;
+                background: var(--rz-text); opacity: 0.85;
             }
+            /* Nothing deployed yet: this is only where the next one would start. */
+            .rzap-bar-mark.is-default { opacity: 0.4; }
         `;
         document.head.appendChild(style);
     }
