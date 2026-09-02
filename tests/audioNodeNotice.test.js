@@ -28,7 +28,7 @@ describe('the Audio node’s status strip', () => {
   });
 
   it('says why the node reads zero when nothing is loaded', () => {
-    panel.renderParameters({ kind: 'Audio', id: 'n1', params: { channel: 'level' }, inputs: [] });
+    panel.renderParameters({ kind: 'AudioValue', id: 'n1', params: { channel: 'level' }, inputs: [] });
 
     const strip = notice(panel);
     expect(strip).toBeTruthy();
@@ -40,7 +40,7 @@ describe('the Audio node’s status strip', () => {
   it('opens the Audio panel when clicked', () => {
     const show = vi.fn();
     vi.spyOn(audioPanel, 'getAudioSettingsPanel').mockReturnValue({ show });
-    panel.renderParameters({ kind: 'Audio', id: 'n1', params: { channel: 'level' }, inputs: [] });
+    panel.renderParameters({ kind: 'AudioValue', id: 'n1', params: { channel: 'level' }, inputs: [] });
 
     notice(panel).dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     expect(show).toHaveBeenCalled();
@@ -48,7 +48,7 @@ describe('the Audio node’s status strip', () => {
 
   it('becomes a quiet confirmation, naming the track, once it is playing', () => {
     source = { state: 'playing', label: 'Playing', fileName: 'set.wav', playing: true, hasFile: true };
-    panel.renderParameters({ kind: 'Audio', id: 'n1', params: { channel: 'kick' }, inputs: [] });
+    panel.renderParameters({ kind: 'AudioValue', id: 'n1', params: { channel: 'kick' }, inputs: [] });
 
     const strip = notice(panel);
     expect(strip.dataset.state).toBe('playing');
@@ -59,7 +59,7 @@ describe('the Audio node’s status strip', () => {
 
   it('follows the source without being re-rendered', () => {
     vi.useFakeTimers();
-    panel.renderParameters({ kind: 'Audio', id: 'n1', params: { channel: 'level' }, inputs: [] });
+    panel.renderParameters({ kind: 'AudioValue', id: 'n1', params: { channel: 'level' }, inputs: [] });
     const strip = notice(panel);
     expect(strip.textContent).toContain('every channel reads 0');
 
@@ -72,7 +72,7 @@ describe('the Audio node’s status strip', () => {
 
   it('stops polling once the panel has moved on to another node', () => {
     vi.useFakeTimers();
-    panel.renderParameters({ kind: 'Audio', id: 'n1', params: { channel: 'level' }, inputs: [] });
+    panel.renderParameters({ kind: 'AudioValue', id: 'n1', params: { channel: 'level' }, inputs: [] });
     panel.renderParameters({ kind: 'ConstFloat', id: 'n2', params: { value: 1 }, inputs: [] });
 
     expect(notice(panel)).toBeNull();

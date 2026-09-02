@@ -1880,13 +1880,14 @@ case 'flip2d':
    * A live status strip under the panel header, for nodes whose output depends on something outside
    * the graph.
    *
-   * An Audio node reads a channel of the live analysis, so with no track playing it reads 0 — and
-   * so does everything downstream. That is indistinguishable from "this node is broken" unless
-   * something says otherwise, and the place to say it is where the artist is already looking when
-   * they wonder why nothing moves. Clicking it opens the panel that fixes it.
+   * The audio nodes read a live signal, so with no track playing every channel is 0 — the values
+   * are 0, the thresholds decide nothing, and everything downstream sits still. That is
+   * indistinguishable from "this node is broken" unless something says otherwise, and the place to
+   * say it is where the artist is already looking when they wonder why nothing moves. Clicking it
+   * opens the panel that fixes it.
    */
   _nodeNotice(node) {
-    if (node?.kind !== 'Audio') return null;
+    if (node?.kind !== 'Audio' && node?.kind !== 'AudioValue') return null;
 
     const strip = document.createElement('button');
     strip.type = 'button';

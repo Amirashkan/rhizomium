@@ -22,7 +22,7 @@ import { PreviewComputer } from '../src/core/PreviewComputer.js';
 // An audio node mid-signal, reading the low band at 0.42.
 const audioNode = () => ({
   id: '28',
-  kind: 'Audio',
+  kind: 'AudioValue',
   params: { channel: 'low' },
   __audio_value: 0.42,
 });

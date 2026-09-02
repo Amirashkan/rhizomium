@@ -1002,11 +1002,12 @@ function onNodeCreated(node) {
     undoManager.recordNodeCreation(node);
   }
 
-  // An Audio node with no track loaded reads 0 on every channel, and so does everything downstream
+  // An audio node with no track loaded reads 0 on every channel, and so does everything downstream
   // — which looks exactly like a broken node. The panel is where a source is chosen (and where the
-  // meters and thresholds live), so open it the first time one is added with nothing playing.
-  // Not when a track IS loaded: then the node works immediately and the panel would be in the way.
-  if (node?.kind === 'Audio') {
+  // meters are, which is the only way to set a threshold), so open it the first time one is added
+  // with nothing playing. Not when a track IS loaded: then the node works immediately and the
+  // panel would be in the way.
+  if (node?.kind === 'Audio' || node?.kind === 'AudioValue') {
     try {
       const panel = getAudioSettingsPanel();
       if (!panel.visible && !describeAudioSource().hasFile) panel.show();

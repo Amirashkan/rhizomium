@@ -4,7 +4,6 @@ import { getAudioAnalysisSettings } from '../audio/audioAnalysisSettings.js';
 import {
   AUDIO_INSTRUMENTS,
   AUDIO_TAP_CHANNELS,
-  audioChannelInstrument,
   audioTapsWanted,
   clearAudioTapValues,
   setAudioTapValues,
@@ -78,11 +77,9 @@ const ZERO_BANDS = {
 
 export class AudioAnalysisProcessor {
   constructor() {
-    // nodeId -> { lastTime, inst: { kick|snare|hat: { armed, env, lastTrigTime } } }, for the nodes
-    // that run their own detector.
-    this._state = new Map();
-    // The same shape, once, for the shared taps. Null while nothing is asking for them, so a patch
-    // with no audio nodes and a closed panel costs nothing.
+    // { lastTime, inst: { kick|snare|hat: { armed, env, lastTrigTime } } } — one set for the whole
+    // patch, since one threshold per drum decides for every node reading it. Null while nothing is
+    // asking, so a patch with no audio nodes and a closed panel costs nothing.
     this._tapState = null;
     this._lastConfigJson = null;
     this._audioClient = undefined;
@@ -139,11 +136,15 @@ export class AudioAnalysisProcessor {
    * @param {Object} opts.uniformManager - the active ParameterUniformManager
    */
   update(graph, { time = 0, now, uniformManager } = {}) {
-    const nodes = (graph?.nodes || []).filter((n) => n?.kind === 'Audio');
+    const all = graph?.nodes || [];
+    const nodes = all.filter((n) => n?.kind === 'AudioValue');
+    // The setup node, if the patch has one: its parameters are the analysis's settings, which is
+    // what makes them MIDI-mappable. The first one wins — there is one engine, so a second copy
+    // could only disagree with the first, and "whichever the loop reached last" is not an answer.
+    const setup = all.find((n) => n?.kind === 'Audio') || null;
     // The panel keeps the analysis running while it is on screen so its meters move before anything
     // has been added — otherwise a threshold would have to be set against a dead readout.
-    if (nodes.length === 0 && !audioTapsWanted()) {
-      if (this._state.size) this._state.clear();
+    if (nodes.length === 0 && !setup && !audioTapsWanted()) {
       this._tapState = null;
       clearAudioTapValues();
       return;
@@ -158,34 +159,43 @@ export class AudioAnalysisProcessor {
       ? now
       : (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
     const bands = (typeof window !== 'undefined' && window._audioBands) || ZERO_BANDS;
-    const live = new Set();
 
-    this._updateTaps({ bands, clock, ctx, nodes, uniformManager, live });
-
-    // A node that has gone away takes its trigger memory with it, rather than leaking a state entry
-    // per deleted node.
-    if (this._state.size > live.size) {
-      for (const id of this._state.keys()) {
-        if (!live.has(id)) this._state.delete(id);
-      }
-    }
+    this._updateTaps({ bands, clock, ctx, nodes, setup, uniformManager });
   }
 
   /**
-   * The shared channel values the panel displays, and then each Audio node's own output.
+   * The analysis's settings this frame: the setup node's parameters when the patch has one,
+   * otherwise the stored defaults the panel edits.
    *
-   * The two are not the same thing, and the difference is the whole reason a node carries a
-   * Threshold. Everything that involves no decision — the band meters, and each drum's `*Meter` —
-   * is one number for the whole patch: two nodes reading `low` must agree, and the panel is showing
-   * that same number. But an envelope or a trigger IS a decision, taken against a threshold the
-   * node owns, so each of those runs its own detector. Two nodes left at the same threshold still
-   * fire on the same frame, because they see the same meter.
-   *
-   * The shared set is computed with the panel's own thresholds, since it is what the panel's
-   * preview rows and its meter markers read.
+   * The node's are read through the shared parameter evaluator, so a threshold written as `=midi`
+   * (or `=midi * 0.6 + 0.2`, or anything reading the clock) is a live number every frame rather
+   * than a string that falls back to a default — which is the point of the setting living on a node
+   * at all. See core/numericParam.js.
    */
-  _updateTaps({ bands, clock, ctx, nodes, uniformManager, live }) {
-    const settings = getAudioAnalysisSettings();
+  _resolveSettings(setup, ctx) {
+    const stored = getAudioAnalysisSettings();
+    if (!setup) return stored;
+
+    const resolved = {};
+    for (const [name, fallback] of Object.entries(stored)) {
+      resolved[name] = this._numericParam(setup, name, fallback, ctx);
+    }
+    // What the panel draws as the marker on each drum's meter: the number actually decided on,
+    // after any expression or controller reading, not the text in the field.
+    setup.__audio_settings = resolved;
+    return resolved;
+  }
+
+  /**
+   * Every channel's value this frame, and then each Audio Value node's own output.
+   *
+   * One decision per drum for the whole patch, taken once here against the one threshold that
+   * exists for it: two nodes reading `kickTrig` are two views of one kick and fire on the same
+   * frame. That is what the setup node buys — the drums are thresholded in a single place, which
+   * a knob can then be mapped to, instead of once per node reading them.
+   */
+  _updateTaps({ bands, clock, ctx, nodes, setup, uniformManager }) {
+    const settings = this._resolveSettings(setup, ctx);
     this._applySettingsConfig(settings);
 
     if (!this._tapState) this._tapState = this._newState(clock);
@@ -207,27 +217,7 @@ export class AudioAnalysisProcessor {
     // different value written into the same uniform, with no shader rebuild behind it.
     for (const node of nodes) {
       const channel = node.params?.channel;
-      const instrument = audioChannelInstrument(channel);
-      let value;
-
-      if (instrument) {
-        live.add(node.id);
-        const nodeState = this._nodeState(this._state, node.id, clock);
-        const nodeDecay = this._advance(nodeState, clock);
-        // Resolved through the shared parameter evaluator, so a threshold written as `=midi` (or
-        // `=midi * 0.6 + 0.2`, or anything reading the clock) is a live number every frame rather
-        // than a string that falls back to the default. See core/numericParam.js.
-        const threshold = this._numericParam(node, 'threshold', 0.5, ctx);
-        const out = this._stepInstrument(
-          nodeState.inst[instrument], instrument, bands, threshold, nodeDecay, clock,
-        );
-        // What the panel draws as this node's marker on the drum's meter.
-        node.__audio_threshold = Math.min(1, Math.max(0, threshold));
-        value = channel === instrument ? out.env : out.trig;
-      } else {
-        value = typeof taps[channel] === 'number' ? taps[channel] : taps[AUDIO_TAP_CHANNELS[0]];
-      }
-
+      const value = typeof taps[channel] === 'number' ? taps[channel] : taps[AUDIO_TAP_CHANNELS[0]];
       node.__audio_value = value;
       this._writeUniform(uniformManager, `${node.id}.value`, value);
     }
@@ -238,16 +228,6 @@ export class AudioAnalysisProcessor {
     const st = { lastTime: clock, inst: {} };
     for (const name of INSTRUMENTS) {
       st.inst[name] = { armed: true, env: 0, peak: 0, lastTrigTime: -Infinity };
-    }
-    return st;
-  }
-
-  /** The state for one node, created on first sight. */
-  _nodeState(map, id, clock) {
-    let st = map.get(id);
-    if (!st) {
-      st = this._newState(clock);
-      map.set(id, st);
     }
     return st;
   }

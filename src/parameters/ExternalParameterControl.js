@@ -186,7 +186,16 @@ export function writeParameterUniform(nodeId, paramName, value) {
   const uniformManager = window.nodeCompiler?.uniformManager;
   if (!uniformManager) return;
 
-  uniformManager.uniformValues.set(`${nodeId}.${paramName}`, value);
+  // Only into a slot the compiler actually reserved. A parameter that never reaches the shader —
+  // the Audio node's thresholds are read on the CPU, and its node emits no code at all — has no
+  // uniform, and inserting one here would append a float to a buffer whose size was fixed at
+  // compile time: every value after it lands in the wrong field, and the write itself can be
+  // rejected outright. The controller still reaches such a parameter, through node.params and the
+  // recorded reading.
+  const key = `${nodeId}.${paramName}`;
+  if (!uniformManager.uniformValues.has(key)) return;
+
+  uniformManager.uniformValues.set(key, value);
 
   const renderer = window.gpuRenderer;
   if (!renderer) return;

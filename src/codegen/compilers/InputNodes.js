@@ -39,7 +39,7 @@ export class InputNodes {
     return [
       'UV', 'Time', 'ConstFloat', 'ConstVec2', 'ConstVec3', 'ConstVec4',
       'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold', 'Count', 'RandomValue',
-      'Wave', 'Audio'
+      'Wave', 'AudioValue'
     ].includes(kind);
   }
 
@@ -255,7 +255,7 @@ export class InputNodes {
         };
       }
 
-      case 'Audio': {
+      case 'AudioValue': {
         // A single channel of the live audio analysis. The analysis has memory across frames (the
         // meters' followers, each trigger's armed state) which a fragment shader has none of, so it
         // runs on the CPU in AudioAnalysisProcessor and streams one uniform per node. WHICH channel

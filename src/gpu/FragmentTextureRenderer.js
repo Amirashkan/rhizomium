@@ -619,7 +619,7 @@ export class FragmentTextureRenderer {
       // own params or as a time/audioEnvelope keyword, so fold it in — otherwise a radius driven by
       // `=node_<id>` freezes on a non-forced render path (e.g. a compute-bridged texture) while the
       // audio keeps moving.
-      if (refNode?.kind === 'Audio' && typeof refNode.__audio_value === 'number') {
+      if (refNode?.kind === 'AudioValue' && typeof refNode.__audio_value === 'number') {
         hash += `${refId}.value:${refNode.__audio_value};`;
       }
     }
@@ -1221,7 +1221,7 @@ export class FragmentTextureRenderer {
         || window.editor?.graph?.nodes?.find(n => String(n.id) === nodeId);
       // Only an Audio node: `.value` is a common enough parameter name that the kind check is what
       // keeps this from stamping on someone else's uniform.
-      if (node?.kind !== 'Audio') continue;
+      if (node?.kind !== 'AudioValue') continue;
       const v = node.__audio_value;
       if (typeof v === 'number' && isFinite(v)) {
         values.set(key, v);

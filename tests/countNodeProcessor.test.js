@@ -125,7 +125,7 @@ describe('CountNodeProcessor', () => {
   it('counts an Audio node wired into the pulse input', () => {
     // An Audio node reads one channel — here kickTrig, a single-frame pulse on each hit —
     // and AudioAnalysisProcessor stashes its live value on the node as __audio_value each frame.
-    const audio = { id: 'a', kind: 'Audio', params: { channel: 'kickTrig' }, inputs: [],
+    const audio = { id: 'a', kind: 'AudioValue', params: { channel: 'kickTrig' }, inputs: [],
       __audio_value: 0 };
     const count = { ...countNode(), inputs: ['a'] };
     const graph = {
@@ -153,7 +153,7 @@ describe('CountNodeProcessor', () => {
   });
 
   it('counts an envelope channel crossing the threshold, not only a one-frame trigger', () => {
-    const audio = { id: 'a', kind: 'Audio', params: { channel: 'kick' }, inputs: [],
+    const audio = { id: 'a', kind: 'AudioValue', params: { channel: 'kick' }, inputs: [],
       __audio_value: 0.2 };
     const count = { ...countNode(), inputs: ['a'] };
     const graph = {

@@ -2,13 +2,17 @@
 
 `Tools → Audio…` (`Mod+Alt+A`) opens the patch's single surface for the live audio analysis: the
 source, the shape of the meters, the per-drum thresholds, and a live readout of every channel the
-analysis produces. Next to each channel is a `+` that drops an **Audio** node on the canvas reading
-that channel — a plain float you can wire into anything. An Audio node's **Open Audio Setup…**
-button brings you back here.
+analysis produces. Next to each channel is a `+` that drops an **Audio Value** node on the canvas
+reading that channel — a plain float you can wire into anything.
 
-There is exactly one audio node. The all-in-one **Audio Analysis** node it replaced carried fifteen
-output pins and every setting the analysis has; patches saved with it are converted on load into one
-Audio node per pin they actually read (see [Loading an older patch](#loading-an-older-patch)).
+Two nodes, with one job each:
+
+| | | |
+| --- | --- | --- |
+| **Audio** | the setup | The analysis's settings — three drum thresholds, attack/release/gain — as node parameters, which is what puts them within reach of a MIDI knob. No outputs; it is not a signal. Added from the node palette, or from this panel. |
+| **Audio Value** | one channel | A single `f32` reading one channel. Added from the `+` beside that channel's meter here, and nowhere else — a channel is chosen by watching it move, so it comes from the place where you can. |
+
+Both carry an **Open Audio Setup…** button back to this panel.
 
 ## When nothing happens
 
@@ -36,38 +40,43 @@ toggle — the player has always looped by default, and now says so. The bar see
 ## Why a panel
 
 There is one analysis engine behind all of this (`BrowserAudioCapture` →
-`RealtimeAudioAnalysis`), producing one set of meters. The meter shaping and the drum thresholds
-used to be parameters on the **Audio Analysis** node, which meant two of those nodes in one patch
-fought over the engine: the last one written won and the other node's sliders silently did nothing.
+`RealtimeAudioAnalysis`), producing one set of meters, so there is one set of settings for it. They
+used to be copied onto every **Audio Analysis** node, which meant two of those in one patch fought
+over the engine: the last one written won and the other node's sliders silently did nothing. One
+setup node, and a panel that edits it, is the same settings with one owner.
 
-Hoisting the meter shaping into the panel also puts a threshold next to the meter it is compared
-against, which is the only way a threshold is actually found:
+The panel is where a threshold is found, because a threshold is only findable next to the meter it
+is compared against:
 
 1. Play the track.
-2. Watch the drum's **Meter** row — the markers on the bar are where its thresholds sit.
+2. Watch the drum's **Meter** row — the marker on the bar is where its threshold sits.
 3. Drag the threshold above where the meter idles between hits and below where it peaks on one.
-4. Press `+` on the **Trigger** row to deploy it. The node is handed that threshold and owns it
-   from then on.
+4. Press `+` on the **Trigger** row to add a node reading it.
 
 A threshold set under the idle level leaves the trigger permanently held open, which produces
 *fewer* triggers, not more. The meter is what makes that visible.
 
-## Where a threshold lives
+## Where a threshold lives, and how a knob reaches it
 
-The panel's **Threshold** slider is where a threshold is *found*: it is what the preview rows below
-it read, and what a newly deployed node starts with. The number then *lives* on the deployed node,
-as an ordinary `threshold` parameter — which is what makes it:
+The panel's **Threshold** slider is where a threshold is *found* — against the meter it is compared
+to, which is the only way. Where it *lives* is the **Audio** node, as an ordinary parameter, which
+is what makes it:
 
-- **MIDI-mappable.** Select the node, MIDI-learn its Threshold, and the knob moves the decision the
-  trigger is actually made on. The marker on that drum's meter row follows the knob, so you can see
-  whether the mapping is aimed anywhere useful.
+- **MIDI-mappable.** Select the node, MIDI-learn its Kick Thresh, and the knob moves the decision
+  every reader of that drum is made on. The panel's slider and the marker on the drum's meter follow
+  the knob, so you can see whether the mapping is aimed anywhere useful.
 - **Expression-capable.** `=midi`, `=midi * 0.6 + 0.2` (a knob over a floor), or anything else the
   expression system resolves. As everywhere else, a CC arriving on a parameter that holds an
   expression feeds the `midi` identifier rather than overwriting the formula.
-- **Undoable, and saved with the patch**, unlike the panel's own settings.
+- **Undoable, and saved with the patch**, unlike the panel's own stored defaults.
 
-With nodes deployed, the meter row shows one marker per distinct threshold among them. With none,
-it shows a single dim marker: where the next one would start.
+The panel edits that node rather than a second copy of the same numbers — two sources for one engine
+is the bug this whole arrangement replaced. With no Audio node in the patch it edits the stored
+defaults instead, and offers the node: **＋ Audio node — to MIDI-map these**, seeded with the values
+as they stand. A patch that never needs to automate its thresholds never needs the node.
+
+One decision per drum, for the whole patch: two Audio Values reading `kickTrig` are two views of one
+kick and fire on the same frame.
 
 ## Channels
 
@@ -89,34 +98,36 @@ itself on the others rather than sitting there doing nothing.
 A trigger row's bar follows the matching envelope rather than the trigger itself: a one-frame pulse
 would almost never be caught by the panel's 20 Hz refresh. The number beside it is the trigger.
 
-## The Audio node
+## The Audio Value node
 
 One channel of the shared analysis, as a single `f32` output. Deployed nodes are named after their
 channel ("Kick Trigger", "Low") so a rack of them stays readable on the canvas; the **Channel**
 parameter can be changed afterwards from the parameter panel.
 
-What a node reads depends on whether its channel involves a decision:
+It carries no threshold of its own: every channel is decided once, for the whole patch, on the
+Audio node — so the number it reads is the number the panel is showing, and two nodes on one channel
+always agree.
 
-- **No decision** (`level`, `low`, the `*Meter`s, …): one shared number for the whole patch. Two
-  nodes reading `low` agree, and the panel is showing that same number.
-- **A decision** (`kick`, `kickTrig`, …): the node runs its own detector against its own
-  **Threshold**, so one `kickTrig` at 0.3 and another at 0.8 are two instruments off one drum. Two
-  nodes left at the same threshold still fire on the same frame — they see the same meter.
+The channel is resolved on the CPU each frame into one uniform whose name does not depend on the
+channel, so **switching channels costs no shader rebuild** — it is a different number in the same
+slot.
 
-Either way the channel is resolved on the CPU each frame into one uniform whose name does not depend
-on the channel, so **switching channels costs no shader rebuild** — it is a different number in the
-same slot.
-
-Like Hold, Count and Audio Analysis, everything it reads has memory across frames (the meters'
-followers, each trigger's armed state), which a fragment shader has none of. The values are computed
-in `AudioAnalysisProcessor` and streamed in as per-frame uniforms.
+Like Hold and Count, everything it reads has memory across frames (the meters' followers, each
+trigger's armed state), which a fragment shader has none of. The values are computed in
+`AudioAnalysisProcessor` and streamed in as per-frame uniforms.
 
 ## Loading an older patch
 
-A patch saved with the old Audio Analysis node is converted by the v7 → v8 step in
-`src/core/projectMigrations.js`, in both the editor and the web viewer:
+Two conversions run in `src/core/projectMigrations.js`, in both the editor and the web viewer.
 
-- One Audio node per pin the patch actually **read** — wired, or named by a `=node_<id>_N`
+**v8 → v9** splits the node that briefly did both jobs: a channel reader named `Audio` becomes an
+`AudioValue`, and the per-node thresholds they carried are gathered onto one new `Audio` setup node
+(per drum, the tightest one wins — it is the one that was dialled in). Bindings on those thresholds
+follow. Nothing dialled in means no node: the stored defaults still hold.
+
+**v7 → v8** converts the old all-in-one Audio Analysis node:
+
+- One channel reader per pin the patch actually **read** — wired, or named by a `=node_<id>_N`
   reference — so a patch that only used `level` comes back as one node rather than fifteen. The
   first keeps the original id, which is what lets the common single-pin case migrate without
   touching a single wire.
@@ -130,7 +141,7 @@ A patch saved with the old Audio Analysis node is converted by the v7 → v8 ste
 | File | Role |
 | --- | --- |
 | `src/ui/AudioSettingsPanel.js` | The panel: source, transport, meter shape, thresholds, channel rows, deploy |
-| `src/audio/audioAnalysisSettings.js` | The shared shaping, and the per-drum deploy defaults (localStorage-backed) |
+| `src/audio/audioAnalysisSettings.js` | The stored defaults, for a patch with no Audio node (localStorage-backed) |
 | `src/core/numericParam.js` | Resolves an `=expr` parameter a CPU processor needs as a number, `midi` / `osc` included |
 | `src/audio/audioAnalysisTaps.js` | This frame's channel values, the channel list, and the labels the UI uses |
 | `src/core/AudioAnalysisProcessor.js` | Meters → thresholds → triggers, once per frame, on the CPU |

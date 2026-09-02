@@ -25,7 +25,7 @@ describe('updateAnimatedFragmentPreviews refreshes Audio-driven thumbnails', () 
   }
 
   it('refreshes a wired Circle and an expression-ref Circle when audio changes, and skips when steady', () => {
-    const audio = { id: '10', kind: 'Audio', params: { channel: 'kick' }, inputs: [] };
+    const audio = { id: '10', kind: 'AudioValue', params: { channel: 'kick' }, inputs: [] };
     const wired = { id: '11', kind: 'Circle', params: {}, inputs: ['10'] };
     const exprRef = { id: '12', kind: 'Circle', params: { radius: '=node_10' }, inputs: [] };
     const graph = {
@@ -36,7 +36,7 @@ describe('updateAnimatedFragmentPreviews refreshes Audio-driven thumbnails', () 
     window.shaderPreviewManager = {
       enableGPUPreview: true,
       isComputeNode: () => false,
-      isVisualNode: (n) => n.kind === 'Circle' || n.kind === 'Audio',
+      isVisualNode: (n) => n.kind === 'Circle' || n.kind === 'AudioValue',
     };
 
     const { self, refreshed } = makeSelf(graph);
@@ -60,7 +60,7 @@ describe('updateAnimatedFragmentPreviews refreshes Audio-driven thumbnails', () 
   });
 
   it('does not refresh anything when GPU preview is disabled', () => {
-    const audio = { id: '10', kind: 'Audio', params: { channel: 'kick' }, inputs: [],
+    const audio = { id: '10', kind: 'AudioValue', params: { channel: 'kick' }, inputs: [],
       __audio_value: 0.5 };
     const wired = { id: '11', kind: 'Circle', params: {}, inputs: ['10'] };
     const graph = {

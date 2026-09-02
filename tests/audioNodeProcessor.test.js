@@ -21,17 +21,18 @@ function makeUniformManager(ids = []) {
   return { uniformValues };
 }
 
-/** One trigger node per drum, which is how a patch that watches all three is built now. */
+/**
+ * A trigger node per drum, plus the Audio node the thresholds live on — which is how a patch that
+ * watches all three is built now: the decision is taken once, on settings a controller can reach.
+ */
 function triggerNodes(params = {}) {
-  return AUDIO_INSTRUMENTS.map((name) => ({
-    id: name,
-    kind: 'Audio',
-    params: {
-      channel: `${name}Trig`,
-      threshold: params[`${name}Thresh`] !== undefined ? params[`${name}Thresh`] : 0.5,
-    },
-    inputs: [],
-  }));
+  const setup = { id: 'setup', kind: 'Audio', params: { ...params }, inputs: [] };
+  return [
+    setup,
+    ...AUDIO_INSTRUMENTS.map((name) => ({
+      id: name, kind: 'AudioValue', params: { channel: `${name}Trig` }, inputs: [],
+    })),
+  ];
 }
 
 function stubClient() {
@@ -62,7 +63,7 @@ function setBands(values = {}, presence = {}) {
  */
 function makeChannelRig(channels, threshold = 0.5) {
   const nodes = channels.map((channel) => ({
-    id: channel, kind: 'Audio', params: { channel, threshold }, inputs: [],
+    id: channel, kind: 'AudioValue', params: { channel, threshold }, inputs: [],
   }));
   const graph = makeGraph(nodes);
   const um = makeUniformManager(channels);
@@ -85,7 +86,7 @@ function makeChannelRig(channels, threshold = 0.5) {
 /** Drive the processor frame by frame on an explicit clock. */
 function makeRig(params = {}) {
   const nodes = triggerNodes(params);
-  const node = nodes[0];
+  const node = nodes[0]; // the setup node, where the thresholds are
   const graph = makeGraph(nodes);
   const um = makeUniformManager(AUDIO_INSTRUMENTS);
   const proc = new AudioAnalysisProcessor();
@@ -304,16 +305,16 @@ describe('AudioAnalysisProcessor', () => {
     }
   });
 
-  it('prunes state for deleted nodes', () => {
+  it('drops the analysis once the last audio node is gone', () => {
     const proc = new AudioAnalysisProcessor();
     proc._audioClient = stubClient();
     setBands({ kick: 0.9 });
-    const node = { id: 'a', kind: 'Audio', params: { channel: 'kickTrig' }, inputs: [] };
+    const node = { id: 'a', kind: 'AudioValue', params: { channel: 'kickTrig' }, inputs: [] };
     proc.update(makeGraph([node]), { time: 0, now: 0, uniformManager: makeUniformManager(['a']) });
-    expect(proc._state.has('a')).toBe(true);
+    expect(proc._tapState).not.toBeNull();
 
     const other = { id: 'x', kind: 'Time', params: {}, inputs: [] };
     proc.update(makeGraph([other]), { time: 0.016, now: 0.016, uniformManager: makeUniformManager([]) });
-    expect(proc._state.has('a')).toBe(false);
+    expect(proc._tapState).toBeNull();
   });
 });

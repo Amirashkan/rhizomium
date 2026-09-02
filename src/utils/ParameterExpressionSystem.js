@@ -537,14 +537,14 @@ buildEvaluationContext(context, node, paramName = null) {
    */
   _liveInputNodeValue(node) {
     const kind = node?.kind?.toLowerCase();
-    if (kind !== 'time' && kind !== 'mouse' && kind !== 'audio' && kind !== 'wave') {
+    if (kind !== 'time' && kind !== 'mouse' && kind !== 'audiovalue' && kind !== 'wave') {
       return undefined;
     }
 
     // An Audio node is driven by the live audio signal, not by graph computation, and its value is
     // advanced every frame on the CPU by AudioAnalysisProcessor — so it resolves to that live
     // number rather than to the throttled preview value.
-    if (kind === 'audio') {
+    if (kind === 'audiovalue') {
       return typeof node.__audio_value === 'number' ? node.__audio_value : 0;
     }
 

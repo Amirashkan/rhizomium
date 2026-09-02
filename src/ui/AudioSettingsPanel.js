@@ -23,9 +23,7 @@ import {
   updateAudioAnalysisSettings,
 } from '../audio/audioAnalysisSettings.js';
 import {
-  AUDIO_INSTRUMENTS,
   AUDIO_TAP_LABELS,
-  audioChannelInstrument,
   getAudioTapValues,
   setAudioTapsWanted,
 } from '../audio/audioAnalysisTaps.js';
@@ -103,6 +101,8 @@ export class AudioSettingsPanel {
         this._loop = true;
         this._loadError = null;
         this._seeking = false;
+        // One re-read per control, run on the refresh tick.
+        this._settingSyncs = [];
 
         try {
             this.audioClient = getBrowserAudioCapture();
@@ -159,13 +159,19 @@ export class AudioSettingsPanel {
                 </section>
 
                 <section class="rzap-sec">
-                    <div class="rzap-sec-title">Meter Shape</div>
+                    <div class="rzap-sec-title">
+                        Meter Shape
+                        <span id="audio-setup-note" class="rzap-hint"></span>
+                    </div>
                     <p class="rzap-note">
                         Shared by every audio node: how sharply a meter rises on a transient and how
                         long a hit stays readable. Changes what the meters look like, which is what a
                         threshold is then set against.
                     </p>
                     <div id="audio-shape"></div>
+                    <button id="audio-add-setup" class="rzap-btn rzap-add-setup" hidden>
+                        + Audio node — to MIDI-map these
+                    </button>
                 </section>
 
                 <section class="rzap-sec">
@@ -203,10 +209,51 @@ export class AudioSettingsPanel {
         this.cleanupDraggable = makeDraggable(this.panel, this.panel.querySelector('.rzap-head'));
     }
 
-    /** Attack / Release / Gain, straight onto the shared settings. */
+    /**
+     * The Audio node the patch keeps its analysis settings on, if it has one.
+     *
+     * The panel edits THAT node rather than a second copy of the same numbers: they are node
+     * parameters so they can be MIDI-mapped and saved with the patch, and two sources for one
+     * engine is exactly the bug this whole arrangement replaced. With no such node, the sliders
+     * edit the stored defaults instead — a patch that never needs to automate its thresholds never
+     * needs the node.
+     */
+    _setupNode() {
+        return (window.editor?.graph?.nodes || []).find((n) => n?.kind === 'Audio') || null;
+    }
+
+    /** A setting's current value: off the setup node when there is one, else the stored default. */
+    _setting(name) {
+        const node = this._setupNode();
+        // The resolved number the processor last decided on, so a setting driven by `=midi` reads
+        // as what it actually evaluated to rather than as its text.
+        const resolved = node?.__audio_settings?.[name];
+        if (typeof resolved === 'number') return resolved;
+        const raw = node?.params?.[name];
+        if (typeof raw === 'number') return raw;
+        return getAudioAnalysisSettings()[name];
+    }
+
+    /** Write a setting where it lives, and report what it ended up as. */
+    _setSetting(name, value) {
+        const node = this._setupNode();
+        if (!node) return updateAudioAnalysisSettings({ [name]: value })[name];
+
+        node.params = node.params || {};
+        node.params[name] = value;
+        // Keep the stored defaults in step, so deleting the node does not lose the dial-in and a
+        // patch opened without one starts where this one left off.
+        updateAudioAnalysisSettings({ [name]: value });
+        window.editor?.markDirty?.('audio-setting');
+        if (window.editor?.paramPanel?.selectedNode?.id === node.id) {
+            window.editor.paramPanel.showNodeParameters(node);
+        }
+        return value;
+    }
+
+    /** Attack / Release / Gain. */
     _buildShapeSliders(host) {
         if (!host) return;
-        const settings = getAudioAnalysisSettings();
 
         for (const spec of SHAPE_SLIDERS) {
             const row = document.createElement('label');
@@ -221,12 +268,16 @@ export class AudioSettingsPanel {
             const show = (v) => {
                 readout.textContent = `${spec.step < 1 ? v.toFixed(2) : Math.round(v)}${spec.unit}`;
             };
-            input.value = String(settings[spec.name]);
-            show(settings[spec.name]);
+            const sync = () => {
+                const value = this._setting(spec.name);
+                if (document.activeElement !== input) input.value = String(value);
+                show(value);
+            };
+            sync();
             input.addEventListener('input', () => {
-                const applied = updateAudioAnalysisSettings({ [spec.name]: parseFloat(input.value) });
-                show(applied[spec.name]);
+                show(this._setSetting(spec.name, parseFloat(input.value)));
             });
+            this._settingSyncs.push(sync);
             host.appendChild(row);
         }
     }
@@ -234,7 +285,6 @@ export class AudioSettingsPanel {
     /** One block per group: the drum's threshold, then its channel rows. */
     _buildChannelRows(host) {
         if (!host) return;
-        const settings = getAudioAnalysisSettings();
         this._rows = new Map();
         this._marks = new Map();
 
@@ -248,7 +298,7 @@ export class AudioSettingsPanel {
             block.appendChild(title);
 
             if (group.instrument) {
-                block.appendChild(this._buildThresholdSlider(group.instrument, settings));
+                block.appendChild(this._buildThresholdSlider(group.instrument));
             }
 
             for (const channel of group.channels) {
@@ -259,18 +309,19 @@ export class AudioSettingsPanel {
     }
 
     /**
-     * A drum's threshold: where the rows below preview at, and what a newly deployed tap starts
-     * with. Once deployed, the tap owns its own Threshold — a node parameter, so it can be
-     * MIDI-mapped or given an expression like any other — and the markers on the meter row follow
-     * those instead. This is where a threshold is FOUND (against a meter you can watch); the node
-     * is where it then lives.
+     * A drum's threshold, set here against the meter it is compared to — which is the only way one
+     * is ever found: put it above where the meter idles between hits and below where it peaks on
+     * one, and watch the marker on the row below.
+     *
+     * It writes to the patch's Audio node when there is one, where it is a MIDI-mappable parameter;
+     * otherwise to the stored defaults.
      */
-    _buildThresholdSlider(instrument, settings) {
+    _buildThresholdSlider(instrument) {
         const key = `${instrument}Thresh`;
         const row = document.createElement('label');
         row.className = 'rzap-slider is-thresh';
-        row.title = 'Where new nodes for this drum start. A deployed node carries its own '
-            + 'Threshold, which can be MIDI-mapped or driven by an expression.';
+        row.title = 'Where this drum decides a hit has landed. On an Audio node it is an ordinary '
+            + 'parameter: MIDI-mappable, and driveable by an expression.';
         row.innerHTML = `
             <span class="rzap-slider-label">Threshold</span>
             <input type="range" min="0" max="1" step="0.01">
@@ -279,13 +330,20 @@ export class AudioSettingsPanel {
         const input = row.querySelector('input');
         const readout = row.querySelector('.rzap-slider-value');
         const show = (v) => { readout.textContent = v.toFixed(2); };
-        input.value = String(settings[key]);
-        show(settings[key]);
+        const sync = () => {
+            const value = this._setting(key);
+            // Never fight the hand on the slider — but a knob mapped to this threshold moves it
+            // between drags, and the panel has to follow.
+            if (document.activeElement !== input) input.value = String(value);
+            show(value);
+            this._placeMark(instrument, value);
+        };
+        sync();
         input.addEventListener('input', () => {
-            const applied = updateAudioAnalysisSettings({ [key]: parseFloat(input.value) });
-            show(applied[key]);
+            show(this._setSetting(key, parseFloat(input.value)));
             this._syncMarks(instrument);
         });
+        this._settingSyncs.push(sync);
         return row;
     }
 
@@ -295,7 +353,7 @@ export class AudioSettingsPanel {
         row.className = 'rzap-row';
         row.dataset.channel = channel;
         row.innerHTML = `
-            <button class="rzap-add" title="Add an Audio node for ${label}">+</button>
+            <button class="rzap-add" title="Add an Audio Value node for ${label}">+</button>
             <span class="rzap-row-name">${label}</span>
             <span class="rzap-bar"><i class="rzap-bar-fill"></i><span class="rzap-bar-marks"></span></span>
             <span class="rzap-row-value">0.000</span>
@@ -320,56 +378,70 @@ export class AudioSettingsPanel {
     }
 
     /**
-     * Draw this drum's thresholds on its meter.
+     * Say where these settings are being kept, and offer the node when they are not on one.
      *
-     * With taps deployed, the markers are THEIR thresholds — so a knob mapped to a tap's Threshold
-     * is a line sliding across the meter it is being set against, which is the only way to see
-     * whether a mapping is aimed anywhere useful. With none deployed there is nothing live to show,
-     * so the marker falls back to the panel's default: where the next one would start.
+     * The difference matters the moment you want a knob on a threshold: on the stored defaults it
+     * is a panel slider and nothing else, on an Audio node it is a parameter like any other and
+     * MIDI learn, expressions, undo and the save file all reach it.
+     */
+    _syncSetupNote() {
+        const node = this._setupNode();
+        const note = this.panel.querySelector('#audio-setup-note');
+        const add = this.panel.querySelector('#audio-add-setup');
+        note.textContent = node ? `on Audio #${node.id}` : 'not on a node yet';
+        add.hidden = !!node;
+    }
+
+    /**
+     * Put an Audio node in the patch, carrying the settings as they stand.
+     *
+     * Seeded from the current values rather than from the defaults: the point of adding one is
+     * usually to automate a threshold that has already been dialled in against the meters.
+     */
+    addSetupNode() {
+        const editor = window.editor;
+        if (!editor?.createNode) {
+            window.updateStatus?.('Editor not ready', 'error');
+            return null;
+        }
+        const existing = this._setupNode();
+        if (existing) return existing;
+
+        const { x, y } = this._deployPosition(editor);
+        const node = editor.createNode('Audio', x - 220, y);
+        if (!node) return null;
+
+        node.params = { ...node.params, ...getAudioAnalysisSettings() };
+        editor.markDirty?.('audio-setup-added');
+        editor.safeDraw?.();
+        this._syncSetupNote();
+        window.updateStatus?.('Added Audio node — its thresholds can be MIDI-mapped');
+        return node;
+    }
+
+    /**
+     * Draw this drum's threshold on its meter — the line a hit has to cross, against the signal it
+     * is compared to. A knob mapped to the threshold slides it across the meter, which is the only
+     * way to see whether the mapping is aimed anywhere useful.
      */
     _syncMarks(instrument) {
+        this._placeMark(instrument, this._setting(`${instrument}Thresh`));
+    }
+
+    /** Position (creating on first use) the marker on this drum's meter row. */
+    _placeMark(instrument, threshold) {
         const host = this._marks?.get(instrument);
         if (!host) return;
-
-        const deployed = this._deployedThresholds(instrument);
-        const values = deployed.length
-            ? deployed
-            : [getAudioAnalysisSettings()[`${instrument}Thresh`]];
-
-        // Reuse the elements rather than rebuilding the row every frame: this runs on the refresh
-        // tick, and the marker count only changes when a node is added or removed.
-        while (host.children.length > values.length) host.lastChild.remove();
-        while (host.children.length < values.length) {
+        if (!host.firstChild) {
             const mark = document.createElement('i');
             mark.className = 'rzap-bar-mark';
             host.appendChild(mark);
         }
-        values.forEach((value, i) => {
-            const mark = host.children[i];
-            mark.style.left = `${Math.min(1, Math.max(0, value)) * 100}%`;
-            mark.classList.toggle('is-default', deployed.length === 0);
-        });
-    }
-
-    /** The live threshold of every deployed tap on this drum, de-duplicated. */
-    _deployedThresholds(instrument) {
-        const nodes = window.editor?.graph?.nodes || [];
-        const seen = new Set();
-        for (const node of nodes) {
-            if (node?.kind !== 'Audio') continue;
-            if (audioChannelInstrument(node.params?.channel) !== instrument) continue;
-            // The resolved number the processor last decided on — which is what an expression or a
-            // MIDI-mapped threshold actually evaluated to this frame, not the string in the field.
-            const live = typeof node.__audio_threshold === 'number'
-                ? node.__audio_threshold
-                : parseFloat(node.params?.threshold);
-            seen.add(Number.isFinite(live) ? Math.min(1, Math.max(0, live)) : 0.5);
-        }
-        return [...seen].sort((a, b) => a - b);
+        host.firstChild.style.left = `${Math.min(1, Math.max(0, threshold)) * 100}%`;
     }
 
     /**
-     * Drop an Audio node for one channel into the middle of the view.
+     * Drop an Audio Value node for one channel into the middle of the view.
      *
      * Named after the channel, and stacked rather than piled: deploying four taps in a row should
      * read as a rack of four labelled floats, not as one node with three hidden underneath it.
@@ -382,17 +454,11 @@ export class AudioSettingsPanel {
         }
 
         const { x, y } = this._deployPosition(editor);
-        const node = editor.createNode('Audio', x, y);
+        const node = editor.createNode('AudioValue', x, y);
         if (!node) return null;
 
         node.params = node.params || {};
         node.params.channel = channel;
-        // Hand the tap the threshold currently set against the meter, then let go of it: from here
-        // the number lives on the node, where it can be MIDI-mapped or given an expression.
-        const instrument = audioChannelInstrument(channel);
-        if (instrument) {
-            node.params.threshold = getAudioAnalysisSettings()[`${instrument}Thresh`];
-        }
         const label = AUDIO_TAP_LABELS[channel] || channel;
         node.name = normalizeNodeName(label, node);
         this._deployed += 1;
@@ -485,6 +551,9 @@ export class AudioSettingsPanel {
             this._syncTransport();
         });
 
+        this.panel.querySelector('#audio-add-setup')
+            .addEventListener('click', () => this.addSetupNode());
+
         loopBtn.addEventListener('click', () => {
             this._loop = !this._loop;
             if (this.audioClient?.audioElement) this.audioClient.audioElement.loop = this._loop;
@@ -544,7 +613,10 @@ export class AudioSettingsPanel {
             row.value.textContent = value.toFixed(3);
         }
 
-        for (const instrument of AUDIO_INSTRUMENTS) this._syncMarks(instrument);
+        // A setting can move without the panel: a knob mapped to a threshold, an expression on one,
+        // the setup node being added, edited or deleted. Every control here reads it back.
+        for (const sync of this._settingSyncs) sync();
+        this._syncSetupNote();
         this._syncTransport();
     }
 
@@ -766,6 +838,7 @@ export class AudioSettingsPanel {
                 background: var(--rz-accent-14); color: var(--rz-accent);
                 border-color: var(--rz-accent-30);
             }
+            .rzap-add-setup { width: 100%; margin-top: 8px; color: var(--rz-text-2); }
             .rzap-btn.is-toggle { flex: 0 0 auto; padding: 6px 9px; color: var(--rz-text-3); }
             .rzap-btn.is-toggle.is-on {
                 color: var(--rz-accent); border-color: var(--rz-accent-30);

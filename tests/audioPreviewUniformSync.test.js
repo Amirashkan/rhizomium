@@ -30,7 +30,7 @@ describe('Audio live values sync into a fragment preview', () => {
   }
 
   it('overwrites <id>.value with the live node value', () => {
-    const audio = { id: '27', kind: 'Audio', params: { channel: 'level' }, __audio_value: 0.63 };
+    const audio = { id: '27', kind: 'AudioValue', params: { channel: 'level' }, __audio_value: 0.63 };
     setupGraph(audio);
 
     // Preview snapshot compiled with defaults (0), plus an unrelated uniform that must be untouched.
@@ -52,7 +52,7 @@ describe('Audio live values sync into a fragment preview', () => {
   });
 
   it('hash changes when the referenced value moves', () => {
-    const audio = { id: '27', kind: 'Audio', params: { channel: 'level' }, __audio_value: 0.2 };
+    const audio = { id: '27', kind: 'AudioValue', params: { channel: 'level' }, __audio_value: 0.2 };
     // A Circle whose radius references the audio node.
     const circle = { id: '30', kind: 'Circle', params: { radius: '=node_27' } };
     const nodes = [audio, circle];

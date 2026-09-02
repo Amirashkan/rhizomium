@@ -66,11 +66,11 @@ describe('Audio panel', () => {
     }
   });
 
-  it('deploys an Audio node for the channel whose button was pressed', () => {
+  it('deploys an Audio Value node for the channel whose button was pressed', () => {
     rowFor(panel, 'kickTrig').querySelector('.rzap-add').click();
 
     const node = window.editor.nodes.at(-1);
-    expect(node.kind).toBe('Audio');
+    expect(node.kind).toBe('AudioValue');
     expect(node.params.channel).toBe('kickTrig');
     // Named after the channel: a rack of taps has to be readable on the canvas.
     expect(node.name).toBe('Kick Trigger');
@@ -132,40 +132,53 @@ describe('Audio panel', () => {
     expect(mark.style.left).toBe('75%');
   });
 
-  it('hands a deployed trigger node the threshold currently set against the meter', () => {
+  it('deploys a reader with no threshold of its own', () => {
+    // The drums are thresholded once, on the Audio node; a reader just names a channel.
+    rowFor(panel, 'kickTrig').querySelector('.rzap-add').click();
+    expect(window.editor.nodes.at(-1).params.threshold).toBeUndefined();
+  });
+
+  it('writes the thresholds to the Audio node when the patch has one', () => {
+    // This is what the whole split is for: on a node, the threshold is a parameter MIDI can reach.
+    const setup = { id: '9', kind: 'Audio', params: {} };
+    window.editor.nodes.push(setup);
+
     const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
     slider.value = '0.62';
     slider.dispatchEvent(new Event('input'));
 
-    rowFor(panel, 'kickTrig').querySelector('.rzap-add').click();
-    // From here the number lives on the node, where it can be MIDI-mapped.
-    expect(window.editor.nodes.at(-1).params.threshold).toBeCloseTo(0.62);
+    expect(setup.params.kickThresh).toBeCloseTo(0.62);
   });
 
-  it('leaves a channel that takes no threshold without one', () => {
-    rowFor(panel, 'level').querySelector('.rzap-add').click();
-    expect(window.editor.nodes.at(-1).params.threshold).toBeUndefined();
-  });
-
-  it('marks the meter with the deployed nodes’ live thresholds, not the panel default', () => {
-    const marks = () => [...rowFor(panel, 'kickMeter').querySelectorAll('.rzap-bar-mark')]
-      .map((m) => ({ left: m.style.left, isDefault: m.classList.contains('is-default') }));
-
-    // Nothing deployed: one dim marker, showing where the next one would start.
+  it('offers the Audio node while the settings are not on one, and stops once they are', () => {
     panel.show();
-    expect(marks()).toEqual([{ left: '50%', isDefault: true }]);
+    expect(panel.panel.querySelector('#audio-add-setup').hidden).toBe(false);
+    expect(panel.panel.querySelector('#audio-setup-note').textContent).toContain('not on a node');
 
-    // Two taps at different thresholds — including one resolved from an expression this frame.
-    window.editor.nodes.push(
-      { id: '9', kind: 'Audio', params: { channel: 'kickTrig', threshold: 0.8 } },
-      { id: '10', kind: 'Audio', params: { channel: 'kick', threshold: '=midi' }, __audio_threshold: 0.25 },
-    );
+    panel.addSetupNode();
     panel._refresh();
 
-    expect(marks()).toEqual([
-      { left: '25%', isDefault: false },
-      { left: '80%', isDefault: false },
-    ]);
+    const setup = window.editor.nodes.find((n) => n.kind === 'Audio');
+    expect(setup).toBeTruthy();
+    // Seeded with the values as they stand: adding one is usually about automating a threshold
+    // that has already been dialled in.
+    expect(setup.params.kickThresh).toBeCloseTo(0.5);
+    expect(panel.panel.querySelector('#audio-add-setup').hidden).toBe(true);
+    expect(panel.panel.querySelector('#audio-setup-note').textContent).toContain(`#${setup.id}`);
+  });
+
+  it('marks each drum’s meter with the threshold actually being decided on', () => {
+    const mark = () => rowFor(panel, 'kickMeter').querySelector('.rzap-bar-mark')?.style.left;
+
+    panel.show();
+    expect(mark()).toBe('50%');
+
+    // A setup node whose threshold resolved to 0.25 this frame — an expression, or a knob.
+    window.editor.nodes.push({
+      id: '9', kind: 'Audio', params: { kickThresh: '=midi' }, __audio_settings: { kickThresh: 0.25 },
+    });
+    panel._refresh();
+    expect(mark()).toBe('25%');
   });
 
   it('warns that every channel reads 0 while nothing is playing', () => {

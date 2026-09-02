@@ -215,7 +215,7 @@ export class CountNodeProcessor {
         return typeof node.__countValue === 'number' ? node.__countValue : 0;
 
 
-      case 'Audio':
+      case 'AudioValue':
         // One channel of the live analysis, chosen by the node's Channel parameter and written
         // every frame by AudioAnalysisProcessor.
         return typeof node.__audio_value === 'number' ? node.__audio_value : 0;

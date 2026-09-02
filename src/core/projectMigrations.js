@@ -5,7 +5,7 @@
 // validation - so adding a new format version only requires bumping
 // SAVE_FORMAT_VERSION and adding a migration step here.
 
-export const SAVE_FORMAT_VERSION = 8;
+export const SAVE_FORMAT_VERSION = 9;
 
 // Kinds whose multiple channel output pins (RGBA/RGB/R/G/B/A) were collapsed
 // into a single Color output in v4. A node kind is considered collapsed when it
@@ -55,12 +55,18 @@ const LEGACY_AUDIO_PIN_LABELS = {
   centroid: "Brightness", density: "Noisiness",
 };
 
-/** The old per-drum threshold parameter a converted channel should inherit, if any. */
-function legacyThresholdParam(channel) {
+/** The drum a channel is decided on, or null for one that takes no threshold. */
+function legacyThresholdDrum(channel) {
   for (const drum of ["kick", "snare", "hat"]) {
-    if (channel === drum || channel === `${drum}Trig`) return `${drum}Thresh`;
+    if (channel === drum || channel === `${drum}Trig`) return drum;
   }
   return null;
+}
+
+/** The old per-drum threshold parameter a converted channel should inherit, if any. */
+function legacyThresholdParam(channel) {
+  const drum = legacyThresholdDrum(channel);
+  return drum === null ? null : `${drum}Thresh`;
 }
 
 /**
@@ -410,6 +416,98 @@ const migrations = {
       connections: nextConnections,
       midiBindings: retargetBindings(data.midiBindings),
       oscBindings: retargetBindings(data.oscBindings),
+    };
+  },
+
+  // v8 -> v9: the audio node split in two — `AudioValue` reads one channel, `Audio` carries the
+  // analysis's settings.
+  //
+  // v8 gave each channel-reading node its own Threshold, which made one drum's decision a
+  // per-node affair and left the shaping (attack/release/gain) on a panel slider that no
+  // controller could reach. Both are settings of the one analysis engine, so they belong together
+  // on one node, where they are ordinary parameters: MIDI-mappable, expression-driven, undoable,
+  // saved with the patch.
+  //
+  // A v8 `Audio` node is identified by its `channel` parameter — the setup node has none — and
+  // becomes an `AudioValue`. Any thresholds those nodes carried are gathered onto a single new
+  // setup node (per drum, the tightest one wins: it is the one that was dialled in, and a looser
+  // sibling would have been firing on everything). MIDI/OSC bindings on a converted node's
+  // threshold follow it there.
+  8: (data) => {
+    const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+    const taps = nodes.filter((n) => n?.kind === "Audio" && n?.params?.channel !== undefined);
+    if (taps.length === 0) return data;
+
+    // Per drum: the tightest threshold any of its nodes was using, and where it came from.
+    const thresholds = {};
+    const sources = new Map(); // "oldId.threshold" -> drum
+    for (const tap of taps) {
+      const drum = legacyThresholdDrum(tap.params.channel);
+      if (drum === null) continue;
+      const value = tap.params.threshold;
+      sources.set(`${tap.id}.threshold`, drum);
+      if (value === undefined) continue;
+      const current = thresholds[drum];
+      // An expression wins outright: it is the most deliberate thing anyone put there, and picking
+      // between two of them by value is not possible.
+      if (typeof value === "string") {
+        if (typeof current !== "string") thresholds[drum] = value;
+      } else if (typeof current !== "string"
+        && (current === undefined || Number(value) > Number(current))) {
+        thresholds[drum] = value;
+      }
+    }
+
+    let nextId = nodes.reduce((max, n) => {
+      const num = Number.parseInt(n?.id, 10);
+      return Number.isFinite(num) && num > max ? num : max;
+    }, 0);
+
+    const converted = nodes.map((node) => {
+      if (node?.kind !== "Audio" || node?.params?.channel === undefined) return node;
+      const params = { ...node.params };
+      delete params.threshold;
+      return { ...node, kind: "AudioValue", params };
+    });
+
+    // Only worth a node if something was actually dialled in; otherwise the stored defaults still
+    // hold and the patch stays as small as it was.
+    const carried = Object.keys(thresholds);
+    let setupId = null;
+    if (carried.length > 0) {
+      const anchor = taps[0];
+      const position = anchor.position || { x: anchor.x || 0, y: anchor.y || 0 };
+      setupId = String(++nextId);
+      const params = {};
+      for (const [drum, value] of Object.entries(thresholds)) params[`${drum}Thresh`] = value;
+      converted.push({
+        id: setupId,
+        kind: "Audio",
+        position: { x: (position.x || 0) - 220, y: position.y || 0 },
+        size: { width: 180, height: 60 },
+        inputs: [],
+        name: "Audio Setup",
+        params,
+      });
+    }
+
+    const retarget = (section) => {
+      if (!section || !Array.isArray(section.bindings)) return section;
+      return {
+        ...section,
+        bindings: section.bindings.map((binding) => {
+          const drum = sources.get(`${binding?.nodeId}.${binding?.paramName}`);
+          if (!drum || !setupId) return binding;
+          return { ...binding, nodeId: setupId, paramName: `${drum}Thresh` };
+        }),
+      };
+    };
+
+    return {
+      ...data,
+      nodes: converted,
+      midiBindings: retarget(data.midiBindings),
+      oscBindings: retarget(data.oscBindings),
     };
   },
 };

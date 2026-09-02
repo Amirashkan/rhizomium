@@ -8,7 +8,6 @@ import { WAVE_SHAPES, DEFAULT_WAVE_SHAPE } from '../../core/waveform.js';
 import {
   AUDIO_TAP_CHANNELS,
   AUDIO_TAP_LABELS,
-  AUDIO_THRESHOLD_CHANNELS,
   DEFAULT_AUDIO_TAP_CHANNEL,
 } from '../../audio/audioAnalysisTaps.js';
 
@@ -196,22 +195,73 @@ export const InputNodes = {
     cat: "Input",
     inputs: 0,
     pinsIn: [],
-    pinsOut: [{ label: "out", type: "f32" }],
-    // One channel of the live audio analysis, as a single float. THE audio node: the one the Audio
-    // panel deploys when you press ＋ next to a meter, and the one you add by hand.
+    // No outputs on purpose: this node is the SETUP, not a signal.
+    pinsOut: [],
+    // The analysis's controls, as node parameters.
     //
-    // It replaced an all-in-one node carrying fifteen output pins and every setting the analysis
-    // has. That node was the wrong shape twice over: a patch using two of its pins still dragged
-    // the other thirteen across the canvas, and its copies of the shaping settings fought over the
-    // one engine that actually exists (see audio/audioAnalysisSettings.js). One node, one channel,
-    // one number — and the panel to find them in. Patches saved with the old node are converted on
-    // load, one of these per pin they actually used (see core/graphHydration.js).
+    // There is one analysis engine behind the whole patch, so these are one set of numbers however
+    // many Audio Value nodes read them (audio/audioAnalysisSettings.js holds them when no node
+    // does). What a node gives them that a panel slider cannot is everything a parameter gets:
+    // MIDI learn, expressions (`=midi`, `=midi * 0.6 + 0.2`), undo, and travelling with the patch.
+    // A threshold is the number a live set is spent dialling in, so it has to be reachable from a
+    // knob — that is the whole reason this node exists.
+    //
+    // One of these owns the settings; the panel's sliders edit it rather than a second copy. With
+    // none in the patch the panel edits the stored defaults instead, so a patch that never needed
+    // to automate its thresholds never needs the node either.
+    params: [
+      // One threshold per drum, each on its own 0..1 meter. Set each ABOVE where its meter idles
+      // between hits and BELOW where it peaks on one — which is what the panel's meters are for.
+      // Under the idle level the trigger stays permanently held open, which produces FEWER triggers
+      // rather than more.
+      { name: "kickThresh", type: "float", default: 0.5, min: 0, max: 1, label: "Kick Thresh", group: "Triggers" },
+      { name: "snareThresh", type: "float", default: 0.5, min: 0, max: 1, label: "Snare Thresh", group: "Triggers" },
+      { name: "hatThresh", type: "float", default: 0.5, min: 0, max: 1, label: "Hat Thresh", group: "Triggers" },
+      // Shape of every meter. Attack short enough to catch a transient, release long enough that
+      // the hit stays visible for a few frames. These change what the meters LOOK like, which in
+      // turn changes what a threshold has to be set to — they are not a second detector, so they
+      // are set once and left alone, and start collapsed.
+      { name: "attack", type: "float", default: 8.0, min: 1, max: 200, label: "Attack (ms)", group: "Meter Shape", groupCollapsed: true },
+      { name: "release", type: "float", default: 120.0, min: 1, max: 2000, label: "Release (ms)", group: "Meter Shape" },
+      // Manual trim on top of the automatic gain, for material the auto-gain lands badly.
+      { name: "gain", type: "float", default: 1.0, min: 0, max: 8, label: "Gain", group: "Meter Shape" },
+      // A threshold is only findable by watching the meter it is compared against, and the meters
+      // are in the panel — so the node carries the way there rather than leaving you to hunt
+      // through the Tools menu with the node selected.
+      {
+        name: "panel",
+        type: "button",
+        displayName: "Open Audio Setup…",
+        action: "openAudioPanel",
+        description: "The source, the live meters, and the ＋ that adds nodes reading them",
+        group: "Meter Shape",
+      },
+    ],
+  },
+
+  AudioValue: {
+    label: "Audio Value",
+    cat: "Input",
+    inputs: 0,
+    pinsIn: [],
+    pinsOut: [{ label: "out", type: "f32" }],
+    // One channel of the live audio analysis, as a single float.
+    //
+    // Added from the Audio panel — press ＋ next to the meter you want — rather than from the node
+    // palette, which is why it is `hidden` here. A channel is chosen by watching it move, and the
+    // panel is the only place that shows fifteen of them at once; picking one blind from a dropdown
+    // and then hunting for the panel to see whether it was the right one is the long way round.
+    //
+    // It carries no threshold of its own: the drums are thresholded once, for the whole patch, on
+    // the Audio node above. Two nodes reading `kickTrig` are two views of one kick and fire on the
+    // same frame.
     //
     // The analysis has memory across frames (the meters' followers, each trigger's armed state),
     // which a fragment shader has none of, so the value is computed on the CPU in
     // AudioAnalysisProcessor and arrives as a per-frame uniform. The uniform's name does not depend
     // on the channel, so switching channels is a different number in the same slot rather than a
     // shader rebuild.
+    hidden: true,
     params: [
       {
         name: "channel",
@@ -220,33 +270,12 @@ export const InputNodes = {
         default: DEFAULT_AUDIO_TAP_CHANNEL,
         label: "Channel",
       },
-      // Where this tap decides a hit has landed, on its own drum's 0..1 meter. It is a parameter on
-      // the NODE rather than a panel setting so it is a first-class control like any other: MIDI-
-      // mappable, expression-capable (`=midi`, `=midi * 0.6 + 0.2`), undoable, and saved with the
-      // patch. The panel's slider sets what a freshly deployed tap starts at; from then on the tap
-      // owns it, and the panel draws it as a marker on that drum's meter so a knob sweep is visible
-      // against the signal it is being set against.
-      //
-      // Meaningless on the continuous channels and on a `*Meter` — a meter is what a threshold is
-      // compared TO — so it dims itself there rather than sitting live and doing nothing.
-      {
-        name: "threshold",
-        type: "float",
-        default: 0.5,
-        min: 0,
-        max: 1,
-        label: "Threshold",
-        activeWhen: { channel: AUDIO_THRESHOLD_CHANNELS },
-      },
-      // The meters live in the panel, and a threshold is only findable by watching one, so the node
-      // carries the way back to it rather than leaving you to hunt through the Tools menu with the
-      // node selected.
       {
         name: "panel",
         type: "button",
         displayName: "Open Audio Setup…",
         action: "openAudioPanel",
-        description: "The source, the live meters, and the meter shaping — shared by every audio node",
+        description: "The source, the live meters, and the thresholds these channels are decided on",
       },
     ],
   },

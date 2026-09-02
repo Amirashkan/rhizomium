@@ -343,7 +343,7 @@ export class PreviewComputer {
       break;
     }
 
-    case "Audio": {
+    case "AudioValue": {
       // One channel of the live analysis, advanced every frame on the CPU by
       // AudioAnalysisProcessor (which channel is the node's Channel parameter).
       result = typeof node.__audio_value === 'number' ? node.__audio_value : 0.0;
@@ -2087,7 +2087,7 @@ _renderOutputThumbnail(ctx, size, color, node) {
       // serve a stale cached value, freezing the numeric preview and any =node_<id> readout while
       // the GPU output keeps reacting. Force it (and its dependents, e.g. a downstream Remap)
       // dirty whenever its live value moves.
-      if (node.kind === 'Audio') {
+      if (node.kind === 'AudioValue') {
         const live = typeof node.__audio_value === 'number' ? node.__audio_value : 0;
         if (this.lastComputedValues.get(node.id) !== live) {
           this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);

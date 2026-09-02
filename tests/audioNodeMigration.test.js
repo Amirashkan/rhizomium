@@ -28,7 +28,10 @@ const analysis = (params = {}) => ({
   params: { kickThresh: 0.62, snareThresh: 0.4, hatThresh: 0.5, attack: 12, ...params },
 });
 
-const audioNodes = (result) => result.nodes.filter((n) => n.kind === 'Audio');
+// After the whole chain: the channel readers are AudioValue, and whatever thresholds they carried
+// have been gathered onto one Audio setup node.
+const audioNodes = (result) => result.nodes.filter((n) => n.kind === 'AudioValue');
+const setupNode = (result) => result.nodes.find((n) => n.kind === 'Audio');
 
 describe('converting an Audio Analysis node to Audio nodes', () => {
   it('leaves a project without one alone', () => {
@@ -48,8 +51,11 @@ describe('converting an Audio Analysis node to Audio nodes', () => {
     const audio = audioNodes(result);
     expect(audio).toHaveLength(1);
     expect(audio[0].id).toBe('28');
-    expect(audio[0].params).toEqual({ channel: 'kick', threshold: 0.62 });
+    // The threshold is no longer the reader's: it moved to the setup node with the rest of the
+    // analysis's settings, where a controller can reach it.
+    expect(audio[0].params).toEqual({ channel: 'kick' });
     expect(audio[0].name).toBe('Kick');
+    expect(setupNode(result).params.kickThresh).toBeCloseTo(0.62);
     // Reusing the id is what lets a single-pin patch migrate without touching its wiring.
     expect(result.connections).toEqual([{ from: { nodeId: '28', pin: 0 }, to: { nodeId: '9', pin: 0 } }]);
   });
@@ -83,7 +89,7 @@ describe('converting an Audio Analysis node to Audio nodes', () => {
     ]);
   });
 
-  it('carries each drum threshold onto the node that decides on it', () => {
+  it('gathers the drum thresholds onto one setup node', () => {
     const result = migrateProjectData(project({
       nodes: [analysis()],
       connections: [
@@ -93,11 +99,13 @@ describe('converting an Audio Analysis node to Audio nodes', () => {
       ],
     }));
 
-    const byChannel = Object.fromEntries(audioNodes(result).map((n) => [n.params.channel, n.params]));
-    expect(byChannel.kickTrig.threshold).toBeCloseTo(0.62);
-    expect(byChannel.snareTrig.threshold).toBeCloseTo(0.4);
-    // A channel that decides nothing carries no threshold at all.
-    expect(byChannel.level.threshold).toBeUndefined();
+    const setup = setupNode(result);
+    expect(setup.params.kickThresh).toBeCloseTo(0.62);
+    expect(setup.params.snareThresh).toBeCloseTo(0.4);
+    // A channel that decides nothing contributes no threshold.
+    expect(setup.params.hatThresh).toBeUndefined();
+    // And no reader keeps one of its own.
+    for (const node of audioNodes(result)) expect(node.params.threshold).toBeUndefined();
   });
 
   it('keeps an expression threshold as the expression it is', () => {
@@ -105,7 +113,7 @@ describe('converting an Audio Analysis node to Audio nodes', () => {
       nodes: [analysis({ kickThresh: '=midi * 0.5' })],
       connections: [{ from: { nodeId: '28', pin: 5 }, to: { nodeId: '9', pin: 0 } }],
     }));
-    expect(audioNodes(result)[0].params.threshold).toBe('=midi * 0.5');
+    expect(setupNode(result).params.kickThresh).toBe('=midi * 0.5');
   });
 
   it('rewrites the references a patch used instead of a wire', () => {
@@ -163,21 +171,42 @@ describe('converting an Audio Analysis node to Audio nodes', () => {
       },
     }));
 
-    const kick = audioNodes(result).find((n) => n.params.channel === 'kickTrig');
+    // The knob that was on the old node's Kick Thresh ends up on the setup node's, through both
+    // conversions, still pointed at the same decision.
+    const setup = setupNode(result);
     expect(result.midiBindings.bindings[0]).toMatchObject({
-      cc: 7, nodeId: kick.id, paramName: 'threshold',
+      cc: 7, nodeId: setup.id, paramName: 'kickThresh',
     });
     // An unrelated binding is left exactly as it was.
     expect(result.midiBindings.bindings[1]).toMatchObject({ nodeId: '9', paramName: 'radius' });
-    expect(result.oscBindings.bindings[0]).toMatchObject({ nodeId: kick.id, paramName: 'threshold' });
+    expect(result.oscBindings.bindings[0]).toMatchObject({ nodeId: setup.id, paramName: 'kickThresh' });
   });
 
-  it('renames the AudioValue kind this node briefly had', () => {
-    const result = migrateProjectData(project({
-      nodes: [{ id: '3', kind: 'AudioValue', inputs: [], params: { channel: 'kick', threshold: 0.7 } }],
-    }));
-    expect(result.nodes[0]).toMatchObject({
-      id: '3', kind: 'Audio', params: { channel: 'kick', threshold: 0.7 },
+  it('carries a v8 patch — channel readers named Audio, each with its own threshold — across', () => {
+    const result = migrateProjectData({
+      ...project({}),
+      version: 8,
+      nodes: [
+        { id: '3', kind: 'Audio', inputs: [], params: { channel: 'kickTrig', threshold: 0.7 } },
+        { id: '4', kind: 'Audio', inputs: [], params: { channel: 'kick', threshold: 0.3 } },
+        { id: '5', kind: 'Audio', inputs: [], params: { channel: 'level' } },
+      ],
     });
+
+    expect(audioNodes(result).map((n) => [n.id, n.params.channel]))
+      .toEqual([['3', 'kickTrig'], ['4', 'kick'], ['5', 'level']]);
+    // Two nodes disagreed about the kick; the tighter one is the one that was dialled in, and a
+    // looser sibling would have been firing on everything.
+    expect(setupNode(result).params.kickThresh).toBeCloseTo(0.7);
+  });
+
+  it('leaves a v8 patch with nothing dialled in without a setup node', () => {
+    const result = migrateProjectData({
+      ...project({}),
+      version: 8,
+      nodes: [{ id: '3', kind: 'Audio', inputs: [], params: { channel: 'level' } }],
+    });
+    expect(setupNode(result)).toBeUndefined();
+    expect(audioNodes(result)).toHaveLength(1);
   });
 });

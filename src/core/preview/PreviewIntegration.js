@@ -185,7 +185,7 @@ updateTimeNodes() {
       // Wave is clock-driven like Time and Random Value — a free-running LFO with nothing wired in —
       // so its readout and downstream consumers belong on this list too.
       return kind === 'time' || kind === 'hold' || kind === 'count' || kind === 'randomvalue'
-        || kind === 'wave' || kind === 'audio' || isTriggerChangeMode(node);
+        || kind === 'wave' || kind === 'audiovalue' || isTriggerChangeMode(node);
     })
     .map(node => node.id);
 
@@ -509,7 +509,7 @@ updateTimeNodes() {
     if (!this._lastAudioValues) this._lastAudioValues = new Map();
     const seenAudio = new Set();
     for (const node of this.editor.graph.nodes) {
-      if (node?.kind?.toLowerCase() !== 'audio') continue;
+      if (node?.kind?.toLowerCase() !== 'audiovalue') continue;
       seenAudio.add(node.id);
       const live = typeof node.__audio_value === 'number' ? node.__audio_value : 0;
       if (this._lastAudioValues.get(node.id) !== live) {

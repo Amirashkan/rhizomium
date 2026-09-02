@@ -10,12 +10,12 @@ describe('Audio live value exposure', () => {
   const es = new ParameterExpressionSystem();
 
   it('exposes the node’s live channel value for the CPU expression context', () => {
-    const node = { id: '28', kind: 'Audio', params: { channel: 'kick' }, __audio_value: 0.8 };
+    const node = { id: '28', kind: 'AudioValue', params: { channel: 'kick' }, __audio_value: 0.8 };
     expect(es._liveInputNodeValue(node)).toBeCloseTo(0.8);
   });
 
   it('reads 0 before the processor has run', () => {
-    expect(es._liveInputNodeValue({ id: '5', kind: 'Audio', params: { channel: 'level' } })).toBe(0);
+    expect(es._liveInputNodeValue({ id: '5', kind: 'AudioValue', params: { channel: 'level' } })).toBe(0);
   });
 
   it('returns undefined for nodes it does not drive', () => {
