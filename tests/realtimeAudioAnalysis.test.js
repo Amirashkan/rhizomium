@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RealtimeAudioAnalysis, BANDS } from '../src/audio/RealtimeAudioAnalysis.js';
+import { RealtimeAudioAnalysis, BANDS, contrastMeter } from '../src/audio/RealtimeAudioAnalysis.js';
 
 // Covers the analysis half: turning a frame of spectrum into bounded 0..1 meters. The detector on
 // top is only as good as these are, and their whole job is to be predictable — a meter that does
@@ -267,5 +267,49 @@ describe('RealtimeAudioAnalysis', () => {
     for (let i = 0; i < 60; i++) a.process(an, 1 / 60);
     a.reset();
     for (const name of Object.keys(BANDS)) expect(a.out.presence[name]).toBe(false);
+  });
+});
+
+// A drum meter is only useful as something to threshold if hits land INSIDE its range. Full scale
+// used to be contrast 8, which measurement showed is where hits already are: a kick against a quiet
+// background idled at ~2 and peaked between 8.4 and 12.8, so every hit hit the clamp, every hit read
+// exactly 1.0, and the threshold became inert — the same six triggers at 0.05 as at 0.95.
+describe('the drum meter has room above where hits land', () => {
+  it('reads nothing while a band sits at its own background', () => {
+    expect(contrastMeter(1)).toBe(0);
+    expect(contrastMeter(0.5)).toBe(0);
+    expect(contrastMeter(0)).toBe(0);
+  });
+
+  it('spreads the range hits actually occupy, instead of flattening it onto the clamp', () => {
+    // The measured span of one kick's peaks.
+    const soft = contrastMeter(8.4);
+    const loud = contrastMeter(12.8);
+    expect(loud).toBeGreaterThan(soft + 0.05);
+    expect(soft).toBeGreaterThan(0.5);
+    expect(loud).toBeLessThan(1);
+    // ...and clear of where the same band idles between hits, so the default threshold of 0.5
+    // still falls between the two.
+    expect(contrastMeter(1.95)).toBeLessThan(0.5);
+    expect(soft).toBeGreaterThan(0.5);
+  });
+
+  it('never reaches 1, however far above its background a band jumps', () => {
+    // Whatever the material, a louder hit has to read louder than a quieter one — the moment two
+    // of them share a value, no threshold can separate them.
+    let previous = 0;
+    for (const contrast of [2, 4, 8, 16, 24, 40, 100, 1000, 1e6]) {
+      const meter = contrastMeter(contrast);
+      expect(meter, `contrast ${contrast}`).toBeGreaterThan(previous);
+      expect(meter, `contrast ${contrast}`).toBeLessThan(1);
+      previous = meter;
+    }
+  });
+
+  it('joins the soft knee without a step', () => {
+    // A hit crossing the knee must not jump; the two halves meet in value and in slope.
+    const below = contrastMeter(2 ** (0.8 * Math.log2(24) - 0.001));
+    const above = contrastMeter(2 ** (0.8 * Math.log2(24) + 0.001));
+    expect(Math.abs(above - below)).toBeLessThan(0.005);
   });
 });

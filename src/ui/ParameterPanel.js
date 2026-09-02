@@ -43,6 +43,15 @@ const EXTERNAL_CONTROL_ICONS = {
   osc: 'wire',
 };
 
+/**
+ * Sources that move a parameter from outside this panel, continuously.
+ *
+ * They get the cheap display path: the field's text is corrected, the expensive refresh waits for
+ * the stream to stop. A field the artist is typing in, and one holding an expression, are both left
+ * alone — see _lightweightExternalValueUpdate.
+ */
+const EXTERNAL_PARAMETER_SOURCES = new Set(['midi', 'osc', 'audio-panel']);
+
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
     this.colorStopInputHandler = new ColorStopInputHandler(undoManager);
@@ -2669,15 +2678,20 @@ _processPreviewUpdate(node) {
     const { node, parameterName, newValue, source } = data;
 
     if (this.selectedNode && this.selectedNode.id === node.id) {
-      // For MIDI sources, use ultra-lightweight updates during active control
-      if (source === 'midi') {
+      // Anything driving a parameter from OUTSIDE this panel, continuously: a MIDI knob, an OSC
+      // message, a slider in the Audio panel. They all need the same thing — the number in the
+      // field kept honest without rebuilding the panel under the artist's cursor — and only the
+      // MIDI one used to get it, so an OSC-driven or panel-driven parameter sat at a stale value
+      // while the node underneath it moved. refreshParameterDisplays() below repaints expression
+      // readouts, not the field itself, which is why the plain number never budged.
+      if (EXTERNAL_PARAMETER_SOURCES.has(source)) {
         // LIGHTWEIGHT: Just update the input text value (no queries, no style changes)
-        this._lightweightMIDIValueUpdate(node.id, parameterName, newValue);
+        this._lightweightExternalValueUpdate(node.id, parameterName, newValue);
 
         // Store pending update data for potential flushing on deselect
         this._pendingMidiUpdate = { node, parameterName, newValue };
 
-        // Debounce expensive operations until MIDI activity stops
+        // Debounce expensive operations until the controller stops moving
         if (this._midiDisplayUpdateTimer) {
           clearTimeout(this._midiDisplayUpdateTimer);
         }
@@ -2710,7 +2724,7 @@ _processPreviewUpdate(node) {
     }
   }
 
-  _lightweightMIDIValueUpdate(nodeId, paramName, newValue) {
+  _lightweightExternalValueUpdate(nodeId, paramName, newValue) {
     // Ultra-lightweight: just update the input.value text, nothing else
     // No DOM queries, no style changes, no validation - just the text
     const key = `${nodeId}_${paramName}`;
@@ -2739,6 +2753,15 @@ _processPreviewUpdate(node) {
         ? Math.round(newValue * 10000) / 10000
         : newValue;
       inputData.input.value = String(displayValue);
+
+      // And the evaluated readout beside it. The field is a textarea — its text is not what the eye
+      // lands on, this "→ 0.5" is — and nothing else refreshes it for a plain number: the debounced
+      // refreshParameterDisplays repaints expression results only. Left out, a threshold moved from
+      // the Audio panel or by a controller showed its new value in the field and its OLD value in
+      // the readout, for the rest of the session.
+      if (inputData.resultDisplay) {
+        inputData.resultDisplay.textContent = `→ ${displayValue}`;
+      }
     }
   }
 

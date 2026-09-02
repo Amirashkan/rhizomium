@@ -56,6 +56,13 @@ is compared against:
 A threshold set under the idle level leaves the trigger permanently held open, which produces
 *fewer* triggers, not more. The meter is what makes that visible.
 
+For a threshold to mean anything, hits have to land *inside* the meter's range. They did not: full
+scale was contrast 8 (a band 8× above its own recent background), and a measured kick idled at ~2
+and peaked between 8.4 and 12.8 — so every hit hit the clamp, every hit read exactly 1.0, and the
+threshold was inert (the same six triggers at 0.05 as at 0.95). Full scale is 24 now, with a soft
+knee above it so nothing ever flattens onto the ceiling: those same peaks land between 0.67 and
+0.80, and a threshold at 0.6 passes the loud kicks while rejecting the soft ones.
+
 ## Where a threshold lives, and how a knob reaches it
 
 The panel's **Threshold** slider is where a threshold is *found* — against the meter it is compared

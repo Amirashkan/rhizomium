@@ -325,12 +325,8 @@ export class AudioSettingsPanel {
             // A listener throwing must not take the slider with it.
         }
         window.saveLoadManager?.markUnsaved?.();
-
-        // The node's own panel, if it is the one on screen. Text only: re-rendering it per pointer
-        // event would tear down and rebuild every field mid-drag.
-        if (editor?.paramPanel?.selectedNode?.id === node.id) {
-            editor.paramPanel.refreshParameterDisplays?.();
-        }
+        // The node's own parameter panel updates itself off that event, on the same cheap path a
+        // MIDI knob takes — the field's text, not a rebuild under the cursor.
     }
 
     /** Attack / Release / Gain. */
