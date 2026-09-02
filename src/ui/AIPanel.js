@@ -32,6 +32,7 @@ import { openExternal } from '../utils/openExternal.js';
 import { isTauri } from '../utils/isTauri.js';
 import { DESKTOP_ORIGIN_HINT, signInToGallery } from './accountSession.js';
 import { entitlements } from '../ai/entitlements.js';
+import { isAIDebugMode, setAIDebugMode } from '../ai/debugMode.js';
 import { runFeature, AIRequestError, GrantError } from '../ai/aiClient.js';
 import {
   buildPatchContext,
@@ -350,10 +351,15 @@ export class AIPanel {
     const scrollTop = body.scrollTop;
     body.textContent = '';
 
-    // Signed out is not an error, but it is the difference between a third of
-    // the free allowance and all of it — and on the desktop it is the state the
-    // app starts in every time, so the way out belongs here.
-    if (state.degraded || !state.authenticated) {
+    // Debug mode makes every number on this panel fictional, so it says so
+    // before any of them are drawn — and instead of the sign-in prompt, which
+    // is about an account debug mode is not consulting.
+    if (state.debug) {
+      body.appendChild(debugModePrompt());
+    } else if (state.degraded || !state.authenticated) {
+      // Signed out is not an error, but it is the difference between a third of
+      // the free allowance and all of it — and on the desktop it is the state the
+      // app starts in every time, so the way out belongs here.
       body.appendChild(signInPrompt(state));
     }
 
@@ -380,6 +386,16 @@ export class AIPanel {
 
   renderTierBadge(state) {
     const badge = this.dock.querySelector('#ai-panel-tier');
+
+    // The badge is the one thing on this panel that is always visible, which
+    // makes it the right place to say that none of the rest is an account.
+    if (state.debug) {
+      badge.textContent = 'Debug';
+      badge.className = 'ai-panel-tier tier-debug';
+      badge.title = 'AI debug mode: features unlocked locally and nothing spends your allowance';
+      return;
+    }
+
     badge.textContent = state.tierLabel || TIER_LABELS[state.tier] || 'Free';
     badge.className = `ai-panel-tier tier-${state.tier}`;
     badge.title = state.authenticated
@@ -399,7 +415,13 @@ export class AIPanel {
 
     const metered = rows.filter((row) => row.allowed && row.quota);
     if (!metered.length) {
-      wrap.appendChild(quietLine('Nothing here is metered on your plan.'));
+      wrap.appendChild(
+        quietLine(
+          isAIDebugMode()
+            ? 'Nothing is metered while debug mode is on — runs are unlimited from here.'
+            : 'Nothing here is metered on your plan.'
+        )
+      );
       return wrap;
     }
 
@@ -1455,6 +1477,35 @@ function signInPrompt(state) {
         button.disabled = false;
       });
   });
+  wrap.appendChild(button);
+
+  return wrap;
+}
+
+/**
+ * What debug mode says for itself, and the way back out of it.
+ *
+ * Worth the space: an artist who lands on a link carrying `?aidebug=1` would
+ * otherwise see a Studio panel they have not paid for and a first run that
+ * fails at the backend for no reason they can see.
+ */
+function debugModePrompt() {
+  const wrap = document.createElement('div');
+  wrap.className = 'ai-panel-note warning signin';
+
+  const text = document.createElement('span');
+  text.textContent =
+    'AI debug mode is on: every feature is unlocked here and runs do not spend an allowance. ' +
+    'The backend still refuses unless it was started with AI_DEBUG_MODE set.';
+  wrap.appendChild(text);
+
+  const button = document.createElement('button');
+  button.className = 'ai-upgrade-link';
+  button.type = 'button';
+  button.textContent = 'Turn off';
+  // Turning it off redraws this panel and sends the client after the real
+  // entitlements on its own; see the subscription in entitlements.js.
+  button.addEventListener('click', () => setAIDebugMode(false));
   wrap.appendChild(button);
 
   return wrap;

@@ -15,9 +15,21 @@
  * the buttons it draws; the gate is the gallery signing a grant and the AI
  * backend refusing to call a model without one that verifies. See
  * AI_TIER_INTEGRATION.md §Security.
+ *
+ * Which is what lets debug mode exist at all: with it on, both calls below are
+ * answered locally so that testing the features is not rationed by an
+ * allowance meant for artists. Nothing is given away by that — the backend
+ * still refuses the token it hands out unless the operator switched debug
+ * grants on there too. See debugMode.js.
  */
 
 import { desktopAuthHeaders, clearDesktopToken, getDesktopToken } from './desktopToken.js';
+import {
+  isAIDebugMode,
+  onAIDebugModeChange,
+  debugEntitlements,
+  debugGrant,
+} from './debugMode.js';
 import { GALLERY_ORIGIN, galleryApiBase } from '../utils/galleryEndpoint.js';
 import {
   FEATURES,
@@ -145,6 +157,10 @@ export class EntitlementsClient {
    * null, so callers never have to branch on "not loaded yet" to draw.
    */
   get current() {
+    // Ahead of the cached payload rather than folded into load(), so flipping
+    // the switch in the console is honoured on the next read instead of at the
+    // next fetch.
+    if (isAIDebugMode()) return debugEntitlements();
     return this.entitlements || fallbackEntitlements('not_loaded');
   }
 
@@ -168,6 +184,11 @@ export class EntitlementsClient {
    * anonymous.
    */
   async load({ force = false } = {}) {
+    // Debug mode answers here and is never cached: the cache is for real
+    // answers, and one that outlived the mode would leave the panel holding a
+    // Studio tier nobody has until something forced a re-read.
+    if (isAIDebugMode()) return debugEntitlements();
+
     if (!force && this.entitlements && !this.entitlements.degraded) {
       return this.entitlements;
     }
@@ -286,6 +307,11 @@ export class EntitlementsClient {
    * throws a GrantError carrying the gallery's reason.
    */
   async requestGrant(feature) {
+    // The whole point of the mode: no quota spent, no tier refused, no round
+    // trip to a gallery that may not be running. The token this returns is
+    // only worth anything against a backend with AI_DEBUG_MODE set.
+    if (isAIDebugMode()) return debugGrant(feature);
+
     let res;
     try {
       res = await this.fetchImpl(`${this.baseUrl}/api/entitlements/grant`, {
@@ -413,3 +439,13 @@ function normalizeEntitlements(payload) {
 
 /** The editor uses one client for the whole session. */
 export const entitlements = new EntitlementsClient();
+
+// The singleton only. Flipping debug mode changes every answer this client
+// gives, and the panel draws from a change event rather than polling.
+onAIDebugModeChange((on) => {
+  entitlements.emitChange();
+  // Coming out of it, the real entitlements have not been read since before
+  // the mode was on — or at all. Go and get them, rather than leaving the
+  // panel on whatever was cached first.
+  if (!on) entitlements.refresh().catch(() => {});
+});

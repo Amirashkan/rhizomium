@@ -19,6 +19,7 @@ that were made along the way.
 | `src/ai/tiers.js` | The tier catalogue, mirrored from the gallery's `lib/tiers.ts`. Decides **what to draw**, never what to do. |
 | `src/ai/entitlements.js` | `GET /api/entitlements` (cached for the session) and `POST /api/entitlements/grant` (per action). Maps 402/429/503 to distinct, typed errors. |
 | `src/ai/aiClient.js` | Grant → backend → result, in that order. Addresses the backend by path on the web and by origin in the desktop app. |
+| `src/ai/debugMode.js` | The developer switch. Answers `load()` and `requestGrant()` locally so testing a feature spends no allowance, and issues the unsigned `debug:<feature>` token. |
 | `src/ui/accountSession.js` | Signing in from inside the editor. Two flows: the cookie on the web, a paired bearer token on the desktop. Tools → Account… |
 | `src/ai/desktopToken.js` | The desktop app's own credential, and the header it rides in. Inert on the web. |
 | `src/utils/openExternal.js` | Opening a gallery page. `window.open()` is refused by the desktop webview. |
@@ -37,7 +38,7 @@ that were made along the way.
 | File | What it does |
 |---|---|
 | `api/ai/run.js` | `POST /api/ai/run`. The one door to the model. |
-| `api/_lib/grant.js` | HMAC verification, expiry, replay tracking. |
+| `api/_lib/grant.js` | HMAC verification, expiry, replay tracking — and the debug grant, which is refused unless the deployment asked for it. |
 | `api/_lib/features.js` | Per-feature system prompts and response schemas. |
 | `api/_lib/nodeCatalog.js` | The real node registry as prompt text, and as a validator. |
 | `api/_lib/directorArc.js` | The bounds on a director's arc, and the shaping Structured Outputs cannot do. |
@@ -74,6 +75,12 @@ or no allowance left — is disabled with the reason on screen rather than faili
 on click. `tests/aiPanelRepeatGuard.test.js` covers the repeat guard and where
 its answer is shown.
 
+`tests/aiDebugMode.test.js` covers debug mode from both ends: that the editor
+issues a grant nobody signed and spends nothing for it, that the backend
+refuses that grant everywhere `AI_DEBUG_MODE` is not set — production
+deployments included, flag or no flag — that the feature is still read from the
+token rather than the body, and that the signed path is untouched by any of it.
+
 `tests/aiDirectorArc.test.js` covers the arc end to end: that the schema
 requires one and offers only interpolations `InterpolationSystem` actually
 maps, that the timing block says what it should and stays out of the prompt
@@ -108,6 +115,8 @@ grep -r "OPENAI_API_KEY\|TIER_GRANT_SECRET\|sk-proj-" dist/   # must find nothin
 | `OPENAI_API_KEY` | An OpenAI API key. Server-side only. |
 | `OPENAI_MODEL` | *Optional.* Puts every feature on one model, overriding both the default and any model a feature names for itself. Defaults to `gpt-5.6-terra`, except `ai.canvas_assist`, which asks for `gpt-5.6-luna`. Must name a model on the Responses API that supports Structured Outputs — every feature answers through a JSON schema. A model the account cannot reach answers `503 not_configured` and names itself in the log. |
 | `OPENAI_REASONING` | *Optional.* Set to `off` when `OPENAI_MODEL` names a model with no reasoning mode: the `reasoning` parameter is then left off the request, which such a model would otherwise reject outright. Off also removes each feature's reasoning headroom from its output budget, leaving the answer the whole allowance. Anything else, or unset, keeps reasoning on. |
+| `AI_DEBUG_MODE` | *Optional, development only.* Accepts unsigned `debug:<feature>` grants, so the AI features can be worked on without an allowance and without a gallery. Off unless set, and ignored on a deployment that reports itself as production. See §AI debug mode. |
+| `AI_DEBUG_ALLOW_PRODUCTION` | *Optional.* Lets `AI_DEBUG_MODE` work where `VERCEL_ENV`/`NODE_ENV` says production — the escape hatch for a self-hosted studio whose build says production for reasons unrelated to who is using it. Setting both on a public deployment gives anyone who can reach it free model calls on your key. |
 
 Without either, `/api/ai/run` answers `503 not_configured` on every request and
 says so plainly rather than failing as an invalid grant.
@@ -604,6 +613,45 @@ Two things follow for anyone reading this file to debug a desktop install:
   `output.multiscreen` allow on an unreachable gallery (see below), which is
   what keeps a desktop install usable at a venue — and what kept the missing
   CORS entry from taking the second monitor down with it.
+
+### AI debug mode, and why it is not a hole
+
+Every AI run costs an allowance sized for artists — two patch reviews a day on
+the free tier, a third of that signed out — and a dev machine usually has no
+gallery to ask in the first place. Testing the features against that meant
+either burning a real account's quota or stubbing `/api/entitlements` by hand.
+
+Debug mode is the switch for it, and it has two halves that have to agree:
+
+- **In the editor** (`src/ai/debugMode.js`) — turned on with `?aidebug=1` in the
+  URL (remembered afterwards; `?aidebug=0` forgets it) or `aiDebugMode.on()` in
+  the console. `entitlements.load()` and `requestGrant()` then answer locally:
+  every editor feature draws as available on a Studio tier, nothing is metered,
+  no quota is spent, and there is no 402 or 429 to hit. The grant handed to
+  `aiClient.js` is the sentinel `debug:<feature>`. The panel says so — the tier
+  badge reads **Debug** and carries a way back out — because an artist who
+  followed a link with the parameter on it must not read a Studio panel as
+  something they have. The unmetered gates read the same client, so the web
+  viewer, the collab space and the `output.*` flags unlock with it.
+- **On the backend** (`api/_lib/grant.js`) — `readDebugGrant()` returns null,
+  always, unless the operator set `AI_DEBUG_MODE` on that deployment. A
+  deployment reporting itself as production refuses even then, unless
+  `AI_DEBUG_ALLOW_PRODUCTION` is also set. Every debug run logs a `console.warn`
+  naming the feature, because a model call nobody was charged for is the line an
+  operator wants when the bill moves.
+
+This changes nothing about §Security. The gate was never the browser: the
+editor could always claim any tier it liked, and the reason that was worthless
+is that `/api/ai/run` refuses without a grant it can verify. Debug mode is that
+same refusal with one more accepted key, held by whoever runs the deployment
+rather than by whoever opens the page. Turning it on in the browser against
+production earns a 401, exactly as any other unsigned token does.
+
+Two things it does *not* do. It does not skip the model call — a debug run is
+real tokens on somebody's API key, and only the accounting is skipped. And it
+does not lift the size limits: `MAX_NODES`, `MAX_INPUT_BYTES` and the refactor
+fit check are about what a call can finish, not what it is allowed to cost, and
+they apply to a debug run exactly as they do to a paid one.
 
 ### Replay tracking is in-process
 
