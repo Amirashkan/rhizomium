@@ -244,9 +244,9 @@ export const InputNodes = {
       {
         name: "panel",
         type: "button",
-        displayName: "Open Audio Panel",
+        displayName: "Open Audio Setup…",
         action: "openAudioPanel",
-        description: "Show the live meters, the source, and the meter shaping",
+        description: "The source, the live meters, and the meter shaping — shared by every audio node",
       },
     ],
   },

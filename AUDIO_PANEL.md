@@ -3,12 +3,27 @@
 `Tools → Audio…` (`Mod+Alt+A`) opens the patch's single surface for the live audio analysis: the
 source, the shape of the meters, the per-drum thresholds, and a live readout of every channel the
 analysis produces. Next to each channel is a `+` that drops an **Audio** node on the canvas reading
-that channel — a plain float you can wire into anything. An Audio node's **Open Audio Panel** button
-brings you back here.
+that channel — a plain float you can wire into anything. An Audio node's **Open Audio Setup…**
+button brings you back here.
 
 There is exactly one audio node. The all-in-one **Audio Analysis** node it replaced carried fifteen
 output pins and every setting the analysis has; patches saved with it are converted on load into one
 Audio node per pin they actually read (see [Loading an older patch](#loading-an-older-patch)).
+
+## When nothing happens
+
+An audio node with no track playing reads **0** on every channel, and so does everything downstream
+— which looks exactly like a broken node. Three things now say so instead of leaving you to guess:
+
+- Adding an Audio node with nothing loaded **opens this panel**, because choosing a source is the
+  only thing that can make that node do anything. It stays out of the way when a track is loaded.
+- The node's own parameter panel carries a live strip: *"No audio loaded — every channel reads 0.
+  Open Audio Setup…"*, which is also the button to fix it. Once a track is playing it turns quiet
+  and names it.
+- The panel warns above the channel list while nothing is playing.
+
+All three read the same `describeAudioSource()` (`src/ui/AudioSettingsPanel.js`), so they cannot
+drift apart.
 
 ## Source
 

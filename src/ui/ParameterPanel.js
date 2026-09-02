@@ -18,7 +18,7 @@ import { nodeReferenceDropStyles } from './NodeReferenceDrop.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { nodeDisplayName } from '../core/nodeName.js';
 import { describeExternalControls } from '../parameters/ExternalParameterControl.js';
-import { getAudioSettingsPanel } from './AudioSettingsPanel.js';
+import { describeAudioSource, getAudioSettingsPanel } from './AudioSettingsPanel.js';
 import {
   ACCENT,
   SEMANTIC,
@@ -1194,6 +1194,9 @@ case 'flip2d':
     this.panelContent.innerHTML = '';
     this.panelContent.appendChild(title);
 
+    const notice = this._nodeNotice(node);
+    if (notice) this.panelContent.appendChild(notice);
+
     // Parameters may declare an optional `group`. Consecutive parameters sharing one are rendered
     // under a collapsible heading, which keeps a node with many controls readable — without it,
     // something like Audio Analysis is a flat wall of eighteen fields where the ones that shape a
@@ -1871,6 +1874,63 @@ case 'flip2d':
       default:
         console.warn(`[ParameterPanel] Unknown parameter action: ${action}`);
     }
+  }
+
+  /**
+   * A live status strip under the panel header, for nodes whose output depends on something outside
+   * the graph.
+   *
+   * An Audio node reads a channel of the live analysis, so with no track playing it reads 0 — and
+   * so does everything downstream. That is indistinguishable from "this node is broken" unless
+   * something says otherwise, and the place to say it is where the artist is already looking when
+   * they wonder why nothing moves. Clicking it opens the panel that fixes it.
+   */
+  _nodeNotice(node) {
+    if (node?.kind !== 'Audio') return null;
+
+    const strip = document.createElement('button');
+    strip.type = 'button';
+    strip.className = 'node-notice';
+    strip.title = 'Open the Audio panel: source, meter shape and thresholds';
+    strip.addEventListener('click', () => getAudioSettingsPanel().show());
+
+    const dot = document.createElement('span');
+    dot.style.cssText = 'flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor;';
+    const text = document.createElement('span');
+    strip.append(dot, text);
+
+    // Styled here rather than in a stylesheet, as everything else in this panel is.
+    const paint = () => {
+      const source = describeAudioSource();
+      const quiet = source.playing;
+      strip.dataset.state = source.state;
+      strip.style.cssText = `
+        display: flex; align-items: center; gap: 8px; width: 100%;
+        margin: 0 0 12px; padding: 8px 10px; text-align: left;
+        border-radius: 8px; cursor: pointer;
+        font-family: ${FONT_UI}; font-size: 11px; line-height: 1.35;
+        border: 1px solid ${quiet ? SURFACE.line : withAlpha(SEMANTIC.warn, 0.35)};
+        background: ${quiet ? SURFACE.fillSoft : withAlpha(SEMANTIC.warn, 0.14)};
+        color: ${quiet ? TEXT.tertiary : SEMANTIC.warn};
+      `;
+      text.textContent = quiet
+        ? `Playing${source.fileName ? ` — ${source.fileName}` : ''}`
+        : `${source.label} — every channel reads 0. Open Audio Setup…`;
+    };
+    paint();
+
+    // Polled rather than event-driven: the transport can be driven from the panel, from another
+    // window, or by a track running out, and the strip has to be right in all three. It stops on
+    // its own once the panel has moved on to another node.
+    const timer = setInterval(() => {
+      if (!strip.isConnected) {
+        clearInterval(timer);
+        return;
+      }
+      paint();
+    }, 400);
+
+    return strip;
   }
 
   createBindingControls(param, node, bindingInfo) {

@@ -33,6 +33,35 @@ import { normalizeNodeName } from '../core/nodeName.js';
 import { makeDraggable } from './utils/draggable.js';
 
 /**
+ * What the audio source is doing right now, in one place.
+ *
+ * The panel's state chip and the Audio node's parameter panel must say the SAME thing: a node whose
+ * channels all read zero is not broken, it is a patch with nothing playing, and that is the single
+ * most useful sentence either surface can show. Keeping the wording here means they cannot drift.
+ *
+ * @returns {{state: string, label: string, fileName: string, playing: boolean, hasFile: boolean}}
+ */
+export function describeAudioSource() {
+  let client = null;
+  try {
+    client = getBrowserAudioCapture();
+  } catch {
+    client = null;
+  }
+  const el = client?.audioElement || null;
+  const hasFile = !!(el && el.src);
+  // The element is the truth: `isPlaying` on the client is set by its own play()/pause() and cannot
+  // know about a track that ran out or was stopped from somewhere else.
+  const playing = el ? (!el.paused && !el.ended && el.readyState > 2) : !!client?.getIsPlaying?.();
+  const fileName = (typeof el?.dataset?.fileName === 'string' && el.dataset.fileName) || '';
+
+  if (!hasFile) return { state: 'empty', label: 'No audio loaded', fileName, playing, hasFile };
+  if (playing) return { state: 'playing', label: 'Playing', fileName, playing, hasFile };
+  if ((el?.currentTime || 0) > 0) return { state: 'paused', label: 'Paused', fileName, playing, hasFile };
+  return { state: 'ready', label: 'Loaded, not playing', fileName, playing, hasFile };
+}
+
+/**
  * How the channels are grouped for reading.
  *
  * The continuous meters come first because they are what most patches actually modulate with. Each
@@ -144,6 +173,10 @@ export class AudioSettingsPanel {
                         Channels
                         <span class="rzap-hint">＋ drops a float node on the canvas</span>
                     </div>
+                    <p id="audio-silent" class="rzap-note rzap-warn" hidden>
+                        Nothing is playing, so every channel reads 0 — and so does any node reading
+                        one. Load a track above and press Play.
+                    </p>
                     <p class="rzap-note">
                         A drum's Threshold sets where new nodes for it start, and the markers on its
                         meter show where the deployed ones actually sit. Select a deployed node to
@@ -422,6 +455,8 @@ export class AudioSettingsPanel {
             filenameEl.textContent = file.name;
             try {
                 await this.audioClient.loadFile(file);
+                // Parked on the element so describeAudioSource() can name the track anywhere.
+                if (this.audioClient.audioElement) this.audioClient.audioElement.dataset.fileName = file.name;
                 // Loading resets the element, so re-apply the loop the panel is showing.
                 if (this.audioClient.audioElement) this.audioClient.audioElement.loop = this._loop;
             } catch {
@@ -533,29 +568,21 @@ export class AudioSettingsPanel {
      */
     _syncTransport() {
         const el = this.audioClient?.audioElement;
-        const hasFile = !!(el && el.src);
-        const playing = this._isPlaying();
+        const source = describeAudioSource();
+        const hasFile = source.hasFile;
+        const playing = source.playing;
         const position = el?.currentTime || 0;
         const duration = el && isFinite(el.duration) ? el.duration : 0;
 
-        let state = 'empty';
-        let label = 'No file';
-        if (this._loadError) {
-            state = 'error';
-            label = this._loadError;
-        } else if (!hasFile) {
-            state = 'empty';
-            label = 'No file';
-        } else if (playing) {
-            state = 'playing';
-            label = 'Playing';
-        } else if (position > 0) {
-            state = 'paused';
-            label = 'Paused';
-        } else {
-            state = 'ready';
-            label = 'Ready';
-        }
+        // Shorter wording here than on the node: the chip sits under a "SOURCE" heading, next to
+        // the transport, so it does not have to repeat the word "audio".
+        const CHIP = { empty: 'No file', ready: 'Ready', paused: 'Paused', playing: 'Playing' };
+        const state = this._loadError ? 'error' : source.state;
+        const label = this._loadError || CHIP[source.state] || source.label;
+
+        // Nothing is playing, so every channel below reads zero. Say it where the zeros are, not
+        // only up here — a node deployed from a silent panel looks broken otherwise.
+        this.panel.querySelector('#audio-silent').hidden = playing;
 
         const chip = this.panel.querySelector('#audio-state');
         chip.dataset.state = state;
@@ -622,7 +649,11 @@ export class AudioSettingsPanel {
             .rzap {
                 position: fixed;
                 top: 60px;
-                right: 20px;
+                /* Clear of the parameter panel, which lives against the right edge: adding an Audio
+                   node opens this panel AND selects the node, and covering the node's own controls
+                   with the thing that explains them is the one place they must not overlap.
+                   Draggable from the header either way. */
+                right: 330px;
                 width: 340px;
                 max-height: calc(100vh - 100px);
                 display: none;
@@ -663,6 +694,10 @@ export class AudioSettingsPanel {
             }
             .rzap-hint { text-transform: none; letter-spacing: 0; color: var(--rz-text-faint); }
             .rzap-note { margin: 0 0 8px; color: var(--rz-text-faint); font-size: 11px; line-height: 1.45; }
+            .rzap-warn {
+                color: var(--rz-warn); background: var(--rz-warn-soft);
+                border-radius: 6px; padding: 7px 9px;
+            }
             .rzap-note code {
                 background: var(--rz-well); color: var(--rz-accent);
                 padding: 1px 4px; border-radius: 3px; font-family: var(--rz-font-mono);

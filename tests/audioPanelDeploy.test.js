@@ -2,7 +2,7 @@
 // an Audio Value node on the canvas reading it.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { AudioSettingsPanel } from '../src/ui/AudioSettingsPanel.js';
+import { AudioSettingsPanel, describeAudioSource } from '../src/ui/AudioSettingsPanel.js';
 import {
   clearAudioTapValues,
   setAudioTapValues,
@@ -103,6 +103,14 @@ describe('Audio panel', () => {
     expect(rowFor(panel, 'kickTrig').querySelector('.rzap-bar-fill').style.width).toBe('80%');
   });
 
+  it('describes the source as empty with nothing loaded', () => {
+    // The one sentence the panel and the Audio node's parameter panel both show, so they cannot
+    // drift apart.
+    expect(describeAudioSource()).toMatchObject({
+      state: 'empty', label: 'No audio loaded', hasFile: false, playing: false,
+    });
+  });
+
   it('keeps the analysis running only while it is on screen', () => {
     panel.show();
     expect(panel.visible).toBe(true);
@@ -158,6 +166,12 @@ describe('Audio panel', () => {
       { left: '25%', isDefault: false },
       { left: '80%', isDefault: false },
     ]);
+  });
+
+  it('warns that every channel reads 0 while nothing is playing', () => {
+    // The complaint this answers: a node deployed from a silent panel reads 0 and looks broken.
+    panel.show();
+    expect(panel.panel.querySelector('#audio-silent').hidden).toBe(false);
   });
 
   it('writes the meter shaping sliders to the shared settings', () => {

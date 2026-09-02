@@ -27,7 +27,7 @@ import { signalAppReady } from "./src/core/tauriSplash.js";
 import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
-import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
+import { describeAudioSource, getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 import { MIDIManager } from './src/midi/MIDIManager.js';
 import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
@@ -1000,6 +1000,19 @@ function onConnectionCreated(sourceNodeId, targetNodeId, targetInput, sourceOutp
 function onNodeCreated(node) {
   if (undoManager && node) {
     undoManager.recordNodeCreation(node);
+  }
+
+  // An Audio node with no track loaded reads 0 on every channel, and so does everything downstream
+  // — which looks exactly like a broken node. The panel is where a source is chosen (and where the
+  // meters and thresholds live), so open it the first time one is added with nothing playing.
+  // Not when a track IS loaded: then the node works immediately and the panel would be in the way.
+  if (node?.kind === 'Audio') {
+    try {
+      const panel = getAudioSettingsPanel();
+      if (!panel.visible && !describeAudioSource().hasFile) panel.show();
+    } catch {
+      // Never let a convenience stop a node from being created.
+    }
   }
 }
 
