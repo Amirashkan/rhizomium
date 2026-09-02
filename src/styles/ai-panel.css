@@ -122,6 +122,15 @@
   border-color: var(--rz-accent-deep);
 }
 
+/* Debug mode is not a plan, and must not read as one: dashed, in the warning
+   colour, so a panel showing unlocked features is obviously not an account. */
+.ai-panel-tier.tier-debug {
+  color: var(--rz-warn);
+  border-style: dashed;
+  border-color: currentColor;
+  background: transparent;
+}
+
 /* --- Sections ------------------------------------------------------------ */
 
 .ai-section {

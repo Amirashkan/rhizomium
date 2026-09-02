@@ -40,6 +40,83 @@ export function grantsConfigured() {
 }
 
 /**
+ * The debug grant: a token nobody signed, accepted only where an operator
+ * deliberately said so.
+ *
+ * Testing an AI feature costs an allowance meant for artists — two patch
+ * reviews a day on the free tier — and a dev machine usually has no gallery to
+ * ask in the first place. `src/ai/debugMode.js` answers both locally and sends
+ * `debug:<feature>` instead of a signed grant. This is the half that decides
+ * whether that is worth anything, and by default it is worth nothing.
+ *
+ * Two switches, because the failure mode is not a bug but a stray environment
+ * variable: `AI_DEBUG_MODE` turns it on at all, and a deployment that reports
+ * itself as production refuses even then unless `AI_DEBUG_ALLOW_PRODUCTION` is
+ * also set. Wrong in the safe direction — the cost of getting this wrong is an
+ * open door to somebody else's OpenAI key.
+ *
+ * The feature is read out of the token rather than the request body, so the
+ * one invariant this file exists to hold — what runs is what the grant says —
+ * holds on this path too.
+ */
+export const DEBUG_GRANT_PREFIX = 'debug:';
+
+function envFlag(value) {
+  const flag = String(value ?? '').trim().toLowerCase();
+  return flag === '1' || flag === 'true' || flag === 'on' || flag === 'yes';
+}
+
+/**
+ * Whether this deployment accepts debug grants.
+ *
+ * `VERCEL_ENV` is the honest answer where it exists — it says preview or
+ * development on the deployments a dev actually points at, and production only
+ * on the real one. `NODE_ENV` is the fallback for a self-hosted studio, where
+ * a built bundle says production for reasons that have nothing to do with
+ * whether artists are using it; that is what the second variable is for.
+ */
+export function debugGrantsEnabled() {
+  if (!envFlag(process.env.AI_DEBUG_MODE)) return false;
+  const deployment = process.env.VERCEL_ENV || process.env.NODE_ENV;
+  if (deployment === 'production' && !envFlag(process.env.AI_DEBUG_ALLOW_PRODUCTION)) {
+    console.error(
+      'AI_DEBUG_MODE is set on a production deployment and is being ignored. ' +
+        'Set AI_DEBUG_ALLOW_PRODUCTION as well if that is really what you want.'
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Read a debug grant, or return null — which is every case except a deployment
+ * that opted in being handed a well-formed `debug:` token.
+ *
+ * The payload mirrors a real grant so the caller needs no second code path.
+ * There is no `jti`: nothing was metered, so there is nothing to replay.
+ */
+export function readDebugGrant(token, { onInvalid } = {}) {
+  if (!debugGrantsEnabled()) return null;
+
+  const raw = String(token || '');
+  if (!raw.startsWith(DEBUG_GRANT_PREFIX)) return null;
+
+  const feature = raw.slice(DEBUG_GRANT_PREFIX.length).trim();
+  if (!feature) {
+    onInvalid?.(GRANT_INVALID.MALFORMED);
+    return null;
+  }
+
+  return {
+    feature,
+    tier: 'cloude_plus',
+    sub: 'ai-debug',
+    jti: null,
+    debug: true,
+  };
+}
+
+/**
  * Verify a grant token. Returns the payload, or null when the token is not
  * one we issued, is tampered with, or has expired.
  *

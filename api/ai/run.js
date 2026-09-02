@@ -13,10 +13,23 @@
  * The browser never sees OPENAI_API_KEY, and the editor cannot talk itself
  * into a tier it does not have: the tier in the payload was written by the
  * gallery, which read it from the database.
+ *
+ * The one way past step 1 is a deployment whose operator set `AI_DEBUG_MODE`,
+ * which accepts an unsigned `debug:<feature>` token so the features can be
+ * worked on without spending an artist's allowance on every run. It is off
+ * unless set, refused on production deployments unless a second variable says
+ * otherwise, and changes nothing about steps 2 and 3 — the feature still comes
+ * from the grant. See api/_lib/grant.js.
  */
 
 import OpenAI from 'openai';
-import { verifyGrant, grantsConfigured, claimGrantId } from '../_lib/grant.js';
+import {
+  verifyGrant,
+  grantsConfigured,
+  claimGrantId,
+  readDebugGrant,
+  debugGrantsEnabled,
+} from '../_lib/grant.js';
 import { applyCors } from '../_lib/cors.js';
 import {
   featureConfig,
@@ -206,10 +219,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Use POST.' });
   }
 
-  if (!grantsConfigured()) {
+  if (!grantsConfigured() && !debugGrantsEnabled()) {
     // The operator has not set TIER_GRANT_SECRET here. Say so plainly rather
     // than letting every call fail as an invalid grant, which would send
     // whoever debugs it looking in the wrong place.
+    //
+    // Debug mode is the exception, and deliberately so: a dev backend has no
+    // gallery signing anything, and demanding a secret it will never verify
+    // against would leave the mode unusable where it is for.
     console.error('TIER_GRANT_SECRET is not set on the AI backend; refusing every request.');
     return res.status(503).json({
       error: 'AI features are not configured on this deployment.',
@@ -229,13 +246,29 @@ export default async function handler(req, res) {
   if (!body) return res.status(400).json({ error: 'Expected a JSON body.' });
 
   // --- The gate ------------------------------------------------------------
-  const grant = verifyGrant(body.grant, {
-    onInvalid: (reason) => {
-      // In normal operation this does not happen: the editor asks for a grant
-      // immediately before calling here. Worth a line when it does.
-      console.warn(`Rejected an AI request: grant ${reason}.`);
-    },
-  });
+  // readDebugGrant() returns null on every deployment that did not opt in, and
+  // on any token that is not a debug one, so the signed path below is what
+  // runs everywhere else — unchanged.
+  const grant =
+    readDebugGrant(body.grant, {
+      onInvalid: (reason) => console.warn(`Rejected an AI request: debug grant ${reason}.`),
+    }) ||
+    verifyGrant(body.grant, {
+      onInvalid: (reason) => {
+        // In normal operation this does not happen: the editor asks for a grant
+        // immediately before calling here. Worth a line when it does.
+        console.warn(`Rejected an AI request: grant ${reason}.`);
+      },
+    });
+
+  if (grant?.debug) {
+    // Loud on purpose. A model call nobody was charged for is exactly the line
+    // an operator wants in the log when they wonder why the bill moved.
+    console.warn(
+      `AI debug mode: accepted an unsigned grant for ${grant.feature}. ` +
+        'No allowance was spent and no gallery was asked.'
+    );
+  }
 
   if (!grant) {
     return res.status(401).json({
@@ -321,6 +354,10 @@ export default async function handler(req, res) {
       feature,
       label: config.label,
       tier: grant.tier,
+      // Only ever present on a debug run, so an answer that arrived without a
+      // grant can be told apart from one that did — in a log, in a bug report,
+      // or by the panel.
+      ...(grant.debug ? { debug: true } : {}),
       ...payload,
     });
   } catch (error) {
