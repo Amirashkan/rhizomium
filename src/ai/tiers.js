@@ -15,13 +15,15 @@
  * changes. See AI_TIER_INTEGRATION.md.
  */
 
-export const TIERS = ['free', 'cloude', 'cloude_plus'];
+export const TIERS = ['free', 'cloude', 'cloude_plus', 'admin'];
 
 /** Higher wins. Used for "at least this tier" comparisons. */
 export const TIER_RANK = {
   free: 0,
   cloude: 1,
   cloude_plus: 2,
+  // Above everything, and not sold. See TIER_DESCRIPTIONS.admin.
+  admin: 3,
 };
 
 /**
@@ -32,13 +34,40 @@ export const TIER_LABELS = {
   free: 'Free',
   cloude: 'Cloude',
   cloude_plus: 'Studio',
+  admin: 'Admin',
 };
 
 export const TIER_DESCRIPTIONS = {
   free: 'The open-source editor, and AI that reads the patch you already have.',
   cloude: 'Everything in Free, plus refactoring, the generative AI features, the web viewer and the pro artist panel.',
   cloude_plus: 'Everything in Cloude, plus NDI and multi-screen output, and the AI creative director.',
+  admin:
+    'Everything, unmetered. Held by the people who run this — for building the features and ' +
+    'supporting artists, not sold to anyone.',
 };
+
+/**
+ * The tier nobody buys.
+ *
+ * `admin` exists because the people who build and support this app run its AI
+ * features far harder than any artist does — testing a change means running it
+ * a dozen times, and a plan's daily allowance is the wrong instrument for that.
+ * It ranks above Studio, so every tier gate passes, and it is unmetered, so
+ * `quotaFor()` returns nothing to count.
+ *
+ * **The gallery is the only thing that can put an account here.** Nothing in
+ * this file, and nothing in the browser, decides who is an admin: the tier
+ * arrives on `/api/entitlements` and inside grants the gallery signed, exactly
+ * as every other tier does. A visitor who sets this in devtools gets a panel
+ * with every button lit and a 401 from the backend on the first click, for the
+ * same reason `cloude_plus` in devtools buys nothing — see
+ * AI_TIER_INTEGRATION.md §Security.
+ *
+ * Nothing is *sold* at this tier, so no feature names it in `FEATURES` and
+ * `requiredTier()` never returns it: an upsell that told an artist to upgrade
+ * to Admin would be an offer nobody can take.
+ */
+export const ADMIN_TIER = 'admin';
 
 export function isTier(value) {
   return typeof value === 'string' && TIERS.includes(value);
@@ -184,6 +213,9 @@ const DAY = 24 * HOUR;
  * These are the values as vendored. The live numbers come from
  * /api/entitlements — read `catalog[].quota` there rather than this table when
  * showing an artist what they have left.
+ *
+ * `admin` is absent on purpose and is not the zero case: quotaFor() answers for
+ * it before reading this table, because nothing counts an admin's usage.
  */
 export const QUOTAS = {
   free: {
@@ -241,6 +273,10 @@ export const ANONYMOUS_QUOTA_DIVISOR = 3;
 
 export function quotaFor(tier, feature) {
   if (!FEATURES[feature]?.metered) return null;
+  // Unmetered rather than generous: a very large limit would still be a number
+  // the panel counted down, and would still refuse on the day it ran out.
+  // Nothing counts admin usage, so there is nothing to draw.
+  if (tier === ADMIN_TIER) return null;
   // An add-on's allowance follows the add-on, not the plan, and there is no
   // add-on allowance to follow yet. Draw nothing rather than a plan's number.
   if (FEATURES[feature].addon) return { limit: 0, windowSeconds: HOUR };

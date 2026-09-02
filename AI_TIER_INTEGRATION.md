@@ -72,6 +72,13 @@ or no allowance left — is disabled with the reason on screen rather than faili
 on click. `tests/aiPanelRepeatGuard.test.js` covers the repeat guard and where
 its answer is shown.
 
+`tests/adminTier.test.js` covers the admin tier: that it outranks Studio and
+passes every tier gate, that it is unmetered rather than generous, that it
+conjures no unavailable add-on and is never named in an upsell, that it expires
+and is revoked like any other tier, and that the panel draws an admin as an
+operator — no allowance bars, no upgrade link — while a client that cannot
+reach the gallery still falls back to free.
+
 `tests/aiDebugMode.test.js` covers debug mode from both ends: that the editor
 issues a grant nobody signed and spends nothing for it, that the backend
 refuses that grant everywhere `AI_DEBUG_MODE` is not set — production
@@ -551,6 +558,44 @@ Two things follow for anyone reading this file to debug a desktop install:
   what keeps a desktop install usable at a venue — and what kept the missing
   CORS entry from taking the second monitor down with it.
 
+### The admin tier
+
+`admin` ranks above Studio, passes every tier gate, and is unmetered —
+`quotaFor()` returns nothing to count for it, so the panel draws no allowance
+bars and there is no number to run out of. It exists because building and
+supporting the AI features means running them far harder than any artist does,
+and a plan's daily allowance is the wrong instrument for that.
+
+**This repo holds only the mirror.** Nothing here can put an account on the
+tier, and that is the point: `admin` arrives on `/api/entitlements` and inside
+grants the gallery signed, exactly as `cloude` and `cloude_plus` do. Setting
+`tier = 'admin'` in devtools lights up every button and buys nothing, for the
+same reason §Security gives for every other tier.
+
+So an account becomes admin on the **gallery** side, and until that lands here
+this tier changes nobody's allowance. Its half of the contract:
+
+- `lib/tiers.ts` — add `admin` to the tier union, rank it above `cloude_plus`,
+  label it *Admin*. This file is the mirror of that one and has to match.
+- Whatever puts an account on a tier — mark the operators' accounts, with no
+  expiry (`tier_expires_at` null). `resolveTier()` treats an expired or banned
+  admin as free, here and there.
+- `/api/entitlements` — send `tier: 'admin'` with every feature in `features`,
+  and catalog rows with `quota: null`. A quota object with a big number would
+  still be counted down and would still refuse on the day it ran out.
+- `/api/entitlements/grant` — issue grants for an admin without spending
+  anything, and sign them with `tier: 'admin'`.
+
+Nothing changes on our backend. `/api/ai/run` takes the *feature* from the
+grant and never the tier, so an admin's grant is checked exactly as anyone
+else's is: signature, expiry, feature. There is no admin branch to get wrong.
+
+Two things the tier does not do. It does not conjure an add-on nobody can be
+served — `render.server_side` is refused for an admin too, because the renderer
+behind it was never written. And no feature is *sold* at this tier, so
+`requiredTier()` never names it: an upsell telling an artist to upgrade to
+Admin would be an offer nobody could take.
+
 ### AI debug mode, and why it is not a hole
 
 Every AI run costs an allowance sized for artists — two patch reviews a day on
@@ -563,11 +608,11 @@ Debug mode is the switch for it, and it has two halves that have to agree:
 - **In the editor** (`src/ai/debugMode.js`) — turned on with `?aidebug=1` in the
   URL (remembered afterwards; `?aidebug=0` forgets it) or `aiDebugMode.on()` in
   the console. `entitlements.load()` and `requestGrant()` then answer locally:
-  every editor feature draws as available on a Studio tier, nothing is metered,
+  every editor feature draws as available on the admin tier, nothing is metered,
   no quota is spent, and there is no 402 or 429 to hit. The grant handed to
   `aiClient.js` is the sentinel `debug:<feature>`. The panel says so — the tier
   badge reads **Debug** and carries a way back out — because an artist who
-  followed a link with the parameter on it must not read a Studio panel as
+  followed a link with the parameter on it must not read an unlocked panel as
   something they have. The unmetered gates read the same client, so the web
   viewer, the collab space and the `output.*` flags unlock with it.
 - **On the backend** (`api/_lib/grant.js`) — `readDebugGrant()` returns null,
