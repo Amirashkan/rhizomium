@@ -2,6 +2,7 @@
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 import { getAudioAnalysisSettings } from '../audio/audioAnalysisSettings.js';
 import {
+  AUDIO_INSTRUMENTS,
   AUDIO_TAP_CHANNELS,
   audioChannelInstrument,
   audioTapsWanted,
@@ -11,7 +12,7 @@ import {
 import { numericParamValue } from './numericParam.js';
 
 /**
- * Drives the Audio Analysis node.
+ * Drives the Audio node.
  *
  * The analysis itself is in RealtimeAudioAnalysis: it turns each frame of audio into bounded 0..1
  * meters — low/mid/high for modulation, kick/snare/hat aimed at one drum each. This file does the
@@ -31,6 +32,12 @@ import { numericParamValue } from './numericParam.js';
  *
  * A fragment shader has no memory between frames, so all of this runs on the CPU and is streamed
  * to the GPU as per-frame uniforms — the same reason Hold and Count need CPU helpers.
+ *
+ * Two sets of values come out of it. The shared TAPS are what the Audio panel displays and what a
+ * node reading a channel with no decision behind it (`low`, `kickMeter`) gets: one number per
+ * channel for the whole patch. A node on an envelope or a trigger channel instead gets its own
+ * detector, run against its own Threshold parameter — which is what lets one `kickTrig` at 0.3 and
+ * another at 0.8 be two instruments off one drum.
  */
 
 // How far a meter must fall back below the threshold before it can fire again, as a FRACTION of
@@ -59,7 +66,7 @@ const MIN_RETRIGGER_MS = 45;
 const ENVELOPE_RELEASE_MS = 140;
 
 // Instruments that get a threshold, an envelope and a trigger.
-const INSTRUMENTS = ['kick', 'snare', 'hat'];
+const INSTRUMENTS = AUDIO_INSTRUMENTS;
 // Continuous meters passed straight through.
 const METERS = ['level', 'low', 'mid', 'high', 'centroid', 'density'];
 
@@ -71,10 +78,11 @@ const ZERO_BANDS = {
 
 export class AudioAnalysisProcessor {
   constructor() {
-    // nodeId -> { lastTime, inst: { kick|snare|hat: { armed, env, lastTrigTime } } }
+    // nodeId -> { lastTime, inst: { kick|snare|hat: { armed, env, lastTrigTime } } }, for the nodes
+    // that run their own detector.
     this._state = new Map();
-    // The same shape, once, for the shared taps every Audio Value node reads. Null while nothing
-    // is asking for them, so a patch with no taps and a closed panel costs nothing.
+    // The same shape, once, for the shared taps. Null while nothing is asking for them, so a patch
+    // with no audio nodes and a closed panel costs nothing.
     this._tapState = null;
     this._lastConfigJson = null;
     this._audioClient = undefined;
@@ -93,26 +101,12 @@ export class AudioAnalysisProcessor {
   }
 
   /**
-   * Push the node's envelope shaping to the shared engine, only when it changed.
+   * Push the panel's envelope shaping to the shared engine, only when it changed.
    *
    * Attack and Release belong to the analysis, not the decision: they set how sharply a meter
    * rises on a transient and how long it stays readable, which is what makes a hit visible at all.
-   */
-  _applyEngineConfig(node, ctx) {
-    const config = {
-      analysis: {
-        attack_ms: Math.max(1, this._numericParam(node, 'attack', 8, ctx)),
-        release_ms: Math.max(1, this._numericParam(node, 'release', 120, ctx)),
-        gain: Math.max(0, this._numericParam(node, 'gain', 1, ctx)),
-      },
-    };
-    this._pushConfig(config);
-  }
-
-  /**
-   * The same push, from the Audio panel's shared settings. Only one of the two runs on a frame —
-   * the node's, if there is a node — so they share the de-dupe key: switching between them changes
-   * the JSON and therefore pushes.
+   * They live in the panel because there is one engine behind every audio node in the patch —
+   * copies of them on each node meant the last one written won and the rest did nothing.
    */
   _applySettingsConfig(settings) {
     this._pushConfig({
@@ -145,16 +139,10 @@ export class AudioAnalysisProcessor {
    * @param {Object} opts.uniformManager - the active ParameterUniformManager
    */
   update(graph, { time = 0, now, uniformManager } = {}) {
-    const allNodes = graph?.nodes || [];
-    // The legacy all-in-one node, each with its own thresholds and trigger state...
-    const nodes = allNodes.filter((n) => n?.kind === 'AudioAnalysis');
-    // ...and the taps deployed from the Audio panel, which all read one shared set of values.
-    const valueNodes = allNodes.filter((n) => n?.kind === 'AudioValue');
-    // The panel keeps the taps live while it is on screen so its meters move before anything has
-    // been deployed — otherwise the thresholds would have to be set against a dead readout.
-    const needTaps = valueNodes.length > 0 || audioTapsWanted();
-
-    if (nodes.length === 0 && !needTaps) {
+    const nodes = (graph?.nodes || []).filter((n) => n?.kind === 'Audio');
+    // The panel keeps the analysis running while it is on screen so its meters move before anything
+    // has been added — otherwise a threshold would have to be set against a dead readout.
+    if (nodes.length === 0 && !audioTapsWanted()) {
       if (this._state.size) this._state.clear();
       this._tapState = null;
       clearAudioTapValues();
@@ -172,43 +160,10 @@ export class AudioAnalysisProcessor {
     const bands = (typeof window !== 'undefined' && window._audioBands) || ZERO_BANDS;
     const live = new Set();
 
-    for (const node of nodes) {
-      live.add(node.id);
-      this._applyEngineConfig(node, ctx);
+    this._updateTaps({ bands, clock, ctx, nodes, uniformManager, live });
 
-      const st = this._nodeState(this._state, node.id, clock);
-      const decay = this._advance(st, clock);
-
-      // Continuous meters straight through — no decision involved.
-      for (const name of METERS) {
-        const v = bands[name] || 0;
-        node[`__audio_${name}`] = v;
-        this._writeUniform(uniformManager, `${node.id}.${name}`, v);
-      }
-
-      // One threshold per instrument, decided on this frame's meter.
-      for (const name of INSTRUMENTS) {
-        const threshold = this._numericParam(node, `${name}Thresh`, 0.5, ctx);
-        const out = this._stepInstrument(st.inst[name], name, bands, threshold, decay, clock);
-
-        node[`__audio_${name}`] = out.env;
-        node[`__audio_${name}Trig`] = out.trig;
-        node[`__audio_${name}Meter`] = out.meter;
-        this._writeUniform(uniformManager, `${node.id}.${name}`, out.env);
-        this._writeUniform(uniformManager, `${node.id}.${name}Trig`, out.trig);
-        this._writeUniform(uniformManager, `${node.id}.${name}Meter`, out.meter);
-      }
-    }
-
-    if (needTaps) {
-      this._updateTaps({ bands, clock, ctx, valueNodes, uniformManager, live, ownsEngine: nodes.length === 0 });
-    } else {
-      this._tapState = null;
-      clearAudioTapValues();
-    }
-
-    // Both loops above record what they touched, so a node that has gone away takes its trigger
-    // memory with it rather than leaking a state entry per deleted node.
+    // A node that has gone away takes its trigger memory with it, rather than leaking a state entry
+    // per deleted node.
     if (this._state.size > live.size) {
       for (const id of this._state.keys()) {
         if (!live.has(id)) this._state.delete(id);
@@ -217,26 +172,21 @@ export class AudioAnalysisProcessor {
   }
 
   /**
-   * The shared channel values the panel displays, and then each Audio Value tap's own output.
+   * The shared channel values the panel displays, and then each Audio node's own output.
    *
-   * The two are not the same thing, and the difference is the whole reason a tap carries a
+   * The two are not the same thing, and the difference is the whole reason a node carries a
    * Threshold. Everything that involves no decision — the band meters, and each drum's `*Meter` —
-   * is one number for the whole patch: two taps reading `low` must agree, and the panel is showing
-   * that same number. But an envelope or a trigger IS a decision, taken against a threshold the tap
-   * owns, so each of those taps runs its own detector: one `kickTrig` at 0.3 and another at 0.8 are
-   * two different instruments off one drum, which is exactly what a per-node threshold is for. Two
-   * taps left at the same threshold still fire on the same frame, because they see the same meter.
+   * is one number for the whole patch: two nodes reading `low` must agree, and the panel is showing
+   * that same number. But an envelope or a trigger IS a decision, taken against a threshold the
+   * node owns, so each of those runs its own detector. Two nodes left at the same threshold still
+   * fire on the same frame, because they see the same meter.
    *
    * The shared set is computed with the panel's own thresholds, since it is what the panel's
    * preview rows and its meter markers read.
-   *
-   * @param {boolean} ownsEngine - whether the panel's meter shaping should drive the engine. An
-   *   Audio Analysis node in the graph keeps pushing its own (patches made before the panel existed
-   *   go on behaving exactly as they did), so the settings only take the engine when there is none.
    */
-  _updateTaps({ bands, clock, ctx, valueNodes, uniformManager, live, ownsEngine }) {
+  _updateTaps({ bands, clock, ctx, nodes, uniformManager, live }) {
     const settings = getAudioAnalysisSettings();
-    if (ownsEngine) this._applySettingsConfig(settings);
+    this._applySettingsConfig(settings);
 
     if (!this._tapState) this._tapState = this._newState(clock);
     const st = this._tapState;
@@ -253,9 +203,9 @@ export class AudioAnalysisProcessor {
     }
     setAudioTapValues(taps);
 
-    // Each tap node carries one number, under a fixed uniform name — so switching a node's channel
-    // is a different value written into the same uniform, with no shader rebuild behind it.
-    for (const node of valueNodes) {
+    // Each node carries one number, under a fixed uniform name — so switching a node's channel is a
+    // different value written into the same uniform, with no shader rebuild behind it.
+    for (const node of nodes) {
       const channel = node.params?.channel;
       const instrument = audioChannelInstrument(channel);
       let value;
@@ -271,7 +221,7 @@ export class AudioAnalysisProcessor {
         const out = this._stepInstrument(
           nodeState.inst[instrument], instrument, bands, threshold, nodeDecay, clock,
         );
-        // What the panel draws as this tap's marker, and what its Threshold readout shows.
+        // What the panel draws as this node's marker on the drum's meter.
         node.__audio_threshold = Math.min(1, Math.max(0, threshold));
         value = channel === instrument ? out.env : out.trig;
       } else {

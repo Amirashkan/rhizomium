@@ -1,5 +1,4 @@
 // src/core/HoldNodeProcessor.js
-import { audioAnalysisPinValue } from './audioAnalysisPins.js';
 import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
 import { evaluateWave, isWaveUnipolar, waveSyncTime } from './waveform.js';
 import { numericParamValue } from './numericParam.js';
@@ -107,7 +106,7 @@ export class HoldNodeProcessor {
   /**
    * Find which OUTPUT pin of the upstream node feeds `toNodeId`'s input pin `toPin`.
    * `node.inputs[pin]` only records the source node id, not which of its outputs was wired, so a
-   * multi-output source (e.g. Audio Analysis: level/kick/trig) needs the pin from graph.connections.
+   * multi-output source (e.g. Resolution: res/width/height) needs the pin from graph.connections.
    * Defaults to 0 when there's no explicit connection record (matches single-output behaviour).
    */
   _sourcePin(graph, toNodeId, toPin) {
@@ -119,7 +118,7 @@ export class HoldNodeProcessor {
 
   /**
    * Evaluate a scalar driver node on the CPU. Covers the kinds that realistically feed a Hold
-   * (constants, time, triggers, nested holds, audio analysis); anything else falls back to the
+   * (constants, time, triggers, nested holds, audio); anything else falls back to the
    * node's last preview value so the latch still does something sensible.
    * `outPin` selects which output of a multi-output source is being read (see _sourcePin).
    */
@@ -178,18 +177,17 @@ export class HoldNodeProcessor {
       case 'Count':
         return typeof node.__countValue === 'number' ? node.__countValue : 0;
 
-      case 'AudioAnalysis':
-        // Live CPU-computed outputs streamed each frame by AudioAnalysisProcessor. The pin order is
-        // shared with the node definition and the compiler; see core/audioAnalysisPins.js.
-        return audioAnalysisPinValue(node, outPin);
 
-      case 'AudioValue':
-        // One channel of that same live analysis, chosen by the node's Channel parameter and
-        // written every frame by the same processor.
+      case 'Audio':
+        // One channel of the live analysis, chosen by the node's Channel parameter and written
+        // every frame by AudioAnalysisProcessor.
         return typeof node.__audio_value === 'number' ? node.__audio_value : 0;
 
       default:
-        return this._toScalar(node.__preview);
+        // Whatever the preview pass last computed. `outPin` matters here and only here: a
+        // multi-output source (a Split's y, a Resolution's height) previews as a list of
+        // independent pins, and the wire says which of them is being read.
+        return this._toScalar(node.__preview, outPin);
     }
   }
 
@@ -201,8 +199,15 @@ export class HoldNodeProcessor {
     return numericParamValue(node, name, def, ctx, fallback);
   }
 
-  _toScalar(v) {
+  _toScalar(v, outPin = 0) {
     if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    // A multi-output preview: independent scalars, one per output pin, so the wired pin picks one.
+    if (v && typeof v === 'object' && Array.isArray(v.values)) {
+      const n = v.values[outPin] ?? v.values[0];
+      return typeof n === 'number' && Number.isFinite(n) ? n : 0;
+    }
+    // A plain array is one value's components (a vec3), not a pin list — a wire from it carries the
+    // whole vector, and a scalar consumer takes the first component as it always has.
     if (Array.isArray(v) && v.length) {
       const n = v[0];
       return typeof n === 'number' && Number.isFinite(n) ? n : 0;

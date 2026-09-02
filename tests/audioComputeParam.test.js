@@ -1,17 +1,16 @@
-// Regression: dropping an Audio Analysis node onto a compute node's parameter (Pattern's Scale,
-// say) did nothing — the pattern sat at its default scale however loud the music was.
+// Regression: dropping an Audio node onto a compute node's parameter (Pattern's Scale, say) did
+// nothing — the pattern sat at its default scale however loud the music was.
 //
 // Two independent causes, both covered here:
 //
-//   1. VALUE. The drag gesture writes a BARE reference, `=node_28` (NodeReferenceDrop). On the GPU
-//      the compiler resolves that to the node's first output pin, `level`. On the CPU — which is
-//      where a compute node's parameters are evaluated, since they are packed into uniforms rather
-//      than compiled into the shader — the bare name was bound to the whole 15-pin array, so the
-//      expression evaluated to a non-number and every consumer fell back to the parameter default.
+//   1. VALUE. The drag gesture writes a BARE reference, `=node_28` (NodeReferenceDrop), and on the
+//      CPU — where a compute node's parameters are evaluated, since they are packed into uniforms
+//      rather than compiled into the shader — that name has to resolve to the node's live channel
+//      value. Anything else and every consumer falls back to the parameter default.
 //
 //   2. LIVENESS. A compute node only re-evaluates its uniforms when it dispatches, and it only
-//      dispatches when something says it changed. An Audio Analysis reference looks static to that
-//      check — its meters live on the node object, not in the referring node's params — so even a
+//      dispatches when something says it changed. An audio reference looks static to that check —
+//      the value lives on the node object, not in the referring node's params — so even a
 //      correctly-resolved reference would have moved only when some other edit forced a dispatch.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -19,21 +18,16 @@ import { ParameterExpressionSystem } from '../src/utils/ParameterExpressionSyste
 import { ComputeShaderManager } from '../src/gpu/ComputeShaderManager.js';
 import { ComputeExecutor } from '../src/gpu/ComputeExecutor.js';
 import { PreviewComputer } from '../src/core/PreviewComputer.js';
-import { AUDIO_ANALYSIS_PINS } from '../src/core/audioAnalysisPins.js';
 
-const LOW = AUDIO_ANALYSIS_PINS.indexOf('low');
-
-// An analysis node mid-signal: level 0.42, low 0.7, kick 0.9.
+// An audio node mid-signal, reading the low band at 0.42.
 const audioNode = () => ({
   id: '28',
-  kind: 'AudioAnalysis',
-  params: {},
-  __audio_level: 0.42,
-  __audio_low: 0.7,
-  __audio_kick: 0.9,
+  kind: 'Audio',
+  params: { channel: 'low' },
+  __audio_value: 0.42,
 });
 
-describe('an Audio Analysis reference on a compute parameter', () => {
+describe('an Audio reference on a compute parameter', () => {
   let es, audio, pattern, previousEditor, previousGraph, previousRegistry;
 
   beforeEach(() => {
@@ -52,18 +46,17 @@ describe('an Audio Analysis reference on a compute parameter', () => {
     window.computeNodeRegistry = previousRegistry;
   });
 
-  it('resolves the bare `=node_<id>` the drag gesture writes to pin 0 (level)', () => {
+  it('resolves the bare `=node_<id>` the drag gesture writes to the live channel value', () => {
     expect(es.evaluateExpression('=node_28', {}, pattern)).toBeCloseTo(0.42);
   });
 
-  it('still resolves an explicit pin reference, and a formula around one', () => {
-    expect(es.evaluateExpression(`=node_28_${LOW}`, {}, pattern)).toBeCloseTo(0.7);
-    expect(es.evaluateExpression(`=node_28_${LOW} * 20`, {}, pattern)).toBeCloseTo(14);
+  it('resolves a formula around the reference', () => {
+    expect(es.evaluateExpression('=node_28 * 20', {}, pattern)).toBeCloseTo(8.4);
   });
 
   it('follows the live meter instead of freezing at the first value read', () => {
     expect(es.evaluateExpression('=node_28', {}, pattern)).toBeCloseTo(0.42);
-    audio.__audio_level = 0.05;
+    audio.__audio_value = 0.05;
     expect(es.evaluateExpression('=node_28', {}, pattern)).toBeCloseTo(0.05);
   });
 
@@ -84,13 +77,13 @@ describe('an Audio Analysis reference on a compute parameter', () => {
       ComputeShaderManager.prototype.evaluateParam.call({ node: pattern }, value, def, 0, {});
 
     expect(evaluate('=node_28', 8.0)).toBeCloseTo(0.42);
-    expect(evaluate(`=node_28_${LOW} * 20`, 8.0)).toBeCloseTo(14);
+    expect(evaluate('=node_28 * 20', 8.0)).toBeCloseTo(8.4);
     // A plain number is still packed as itself.
     expect(evaluate(12, 8.0)).toBeCloseTo(12);
   });
 });
 
-describe('Audio Analysis references in the preview pass', () => {
+describe('multi-output references in the preview pass', () => {
   const computer = Object.create(PreviewComputer.prototype);
 
   it('binds a bare reference to pin 0 and each pin to its index', () => {
@@ -136,7 +129,7 @@ describe('dispatching a compute node driven by audio', () => {
     previousRegistry = window.computeNodeRegistry;
     previousEditor = window.editor;
     previousGraph = window.graph;
-    // Deliberately empty: an Audio Analysis is not a compute node, so it is never in here.
+    // Deliberately empty: an Audio node is not a compute node, so it is never in here.
     window.computeNodeRegistry = new Map();
   });
 
@@ -146,22 +139,22 @@ describe('dispatching a compute node driven by audio', () => {
     window.graph = previousGraph;
   });
 
-  it('keeps dispatching a node whose parameter references the analysis', () => {
+  it('keeps dispatching a node whose parameter references the audio', () => {
     withGraph([audioNode()]);
     expect(check({ id: '9', kind: 'ComputePattern', params: { scaleX: '=node_28' } })).toBe(true);
   });
 
   it('sees a reference written as a formula, not only as a bare `=node_<id>`', () => {
     withGraph([audioNode()]);
-    const node = { id: '9', kind: 'ComputePattern', params: { scaleX: '=clamp(node_28_1 * 20, 1, 40)' } };
+    const node = { id: '9', kind: 'ComputePattern', params: { scaleX: '=clamp(node_28 * 20, 1, 40)' } };
     expect(seesReference(node)).toBe(true);
     expect(check(node)).toBe(true);
   });
 
-  it('follows the chain through a node WIRED to the analysis', () => {
-    // Audio Analysis --wire--> Remap --`=node_<remap>`--> Pattern. The wire carries the movement
-    // and is invisible to a params-only check, so the Pattern froze at whatever the Remap read
-    // when it was last dispatched.
+  it('follows the chain through a node WIRED to the audio', () => {
+    // Audio --wire--> Remap --`=node_<remap>`--> Pattern. The wire carries the movement and is
+    // invisible to a params-only check, so the Pattern froze at whatever the Remap read when it
+    // was last dispatched.
     withGraph([
       audioNode(),
       { id: '30', kind: 'Remap', params: { inMin: 0, inMax: 1, outMin: 1, outMax: 40 }, inputs: ['28'] },
@@ -169,10 +162,10 @@ describe('dispatching a compute node driven by audio', () => {
     expect(check({ id: '9', kind: 'ComputePattern', params: { scaleX: '=node_30' } })).toBe(true);
   });
 
-  it('follows the chain through a node that REFERENCES the analysis', () => {
+  it('follows the chain through a node that REFERENCES the audio', () => {
     withGraph([
       audioNode(),
-      { id: '30', kind: 'ConstFloat', params: { value: '=node_28_4' }, inputs: [] },
+      { id: '30', kind: 'ConstFloat', params: { value: '=node_28' }, inputs: [] },
     ]);
     expect(check({ id: '9', kind: 'ComputePattern', params: { scaleX: '=node_30' } })).toBe(true);
   });

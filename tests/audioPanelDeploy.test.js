@@ -66,11 +66,11 @@ describe('Audio panel', () => {
     }
   });
 
-  it('deploys an Audio Value node for the channel whose button was pressed', () => {
+  it('deploys an Audio node for the channel whose button was pressed', () => {
     rowFor(panel, 'kickTrig').querySelector('.rzap-add').click();
 
     const node = window.editor.nodes.at(-1);
-    expect(node.kind).toBe('AudioValue');
+    expect(node.kind).toBe('Audio');
     expect(node.params.channel).toBe('kickTrig');
     // Named after the channel: a rack of taps has to be readable on the canvas.
     expect(node.name).toBe('Kick Trigger');
@@ -149,8 +149,8 @@ describe('Audio panel', () => {
 
     // Two taps at different thresholds — including one resolved from an expression this frame.
     window.editor.nodes.push(
-      { id: '9', kind: 'AudioValue', params: { channel: 'kickTrig', threshold: 0.8 } },
-      { id: '10', kind: 'AudioValue', params: { channel: 'kick', threshold: '=midi' }, __audio_threshold: 0.25 },
+      { id: '9', kind: 'Audio', params: { channel: 'kickTrig', threshold: 0.8 } },
+      { id: '10', kind: 'Audio', params: { channel: 'kick', threshold: '=midi' }, __audio_threshold: 0.25 },
     );
     panel._refresh();
 

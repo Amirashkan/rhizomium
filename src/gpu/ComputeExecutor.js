@@ -30,13 +30,12 @@ import { getDynamicInputSpec, getInputCount } from '../data/nodeInputs.js';
 import { MAX_SIM_EDGE, fitToLongEdge, resolveResolution } from '../ui/OutputFormat.js';
 
 // Node kinds whose output moves every frame on its own, with nothing wired in. The clock-driven
-// Input nodes, plus Audio Analysis and Audio Value: their meters follow the live signal and are
-// advanced on the CPU each frame by AudioAnalysisProcessor. This is the set
-// Editor._hasIntrinsicTimeNodes keeps the render loop alive for, and a compute node that reads one
-// from a parameter has to keep dispatching for the same reason — its uniforms are only
-// re-evaluated when it dispatches, so an undispatched node renders whatever the reference held
-// when something else last marked it dirty.
-const LIVE_INPUT_KINDS = new Set(['Time', 'Wave', 'RandomValue', 'AudioAnalysis', 'AudioValue']);
+// Input nodes, plus Audio: its channel follows the live signal and is advanced on the CPU each
+// frame by AudioAnalysisProcessor. This is the set Editor._hasIntrinsicTimeNodes keeps the render
+// loop alive for, and a compute node that reads one from a parameter has to keep dispatching for
+// the same reason — its uniforms are only re-evaluated when it dispatches, so an undispatched node
+// renders whatever the reference held when something else last marked it dirty.
+const LIVE_INPUT_KINDS = new Set(['Time', 'Wave', 'RandomValue', 'Audio']);
 
 /**
  * Find a node by id. computeNodeRegistry only holds COMPUTE nodes, so anything else — the Input
@@ -78,7 +77,7 @@ function hasTimeDependentParams(node) {
  * Does this node's output move on its own between frames?
  *
  * Answered for the whole upstream chain, not just the node itself: a Pattern whose scale is
- * `=node_<remap>` where that Remap is *wired* from an Audio Analysis is exactly as live as one
+ * `=node_<remap>` where that Remap is *wired* from an Audio node is exactly as live as one
  * referencing the analysis directly, and the wire is invisible to a params-only check. Reference
  * cycles and feedback loops are guarded by `visited`.
  */

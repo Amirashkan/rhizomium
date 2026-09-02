@@ -69,6 +69,11 @@ export class AudioSettingsPanel {
         this.visible = false;
         this.cleanupDraggable = null;
         this._deployed = 0;
+        // The player loops by default (a VJ set runs off one track for an hour); the panel shows it
+        // rather than leaving it as invisible behaviour.
+        this._loop = true;
+        this._loadError = null;
+        this._seeking = false;
 
         try {
             this.audioClient = getBrowserAudioCapture();
@@ -98,20 +103,29 @@ export class AudioSettingsPanel {
 
             <div class="rzap-body">
                 <section class="rzap-sec">
-                    <div class="rzap-sec-title">Source</div>
-                    <input type="file" id="audio-file-input" accept="audio/*" class="rzap-file-input">
+                    <div class="rzap-sec-title">
+                        Source
+                        <span id="audio-state" class="rzap-state" data-state="empty">
+                            <i class="rzap-dot"></i><span id="audio-state-text">No file</span>
+                        </span>
+                    </div>
+                    <label class="rzap-file">
+                        <input type="file" id="audio-file-input" accept="audio/*">
+                        <span class="rzap-file-btn">Choose file…</span>
+                        <span id="audio-filename" class="rzap-file-name">No file loaded</span>
+                    </label>
                     <div class="rzap-transport">
-                        <button id="audio-play-btn" class="rzap-btn is-accent" disabled>▶ Play</button>
-                        <button id="audio-pause-btn" class="rzap-btn" disabled>⏸ Pause</button>
+                        <button id="audio-playpause" class="rzap-btn is-primary" disabled>▶ Play</button>
                         <button id="audio-stop-btn" class="rzap-btn" disabled>⏹ Stop</button>
+                        <button id="audio-loop" class="rzap-btn is-toggle" title="Loop the track">⟲ Loop</button>
+                    </div>
+                    <div id="audio-progress-container" class="rzap-progress" title="Click or drag to seek">
+                        <div id="audio-progress-bar" class="rzap-progress-fill"></div>
+                        <div id="audio-progress-head" class="rzap-progress-head"></div>
                     </div>
                     <div class="rzap-times">
                         <span id="audio-current-time">0:00</span>
-                        <span id="audio-filename">No file loaded</span>
                         <span id="audio-duration">0:00</span>
-                    </div>
-                    <div id="audio-progress-container" class="rzap-progress">
-                        <div id="audio-progress-bar" class="rzap-progress-fill"></div>
                     </div>
                 </section>
 
@@ -248,7 +262,7 @@ export class AudioSettingsPanel {
         row.className = 'rzap-row';
         row.dataset.channel = channel;
         row.innerHTML = `
-            <button class="rzap-add" title="Add an Audio Value node for ${label}">+</button>
+            <button class="rzap-add" title="Add an Audio node for ${label}">+</button>
             <span class="rzap-row-name">${label}</span>
             <span class="rzap-bar"><i class="rzap-bar-fill"></i><span class="rzap-bar-marks"></span></span>
             <span class="rzap-row-value">0.000</span>
@@ -309,7 +323,7 @@ export class AudioSettingsPanel {
         const nodes = window.editor?.graph?.nodes || [];
         const seen = new Set();
         for (const node of nodes) {
-            if (node?.kind !== 'AudioValue') continue;
+            if (node?.kind !== 'Audio') continue;
             if (audioChannelInstrument(node.params?.channel) !== instrument) continue;
             // The resolved number the processor last decided on — which is what an expression or a
             // MIDI-mapped threshold actually evaluated to this frame, not the string in the field.
@@ -322,7 +336,7 @@ export class AudioSettingsPanel {
     }
 
     /**
-     * Drop an Audio Value node for one channel into the middle of the view.
+     * Drop an Audio node for one channel into the middle of the view.
      *
      * Named after the channel, and stacked rather than piled: deploying four taps in a row should
      * read as a rack of four labelled floats, not as one node with three hidden underneath it.
@@ -335,7 +349,7 @@ export class AudioSettingsPanel {
         }
 
         const { x, y } = this._deployPosition(editor);
-        const node = editor.createNode('AudioValue', x, y);
+        const node = editor.createNode('Audio', x, y);
         if (!node) return null;
 
         node.params = node.params || {};
@@ -391,62 +405,88 @@ export class AudioSettingsPanel {
         const closeBtn = this.panel.querySelector('#audio-close-btn');
         closeBtn.addEventListener('click', () => this.hide());
 
-        // File input
+        // The transport. Every button reads its state back off the audio element in
+        // _syncTransport(), so what is on screen is what the player is actually doing rather than
+        // what the last click asked for — a file that fails to start, or playback stopped from
+        // anywhere else, shows up here instead of leaving a "Play" button that has already played.
         const fileInput = this.panel.querySelector('#audio-file-input');
-        const playBtn = this.panel.querySelector('#audio-play-btn');
-        const pauseBtn = this.panel.querySelector('#audio-pause-btn');
+        const playPauseBtn = this.panel.querySelector('#audio-playpause');
         const stopBtn = this.panel.querySelector('#audio-stop-btn');
+        const loopBtn = this.panel.querySelector('#audio-loop');
         const filenameEl = this.panel.querySelector('#audio-filename');
 
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
-            if (file) {
-                try {
-                    await this.audioClient.loadFile(file);
-                    filenameEl.textContent = file.name;
-                    filenameEl.style.color = 'var(--rz-accent)';
-                    playBtn.disabled = false;
-                    pauseBtn.disabled = false;
-                    stopBtn.disabled = false;
-                } catch {
+            if (!file) return;
+            this._loadError = null;
+            filenameEl.textContent = file.name;
+            try {
+                await this.audioClient.loadFile(file);
+                // Loading resets the element, so re-apply the loop the panel is showing.
+                if (this.audioClient.audioElement) this.audioClient.audioElement.loop = this._loop;
+            } catch {
+                this._loadError = 'Could not read that file';
+            }
+            this._syncTransport();
+        });
 
-                    filenameEl.textContent = 'Error loading file';
-                    filenameEl.style.color = 'var(--rz-error)';
+        playPauseBtn.addEventListener('click', async () => {
+            if (this._isPlaying()) {
+                this.audioClient?.pause();
+            } else {
+                try {
+                    await this.audioClient?.play();
+                } catch {
+                    // Autoplay policy, a decode failure: the state line says so rather than the
+                    // button silently doing nothing.
+                    this._loadError = 'Playback was blocked — click again';
                 }
             }
+            this._syncTransport();
         });
 
-        // Play button
-        playBtn.addEventListener('click', async () => {
-            try {
-                await this.audioClient.play();
-            } catch {
-
-            }
-        });
-
-        // Pause button
-        pauseBtn.addEventListener('click', () => {
-            this.audioClient.pause();
-        });
-
-        // Stop button
         stopBtn.addEventListener('click', () => {
-            this.audioClient.stop();
+            this.audioClient?.stop();
+            this._syncTransport();
         });
 
-        // Time bar seeking
-        const progressContainer = this.panel.querySelector('#audio-progress-container');
-        progressContainer.addEventListener('click', (e) => {
+        loopBtn.addEventListener('click', () => {
+            this._loop = !this._loop;
+            if (this.audioClient?.audioElement) this.audioClient.audioElement.loop = this._loop;
+            this._syncTransport();
+        });
+
+        // Seeking: click anywhere on the bar, or drag along it. Pointer capture is what makes the
+        // drag survive leaving the 6px-tall bar, which is otherwise impossible to stay inside.
+        const progress = this.panel.querySelector('#audio-progress-container');
+        const seekTo = (clientX) => {
             const audioElement = this.audioClient?.audioElement;
-            if (!audioElement || !audioElement.duration) return;
-
-            const rect = progressContainer.getBoundingClientRect();
-            const clickX = e.clientX - rect.left;
-            const percentage = clickX / rect.width;
-
-            audioElement.currentTime = percentage * audioElement.duration;
+            if (!audioElement || !isFinite(audioElement.duration) || !audioElement.duration) return;
+            const rect = progress.getBoundingClientRect();
+            const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+            audioElement.currentTime = ratio * audioElement.duration;
+            this._syncTransport();
+        };
+        progress.addEventListener('pointerdown', (e) => {
+            progress.setPointerCapture?.(e.pointerId);
+            this._seeking = true;
+            seekTo(e.clientX);
         });
+        progress.addEventListener('pointermove', (e) => {
+            if (this._seeking) seekTo(e.clientX);
+        });
+        const endSeek = (e) => {
+            if (!this._seeking) return;
+            this._seeking = false;
+            progress.releasePointerCapture?.(e.pointerId);
+        };
+        progress.addEventListener('pointerup', endSeek);
+        progress.addEventListener('pointercancel', endSeek);
+
+        // The player can start and stop without the panel: an Audio node's button, another window.
+        for (const event of ['loaded', 'started', 'stopped', 'error']) {
+            this.audioClient?.on?.(event, () => this._syncTransport());
+        }
 
         // Update display periodically. Only while on screen: the taps behind it are computed on the
         // render loop and cost an engine tick per frame, which nothing should pay for a closed panel.
@@ -470,22 +510,74 @@ export class AudioSettingsPanel {
         }
 
         for (const instrument of AUDIO_INSTRUMENTS) this._syncMarks(instrument);
+        this._syncTransport();
+    }
 
-        const audioElement = this.audioClient?.audioElement;
-        if (audioElement) {
-            const currentTime = audioElement.currentTime || 0;
-            const duration = audioElement.duration || 0;
+    /** Is the player actually producing sound right now? */
+    _isPlaying() {
+        const el = this.audioClient?.audioElement;
+        // The element is the truth: `isPlaying` on the client is set by its own play()/pause() and
+        // cannot know about a track that ran out or was stopped from somewhere else.
+        if (el) return !el.paused && !el.ended && el.readyState > 2;
+        return !!this.audioClient?.getIsPlaying?.();
+    }
 
-            const currentTimeEl = this.panel.querySelector('#audio-current-time');
-            const durationEl = this.panel.querySelector('#audio-duration');
-            const progressBar = this.panel.querySelector('#audio-progress-bar');
+    /**
+     * Put the transport in the state the player is actually in.
+     *
+     * The old row was three buttons that looked identical whatever was happening — Play stayed lit
+     * after it had been pressed, nothing said whether a file was loaded, whether it was playing or
+     * paused, or that it loops. Every one of those is now readable at a glance: the state chip
+     * names it, the primary button shows the action that would change it, and Stop dims when there
+     * is nothing to stop.
+     */
+    _syncTransport() {
+        const el = this.audioClient?.audioElement;
+        const hasFile = !!(el && el.src);
+        const playing = this._isPlaying();
+        const position = el?.currentTime || 0;
+        const duration = el && isFinite(el.duration) ? el.duration : 0;
 
-            if (currentTimeEl) currentTimeEl.textContent = this.formatTime(currentTime);
-            if (durationEl && isFinite(duration)) durationEl.textContent = this.formatTime(duration);
-            if (progressBar && isFinite(duration) && duration > 0) {
-                progressBar.style.width = `${(currentTime / duration) * 100}%`;
-            }
+        let state = 'empty';
+        let label = 'No file';
+        if (this._loadError) {
+            state = 'error';
+            label = this._loadError;
+        } else if (!hasFile) {
+            state = 'empty';
+            label = 'No file';
+        } else if (playing) {
+            state = 'playing';
+            label = 'Playing';
+        } else if (position > 0) {
+            state = 'paused';
+            label = 'Paused';
+        } else {
+            state = 'ready';
+            label = 'Ready';
         }
+
+        const chip = this.panel.querySelector('#audio-state');
+        chip.dataset.state = state;
+        this.panel.querySelector('#audio-state-text').textContent = label;
+
+        const playPause = this.panel.querySelector('#audio-playpause');
+        playPause.textContent = playing ? '⏸ Pause' : '▶ Play';
+        playPause.disabled = !hasFile;
+        playPause.classList.toggle('is-playing', playing);
+
+        const stop = this.panel.querySelector('#audio-stop-btn');
+        stop.disabled = !hasFile || (!playing && position === 0);
+
+        const loop = this.panel.querySelector('#audio-loop');
+        loop.classList.toggle('is-on', this._loop);
+        loop.setAttribute('aria-pressed', String(this._loop));
+
+        this.panel.querySelector('#audio-current-time').textContent = this.formatTime(position);
+        this.panel.querySelector('#audio-duration').textContent = this.formatTime(duration);
+        const ratio = duration > 0 ? Math.min(1, position / duration) : 0;
+        this.panel.querySelector('#audio-progress-bar').style.width = `${ratio * 100}%`;
+        this.panel.querySelector('#audio-progress-head').style.left = `${ratio * 100}%`;
     }
 
     formatTime(seconds) {
@@ -577,12 +669,51 @@ export class AudioSettingsPanel {
             }
             .rzap-foot { padding-bottom: 4px; }
 
-            .rzap-file-input {
-                width: 100%; padding: 5px; margin-bottom: 8px; box-sizing: border-box;
-                background: var(--rz-well); color: var(--rz-text);
-                border: 1px solid var(--rz-line-strong); border-radius: 6px;
-                font-size: 11px; font-family: var(--rz-font-ui); cursor: pointer;
+            /* What the player is doing, in words, where the eye lands first. */
+            .rzap-state {
+                display: inline-flex; align-items: center; gap: 5px;
+                text-transform: none; letter-spacing: 0; color: var(--rz-text-3);
             }
+            .rzap-dot {
+                width: 6px; height: 6px; border-radius: 50%;
+                background: var(--rz-text-disabled);
+            }
+            .rzap-state[data-state="ready"] .rzap-dot { background: var(--rz-text-3); }
+            .rzap-state[data-state="paused"] { color: var(--rz-warn); }
+            .rzap-state[data-state="paused"] .rzap-dot { background: var(--rz-warn); }
+            .rzap-state[data-state="error"] { color: var(--rz-error); }
+            .rzap-state[data-state="error"] .rzap-dot { background: var(--rz-error); }
+            .rzap-state[data-state="playing"] { color: var(--rz-accent); }
+            .rzap-state[data-state="playing"] .rzap-dot {
+                background: var(--rz-accent);
+                animation: rzap-pulse 1.4s ease-in-out infinite;
+            }
+            /* The one moving thing in the panel that is not a meter: it says "running" even on a
+               silent passage, where every meter reads zero and nothing else would. */
+            @keyframes rzap-pulse {
+                0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--rz-accent-30); }
+                50% { opacity: 0.55; box-shadow: 0 0 0 3px transparent; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .rzap-state[data-state="playing"] .rzap-dot { animation: none; }
+            }
+
+            .rzap-file {
+                display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+                cursor: pointer;
+            }
+            .rzap-file input { display: none; }
+            .rzap-file-btn {
+                flex: 0 0 auto; padding: 5px 9px; border-radius: 6px;
+                border: 1px solid var(--rz-line-strong); background: var(--rz-surface-raised);
+                color: var(--rz-text-2); font-size: 11px; white-space: nowrap;
+            }
+            .rzap-file:hover .rzap-file-btn { background: var(--rz-hover); color: var(--rz-text); }
+            .rzap-file-name {
+                flex: 1 1 auto; min-width: 0; font-size: 11px; color: var(--rz-text-3);
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+
             .rzap-transport { display: flex; gap: 4px; margin-bottom: 8px; }
             .rzap-btn {
                 flex: 1; padding: 6px; border: 1px solid var(--rz-line-strong); border-radius: 6px;
@@ -590,22 +721,38 @@ export class AudioSettingsPanel {
                 font-family: var(--rz-font-ui); font-size: 11px; cursor: pointer;
             }
             .rzap-btn:hover:not(:disabled) { background: var(--rz-hover); }
-            .rzap-btn.is-accent { background: var(--rz-accent); color: var(--rz-accent-ink); border-color: transparent; }
-            .rzap-btn:disabled { opacity: 0.45; cursor: default; }
+            .rzap-btn:disabled { opacity: 0.4; cursor: default; }
+            /* Play is the accented action; while it IS playing the accent moves to the state chip
+               and the button reads as the thing it would do next (pause), not as the thing running. */
+            .rzap-btn.is-primary {
+                background: var(--rz-accent); color: var(--rz-accent-ink); border-color: transparent;
+            }
+            .rzap-btn.is-primary.is-playing {
+                background: var(--rz-accent-14); color: var(--rz-accent);
+                border-color: var(--rz-accent-30);
+            }
+            .rzap-btn.is-toggle { flex: 0 0 auto; padding: 6px 9px; color: var(--rz-text-3); }
+            .rzap-btn.is-toggle.is-on {
+                color: var(--rz-accent); border-color: var(--rz-accent-30);
+                background: var(--rz-accent-08);
+            }
 
             .rzap-times {
-                display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px;
+                display: flex; justify-content: space-between; gap: 8px; margin-top: 4px;
                 font-family: var(--rz-font-mono); font-size: 10px; color: var(--rz-text-faint);
             }
-            #audio-filename {
-                flex: 1; text-align: center; font-family: var(--rz-font-ui); font-style: italic;
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-            }
             .rzap-progress {
-                height: 6px; border-radius: 3px; overflow: hidden; cursor: pointer;
-                background: var(--rz-fill-soft);
+                position: relative; height: 6px; border-radius: 3px; cursor: pointer;
+                background: var(--rz-fill-soft); touch-action: none;
             }
-            .rzap-progress-fill { height: 100%; width: 0%; background: var(--rz-accent); }
+            .rzap-progress-fill {
+                height: 100%; width: 0%; border-radius: 3px; background: var(--rz-accent);
+            }
+            .rzap-progress-head {
+                position: absolute; top: 50%; left: 0; width: 9px; height: 9px;
+                margin: -4.5px 0 0 -4.5px; border-radius: 50%;
+                background: var(--rz-accent); pointer-events: none;
+            }
 
             .rzap-slider {
                 display: grid; grid-template-columns: 62px 1fr 46px; align-items: center;

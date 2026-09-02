@@ -20,7 +20,6 @@
 import { NodeDefs } from '../data/NodeDefs.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 import { isSharedSampler, sharedSampler } from './sharedSamplers.js';
-import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValues } from '../core/audioAnalysisPins.js';
 import { isTriggerChangeMode } from '../core/triggerMode.js';
 
 export class FragmentTextureRenderer {
@@ -235,11 +234,11 @@ export class FragmentTextureRenderer {
       // referencing the Trigger would render a thumbnail that never pulses.
       this._syncTriggerUniforms(uniformManager);
 
-      // Same for Audio Analysis: its level/kick/trig outputs are advanced on the CPU every frame by
-      // AudioAnalysisProcessor and written into the MAIN renderer's uniform manager. This preview
-      // builds its OWN manager, so without this its `<id>.level/.kick/.trig` uniforms stay at their
-      // compile-time default (0) and a node driven by a pin — e.g. a Circle whose radius is
-      // `=node_<id>_0` — renders a frozen thumbnail even while the main output reacts to the audio.
+      // Same for Audio: its channel is advanced on the CPU every frame by AudioAnalysisProcessor
+      // and written into the MAIN renderer's uniform manager. This preview builds its OWN manager,
+      // so without this its `<id>.value` uniform stays at its compile-time default (0) and a node
+      // driven by it — e.g. a Circle whose radius is `=node_<id>` — renders a frozen thumbnail even
+      // while the main output reacts to the audio.
       this._syncAudioUniforms(uniformManager);
 
       // Same for a Wave whose sync pin is wired: the instant its cycle was last restarted is
@@ -609,11 +608,6 @@ export class FragmentTextureRenderer {
       if (refNode?.kind?.toLowerCase() === 'hold' && typeof refNode.__holdValue === 'number') {
         hash += `${refId}.hold:${refNode.__holdValue};`;
       }
-      // Same story for an Audio Analysis node: its outputs are advanced on the CPU each frame and
-      // aren't visible in this node's own params or as a time/audioEnvelope keyword, so fold ALL of
-      // them in — a radius driven by `=node_<id>_0` (level) must change the hash when the level
-      // moves, not only when a drum envelope does — or a non-forced render path (e.g. a
-      // compute-bridged texture) freezes on a stale frame.
       // Same story for a Count node: the running counter lives on the CPU (node.__countValue) and
       // is invisible to this node's own params, so a Switch selecting on `=node_<count>` would keep
       // a stale frame on every non-forced render path (a bridged texture feeding a compute node,
@@ -621,13 +615,11 @@ export class FragmentTextureRenderer {
       if (refNode?.kind === 'Count' && typeof refNode.__countValue === 'number') {
         hash += `${refId}.count:${refNode.__countValue};`;
       }
-      if (refNode?.kind === 'AudioAnalysis') {
-        const live = audioAnalysisPinValues(refNode);
-        for (const name of AUDIO_ANALYSIS_PINS) hash += `${refId}.${name}:${live[name]};`;
-      }
-      // An Audio Value tap carries one channel of the same live analysis, invisible to this node's
-      // params for the same reason, so fold it in too.
-      if (refNode?.kind === 'AudioValue' && typeof refNode.__audio_value === 'number') {
+      // An Audio node's channel is advanced on the CPU each frame and is invisible in this node's
+      // own params or as a time/audioEnvelope keyword, so fold it in — otherwise a radius driven by
+      // `=node_<id>` freezes on a non-forced render path (e.g. a compute-bridged texture) while the
+      // audio keeps moving.
+      if (refNode?.kind === 'Audio' && typeof refNode.__audio_value === 'number') {
         hash += `${refId}.value:${refNode.__audio_value};`;
       }
     }
@@ -1211,35 +1203,26 @@ export class FragmentTextureRenderer {
   }
 
   /**
-   * Overwrite each Audio Analysis `<id>.level` / `.kick` / `.trig` entry — and each Audio Value
-   * tap's `<id>.value` — in a (detached) uniform
-   * snapshot with the live value from its node (__audio_<pin>, advanced every
-   * frame by AudioAnalysisProcessor and written into the MAIN uniform manager). This preview builds
-   * its OWN manager, so those uniforms would otherwise stay at their compile-time default and any node
-   * driven by a pin renders a frozen thumbnail. Map.set on an existing key preserves insertion order,
-   * so the Float32Array _updateUniforms builds still matches the compiled ParamUniforms layout.
+   * Overwrite each Audio node's `<id>.value` entry in a (detached) uniform snapshot with the live
+   * value from the node (__audio_value, advanced every frame by AudioAnalysisProcessor and written
+   * into the MAIN uniform manager). This preview builds its OWN manager, so that uniform would
+   * otherwise stay at its compile-time default and any node driven by it renders a frozen
+   * thumbnail. Map.set on an existing key preserves insertion order, so the Float32Array
+   * _updateUniforms builds still matches the compiled ParamUniforms layout.
    * @private
    */
   _syncAudioUniforms(uniformManager) {
     const values = uniformManager?.uniformValues;
     if (!values || values.size === 0) return;
-    // `.value` is the Audio Value tap's single uniform; the rest are the Audio Analysis pins.
-    const suffixProp = [
-      ...AUDIO_ANALYSIS_PINS.map((name) => [`.${name}`, `__audio_${name}`]),
-      ['.value', '__audio_value'],
-    ];
     for (const key of values.keys()) {
-      // Longest suffix first, so `.kickTrig` is not mistaken for `.kick`.
-      const match = suffixProp
-        .filter(([sfx]) => key.endsWith(sfx))
-        .sort((a, b) => b[0].length - a[0].length)[0];
-      if (!match) continue;
-      const [sfx, prop] = match;
-      const nodeId = key.slice(0, -sfx.length);
+      if (!key.endsWith('.value')) continue;
+      const nodeId = key.slice(0, -'.value'.length);
       const node = window.graph?.getNode?.(nodeId)
         || window.editor?.graph?.nodes?.find(n => String(n.id) === nodeId);
-      if (node?.kind !== 'AudioAnalysis' && node?.kind !== 'AudioValue') continue;
-      const v = node[prop];
+      // Only an Audio node: `.value` is a common enough parameter name that the kind check is what
+      // keeps this from stamping on someone else's uniform.
+      if (node?.kind !== 'Audio') continue;
+      const v = node.__audio_value;
       if (typeof v === 'number' && isFinite(v)) {
         values.set(key, v);
       }

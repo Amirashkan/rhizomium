@@ -2,8 +2,21 @@
 
 `Tools → Audio…` (`Mod+Alt+A`) opens the patch's single surface for the live audio analysis: the
 source, the shape of the meters, the per-drum thresholds, and a live readout of every channel the
-analysis produces. Next to each channel is a `+` that drops an **Audio Value** node on the canvas
-reading that channel — a plain float you can wire into anything.
+analysis produces. Next to each channel is a `+` that drops an **Audio** node on the canvas reading
+that channel — a plain float you can wire into anything. An Audio node's **Open Audio Panel** button
+brings you back here.
+
+There is exactly one audio node. The all-in-one **Audio Analysis** node it replaced carried fifteen
+output pins and every setting the analysis has; patches saved with it are converted on load into one
+Audio node per pin they actually read (see [Loading an older patch](#loading-an-older-patch)).
+
+## Source
+
+The transport reads its state back off the player rather than from the last button pressed, so what
+is on screen is what is actually happening: a chip naming the state (**No file** / **Ready** /
+**Playing** / **Paused**, or the reason a load or a play failed), one button showing the action that
+would change it (Play ⇄ Pause), a Stop that dims when there is nothing to stop, and a **Loop**
+toggle — the player has always looped by default, and now says so. The bar seeks on click or drag.
 
 ## Why a panel
 
@@ -43,8 +56,8 @@ it shows a single dim marker: where the next one would start.
 
 ## Channels
 
-The same fifteen channels the Audio Analysis node exposes as pins, in the order defined by
-`src/core/audioAnalysisPins.js`:
+The fifteen channels the analysis produces, in the order defined by
+`src/audio/audioAnalysisTaps.js`:
 
 | Group | Channels | What they read |
 | --- | --- | --- |
@@ -55,25 +68,25 @@ The same fifteen channels the Audio Analysis node exposes as pins, in the order 
 | Kick / Snare / Hat | `<drum>Trig` | A single-frame pulse on a hit |
 
 The last two are the only channels a threshold applies to — a `*Meter` is what a threshold is
-compared *to*, and the continuous meters involve no decision at all — so a tap's Threshold dims
+compared *to*, and the continuous meters involve no decision at all — so a node's Threshold dims
 itself on the others rather than sitting there doing nothing.
 
 A trigger row's bar follows the matching envelope rather than the trigger itself: a one-frame pulse
 would almost never be caught by the panel's 20 Hz refresh. The number beside it is the trigger.
 
-## The Audio Value node
+## The Audio node
 
 One channel of the shared analysis, as a single `f32` output. Deployed nodes are named after their
-channel ("Kick Trigger", "Low") so a rack of taps stays readable on the canvas; the **Channel**
+channel ("Kick Trigger", "Low") so a rack of them stays readable on the canvas; the **Channel**
 parameter can be changed afterwards from the parameter panel.
 
-What a tap reads depends on whether its channel involves a decision:
+What a node reads depends on whether its channel involves a decision:
 
 - **No decision** (`level`, `low`, the `*Meter`s, …): one shared number for the whole patch. Two
-  taps reading `low` agree, and the panel is showing that same number.
-- **A decision** (`kick`, `kickTrig`, …): the tap runs its own detector against its own
+  nodes reading `low` agree, and the panel is showing that same number.
+- **A decision** (`kick`, `kickTrig`, …): the node runs its own detector against its own
   **Threshold**, so one `kickTrig` at 0.3 and another at 0.8 are two instruments off one drum. Two
-  taps left at the same threshold still fire on the same frame — they see the same meter.
+  nodes left at the same threshold still fire on the same frame — they see the same meter.
 
 Either way the channel is resolved on the CPU each frame into one uniform whose name does not depend
 on the channel, so **switching channels costs no shader rebuild** — it is a different number in the
@@ -83,22 +96,30 @@ Like Hold, Count and Audio Analysis, everything it reads has memory across frame
 followers, each trigger's armed state), which a fragment shader has none of. The values are computed
 in `AudioAnalysisProcessor` and streamed in as per-frame uniforms.
 
-## The Audio Analysis node
+## Loading an older patch
 
-Still present and unchanged: patches built on it keep behaving exactly as they did, including its
-own copies of the meter shaping and thresholds — while such a node is in the graph, its shaping
-drives the engine and the panel's does not. New patches should use the panel and the taps.
+A patch saved with the old Audio Analysis node is converted by the v7 → v8 step in
+`src/core/projectMigrations.js`, in both the editor and the web viewer:
+
+- One Audio node per pin the patch actually **read** — wired, or named by a `=node_<id>_N`
+  reference — so a patch that only used `level` comes back as one node rather than fifteen. The
+  first keeps the original id, which is what lets the common single-pin case migrate without
+  touching a single wire.
+- Wiring, expression references (`node_<id>_5` → `node_<newId>`), the per-drum thresholds, and any
+  MIDI or OSC binding aimed at one of those thresholds all follow.
+- Attack / release / gain do **not**: they are one shared editor setting now rather than a property
+  of the document, and writing them from a loaded file would silently re-shape every other patch.
 
 ## Where things live
 
 | File | Role |
 | --- | --- |
-| `src/ui/AudioSettingsPanel.js` | The panel: source, meter shape, thresholds, channel rows, deploy |
+| `src/ui/AudioSettingsPanel.js` | The panel: source, transport, meter shape, thresholds, channel rows, deploy |
 | `src/audio/audioAnalysisSettings.js` | The shared shaping, and the per-drum deploy defaults (localStorage-backed) |
 | `src/core/numericParam.js` | Resolves an `=expr` parameter a CPU processor needs as a number, `midi` / `osc` included |
-| `src/audio/audioAnalysisTaps.js` | This frame's channel values, and the labels the UI uses |
+| `src/audio/audioAnalysisTaps.js` | This frame's channel values, the channel list, and the labels the UI uses |
 | `src/core/AudioAnalysisProcessor.js` | Meters → thresholds → triggers, once per frame, on the CPU |
-| `src/core/audioAnalysisPins.js` | The channel list every consumer agrees on |
+| `src/core/projectMigrations.js` | Converting a patch saved with the old all-in-one node |
 
 The panel's settings are persisted to `localStorage`, not into the patch: they are dialled in
 against whatever track is playing, which is a property of the set rather than of the composition. A

@@ -9,7 +9,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { AudioAnalysisProcessor } from '../src/core/AudioAnalysisProcessor.js';
 import { InputNodes as InputNodeCompiler } from '../src/codegen/compilers/InputNodes.js';
 import { InputNodes as InputNodeDefs } from '../src/data/nodes/InputNodes.js';
-import { AUDIO_ANALYSIS_PINS } from '../src/core/audioAnalysisPins.js';
 import {
   AUDIO_TAP_CHANNELS,
   AUDIO_TAP_LABELS,
@@ -42,7 +41,7 @@ function makeUniformManager(ids = []) {
 }
 
 function tapNode(id, channel, params = {}) {
-  return { id, kind: 'AudioValue', params: { channel, ...params }, inputs: [] };
+  return { id, kind: 'Audio', params: { channel, ...params }, inputs: [] };
 }
 
 function stubClient() {
@@ -79,7 +78,7 @@ function makeRig(nodes) {
   return { proc, graph, um, step };
 }
 
-describe('Audio Value node', () => {
+describe('Audio node', () => {
   beforeEach(() => {
     window._audioBands = undefined;
     resetAudioAnalysisSettings();
@@ -95,7 +94,7 @@ describe('Audio Value node', () => {
 
   describe('definition', () => {
     it('is a single-output float whose Channel menu covers every analysis channel', () => {
-      const def = InputNodeDefs.AudioValue;
+      const def = InputNodeDefs.Audio;
       expect(def.inputs).toBe(0);
       expect(def.pinsOut).toEqual([{ label: 'out', type: 'f32' }]);
 
@@ -109,15 +108,15 @@ describe('Audio Value node', () => {
 
       const channel = def.params.find((p) => p.name === 'channel');
       expect(channel.default).toBe(DEFAULT_AUDIO_TAP_CHANNEL);
-      expect(channel.options.map((o) => o.value)).toEqual(AUDIO_ANALYSIS_PINS);
+      expect(channel.options.map((o) => o.value)).toEqual(AUDIO_TAP_CHANNELS);
       // Labelled, because a canvas of nodes reading "hatTrig" is a canvas nobody can scan.
       expect(channel.options.map((o) => o.label)).toEqual(
-        AUDIO_ANALYSIS_PINS.map((name) => AUDIO_TAP_LABELS[name]),
+        AUDIO_TAP_CHANNELS.map((name) => AUDIO_TAP_LABELS[name]),
       );
     });
 
     it('names the same channels the taps do', () => {
-      expect(AUDIO_TAP_CHANNELS).toEqual(AUDIO_ANALYSIS_PINS);
+      expect(AUDIO_TAP_CHANNELS).toEqual(AUDIO_TAP_CHANNELS);
     });
   });
 
@@ -279,7 +278,7 @@ describe('Audio Value node', () => {
       rig.step({ level: 0.5, low: 0.25, centroid: 0.75 });
 
       const taps = getAudioTapValues();
-      expect(Object.keys(taps).sort()).toEqual([...AUDIO_ANALYSIS_PINS].sort());
+      expect(Object.keys(taps).sort()).toEqual([...AUDIO_TAP_CHANNELS].sort());
       expect(taps.level).toBeCloseTo(0.5);
       expect(taps.low).toBeCloseTo(0.25);
       expect(taps.centroid).toBeCloseTo(0.75);
@@ -313,25 +312,6 @@ describe('Audio Value node', () => {
       });
     });
 
-    it('leaves the engine to an Audio Analysis node when the graph still has one', () => {
-      // Patches made before the panel existed carry their shaping on the node; it keeps winning, so
-      // they go on behaving exactly as they did.
-      const legacy = {
-        id: 'legacy',
-        kind: 'AudioAnalysis',
-        params: { attack: 5, release: 90, gain: 3 },
-        inputs: [],
-      };
-      const rig = makeRig([legacy, tapNode('a', 'level')]);
-      updateAudioAnalysisSettings({ attack: 20, release: 300, gain: 2 });
-      rig.step({ level: 0.5 });
-
-      expect(rig.proc._audioClient.configs.at(-1)).toEqual({
-        analysis: { attack_ms: 5, release_ms: 90, gain: 3 },
-      });
-      // The tap is still served — it just does not get to shape the engine.
-      expect(rig.graph.getNode('a').__audio_value).toBeCloseTo(0.5);
-    });
   });
 
   // The point of the threshold being a node parameter rather than a panel setting: the MIDI

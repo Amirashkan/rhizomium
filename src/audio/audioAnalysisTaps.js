@@ -11,13 +11,23 @@
  * anything that needs to read them without reaching into the render loop.
  */
 
-import { AUDIO_ANALYSIS_PINS } from '../core/audioAnalysisPins.js';
-
-/** Every channel a tap can name, in the same order the Audio Analysis node's pins run. */
-export const AUDIO_TAP_CHANNELS = AUDIO_ANALYSIS_PINS;
+/**
+ * Every channel an Audio node can name.
+ *
+ * The order is the contract between the places that must agree on it: the node's Channel menu, the
+ * panel's rows, the uniforms AudioAnalysisProcessor writes, and the pin-by-index conversion that
+ * brings an old all-in-one Audio Analysis node forward (core/graphHydration.js) — where index N of
+ * this list IS pin N of that node, so nothing may be reordered or removed from the middle.
+ */
+export const AUDIO_TAP_CHANNELS = Object.freeze([
+  'level', 'low', 'mid', 'high',
+  'kick', 'kickTrig', 'snare', 'snareTrig', 'hat', 'hatTrig',
+  'kickMeter', 'snareMeter', 'hatMeter',
+  'centroid', 'density',
+]);
 
 /** The default channel for a freshly deployed tap: a general-purpose live value. */
-export const DEFAULT_AUDIO_TAP_CHANNEL = AUDIO_ANALYSIS_PINS[0];
+export const DEFAULT_AUDIO_TAP_CHANNEL = AUDIO_TAP_CHANNELS[0];
 
 /** Human-readable names, for the panel and the node's Channel menu. */
 export const AUDIO_TAP_LABELS = Object.freeze({
@@ -57,7 +67,7 @@ export function audioChannelInstrument(channel) {
 
 function zeroTaps() {
   const out = {};
-  for (const name of AUDIO_ANALYSIS_PINS) out[name] = 0;
+  for (const name of AUDIO_TAP_CHANNELS) out[name] = 0;
   return out;
 }
 

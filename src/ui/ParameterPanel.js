@@ -18,6 +18,7 @@ import { nodeReferenceDropStyles } from './NodeReferenceDrop.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { nodeDisplayName } from '../core/nodeName.js';
 import { describeExternalControls } from '../parameters/ExternalParameterControl.js';
+import { getAudioSettingsPanel } from './AudioSettingsPanel.js';
 import {
   ACCENT,
   SEMANTIC,
@@ -1854,6 +1855,12 @@ case 'flip2d':
         if (window.computeExecutor?.resetNodeFeedback) {
           window.computeExecutor.resetNodeFeedback(node.id);
         }
+        break;
+      case 'openAudioPanel':
+        // The node names a channel; the panel is where the channels can be watched, and where a
+        // threshold is set against the meter it is compared to. Show it rather than making the
+        // artist find it in the Tools menu with the node already selected.
+        getAudioSettingsPanel().show();
         break;
       case 'resetCount':
         // Queue a reset of the CPU-side counter; CountNodeProcessor applies it on the next frame.

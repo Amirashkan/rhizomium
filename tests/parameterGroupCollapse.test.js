@@ -46,12 +46,12 @@ describe('parameter group definitions', () => {
   beforeEach(() => { panel = makePanel(); });
 
   it('forwards group metadata from a NodeDef to the rendered definitions', () => {
-    const defs = panel.getParameterDefinitions({ kind: 'AudioAnalysis', id: 'n1', params: {} });
+    const defs = panel.getParameterDefinitions({ kind: 'ComputeParticles', id: 'n1', params: {} });
 
     const byName = Object.fromEntries(defs.map((d) => [d.name, d]));
-    expect(byName.kickThresh.group).toBe('Triggers');
-    expect(byName.attack.group).toBe('Meter Shape');
-    expect(byName.attack.groupCollapsed).toBe(true);
+    expect(byName.speed.group).toBe('Basics');
+    expect(byName.driftAngle.group).toBe('Motion');
+    expect(byName.driftAngle.groupCollapsed).toBe(true);
   });
 
   it('forwards the conditions under which a parameter applies', () => {
@@ -63,8 +63,8 @@ describe('parameter group definitions', () => {
     expect(gradient.find((d) => d.name === 'inputMix').activeWhenConnected).toBe(0);
   });
 
-  it('gives every Audio Analysis parameter a group so none floats loose', () => {
-    const params = NodeDefs.AudioAnalysis.params;
+  it('gives every Particles parameter a group so none floats loose', () => {
+    const params = NodeDefs.ComputeParticles.params;
     expect(params.length).toBeGreaterThan(0);
     for (const param of params) {
       expect(param.group, `${param.name} has no group`).toBeTruthy();
@@ -82,23 +82,23 @@ describe('collapsible parameter groups', () => {
   beforeEach(() => { panel = makePanel(); });
 
   it('renders one collapsible section per group, in declaration order', () => {
-    render(panel, 'AudioAnalysis');
-    expect(sections(panel).map((s) => s.name)).toEqual(['Triggers', 'Meter Shape']);
+    render(panel, 'ComputeParticles');
+    expect(sections(panel).map((s) => s.name)).toEqual(['Basics', 'Appearance', 'Motion']);
   });
 
   it('starts a group collapsed when its first parameter says so', () => {
-    render(panel, 'AudioAnalysis');
-    const [triggers, meter] = sections(panel);
+    render(panel, 'ComputeParticles');
+    const [basics, , motion] = sections(panel);
 
-    expect(triggers.open).toBe(true);
-    expect(meter.open).toBe(false);
+    expect(basics.open).toBe(true);
+    expect(motion.open).toBe(false);
     // Collapsed only hides the controls; they are still rendered into the section.
-    expect(meter.fields).toEqual(['attack', 'release', 'gain']);
+    expect(motion.fields).toEqual(['driftAngle', 'driftStrength', 'scatter', 'turbulence']);
   });
 
   it('toggles a section when its header is clicked', () => {
-    render(panel, 'AudioAnalysis');
-    const header = headerFor(panel, 'Triggers');
+    render(panel, 'ComputeParticles');
+    const header = headerFor(panel, 'Basics');
 
     // The caret is an icon-sprite <use> reference, not a text glyph.
     const caretIcon = () => header.firstChild.querySelector('use')?.getAttribute('href');
@@ -113,12 +113,12 @@ describe('collapsible parameter groups', () => {
   });
 
   it('remembers collapsed state across the re-render that follows a parameter edit', () => {
-    render(panel, 'AudioAnalysis');
-    click(headerFor(panel, 'Triggers'));
+    render(panel, 'ComputeParticles');
+    click(headerFor(panel, 'Basics'));
 
-    render(panel, 'AudioAnalysis');
+    render(panel, 'ComputeParticles');
 
-    expect(sections(panel).map((s) => s.open)).toEqual([false, false]);
+    expect(sections(panel).map((s) => s.open)).toEqual([false, true, false]);
   });
 
   it('renders a mode switch above the sections it selects between', () => {

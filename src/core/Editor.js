@@ -1232,16 +1232,13 @@ connectGPURenderer(renderFunction) {
       // it only changes when its pulse source does, and that source (a Time/Trigger/expression) is
       // what keeps the scene animated; Count's preview is refreshed via PreviewIntegration.
       //
-      // Audio Analysis is driven by the live audio signal (its level/kick change every frame on
-      // their own), so without counting it here the loop stops redrawing when the graph is otherwise
-      // static and the node's value only refreshes when something else forces a redraw (e.g. editing
-      // a parameter) — exactly the "only updates when I change a parameter" freeze.
+      // Audio is driven by the live audio signal (its channel changes every frame on its own), so
+      // without counting it here the loop stops redrawing when the graph is otherwise static and
+      // the node's value only refreshes when something else forces a redraw (e.g. editing a
+      // parameter) — exactly the "only updates when I change a parameter" freeze.
       // Wave is a free-running LFO: it advances from the clock alone with nothing wired in, so it
       // has to keep the loop alive for the same reason Time does.
-      // An Audio Value tap is Audio Analysis with one channel instead of fifteen — same signal,
-      // same freeze without it.
-      return kind === 'time' || kind === 'randomvalue' || kind === 'wave'
-        || kind === 'audioanalysis' || kind === 'audiovalue';
+      return kind === 'time' || kind === 'randomvalue' || kind === 'wave' || kind === 'audio';
     });
   }
 
@@ -2754,10 +2751,9 @@ connectGPURenderer(renderFunction) {
   defaultNodePreviewEnabled(node) {
     try {
       if (!node) return false;
-      // Audio Analysis and Audio Value are data-source nodes whose output is a single scalar; a
-      // thumbnail adds noise and just shows a number, so default them off (the user can still
-      // enable it from the node menu).
-      if (node.kind === 'AudioAnalysis' || node.kind === 'AudioValue') return false;
+      // Audio is a data-source node whose output is a single scalar; a thumbnail adds noise and
+      // just shows a number, so default it off (the user can still enable it from the node menu).
+      if (node.kind === 'Audio') return false;
       const spm = window.shaderPreviewManager;
       if (!spm) return true;
       return !!(spm.isComputeNode(node) || spm.isVisualNode(node));

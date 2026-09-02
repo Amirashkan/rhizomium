@@ -5,7 +5,6 @@ import { unifiedExpressionSystem } from './UnifiedExpressionSystem.js';
 import { MessagePriority } from '../core/AsyncQueueManager.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
-import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../core/audioAnalysisPins.js';
 import { SEMANTIC, SURFACE, TEXT, FONT_MONO } from '../core/theme.js';
 import {
   buildParamScope,
@@ -14,15 +13,6 @@ import {
   referencesParams,
 } from './paramReferences.js';
 import { evaluateWaveNode } from '../core/waveform.js';
-
-// Kinds whose live value is an array of independent output PINS rather than a vector's channels.
-// A bare `node_<id>` on one of those means its first pin (Audio Analysis: `level`) — the value the
-// compiler emits for the same reference — not the whole list.
-const MULTI_OUTPUT_PIN_KINDS = new Set(['audioanalysis']);
-
-function isMultiOutputPinList(node) {
-  return MULTI_OUTPUT_PIN_KINDS.has(node?.kind?.toLowerCase());
-}
 
 export class ParameterExpressionSystem {
   constructor() {
@@ -547,23 +537,15 @@ buildEvaluationContext(context, node, paramName = null) {
    */
   _liveInputNodeValue(node) {
     const kind = node?.kind?.toLowerCase();
-    if (kind !== 'time' && kind !== 'mouse' && kind !== 'audioanalysis' && kind !== 'wave'
-        && kind !== 'audiovalue') {
+    if (kind !== 'time' && kind !== 'mouse' && kind !== 'audio' && kind !== 'wave') {
       return undefined;
     }
 
-    // An Audio Value tap is one channel of that same live analysis, so it resolves to the live
+    // An Audio node is driven by the live audio signal, not by graph computation, and its value is
+    // advanced every frame on the CPU by AudioAnalysisProcessor — so it resolves to that live
     // number rather than to the throttled preview value.
-    if (kind === 'audiovalue') {
+    if (kind === 'audio') {
       return typeof node.__audio_value === 'number' ? node.__audio_value : 0;
-    }
-
-    // Audio Analysis is driven by the live audio signal, not graph computation, and its outputs are
-    // advanced every frame on the CPU by AudioAnalysisProcessor. Expose them as a per-pin array so
-    // `=node_<id>_N` resolves to the live value in the parameter readout — a plain scalar preview
-    // only exposes `node_<id>` and leaves the pin references undefined (reading as 0).
-    if (kind === 'audioanalysis') {
-      return AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i));
     }
 
     const simTime = (typeof window !== 'undefined') ? window.renderLoop?._simTime : undefined;
@@ -609,14 +591,9 @@ buildEvaluationContext(context, node, paramName = null) {
       if (liveValue !== undefined) {
         const nodeVarName = `node_${node.id}`;
         if (Array.isArray(liveValue)) {
-          // A multi-output node's array is a list of independent output PINS, not a vector, and a
-          // bare `node_<id>` means its first pin — `level` for Audio Analysis, exactly what the
-          // compiler emits for the same reference (codegen/compilers/InputNodes.js). Binding the
-          // whole array instead left a bare reference evaluating to a non-number, so every consumer
-          // that needs a scalar — a compute node's parameter, the panel readout — silently fell back
-          // to the parameter default: dragging an Audio Analysis onto a Pattern's Scale did nothing.
-          // Mouse stays a vec4, matching its GPU global.
-          evalContext[nodeVarName] = isMultiOutputPinList(node) ? (liveValue[0] ?? 0) : liveValue;
+          // Mouse, the one live input whose value is a vector: bound whole, matching its GPU
+          // global, with the components exposed alongside it.
+          evalContext[nodeVarName] = liveValue;
           const comps = ['x', 'y', 'z', 'w'];
           liveValue.forEach((v, i) => {
             // Expose both the letter component (node_5_x) and the numeric channel index
