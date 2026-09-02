@@ -178,12 +178,33 @@ export function sampleInputs(feature) {
     case 'ai.creative_director':
       return {
         min: { patch: smallestPatch(), brief: '' },
-        max: { patch: largestPatch(), brief: LONG_PROMPT },
+        // The timing block only travels for this feature, and only when the
+        // editor has something to say — so the maximum carries it and the
+        // minimum does not, which is also the honest span of the two calls.
+        max: { patch: largestPatch(), brief: LONG_PROMPT, timing: busiestTiming() },
       };
 
     default:
       return { min: {}, max: {} };
   }
+}
+
+/**
+ * The most timing context the editor will ever send: a tempo, a length, and
+ * the forty tracks describeTiming() lists before it starts eliding.
+ */
+function busiestTiming() {
+  return {
+    durationSeconds: 240,
+    loop: true,
+    bpm: 128,
+    beatsPerBar: 4,
+    tracks: Array.from({ length: 40 }, (_, index) => ({
+      nodeId: `node_${index}`,
+      param: 'amount',
+      keyframes: 8,
+    })),
+  };
 }
 
 /**

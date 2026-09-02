@@ -24,6 +24,8 @@ that were made along the way.
 | `src/utils/openExternal.js` | Opening a gallery page. `window.open()` is refused by the desktop webview. |
 | `src/ai/patchContext.js` | Trims the project down to the graph before it leaves the machine. |
 | `src/ai/applyResult.js` | Puts a generated node or patch onto the canvas. |
+| `src/ai/timelineContext.js` | What the graph cannot say about time — the timeline's length, its tracks, the VJ tempo — for the director alone. |
+| `src/ai/applyArc.js` | Plans a director's arc against the live graph, writes it to the timeline, and hands back the timeline it replaced. |
 | `src/ai/outputGating.js` | The unmetered `output.*` flags. |
 | `src/viewer/viewerGate.js` | The unmetered `viewer.web` flag — and the one gate that refuses where outputGating allows. |
 | `src/ui/AIPanel.js` | The panel — Tools → AI Assistant. A dock on the right edge, not a modal; the same menu row opens and closes it. |
@@ -38,6 +40,7 @@ that were made along the way.
 | `api/_lib/grant.js` | HMAC verification, expiry, replay tracking. |
 | `api/_lib/features.js` | Per-feature system prompts and response schemas. |
 | `api/_lib/nodeCatalog.js` | The real node registry as prompt text, and as a validator. |
+| `api/_lib/directorArc.js` | The bounds on a director's arc, and the shaping Structured Outputs cannot do. |
 
 ### Tests
 
@@ -70,6 +73,16 @@ takes more than half the window, and that a feature with nothing valid to read �
 or no allowance left — is disabled with the reason on screen rather than failing
 on click. `tests/aiPanelRepeatGuard.test.js` covers the repeat guard and where
 its answer is shown.
+
+`tests/aiDirectorArc.test.js` covers the arc end to end: that the schema
+requires one and offers only interpolations `InterpolationSystem` actually
+maps, that the timing block says what it should and stays out of the prompt
+when there is nothing to say, that shaping drops a one-keyframe move and orders
+and clamps the rest, and that planning against a real graph skips a deleted
+node, a parameter that does not exist and a dropdown — then that applying
+writes the length and loop, replaces a track rather than merging into it,
+leaves every other track alone, and can be undone back to the arrangement the
+artist had.
 
 `tests/viewerGate.test.js` covers the web viewer's gate, including the
 asymmetry: the same degraded entitlements that let `output.multiscreen` through
@@ -167,23 +180,25 @@ is called. Today:
 
 | feature | model | prompt min → max | answer min → ceiling | most one call can be billed |
 |---|---|---|---|---|
-| Patch review | terra | 6.0k → 16.1k | 7 → 9,000 | ~25k |
-| Patch refactor | terra | 6.0k → 16.1k | 17 → 40,000 | ~56k |
-| Canvas assist | luna | 6.0k → 16.0k | 5 → 3,500 | ~20k |
-| Patch generator | terra | 6.0k → 6.5k | 16 → 24,000 | ~31k |
-| Node generator | terra | 6.0k → 6.6k | 20 → 11,000 | ~18k |
-| AI creative director | terra | 6.0k → 16.6k | 8 → 22,000 | ~39k |
+| Patch review | terra | 7.9k → 17.9k | 7 → 9,000 | ~27k |
+| Patch refactor | terra | 7.9k → 17.9k | 17 → 40,000 | ~58k |
+| Canvas assist | luna | 7.8k → 17.9k | 5 → 3,500 | ~21k |
+| Patch generator | terra | 8.0k → 8.5k | 16 → 24,000 | ~33k |
+| Node generator | terra | 7.9k → 8.4k | 20 → 11,000 | ~19k |
+| AI creative director | terra | 8.1k → 19.0k | 27 → 27,000 | ~46k |
 
 Prompt maxima are a 400-node patch (`MAX_NODES`) or a long typed brief; the
-~5,900-token shared prefix is most of every prompt and is served from cache
-after the first call. Answer minima are the smallest document each schema
+~7,750-token shared prefix is most of every prompt and is served from cache
+after the first call. The director's maximum also carries the timing block —
+the timeline's length, its existing tracks and the performance tempo — which
+travels for that feature alone. Answer minima are the smallest document each schema
 admits — an empty findings list is a valid review — and the ceilings are
 `max_output_tokens`, the point a call is cut off, not a prediction: a review of
 a clean patch answers in a few hundred.
 
 Three of those ceilings imply more seconds at `ASSUMED_TOKENS_PER_SECOND` than
 the 285s deadline covers — refactor (800s), patch generator (480s), creative
-director (440s) — so their *largest possible* answer would be stopped rather
+director (540s) — so their *largest possible* answer would be stopped rather
 than finished. That is not today's bug: the rate is deliberately about half of
 what these models decode at, and nothing writes its whole ceiling.
 `tests/aiFeatureTokenCost.test.js` names those three, so a fourth arriving is a
@@ -390,6 +405,54 @@ The catalogue text is built once per process and byte-identical on every
 request, so those ~5,400 tokens sit at the front of a prefix the model's own
 cache can find and are billed in full once per cache window rather than once
 per call.
+
+### The creative director answers in time, not only in prose
+
+The director used to return a reading of the piece and a list of directions to
+act on in the next session. Good advice that nobody could hear: an artist was
+left to translate "withhold the scale until the second half" into keyframes by
+hand, and mostly did not.
+
+It now also returns an **arc** — a length in seconds, named sections, and a few
+*moves*, each one node's one numeric parameter with keyframes along it. The
+panel writes it onto the editor's own timeline, which is the only place in this
+project where a piece has a shape over time and the one thing a VJ can play.
+
+Three pieces make that work, and each is where it is for a reason:
+
+- **`src/ai/timelineContext.js`** sends what the graph cannot say. A patch has
+  no length, no playhead and no tempo, so the timeline's duration, the tracks
+  the artist already keyframed, and the VJ panel's BPM travel as a `timing`
+  block on the payload — for this feature alone, because nothing else can act
+  on it. The tempo goes only when beat sync is actually on: a BPM box sitting
+  at its default in a panel nobody opened is not a tempo anyone performs at.
+- **`api/_lib/directorArc.js`** shapes the answer. Structured Outputs
+  guarantees the arc's shape and nothing about its numbers — it cannot cap an
+  array or hold a time inside the arc — so times are clamped and sorted here,
+  instants are deduplicated, a move with one keyframe is dropped (that is a
+  parameter pinned, not a movement), and an over-long arc is cut. Unlike a
+  generated patch, an arc that does not fit is *not* a failed call: the prose
+  half is most of what was paid for, so this trims and says what it trimmed.
+- **`src/ai/applyArc.js`** meets the canvas. A director call is minutes long
+  and what it was written against can be deleted while it runs, so the arc is
+  planned against the live graph at the moment the artist presses the button:
+  a move onto a node that is gone, onto a parameter the kind does not have, or
+  onto a dropdown is skipped *by name and with a reason* in the confirm dialog,
+  values outside a control's `[min..max]` are brought inside it, and the
+  timeline as it was comes back with the report so "put my timeline back" is
+  one click.
+
+Applying replaces each named parameter's track outright rather than merging
+into it — half the artist's keyframes under half the director's is an
+arrangement neither of them wrote — and leaves every other track alone. The
+arc's length becomes the timeline's, loop region included, because a loop still
+set to the old duration is what turns a bar-aligned arc back into something
+that cannot be dropped into a set.
+
+The prompt half is in `EDITOR_CAPABILITIES`, which now says the timeline
+exists: what a track is, that only float, int and slider parameters can carry
+one, and that a parameter under a track is no longer the artist's to drag. That
+last fact is why the prompt asks for four moves rather than forty.
 
 ### The web viewer is now an editor surface too
 

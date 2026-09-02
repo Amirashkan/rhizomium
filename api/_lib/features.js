@@ -15,6 +15,7 @@
  */
 
 import { nodeCatalogText, isDefaultParamValue } from './nodeCatalog.js';
+import { ARC_LIMITS, EASES } from './directorArc.js';
 import { patchFacts } from './patchFacts.js';
 
 /**
@@ -189,6 +190,14 @@ Reach for either when no node does the maths that is wanted — never to reimple
 ## Text
 Text draws a string as a texture. "{node_7}" inside it shows that node's live value, and a text field beginning with "=" is one expression: "BPM {node_7}" and "=time" both work.
 
+## Time, and playing the piece
+Three ways a patch moves, and they answer different questions.
+- A live expression ("=time*30") moves forever, identically, from the moment the patch opens. It is how a patch breathes.
+- The keyframe timeline is composed movement over a fixed length. A track is one node's one numeric parameter; a keyframe is a value at a time in seconds; between two of them the value interpolates as linear, ease-in, ease-out, ease-in-out or step. The playhead runs from 0 to the timeline's duration and loops over a loop region. While the timeline is enabled a track writes its parameter every frame, so a parameter under a track is no longer taking an expression and no longer the artist's to drag — put a track on a parameter because the piece needs that value at that minute, not to make something move in general.
+- The VJ panel is where it is played: BPM with tap tempo, scenes that are whole patches and can be switched and crossfaded, a playlist. A piece whose loop lands on a bar line can be dropped into a set; one that loops at 37 seconds cannot.
+
+Only float, int and slider parameters can carry a track. A select, bool, colour or text parameter changes on the timeline the way it changes anywhere: not gradually.
+
 ## What needs the artist, not you
 ProjectionMap warps the image onto surfaces whose corners are dragged by hand, and Texture2D/TextureCube need a file from the artist's disk. Use them only when asked for by name, and say in your notes what is left to set up.`;
 
@@ -254,6 +263,103 @@ schema you were given, never in this line format.`;
  *   generously, because the sum is also the worst case anyone can be made to
  *   wait for, and run.js derives the deadline from it.
  */
+
+/**
+ * The playable half of a director's answer.
+ *
+ * Strict Structured Outputs guarantees the shape and nothing about the
+ * numbers: it has no way to cap an array's length or hold a time inside the
+ * arc, so the limits are stated here as prose for the model and enforced in
+ * shapeArc() for everyone else. Every property is required because strict mode
+ * requires it — an arc with nothing in it is an empty `moves` list, not a
+ * missing field.
+ */
+const ARC_SCHEMA = {
+  type: 'object',
+  description:
+    'The piece as movement over time: keyframes the editor can play back. ' +
+    'Empty `moves` is a valid answer and means this patch does not need an arc yet.',
+  properties: {
+    title: { type: 'string', description: 'What to call this arc. A few words.' },
+    summary: {
+      type: 'string',
+      description: 'How the piece moves across its length, in two or three sentences.',
+    },
+    durationSeconds: {
+      type: 'number',
+      description:
+        `How long the whole arc is, in seconds (${ARC_LIMITS.minDuration}-${ARC_LIMITS.maxDuration}). ` +
+        'On a bar line if a tempo was given.',
+    },
+    sections: {
+      type: 'array',
+      description:
+        `The shape, named, for the artist to read against the playhead. Up to ${ARC_LIMITS.maxSections}.`,
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Under five words.' },
+          startSeconds: { type: 'number', description: 'When it begins, in seconds from 0.' },
+          intent: { type: 'string', description: 'What this stretch is doing for the piece.' },
+        },
+        required: ['name', 'startSeconds', 'intent'],
+        additionalProperties: false,
+      },
+    },
+    moves: {
+      type: 'array',
+      description:
+        `One numeric parameter's journey through the piece, one entry each. Up to ${ARC_LIMITS.maxMoves}, ` +
+        'and fewer is better: each one takes that control away from the artist while the timeline runs.',
+      items: {
+        type: 'object',
+        properties: {
+          nodeId: { type: 'string', description: 'A node id from the patch you were given.' },
+          param: {
+            type: 'string',
+            description:
+              "The parameter's name on that node's kind, exactly as the registry spells it. " +
+              'float, int or slider only.',
+          },
+          why: {
+            type: 'string',
+            description: 'Which direction above this move serves, in one line.',
+          },
+          keyframes: {
+            type: 'array',
+            description:
+              `At least ${ARC_LIMITS.minKeyframesPerMove} — one keyframe is a value pinned, not a move — ` +
+              `and up to ${ARC_LIMITS.maxKeyframesPerMove}. In time order.`,
+            items: {
+              type: 'object',
+              properties: {
+                atSeconds: {
+                  type: 'number',
+                  description: 'When, in seconds from the start of the arc.',
+                },
+                value: {
+                  type: 'number',
+                  description: "The value there, inside the parameter's stated range.",
+                },
+                ease: {
+                  type: 'string',
+                  enum: EASES,
+                  description: 'How the value travels from here to the next keyframe.',
+                },
+              },
+              required: ['atSeconds', 'value', 'ease'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['nodeId', 'param', 'why', 'keyframes'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['title', 'summary', 'durationSeconds', 'sections', 'moves'],
+  additionalProperties: false,
+};
 
 /** Severity vocabulary shared by review and canvas assist. */
 const SEVERITY = {
@@ -568,7 +674,11 @@ Name the inputs for what they carry, not input0. Keep the code short enough to r
     // The one feature where the thinking is the product, and the artist is
     // told to expect a wait. It keeps its effort; nothing else needed it.
     effort: 'xhigh',
-    maxTokens: 6000,
+    // Prose and an arc. Sixteen moves of twenty-four keyframes is ~3,500
+    // tokens of JSON on its own, and the reading and directions were already
+    // most of 6,000 — a ceiling reached is an `incomplete` answer, which is
+    // this feature's whole daily allowance spent on nothing.
+    maxTokens: 11000,
     reasoningTokens: 16000,
     // One call is minutes of model time. Worth remembering the grant id.
     singleUse: true,
@@ -589,7 +699,17 @@ The artist has a work in progress and a brief. Think about the piece as somethin
 
 Give direction that is specific to this patch — which parameters carry the movement, where it repeats when it should develop, what the piece is currently promising and not paying off. Name the nodes. An artist should be able to act on each direction in the next session without asking you what you meant.
 
-Be honest about what is not working. Encouragement that avoids the real problem wastes the sitting.`,
+Be honest about what is not working. Encouragement that avoids the real problem wastes the sitting.
+
+Then write the arc: that direction as movement the editor can play. It is a length in seconds and a few moves, each one node's one numeric parameter keyframed along it, with sections naming the shape against the playhead.
+
+- Few moves, chosen. Four parameters that carry the piece beat forty that automate it, and each move is a control the artist cannot touch while the timeline runs. Spend them on what the directions above actually turn on, and name that direction in "why".
+- Start from where the patch already is: a first keyframe far from the parameter's current value is a jump cut at second zero. Stay inside its stated range.
+- Time used, not filled. A held value is movement; a parameter ramping the whole length is a slider being dragged.
+- A length the piece can loop on — on bar lines at the given tempo, if you were given one, so it can be dropped into a set.
+- float, int and slider only, and never a parameter carrying an expression the piece needs, because a track overwrites it.
+
+If this patch needs work before it needs an arc, return no moves and say so in the reading. An arc over a patch that is not ready is a way of not saying it.`,
     format: {
       name: 'piece_direction',
       description: 'Direction on the piece as a whole.',
@@ -619,8 +739,9 @@ Be honest about what is not working. Encouragement that avoids the real problem 
               additionalProperties: false,
             },
           },
+          arc: ARC_SCHEMA,
         },
-        required: ['reading', 'directions'],
+        required: ['reading', 'directions', 'arc'],
         additionalProperties: false,
       },
     },
@@ -703,12 +824,67 @@ export function buildUserMessage(feature, input = {}) {
     case 'ai.creative_director': {
       const brief = String(input.brief || '').trim();
       const briefText = brief ? `The artist's brief: ${brief}\n\n` : '';
-      return `${briefText}Direct this piece.\n\n${patchText()}`;
+      return `${briefText}Direct this piece.\n\n${patchText()}${describeTiming(input.timing)}`;
     }
 
     default:
       throw new BadInputError(`No message builder for ${feature}.`);
   }
+}
+
+/**
+ * What the editor is already doing with time, for the one feature that writes
+ * time back.
+ *
+ * Three facts, none of them in the graph: how long the timeline is set to run,
+ * which parameters already have keyframes on them, and the tempo the artist
+ * performs at. The first two are what stops an arc from being written over an
+ * arrangement the artist made by hand; the third is what lets its length land
+ * on a bar line instead of at 37 seconds.
+ *
+ * Absent when the editor sent none — an artist who has never opened the
+ * timeline has nothing to say here, and a paragraph explaining that costs
+ * tokens to tell a model nothing.
+ */
+function describeTiming(timing) {
+  if (!timing || typeof timing !== 'object') return '';
+
+  const lines = [];
+
+  const duration = Number(timing.durationSeconds);
+  if (Number.isFinite(duration) && duration > 0) {
+    lines.push(`The timeline is ${round2(duration)}s long${timing.loop ? ', looping' : ''}.`);
+  }
+
+  const bpm = Number(timing.bpm);
+  if (Number.isFinite(bpm) && bpm > 0) {
+    const bar = (60 / bpm) * (Number(timing.beatsPerBar) > 0 ? Number(timing.beatsPerBar) : 4);
+    lines.push(
+      `The artist performs at ${round2(bpm)} BPM: one bar is ${round2(bar)}s, ` +
+        `eight bars ${round2(bar * 8)}s, thirty-two bars ${round2(bar * 32)}s. ` +
+        'Land the arc and its sections on bar lines.'
+    );
+  }
+
+  const tracks = Array.isArray(timing.tracks) ? timing.tracks : [];
+  if (tracks.length) {
+    const listed = tracks
+      .slice(0, 40)
+      .map((track) => `${track?.nodeId}.${track?.param} (${track?.keyframes ?? 0})`)
+      .join(', ');
+    lines.push(
+      `Already keyframed, with keyframe counts: ${listed}${tracks.length > 40 ? ', …' : ''}. ` +
+        'This is the artist\'s own arrangement. A move on one of these replaces it, so touch one only ' +
+        'when the direction says why, and say so in that move\'s "why".'
+    );
+  }
+
+  return lines.length ? `\n\n# Time\n${lines.join('\n')}` : '';
+}
+
+/** Seconds and tempi, at the precision anyone reads them: two decimals, no trailing zeros. */
+function round2(value) {
+  return Number(value.toFixed(2));
 }
 
 /**

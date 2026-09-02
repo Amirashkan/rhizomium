@@ -42,6 +42,8 @@ import {
   MAX_NODES,
 } from '../ai/patchContext.js';
 import { insertGeneratedNode, replaceGraphWithPatch, selectNodes } from '../ai/applyResult.js';
+import { planArc, applyArc, revertArc } from '../ai/applyArc.js';
+import { buildTimelineContext } from '../ai/timelineContext.js';
 import { FEATURES, TIER_LABELS } from '../ai/tiers.js';
 import { setRightDockWidth, notifyCanvasResize } from './dockLayout.js';
 
@@ -914,6 +916,15 @@ export class AIPanel {
         }
       }
 
+      // The director is the one feature that writes time back into the patch,
+      // and a graph says nothing about time. What the editor is already doing
+      // with it travels separately — and only for this feature, because
+      // nothing else can act on it. See timelineContext.js.
+      if (feature === 'ai.creative_director') {
+        const timing = buildTimelineContext();
+        if (timing) payload.timing = timing;
+      }
+
       // The payload is in hand, so its size is free to record.
       this.measurement = {
         ...measurePatchContext(payload.patch),
@@ -1038,7 +1049,10 @@ export class AIPanel {
       case 'ai.canvas_assist':
         return this.log({ ...entry, body: findingsElement('', result.suggestions, 'suggestions') });
       case 'ai.creative_director':
-        return this.log({ ...entry, body: directionsElement(result) });
+        return this.log({
+          ...entry,
+          body: directionsElement(result, (arc) => this.applyDirectorArc(label, arc)),
+        });
       case 'ai.node_generator':
         this.log({
           ...entry,
@@ -1058,6 +1072,75 @@ export class AIPanel {
         return this.applyRefactor(label, result);
       default:
         return this.log({ ...entry, body: findingsElement(JSON.stringify(result), [], 'findings') });
+    }
+  }
+
+  /**
+   * Put a director's arc on the timeline.
+   *
+   * Planned at click time rather than when the answer arrived: a director call
+   * is minutes long, and the canvas it was written against may have moved
+   * since. Planning here means the dialog describes what will actually land on
+   * the timeline in front of the artist, including what will not and why.
+   *
+   * @returns {Object|null} the timeline as it was, for the undo button, or
+   *   null when nothing was written.
+   */
+  async applyDirectorArc(label, arc) {
+    const graph = window.graph || window.editor?.graph;
+    const timelineManager = window.timelineManager;
+    if (!graph || !timelineManager) {
+      modalManager.toast('The timeline is not ready yet.', 'error', label);
+      return null;
+    }
+
+    const plan = planArc(arc, { graph, timelineManager });
+
+    if (!plan.moves.length) {
+      modalManager.toast(
+        plan.skipped.length
+          ? `Nothing in this arc can go on the timeline: ${describeSkipped(plan.skipped)}`
+          : 'This arc has no moves to write.',
+        'warning',
+        label
+      );
+      return null;
+    }
+
+    const notes = [
+      `${plan.moves.length} ${plan.moves.length === 1 ? 'parameter' : 'parameters'} keyframed over ` +
+        `${formatSeconds(plan.durationSeconds)}, ${plan.keyframeCount} keyframes in all.`,
+      plan.replacedCount
+        ? `${plan.replacedCount} of them replace keyframes already on the timeline.`
+        : '',
+      plan.clampedCount
+        ? `${plan.clampedCount} ${plan.clampedCount === 1 ? 'keyframe was' : 'keyframes were'} ` +
+          'outside the range their control allows and have been brought inside it.'
+        : '',
+      plan.skipped.length ? `Not written: ${describeSkipped(plan.skipped)}` : '',
+      'The timeline\'s length and loop become the arc\'s, and it starts running — so these ' +
+        'parameters are played rather than dragged until you switch it off.',
+    ].filter(Boolean);
+
+    const accepted = await modalManager.confirm(
+      `${notes.join('\n\n')}\n\nPut this on the timeline?`,
+      label,
+      { confirmLabel: 'Put it on the timeline', cancelLabel: 'Not now' }
+    );
+    if (!accepted) return null;
+
+    try {
+      const written = applyArc(plan, { timelineManager });
+      modalManager.toast(
+        `${written.keyframes} keyframes across ${written.moves} ` +
+          `${written.moves === 1 ? 'parameter' : 'parameters'}. The timeline is running.`,
+        'success',
+        label
+      );
+      return written.backup;
+    } catch (error) {
+      modalManager.toast(`Could not write the arc: ${error.message}`, 'error', label);
+      return null;
     }
   }
 
@@ -1510,7 +1593,7 @@ function findingsElement(summary, items, kind) {
   return body;
 }
 
-function directionsElement(result) {
+function directionsElement(result, onApplyArc) {
   const body = document.createElement('div');
   body.className = 'ai-findings';
 
@@ -1547,7 +1630,132 @@ function directionsElement(result) {
     body.appendChild(row);
   }
 
+  const arc = arcElement(result.arc, onApplyArc);
+  if (arc) body.appendChild(arc);
+
   return body;
+}
+
+/**
+ * The playable half of a direction: what the arc is, and the way onto the
+ * timeline.
+ *
+ * It lists what the director asked for, not what will land — that is worked
+ * out against the live graph when the button is pressed, and said in the
+ * dialog. Listing a plan here would go stale the moment a node was deleted,
+ * and this element outlives several edits: it sits in the session log.
+ */
+function arcElement(arc, onApply) {
+  const moves = Array.isArray(arc?.moves) ? arc.moves : [];
+  if (!arc || (!moves.length && !arc.summary)) return null;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'ai-arc';
+
+  const heading = document.createElement('div');
+  heading.className = 'ai-arc-heading';
+  heading.textContent = arc.title || 'The arc';
+  wrap.appendChild(heading);
+
+  const keyframes = moves.reduce((total, move) => total + (move.keyframes?.length || 0), 0);
+  const meta = document.createElement('div');
+  meta.className = 'ai-arc-meta';
+  meta.textContent = moves.length
+    ? `${formatSeconds(arc.durationSeconds)} · ${moves.length} ${moves.length === 1 ? 'move' : 'moves'} · ${keyframes} keyframes`
+    : 'No moves — the director says the patch comes first.';
+  wrap.appendChild(meta);
+
+  if (arc.summary) {
+    const summary = document.createElement('div');
+    summary.className = 'ai-finding-detail';
+    summary.textContent = arc.summary;
+    wrap.appendChild(summary);
+  }
+
+  if (arc.sections?.length) {
+    const list = document.createElement('ul');
+    list.className = 'ai-finding-steps';
+    for (const section of arc.sections) {
+      const item = document.createElement('li');
+      item.textContent = `${formatSeconds(section.startSeconds)} — ${section.name}${
+        section.intent ? `: ${section.intent}` : ''
+      }`;
+      list.appendChild(item);
+    }
+    wrap.appendChild(list);
+  }
+
+  for (const move of moves) {
+    const row = document.createElement('div');
+    row.className = 'ai-arc-move';
+
+    const name = document.createElement('span');
+    name.className = 'ai-arc-move-param';
+    name.textContent = `${move.nodeId}.${move.param}`;
+    row.appendChild(name);
+
+    const why = document.createElement('span');
+    why.className = 'ai-arc-move-why';
+    why.textContent = move.why || `${move.keyframes?.length || 0} keyframes`;
+    row.appendChild(why);
+
+    wrap.appendChild(row);
+  }
+
+  if (moves.length && onApply) {
+    const actions = document.createElement('div');
+    actions.className = 'ai-arc-actions';
+
+    const apply = document.createElement('button');
+    apply.className = 'ai-secondary-button';
+    apply.textContent = 'Put this on the timeline';
+    actions.appendChild(apply);
+
+    // The timeline as it was before the most recent apply. Held here rather
+    // than on the panel because the log keeps several answers, and each one's
+    // undo has to put back what *that* arc replaced.
+    let backup = null;
+    let undo = null;
+
+    apply.addEventListener('click', async () => {
+      const replaced = await onApply(arc);
+      if (!replaced) return;
+      backup = replaced;
+
+      // Made once, on the first apply that lands, and kept: an artist who
+      // reverts and applies again wants the same door back, not a second one.
+      if (!undo) {
+        undo = document.createElement('button');
+        undo.className = 'ai-secondary-button';
+        undo.textContent = 'Put my timeline back';
+        undo.addEventListener('click', () => {
+          if (revertArc(backup)) {
+            modalManager.toast('The timeline you had is back.', 'info', 'AI creative director');
+          }
+        });
+        actions.appendChild(undo);
+      }
+    });
+
+    wrap.appendChild(actions);
+  }
+
+  return wrap;
+}
+
+/** A time on the arc, as an artist reads it off the timeline: 0:00, 1:04. */
+function formatSeconds(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** The moves an arc could not write, as one sentence. */
+function describeSkipped(skipped) {
+  const listed = skipped
+    .slice(0, 3)
+    .map((entry) => `${entry.nodeId}.${entry.param} (${entry.reason})`)
+    .join('; ');
+  return skipped.length > 3 ? `${listed}; and ${skipped.length - 3} more` : listed;
 }
 
 /**
