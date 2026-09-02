@@ -167,6 +167,82 @@ describe('Audio panel', () => {
     expect(panel.panel.querySelector('#audio-setup-note').textContent).toContain(`#${setup.id}`);
   });
 
+  it('refuses to write over a threshold that holds an expression', () => {
+    // The slider shows what the formula evaluated to, which looks exactly like a number somebody
+    // set — so a drag would replace `=midi * 0.6 + 0.2` with that number, silently, on the one
+    // parameter whose entire purpose is being driven by a controller.
+    const setup = {
+      id: '9', kind: 'Audio',
+      params: { kickThresh: '=midi * 0.6 + 0.2' },
+      __audio_settings: { kickThresh: 0.44 },
+    };
+    window.editor.nodes.push(setup);
+    panel._refresh();
+
+    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
+    // Shown as a readout of the live value, not as something to grab.
+    expect(slider.disabled).toBe(true);
+    expect(slider.closest('.rzap-slider').classList.contains('is-driven')).toBe(true);
+    expect(slider.value).toBe('0.44');
+
+    slider.value = '0.9';
+    slider.dispatchEvent(new Event('input'));
+    expect(setup.params.kickThresh).toBe('=midi * 0.6 + 0.2');
+  });
+
+  it('records one undo entry per drag, not one per pointer event', () => {
+    const recorded = [];
+    window.undoManager = { recordParameterChange: (...args) => recorded.push(args) };
+    const setup = { id: '9', kind: 'Audio', params: { kickThresh: 0.5 } };
+    window.editor.nodes.push(setup);
+
+    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
+    for (const value of ['0.55', '0.6', '0.65', '0.7']) {
+      slider.value = value;
+      slider.dispatchEvent(new Event('input'));
+    }
+    expect(recorded).toHaveLength(0); // still mid-gesture
+
+    panel._endSettingGesture();
+    // One entry, spanning the whole run: where it started to where it ended up.
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0][1]).toBe('kickThresh');
+    expect(recorded[0][2]).toBe(0.5);
+    expect(recorded[0][3]).toBeCloseTo(0.7);
+    delete window.undoManager;
+  });
+
+  it('marks the patch unsaved and tells the editor a parameter moved', () => {
+    // markDirty is only the canvas's redraw flag; without these two the dial-in is never part of
+    // the document, and a bound parameter moves underneath the binding system unannounced.
+    const emitted = [];
+    window.editor.eventSystem = { emit: (type, data) => emitted.push([type, data]) };
+    window.saveLoadManager = { markUnsaved: vi.fn() };
+    const setup = { id: '9', kind: 'Audio', params: { kickThresh: 0.5 } };
+    window.editor.nodes.push(setup);
+
+    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
+    slider.value = '0.7';
+    slider.dispatchEvent(new Event('input'));
+
+    expect(window.saveLoadManager.markUnsaved).toHaveBeenCalled();
+    expect(emitted.map(([type]) => type)).toContain('PARAMETER_CHANGED');
+    expect(emitted.at(-1)[1]).toMatchObject({ parameterName: 'kickThresh', newValue: 0.7 });
+    delete window.saveLoadManager;
+  });
+
+  it('clamps in one place, so the node and the stored defaults cannot disagree', () => {
+    const setup = { id: '9', kind: 'Audio', params: { kickThresh: 0.5 } };
+    window.editor.nodes.push(setup);
+
+    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
+    slider.value = '4';
+    slider.dispatchEvent(new Event('input'));
+
+    expect(setup.params.kickThresh).toBe(1);
+    expect(getAudioAnalysisSettings().kickThresh).toBe(1);
+  });
+
   it('marks each drum’s meter with the threshold actually being decided on', () => {
     const mark = () => rowFor(panel, 'kickMeter').querySelector('.rzap-bar-mark')?.style.left;
 

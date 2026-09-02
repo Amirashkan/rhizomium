@@ -129,6 +129,37 @@ describe('what the features are told the editor can do', () => {
     expect(generatorPrompt).toContain('OutputFinal');
   });
 
+  // The one that got away: the all-in-one Audio Analysis node was replaced by Audio + AudioValue,
+  // and this prompt went on telling the model to reach for the kind that no longer existed. A
+  // generated patch naming an unknown kind is not degraded, it is REFUSED — validateGeneratedPatch
+  // throws — so every "make it react to the music" request failed outright, and the whole test
+  // suite stayed green because nothing tied the prose to the registry.
+  it('names only node kinds that exist', () => {
+    // Multi-hump CamelCase is how a kind is written (ComputeFieldMapper, AudioValue); these four
+    // are the code identifiers and proper nouns in the prose that share that shape.
+    const NOT_KINDS = new Set([
+      'BadInputError', 'ComputeExecutor', 'OpenAI', 'UnifiedExpressionSystem',
+    ]);
+    const named = [...new Set(generatorPrompt.match(/\b[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]+)+\b/g) || [])]
+      .filter((token) => !NOT_KINDS.has(token));
+
+    // A guard is worthless if it stops matching anything, so prove it still sees the real ones.
+    expect(named).toContain('ComputeFieldMapper');
+    expect(named).toContain('AudioValue');
+    for (const kind of named) {
+      expect(NodeDefs, `the prompt tells the model to use "${kind}", which is not a node kind`)
+        .toHaveProperty(kind);
+    }
+  });
+
+  it('points at the audio nodes by their real jobs', () => {
+    // One channel per AudioValue, and the Audio node is settings-only — a model that wires the
+    // settings node into a graph has built something with no output.
+    expect(generatorPrompt).toContain('AudioValue');
+    expect(generatorPrompt).toMatch(/Audio node .*settings/);
+    expect(generatorPrompt).toMatch(/no outputs/);
+  });
+
   it('says how compute and fragment nodes mix, since neither needs a bridge', () => {
     expect(generatorPrompt).toMatch(/no bridging node/);
   });

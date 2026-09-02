@@ -228,6 +228,13 @@ export class BrowserAudioCapture {
         this._adsrValue = 0;
         this._adsrPhase = 'idle';
         this._envelopeValue = 0;
+        this._envelopeBass = 0;
+        this._envelopeMids = 0;
+        this._envelopeHighs = 0;
+        this._envelopeFull = 0;
+        // Stopped means zero everywhere, now — not on whatever frame something next happens to
+        // publish. A patch driven by `=audioEnvelopeBass` settles instead of staying stuck.
+        this._publishEnvelopes();
 
         this._emit('stopped');
     }
@@ -237,6 +244,31 @@ export class BrowserAudioCapture {
      */
     getValue() {
         return this._envelopeValue;
+    }
+
+    /**
+     * The per-band envelopes, as the four `audioEnvelopeBass/Mids/Highs/Full` expression variables
+     * read them.
+     *
+     * These existed only as window globals, and PreviewComputer called four getters of these names
+     * that were never written — `?.()` swallowed it, so the CPU preview quietly saw 0 for every
+     * band while the shader saw the real number. A node whose parameter was `=audioEnvelopeBass`
+     * therefore rendered correctly and previewed as if the track were silent.
+     */
+    getAudioEnvelopeBass() {
+        return this._envelopeBass || 0;
+    }
+
+    getAudioEnvelopeMids() {
+        return this._envelopeMids || 0;
+    }
+
+    getAudioEnvelopeHighs() {
+        return this._envelopeHighs || 0;
+    }
+
+    getAudioEnvelopeFull() {
+        return this._envelopeFull || 0;
     }
 
     /**
@@ -280,7 +312,7 @@ export class BrowserAudioCapture {
         // For fullband, use time-domain RMS (faster, no FFT needed)
         if (bandMode === 'fullband') {
             const bufferLength = this.analyser.frequencyBinCount;
-            const dataArray = new Float32Array(bufferLength);
+            const dataArray = this._timeBuffer(bufferLength);
             this.analyser.getFloatTimeDomainData(dataArray);
 
             let sum = 0;
@@ -290,10 +322,10 @@ export class BrowserAudioCapture {
             return Math.sqrt(sum / bufferLength);
         }
 
-        // For frequency-specific bands, use FFT
+        // For frequency-specific bands, use FFT. One spectrum read serves every band asked for on
+        // the same frame — three of them are, and the spectrum cannot change between them.
         const bufferLength = this.analyser.frequencyBinCount;
-        const frequencyData = new Uint8Array(bufferLength);
-        this.analyser.getByteFrequencyData(frequencyData);
+        const frequencyData = this._spectrum(bufferLength);
 
         // Sample rate and nyquist frequency
         const sampleRate = this.audioContext.sampleRate;
@@ -376,6 +408,58 @@ export class BrowserAudioCapture {
         this._publishAnalysis(a);
     }
 
+    /**
+     * This frame's spectrum, read once however many bands ask for it.
+     *
+     * Each band used to allocate its own `new Uint8Array(1024)` and re-read the analyser — three
+     * bands a frame, ~180 discarded kilobytes a second, for three views of one spectrum that
+     * cannot have changed between them. The buffer is reused and the read is done once per frame.
+     */
+    _spectrum(bufferLength) {
+        if (!this._spectrumBuffer || this._spectrumBuffer.length !== bufferLength) {
+            this._spectrumBuffer = new Uint8Array(bufferLength);
+            this._spectrumFrame = -1;
+        }
+        if (this._spectrumFrame !== this._analysisFrame) {
+            this.analyser.getByteFrequencyData(this._spectrumBuffer);
+            this._spectrumFrame = this._analysisFrame;
+        }
+        return this._spectrumBuffer;
+    }
+
+    /** The time-domain buffer, reused rather than reallocated per call. */
+    _timeBuffer(bufferLength) {
+        if (!this._timeDomainBuffer || this._timeDomainBuffer.length !== bufferLength) {
+            this._timeDomainBuffer = new Float32Array(bufferLength);
+        }
+        return this._timeDomainBuffer;
+    }
+
+    /**
+     * Publish the five envelope globals the shader's `g.audioEnvelope*` fields are fed from
+     * (gpuRenderer reads them every frame) and `=audioEnvelope…` expressions resolve against.
+     *
+     * One writer, so a path that forgets one of the five cannot leave it stale.
+     */
+    _publishEnvelopes() {
+        if (typeof window === 'undefined') return;
+        window._audioEnvelopeValue = this._envelopeValue;
+        window._audioEnvelopeBass = this._envelopeBass;
+        window._audioEnvelopeMids = this._envelopeMids;
+        window._audioEnvelopeHighs = this._envelopeHighs;
+        window._audioEnvelopeFull = this._envelopeFull;
+    }
+
+    /** Ease the per-band envelopes toward zero, at the release the overall envelope uses. */
+    _decayBands(dt) {
+        const release = Math.max(1, this.config.follower?.release_ms ?? 200);
+        const k = Math.exp(-(dt > 0 ? dt : 1 / 60) * 1000 / release);
+        for (const name of ['_envelopeBass', '_envelopeMids', '_envelopeHighs', '_envelopeFull']) {
+            const decayed = (this[name] || 0) * k;
+            this[name] = decayed < 1e-4 ? 0 : decayed;
+        }
+    }
+
     /** Expose the frame's analysis on window, where the node processor and shaders read it. */
     _publishAnalysis(a) {
         if (typeof window === 'undefined') return;
@@ -423,8 +507,12 @@ export class BrowserAudioCapture {
             raw = this._applyShaping(raw);
             this._envelopeValue = Math.max(0, Math.min(1, raw));
 
-            // Expose globally for GPU shader access
-            window._audioEnvelopeValue = this._envelopeValue;
+            // The bands decay with the overall envelope rather than being left where the last
+            // frame of audio put them. Publishing only `_audioEnvelopeValue` here is what left
+            // `=audioEnvelopeBass` frozen at its last playing value for the rest of the session:
+            // the GPU reads these five globals every frame whether or not anything is playing.
+            this._decayBands(dt);
+            this._publishEnvelopes();
 
             // No playback -> every meter reads zero, and the followers reset so the next track
             // does not inherit this one's scaling.
@@ -433,14 +521,21 @@ export class BrowserAudioCapture {
             return;
         }
 
+        // One spectrum per frame, shared by the band reads below.
+        this._analysisFrame = (this._analysisFrame || 0) + 1;
+
         // Calculate RMS for all frequency bands
         const rmsBass = this._getFrequencyBandRMS('bass');
         const rmsMids = this._getFrequencyBandRMS('mids');
         const rmsHighs = this._getFrequencyBandRMS('highs');
         const rmsFull = this._getFrequencyBandRMS('fullband');
 
-        // Current RMS based on config (for backwards compatibility)
-        const rms = this._getFrequencyBandRMS();
+        // The band the follower runs on. `config.frequency.mode` has no UI any more and is always
+        // 'fullband', so asking for it again would repeat the read just done above — take the one
+        // already in hand whenever the mode matches, which today is always.
+        const mode = this.config.frequency.mode;
+        const measured = { bass: rmsBass, mids: rmsMids, highs: rmsHighs, fullband: rmsFull };
+        const rms = measured[mode] !== undefined ? measured[mode] : this._getFrequencyBandRMS();
 
         // Time delta
         const dt = this._frameDelta();
@@ -486,12 +581,7 @@ export class BrowserAudioCapture {
         // Real-time band meters for the Audio Analysis node (see RealtimeAudioAnalysis).
         this._runRealtimeAnalysis(dt);
 
-        // Expose all globally for GPU shader access
-        window._audioEnvelopeValue = this._envelopeValue;
-        window._audioEnvelopeBass = this._envelopeBass;
-        window._audioEnvelopeMids = this._envelopeMids;
-        window._audioEnvelopeHighs = this._envelopeHighs;
-        window._audioEnvelopeFull = this._envelopeFull;
+        this._publishEnvelopes();
 
         // Debug logging (every 1 second)
         if (!this._lastDebugLog || performance.now() - this._lastDebugLog > 1000) {

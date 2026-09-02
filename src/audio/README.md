@@ -93,22 +93,26 @@ cleanup() {
 }
 ```
 
-### AudioSettingsPanel.js
+### The Audio panel — `src/ui/AudioSettingsPanel.js`
 
-UI panel that uses BrowserAudioCapture:
+The UI that drives this engine: the source and transport, the meter shaping, the per-drum
+thresholds, a live readout of every channel, and the ＋ that adds an Audio Value node reading one.
+See [AUDIO_PANEL.md](../../AUDIO_PANEL.md).
+
+It reaches the engine through `getBrowserAudioCapture()` — the singleton — never `new
+BrowserAudioCapture()`. A second instance would race the first on the same `window._audioEnvelope*`
+globals, and only one of them can hold the element's MediaElementSource.
 
 ```javascript
 fileInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-
   try {
-    // This internally creates a new audio element
-    await this.audioCapture.loadFile(file);
-    console.log('Audio loaded successfully');
-  } catch (error) {
-    console.error('Failed to load audio:', error);
+    await this.audioClient.loadFile(file);
+  } catch {
+    this._loadError = 'Could not read that file';
   }
+  this._syncTransport();
 });
 ```
 

@@ -27,6 +27,7 @@ import {
   getAudioTapValues,
   setAudioTapsWanted,
 } from '../audio/audioAnalysisTaps.js';
+import { parameterHoldsExpression } from '../parameters/ExternalParameterControl.js';
 import { normalizeNodeName } from '../core/nodeName.js';
 import { makeDraggable } from './utils/draggable.js';
 
@@ -103,6 +104,9 @@ export class AudioSettingsPanel {
         this._seeking = false;
         // One re-read per control, run on the refresh tick.
         this._settingSyncs = [];
+        // The undo entry covering the drag currently in progress, if any.
+        this._gesture = null;
+        this._gestureTimer = null;
 
         try {
             this.audioClient = getBrowserAudioCapture();
@@ -222,33 +226,111 @@ export class AudioSettingsPanel {
         return (window.editor?.graph?.nodes || []).find((n) => n?.kind === 'Audio') || null;
     }
 
-    /** A setting's current value: off the setup node when there is one, else the stored default. */
-    _setting(name) {
+    /**
+     * A setting's current value, and whether a formula is producing it.
+     *
+     * `value` is the number actually being decided on — the processor's resolved figure when the
+     * parameter holds an expression, so the slider and the meter marker show where the threshold
+     * really sits rather than the text of the formula. `expression` is that text, and is what stops
+     * the slider from writing over it.
+     */
+    _settingState(name) {
         const node = this._setupNode();
-        // The resolved number the processor last decided on, so a setting driven by `=midi` reads
-        // as what it actually evaluated to rather than as its text.
+        const expression = node && parameterHoldsExpression(node, name)
+            ? String(node.params[name])
+            : null;
+
         const resolved = node?.__audio_settings?.[name];
-        if (typeof resolved === 'number') return resolved;
+        if (typeof resolved === 'number') return { value: resolved, expression };
         const raw = node?.params?.[name];
-        if (typeof raw === 'number') return raw;
-        return getAudioAnalysisSettings()[name];
+        if (typeof raw === 'number') return { value: raw, expression };
+        return { value: getAudioAnalysisSettings()[name], expression };
     }
 
-    /** Write a setting where it lives, and report what it ended up as. */
+    /** A setting's current value. */
+    _setting(name) {
+        return this._settingState(name).value;
+    }
+
+    /**
+     * Write a setting where it lives, and report what it ended up as.
+     *
+     * A parameter holding an expression is left alone. The slider shows what that expression
+     * evaluated to, which makes it look like an ordinary number — and the first drag would replace
+     * `=midi * 0.6 + 0.2` with whatever it happened to read that frame, silently, on the one
+     * parameter whose whole purpose is being driven by a controller. The same rule the MIDI and OSC
+     * write paths follow (see parameters/ExternalParameterControl.js).
+     */
     _setSetting(name, value) {
         const node = this._setupNode();
+        // Clamped in one place, so the node and the stored defaults cannot disagree at the ends of
+        // a range — two sources for one engine is the failure this panel exists to avoid.
         if (!node) return updateAudioAnalysisSettings({ [name]: value })[name];
+        if (parameterHoldsExpression(node, name)) return this._setting(name);
 
+        const applied = updateAudioAnalysisSettings({ [name]: value })[name];
+        const previous = node.params?.[name];
         node.params = node.params || {};
-        node.params[name] = value;
-        // Keep the stored defaults in step, so deleting the node does not lose the dial-in and a
-        // patch opened without one starts where this one left off.
-        updateAudioAnalysisSettings({ [name]: value });
-        window.editor?.markDirty?.('audio-setting');
-        if (window.editor?.paramPanel?.selectedNode?.id === node.id) {
-            window.editor.paramPanel.showNodeParameters(node);
+        node.params[name] = applied;
+
+        // One undo entry per gesture, not per pointer event: a slider fires on every pixel, and a
+        // drag the artist reads as one action has to undo as one. Opened on the first write of a
+        // run and closed when the pointer settles (see _endSettingGesture).
+        this._openSettingGesture(node, name, previous);
+        this._notifySettingChange(node, name, previous, applied);
+        return applied;
+    }
+
+    /** Start (or extend) the undo entry covering the run of writes the artist is in the middle of. */
+    _openSettingGesture(node, name, previous) {
+        const key = `${node.id}.${name}`;
+        if (!this._gesture || this._gesture.key !== key) {
+            this._endSettingGesture();
+            this._gesture = { key, node, name, from: previous };
         }
-        return value;
+        clearTimeout(this._gestureTimer);
+        this._gestureTimer = setTimeout(() => this._endSettingGesture(), 400);
+    }
+
+    /** Close the open gesture, recording the whole run as one parameter change. */
+    _endSettingGesture() {
+        const gesture = this._gesture;
+        this._gesture = null;
+        clearTimeout(this._gestureTimer);
+        if (!gesture) return;
+
+        const to = gesture.node.params?.[gesture.name];
+        if (to === gesture.from) return;
+        const undoManager = window.undoManager || window.editor?.undoManager;
+        undoManager?.recordParameterChange?.(gesture.node.id, gesture.name, gesture.from, to);
+    }
+
+    /**
+     * Tell the rest of the editor a parameter moved.
+     *
+     * These settings are read off the node every frame by AudioAnalysisProcessor, so nothing has to
+     * recompile — but a parameter change is still a change to the DOCUMENT, and the things that
+     * track that do not watch node.params. Without this the patch never goes unsaved (markDirty is
+     * only the canvas's redraw flag) and the binding system never hears that a bound parameter it
+     * owns has moved underneath it.
+     */
+    _notifySettingChange(node, name, oldValue, newValue) {
+        const editor = window.editor;
+        editor?.markDirty?.('audio-setting');
+        try {
+            editor?.eventSystem?.emit?.('PARAMETER_CHANGED', {
+                node, parameterName: name, oldValue, newValue, source: 'audio-panel',
+            });
+        } catch {
+            // A listener throwing must not take the slider with it.
+        }
+        window.saveLoadManager?.markUnsaved?.();
+
+        // The node's own panel, if it is the one on screen. Text only: re-rendering it per pointer
+        // event would tear down and rebuild every field mid-drag.
+        if (editor?.paramPanel?.selectedNode?.id === node.id) {
+            editor.paramPanel.refreshParameterDisplays?.();
+        }
     }
 
     /** Attack / Release / Gain. */
@@ -269,9 +351,10 @@ export class AudioSettingsPanel {
                 readout.textContent = `${spec.step < 1 ? v.toFixed(2) : Math.round(v)}${spec.unit}`;
             };
             const sync = () => {
-                const value = this._setting(spec.name);
-                if (document.activeElement !== input) input.value = String(value);
-                show(value);
+                const state = this._settingState(spec.name);
+                if (document.activeElement !== input) input.value = String(state.value);
+                show(state.value);
+                this._showExpression(row, input, state.expression);
             };
             sync();
             input.addEventListener('input', () => {
@@ -331,12 +414,13 @@ export class AudioSettingsPanel {
         const readout = row.querySelector('.rzap-slider-value');
         const show = (v) => { readout.textContent = v.toFixed(2); };
         const sync = () => {
-            const value = this._setting(key);
+            const state = this._settingState(key);
             // Never fight the hand on the slider — but a knob mapped to this threshold moves it
             // between drags, and the panel has to follow.
-            if (document.activeElement !== input) input.value = String(value);
-            show(value);
-            this._placeMark(instrument, value);
+            if (document.activeElement !== input) input.value = String(state.value);
+            show(state.value);
+            this._showExpression(row, input, state.expression);
+            this._placeMark(instrument, state.value);
         };
         sync();
         input.addEventListener('input', () => {
@@ -417,6 +501,27 @@ export class AudioSettingsPanel {
         this._syncSetupNote();
         window.updateStatus?.('Added Audio node — its thresholds can be MIDI-mapped');
         return node;
+    }
+
+    /**
+     * Show that a formula is producing this value, and take the slider out of the way.
+     *
+     * The slider is showing what the expression evaluated to, which looks exactly like a number
+     * somebody set — so leaving it draggable is an invitation to overwrite `=midi * 0.6 + 0.2` by
+     * brushing past it. Disabled, with the formula in the tooltip, it reads as what it is: a
+     * readout of something driven from elsewhere. Clear it on the node's parameter panel.
+     */
+    _showExpression(row, input, expression) {
+        const driven = !!expression;
+        row.classList.toggle('is-driven', driven);
+        input.disabled = driven;
+        if (driven) {
+            row.dataset.expression = expression;
+            input.title = `Driven by ${expression} — edit it on the Audio node`;
+        } else {
+            delete row.dataset.expression;
+            input.title = '';
+        }
     }
 
     /**
@@ -873,6 +978,14 @@ export class AudioSettingsPanel {
                 color: var(--rz-text-3);
             }
             .rzap-slider.is-thresh .rzap-slider-label { color: var(--rz-accent); }
+            /* Driven by an expression (=midi, an LFO): the slider is a readout, not a control. */
+            .rzap-slider.is-driven input { opacity: 0.45; }
+            .rzap-slider.is-driven .rzap-slider-value {
+                color: var(--rz-audio); font-family: var(--rz-font-mono);
+            }
+            .rzap-slider.is-driven .rzap-slider-value::after {
+                content: " fx"; font-size: 8px; opacity: 0.8;
+            }
 
             .rzap-group { margin-bottom: 10px; }
             .rzap-group:last-child { margin-bottom: 0; }
