@@ -16,12 +16,52 @@
 //     app is already running. That variant only exists on Apple platforms, so
 //     everything touching it is cfg-gated.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-/// Path waiting to be opened by the frontend, if any.
-struct PendingOpen(Mutex<Option<String>>);
+/// The patches the OS has asked us to open.
+///
+/// `pending` is the slot the frontend drains once on boot. `offered` is every
+/// path we have handed the webview this session, and it is what authorises a
+/// read: see `read_project_file`.
+struct PendingOpen {
+    pending: Mutex<Option<String>>,
+    offered: Mutex<HashSet<String>>,
+}
+
+impl PendingOpen {
+    fn new(path: Option<String>) -> Self {
+        Self {
+            offered: Mutex::new(path.iter().cloned().collect()),
+            pending: Mutex::new(path),
+        }
+    }
+
+    /// Record a path the OS gave us, and park it for the frontend.
+    fn offer(&self, path: String) {
+        if let Ok(mut offered) = self.offered.lock() {
+            offered.insert(path.clone());
+        }
+        if let Ok(mut pending) = self.pending.lock() {
+            *pending = Some(path);
+        }
+    }
+
+    /// Take the parked path, leaving the slot empty.
+    fn take(&self) -> Option<String> {
+        self.pending.lock().ok().and_then(|mut pending| pending.take())
+    }
+
+    /// Did the OS hand us this exact path?
+    fn was_offered(&self, path: &str) -> bool {
+        self.offered
+            .lock()
+            .map(|offered| offered.contains(path))
+            .unwrap_or(false)
+    }
+}
 
 /// The editor. Configured hidden in tauri.conf.json; revealed by `app_ready`.
 const MAIN_WINDOW: &str = "main";
@@ -44,6 +84,12 @@ const SPLASH_TIMEOUT: Duration = Duration::from_secs(20);
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 const OPEN_FILE_EVENT: &str = "rhizomium://open-file";
 
+/// Does this look like a patch we should offer to open?
+///
+/// A filter for picking our file out of the launch arguments or a list of
+/// dropped URLs -- deliberately not a permission check. An extension is not a
+/// boundary: every `.json` on the machine has one, and plenty of them are
+/// somebody's credentials. What authorises a read is `PendingOpen::offered`.
 fn is_project_path(path: &str) -> bool {
     let lower = path.to_lowercase();
     lower.ends_with(".rz") || lower.ends_with(".json")
@@ -60,17 +106,26 @@ fn project_path_from_args() -> Option<String> {
 /// a plain app launch) means "nothing to open".
 #[tauri::command]
 fn take_pending_open(state: tauri::State<'_, PendingOpen>) -> Option<String> {
-    state.0.lock().ok().and_then(|mut pending| pending.take())
+    state.take()
 }
 
-/// Read a project file from disk for the frontend.
+/// Read a patch from disk for the frontend.
 ///
-/// Scoped to project documents on purpose: this is reachable from the webview,
-/// so it must not become a general "read any file" primitive.
+/// This is reachable from the webview, so it must not become a general "read
+/// any file" primitive -- and matching on the extension did not stop it being
+/// one, since it would open any `.json` anywhere on the machine.
+///
+/// The webview never has a path of its own to open. Both ways a patch arrives
+/// start here in Rust, from the OS: a launch argument, or a `RunEvent::Opened`.
+/// The frontend only ever echoes back the path `take_pending_open()` or the
+/// open event handed it. So the check is membership, not shape: we open a file
+/// the OS asked us to open, and nothing else.
 #[tauri::command]
-fn read_project_file(path: String) -> Result<String, String> {
-    if !is_project_path(&path) {
-        return Err("Not a Rhizomium project file".into());
+fn read_project_file(path: String, state: tauri::State<'_, PendingOpen>) -> Result<String, String> {
+    if !state.was_offered(&path) {
+        // Deliberately not "no such file": whether it exists is not something
+        // the webview has earned an answer to.
+        return Err("Not a patch this app was asked to open".into());
     }
     std::fs::read_to_string(&path).map_err(|err| err.to_string())
 }
@@ -198,9 +253,7 @@ fn handle_opened(handle: &tauri::AppHandle, event: &tauri::RunEvent) {
     // as well as emitting it. Whichever the frontend reaches first wins, and
     // take_pending_open() clears the slot so the file cannot open twice.
     if let Some(state) = handle.try_state::<PendingOpen>() {
-        if let Ok(mut pending) = state.0.lock() {
-            *pending = Some(path.clone());
-        }
+        state.offer(path.clone());
     }
     let _ = handle.emit(OPEN_FILE_EVENT, path);
 }
@@ -208,7 +261,7 @@ fn handle_opened(handle: &tauri::AppHandle, event: &tauri::RunEvent) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
-        .manage(PendingOpen(Mutex::new(project_path_from_args())))
+        .manage(PendingOpen::new(project_path_from_args()))
         .invoke_handler(tauri::generate_handler![
             take_pending_open,
             read_project_file,
