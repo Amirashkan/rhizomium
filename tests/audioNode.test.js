@@ -310,7 +310,9 @@ describe('Audio node', () => {
       rig.step({ level: 0.5, low: 0.25, centroid: 0.75 });
 
       const taps = getAudioTapValues();
-      expect(Object.keys(taps).sort()).toEqual([...AUDIO_TAP_CHANNELS].sort());
+      // Every channel, plus `trigCount` — not a channel, but the per-drum fire counts a reader
+      // slower than the ~125 Hz analysis needs in order not to miss a one-step trigger.
+      expect(Object.keys(taps).sort()).toEqual([...AUDIO_TAP_CHANNELS, 'trigCount'].sort());
       expect(taps.level).toBeCloseTo(0.5);
       expect(taps.low).toBeCloseTo(0.25);
       expect(taps.centroid).toBeCloseTo(0.75);

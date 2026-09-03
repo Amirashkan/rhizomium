@@ -30,6 +30,27 @@ import { RealtimeAudioAnalysis } from './RealtimeAudioAnalysis.js';
 // poisoned by a sample that was never representative of the gap.
 const MAX_FRAME_DT_S = 0.1;
 
+// How often the analysis advances, in milliseconds, on its own timer.
+//
+// The analysis used to run only on the render loop's RAF handler, which tied every trigger's
+// timing to the frame rate: a heavy shader dropping the canvas to 20 fps also dropped the onset
+// detector to 20 Hz, so a kick could land up to 50 ms late and two hits inside one frame collapsed
+// into one. That is audible on anything with a fast hat pattern, and it got worse exactly when the
+// patch was most worth watching.
+//
+// A timer is not the frame clock. WebGPU work is submitted from JS and completed off-thread, and
+// RAF is additionally paced to vsync and to the compositor, so the main thread is idle between
+// frames even while the GPU is saturated — a timer fires in those gaps and keeps ~8 ms resolution
+// under a load that puts RAF at 50. The RAF handler stays registered as a second driver because
+// the reverse is also true: a background tab throttles timers to 1 Hz but stops RAF outright, and
+// tick() de-dupes so whichever fires first does the work.
+const ANALYSIS_INTERVAL_MS = 8;
+
+// Two calls closer together than this are the same instant — the timer and the RAF handler landing
+// in the same frame — and only the first does the work. Well under ANALYSIS_INTERVAL_MS so an
+// ordinary timer tick is never the one dropped.
+const TICK_DEDUPE_MS = 2;
+
 export class BrowserAudioCapture {
     constructor() {
         this.audioContext = null;
@@ -38,6 +59,15 @@ export class BrowserAudioCapture {
         this.source = null;
         this.filter = null;
         this.isPlaying = false;
+
+        // Live capture: a microphone/line-in via getUserMedia, or system audio via
+        // getDisplayMedia. Mutually exclusive with file playback — there is one analysis engine
+        // and one set of meters, so two sources feeding it at once would read as their sum with
+        // no way to tell which drum came from where.
+        this.liveStream = null;
+        this.liveSource = null;
+        this.liveKind = null;      // 'mic' | 'system' | null
+        this.liveLabel = '';
 
         // Multi-band envelope values
         this._envelopeValue = 0.0;      // Current (based on config.frequency.mode)
@@ -93,7 +123,10 @@ export class BrowserAudioCapture {
             stopped: [],
             loaded: [],
             value: [],
-            error: []
+            error: [],
+            // Fires after every analysis step, on the analysis clock rather than the render frame.
+            // AudioAnalysisProcessor takes its trigger decisions here — see ANALYSIS_INTERVAL_MS.
+            analysis: [],
         };
 
         // Handler name for UnifiedRAFManager
@@ -132,27 +165,7 @@ export class BrowserAudioCapture {
                 this.audioElement.onerror = reject;
             });
 
-            // Create audio context if needed
-            if (!this.audioContext) {
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-
-            // Create analyser
-            if (!this.analyser) {
-                this.analyser = this.audioContext.createAnalyser();
-                this.analyser.fftSize = 2048;
-                this.analyser.smoothingTimeConstant = 0.3;
-            }
-
-            // Second analyser dedicated to onset (kick) detection. Spectral flux measures the
-            // frame-to-frame CHANGE in the spectrum, so the main analyser's 0.3 smoothing — good
-            // for a stable envelope — would blur away exactly the transients flux keys on. This
-            // one runs unsmoothed; fftSize 2048 gives ~21 Hz bins, enough to resolve the kick band.
-            if (!this._fluxAnalyser) {
-                this._fluxAnalyser = this.audioContext.createAnalyser();
-                this._fluxAnalyser.fftSize = 2048;
-                this._fluxAnalyser.smoothingTimeConstant = 0;
-            }
+            this._ensureContext();
 
             // Create source and connect.
             // createMediaElementSource() can only be called once per media element
@@ -160,9 +173,13 @@ export class BrowserAudioCapture {
             // subsequent loads — it keeps following the element's current src.
             if (!this.source) {
                 this.source = this.audioContext.createMediaElementSource(this.audioElement);
-                this.source.connect(this.analyser);
-                this.source.connect(this._fluxAnalyser);
-                this.analyser.connect(this.audioContext.destination); // So we can hear it
+                this._tap(this.source);
+                // Straight to the speakers from the SOURCE, not through the analyser.
+                // The analyser used to sit in the audible path, which meant anything else tapped
+                // into it was also wired to the output — fatal once a microphone can be the
+                // source, because mic -> analyser -> speakers is a feedback loop. The analysers
+                // are measurement branches now and nothing but a file reaches the destination.
+                this.source.connect(this.audioContext.destination);
             }
 
             this._emit('loaded', file.name);
@@ -175,6 +192,207 @@ export class BrowserAudioCapture {
     }
 
     /**
+     * The AudioContext and the two measurement analysers, created once and shared by every source.
+     *
+     * Both a file and a live stream tap the same pair, so the meters, the thresholds set against
+     * them and every deployed Audio Value node behave identically whichever one is running.
+     */
+    _ensureContext() {
+        if (!this.audioContext) {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        if (!this.analyser) {
+            this.analyser = this.audioContext.createAnalyser();
+            this.analyser.fftSize = 2048;
+            this.analyser.smoothingTimeConstant = 0.3;
+        }
+
+        // Second analyser dedicated to onset (kick) detection. Spectral flux measures the
+        // frame-to-frame CHANGE in the spectrum, so the main analyser's 0.3 smoothing — good
+        // for a stable envelope — would blur away exactly the transients flux keys on. This
+        // one runs unsmoothed; fftSize 2048 gives ~21 Hz bins, enough to resolve the kick band.
+        if (!this._fluxAnalyser) {
+            this._fluxAnalyser = this.audioContext.createAnalyser();
+            this._fluxAnalyser.fftSize = 2048;
+            this._fluxAnalyser.smoothingTimeConstant = 0;
+        }
+
+        return this.audioContext;
+    }
+
+    /** Branch a source into both measurement analysers. Neither reaches the speakers. */
+    _tap(node) {
+        node.connect(this.analyser);
+        node.connect(this._fluxAnalyser);
+    }
+
+    /**
+     * The input devices the browser will name, for the panel's picker.
+     *
+     * Labels are blank until the page has been granted microphone access at least once — that is
+     * the spec, not a bug — so the panel calls this again after a successful start and the list
+     * fills in with real device names.
+     */
+    async listInputDevices() {
+        const media = typeof navigator !== 'undefined' ? navigator.mediaDevices : null;
+        if (!media?.enumerateDevices) return [];
+        try {
+            const devices = await media.enumerateDevices();
+            return devices
+                .filter((d) => d.kind === 'audioinput')
+                .map((d, i) => ({
+                    deviceId: d.deviceId,
+                    label: d.label || `Input ${i + 1}`,
+                }));
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Start analysing a live input: 'mic' for a microphone or line-in, 'system' for whatever a
+     * tab, window or screen is playing.
+     *
+     * Nothing is monitored to the speakers. For a microphone that would be a feedback loop, and
+     * system audio is already audible where it is coming from — routing it back out would double
+     * it and add a buffer of latency. This is a measurement tap only.
+     *
+     * System audio comes through getDisplayMedia because that is the only route a browser gives a
+     * page: Chrome offers "Share tab audio" when picking a tab and "Share system audio" when
+     * picking a screen, and the user has to tick it. If they do not, the stream arrives with no
+     * audio track at all — caught below and reported, rather than sitting silently at zero.
+     */
+    async startLiveInput({ kind = 'mic', deviceId = null } = {}) {
+        const media = typeof navigator !== 'undefined' ? navigator.mediaDevices : null;
+        if (!media) throw new Error('This browser has no media capture');
+
+        const wantSystem = kind === 'system';
+        if (wantSystem && !media.getDisplayMedia) {
+            throw new Error('This browser cannot capture system audio');
+        }
+        if (!wantSystem && !media.getUserMedia) {
+            throw new Error('This browser cannot capture microphone input');
+        }
+
+        // One source at a time: drop whatever is running before asking for the next.
+        this.stopLiveInput({ silent: true });
+        if (this.audioElement) {
+            this.audioElement.pause();
+            this.isPlaying = false;
+        }
+
+        // The browser's own processing is built for speech: echo cancellation, noise suppression
+        // and AGC all actively fight what this is measuring — AGC in particular flattens exactly
+        // the loud/quiet difference a threshold discriminates on. Off for music.
+        const constraints = {
+            audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
+                ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+            },
+        };
+
+        let stream;
+        try {
+            stream = wantSystem
+                ? await media.getDisplayMedia({ video: true, audio: constraints.audio })
+                : await media.getUserMedia(constraints);
+        } catch (error) {
+            this._emit('error', error);
+            throw error;
+        }
+
+        const audioTracks = stream.getAudioTracks();
+        if (!audioTracks.length) {
+            for (const track of stream.getTracks()) track.stop();
+            const error = new Error(wantSystem
+                ? 'No audio was shared — tick "Share tab audio" in the picker'
+                : 'That input has no audio track');
+            this._emit('error', error);
+            throw error;
+        }
+
+        // getDisplayMedia needs a video track requested to offer audio at all, but nothing here
+        // wants the pixels; stopping it immediately keeps the browser from encoding a screen
+        // capture nobody reads. The audio track survives on its own.
+        for (const track of stream.getVideoTracks()) track.stop();
+
+        this._ensureContext();
+        if (this.audioContext.state === 'suspended') {
+            try {
+                await this.audioContext.resume();
+            } catch {
+                // A context that will not resume shows up as silent meters, which the panel says.
+            }
+        }
+
+        this.liveStream = stream;
+        this.liveSource = this.audioContext.createMediaStreamSource(stream);
+        this._tap(this.liveSource);
+        this.liveKind = wantSystem ? 'system' : 'mic';
+        this.liveLabel = audioTracks[0].label || (wantSystem ? 'System audio' : 'Microphone');
+
+        // The user can revoke the share from the browser's own bar, which never goes through this
+        // panel. Ending the track is the only notice we get.
+        audioTracks[0].addEventListener('ended', () => this.stopLiveInput());
+
+        this.isPlaying = true;
+        this._lastUpdateTime = performance.now();
+        this._startAnalysisTicker();
+        this._registerRAFHandler();
+        this._enableRAFHandler();
+        this._emit('started');
+        return { kind: this.liveKind, label: this.liveLabel };
+    }
+
+    /** Drop the live input and let every meter fall back to zero. */
+    stopLiveInput({ silent = false } = {}) {
+        if (!this.liveStream && !this.liveSource) return false;
+
+        try {
+            this.liveSource?.disconnect();
+        } catch {
+            // Already torn down.
+        }
+        for (const track of this.liveStream?.getTracks?.() || []) {
+            try {
+                track.stop();
+            } catch {
+                // An ended track is fine.
+            }
+        }
+
+        this.liveStream = null;
+        this.liveSource = null;
+        this.liveKind = null;
+        this.liveLabel = '';
+        this.isPlaying = false;
+        this._stopAnalysisTicker();
+        this._disableRAFHandler();
+
+        if (!silent) {
+            this._resetEnvelopes();
+            this._publishEnvelopes();
+            this._publishSilentAnalysis();
+            this._emit('stopped');
+        }
+        return true;
+    }
+
+    /** Is a live input feeding the analysis right now? */
+    isLive() {
+        return !!this.liveKind;
+    }
+
+    /** What is driving the analysis: 'mic', 'system', 'file', or null. */
+    getSourceKind() {
+        if (this.liveKind) return this.liveKind;
+        return this.audioElement?.src ? 'file' : null;
+    }
+
+    /**
      * Start playing audio
      */
     async play() {
@@ -183,8 +401,14 @@ export class BrowserAudioCapture {
         }
 
         try {
+            // A file and a live input cannot both feed the one analysis engine.
+            this.stopLiveInput({ silent: true });
             await this.audioElement.play();
             this.isPlaying = true;
+            // The analysis runs on its own clock (see _startAnalysisTicker) so trigger timing does
+            // not follow the frame rate. The RAF handler stays as a second driver — tick() de-dupes
+            // — for the case where timers are throttled harder than frames.
+            this._startAnalysisTicker();
             // Ensure the per-frame handler is registered (the constructor's attempt is a no-op if the
             // singleton was created before window.renderLoop existed — e.g. by the preview system),
             // then enable it. Without this the envelope never advances and the value freezes.
@@ -202,10 +426,15 @@ export class BrowserAudioCapture {
      * Pause audio
      */
     pause() {
+        if (this.liveKind) {
+            this.stopLiveInput();
+            return;
+        }
         if (this.audioElement) {
             this.audioElement.pause();
             this.isPlaying = false;
             // Disable RAF handler when paused
+            this._stopAnalysisTicker();
             this._disableRAFHandler();
             this._emit('stopped');
         }
@@ -215,15 +444,30 @@ export class BrowserAudioCapture {
      * Stop audio and cleanup
      */
     stop() {
+        // Stop means stop, whatever is running.
+        this.stopLiveInput({ silent: true });
+
         if (this.audioElement) {
             this.audioElement.pause();
             this.audioElement.currentTime = 0;
             this.isPlaying = false;
         }
 
-        // Disable RAF handler when stopped
+        // Disable the per-frame drivers when stopped
+        this._stopAnalysisTicker();
         this._disableRAFHandler();
 
+        this._resetEnvelopes();
+        // Stopped means zero everywhere, now — not on whatever frame something next happens to
+        // publish. A patch driven by `=audioEnvelopeBass` settles instead of staying stuck.
+        this._publishEnvelopes();
+        this._publishSilentAnalysis();
+
+        this._emit('stopped');
+    }
+
+    /** Every envelope and follower back to rest. */
+    _resetEnvelopes() {
         this._followerValue = 0;
         this._adsrValue = 0;
         this._adsrPhase = 'idle';
@@ -232,11 +476,6 @@ export class BrowserAudioCapture {
         this._envelopeMids = 0;
         this._envelopeHighs = 0;
         this._envelopeFull = 0;
-        // Stopped means zero everywhere, now — not on whatever frame something next happens to
-        // publish. A patch driven by `=audioEnvelopeBass` settles instead of staying stuck.
-        this._publishEnvelopes();
-
-        this._emit('stopped');
     }
 
     /**
@@ -517,6 +756,7 @@ export class BrowserAudioCapture {
             // No playback -> every meter reads zero, and the followers reset so the next track
             // does not inherit this one's scaling.
             this._publishSilentAnalysis();
+            this._emit('analysis');
 
             return;
         }
@@ -582,6 +822,10 @@ export class BrowserAudioCapture {
         this._runRealtimeAnalysis(dt);
 
         this._publishEnvelopes();
+
+        // Anything deciding on this step — the trigger detection in AudioAnalysisProcessor — runs
+        // here, off the render frame, now that the numbers it decides on are ready.
+        this._emit('analysis');
 
         // Debug logging (every 1 second)
         if (!this._lastDebugLog || performance.now() - this._lastDebugLog > 1000) {
@@ -710,16 +954,41 @@ export class BrowserAudioCapture {
      * Uses LOW priority since audio processing is less critical than rendering
      */
     /**
-     * Advance the envelope one frame. Safe to call from any per-frame driver — both the unified RAF
-     * handler and the AudioAnalysisProcessor call it — because it de-dupes: two calls in the same
-     * frame process only once (whichever runs first wins; the second is a no-op). This lets the node
-     * processor keep the envelope live even when the RAF handler failed to register.
+     * Advance the analysis one step. Safe to call from any driver — the timer, the unified RAF
+     * handler and the AudioAnalysisProcessor all call it — because it de-dupes: two calls at the
+     * same instant process only once (whichever runs first wins; the second is a no-op). That is
+     * what lets the node processor keep the envelope live even when the RAF handler never
+     * registered.
+     *
+     * `driver` says which one is calling. While the timer is running it IS the analysis clock, and
+     * a frame landing between its ticks would only add a redundant step — measured, letting frames
+     * through as well took the rate from 125 to 172 steps a second for no extra resolution. Frames
+     * still drive the analysis when the timer cannot: if the timer has fallen more than a few
+     * intervals behind (throttled, or the page stalled), the guard below lets the frame through.
      */
-    tick() {
+    tick({ driver = 'frame' } = {}) {
         const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-        if (now - (this._lastTickAt || 0) < 4) return;
+        const since = now - (this._lastTickAt || 0);
+        if (since < TICK_DEDUPE_MS) return;
+        if (driver === 'frame' && this._analysisTicker && since < ANALYSIS_INTERVAL_MS * 3) return;
         this._lastTickAt = now;
         this._processAudio();
+    }
+
+    /**
+     * Drive the analysis off a fixed timer instead of the render frame. See ANALYSIS_INTERVAL_MS
+     * for why the frame rate is the wrong clock for onset detection.
+     */
+    _startAnalysisTicker() {
+        if (this._analysisTicker) return;
+        if (typeof setInterval !== 'function') return;
+        this._analysisTicker = setInterval(() => this.tick({ driver: 'timer' }), ANALYSIS_INTERVAL_MS);
+    }
+
+    _stopAnalysisTicker() {
+        if (!this._analysisTicker) return;
+        clearInterval(this._analysisTicker);
+        this._analysisTicker = null;
     }
 
     _registerRAFHandler() {

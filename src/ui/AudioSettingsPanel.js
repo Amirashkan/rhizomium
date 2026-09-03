@@ -51,13 +51,29 @@ export function describeAudioSource() {
   const hasFile = !!(el && el.src);
   // The element is the truth: `isPlaying` on the client is set by its own play()/pause() and cannot
   // know about a track that ran out or was stopped from somewhere else.
-  const playing = el ? (!el.paused && !el.ended && el.readyState > 2) : !!client?.getIsPlaying?.();
+  const filePlaying = el ? (!el.paused && !el.ended && el.readyState > 2) : false;
   const fileName = (typeof el?.dataset?.fileName === 'string' && el.dataset.fileName) || '';
 
-  if (!hasFile) return { state: 'empty', label: 'No audio loaded', fileName, playing, hasFile };
-  if (playing) return { state: 'playing', label: 'Playing', fileName, playing, hasFile };
-  if ((el?.currentTime || 0) > 0) return { state: 'paused', label: 'Paused', fileName, playing, hasFile };
-  return { state: 'ready', label: 'Loaded, not playing', fileName, playing, hasFile };
+  // A live input takes precedence because it is exclusive: starting one pauses the file, so if a
+  // stream is open it is what the meters are reading.
+  if (client?.liveKind) {
+    return {
+      state: 'live',
+      label: client.liveKind === 'system' ? 'System audio' : 'Live input',
+      fileName: client.liveLabel || '',
+      playing: true,
+      hasFile,
+      live: true,
+      sourceKind: client.liveKind,
+    };
+  }
+
+  const playing = el ? filePlaying : !!client?.getIsPlaying?.();
+  const base = { fileName, playing, hasFile, live: false, sourceKind: hasFile ? 'file' : null };
+  if (!hasFile) return { ...base, state: 'empty', label: 'No audio loaded' };
+  if (playing) return { ...base, state: 'playing', label: 'Playing' };
+  if ((el?.currentTime || 0) > 0) return { ...base, state: 'paused', label: 'Paused' };
+  return { ...base, state: 'ready', label: 'Loaded, not playing' };
 }
 
 /**
@@ -102,6 +118,15 @@ export class AudioSettingsPanel {
         this._loop = true;
         this._loadError = null;
         this._seeking = false;
+        // Which source the panel is showing controls for. Only one can feed the analysis at a
+        // time, so this is also which one is allowed to be running.
+        this._sourceMode = 'file';
+        this._devices = [];
+        // Per-drum fire counts as of the last refresh, so a trigger row can report a hit that
+        // landed between two polls.
+        this._trigSeen = {};
+        this._deviceId = '';
+        this._starting = false;
         // One re-read per control, run on the refresh tick.
         this._settingSyncs = [];
         // The undo entry covering the drag currently in progress, if any.
@@ -142,23 +167,42 @@ export class AudioSettingsPanel {
                             <i class="rzap-dot"></i><span id="audio-state-text">No file</span>
                         </span>
                     </div>
-                    <label class="rzap-file">
-                        <input type="file" id="audio-file-input" accept="audio/*">
-                        <span class="rzap-file-btn">Choose file…</span>
-                        <span id="audio-filename" class="rzap-file-name">No file loaded</span>
-                    </label>
-                    <div class="rzap-transport">
-                        <button id="audio-playpause" class="rzap-btn is-primary" disabled>▶ Play</button>
-                        <button id="audio-stop-btn" class="rzap-btn" disabled>⏹ Stop</button>
-                        <button id="audio-loop" class="rzap-btn is-toggle" title="Loop the track">⟲ Loop</button>
+                    <div class="rzap-tabs" role="group" aria-label="Audio source">
+                        <button class="rzap-tab is-on" data-source="file">File</button>
+                        <button class="rzap-tab" data-source="mic">Mic / line‑in</button>
+                        <button class="rzap-tab" data-source="system">System</button>
                     </div>
-                    <div id="audio-progress-container" class="rzap-progress" title="Click or drag to seek">
-                        <div id="audio-progress-bar" class="rzap-progress-fill"></div>
-                        <div id="audio-progress-head" class="rzap-progress-head"></div>
+
+                    <div id="audio-file-block">
+                        <label class="rzap-file">
+                            <input type="file" id="audio-file-input" accept="audio/*">
+                            <span class="rzap-file-btn">Choose file…</span>
+                            <span id="audio-filename" class="rzap-file-name">No file loaded</span>
+                        </label>
+                        <div class="rzap-transport">
+                            <button id="audio-playpause" class="rzap-btn is-primary" disabled>▶ Play</button>
+                            <button id="audio-stop-btn" class="rzap-btn" disabled>⏹ Stop</button>
+                            <button id="audio-loop" class="rzap-btn is-toggle" title="Loop the track">⟲ Loop</button>
+                        </div>
+                        <div id="audio-progress-container" class="rzap-progress" title="Click or drag to seek">
+                            <div id="audio-progress-bar" class="rzap-progress-fill"></div>
+                            <div id="audio-progress-head" class="rzap-progress-head"></div>
+                        </div>
+                        <div class="rzap-times">
+                            <span id="audio-current-time">0:00</span>
+                            <span id="audio-duration">0:00</span>
+                        </div>
                     </div>
-                    <div class="rzap-times">
-                        <span id="audio-current-time">0:00</span>
-                        <span id="audio-duration">0:00</span>
+
+                    <div id="audio-live-block" hidden>
+                        <label id="audio-device-row" class="rzap-device">
+                            <span>Input</span>
+                            <select id="audio-input-device"></select>
+                        </label>
+                        <div class="rzap-transport">
+                            <button id="audio-live-toggle" class="rzap-btn is-primary">● Listen</button>
+                        </div>
+                        <p id="audio-live-note" class="rzap-note"></p>
                     </div>
                 </section>
 
@@ -453,6 +497,8 @@ export class AudioSettingsPanel {
             fill: row.querySelector('.rzap-bar-fill'),
             value: row.querySelector('.rzap-row-value'),
             envelope: TRIG_ENVELOPE[channel] || null,
+            // A trigger row reads its drum's fire count rather than the 0/1 channel; same mapping.
+            instrument: TRIG_ENVELOPE[channel] || null,
         });
         return row;
     }
@@ -652,6 +698,30 @@ export class AudioSettingsPanel {
             this._syncTransport();
         });
 
+        // The source tabs. Switching stops whatever is currently running: the analysis engine has
+        // one input, and leaving a microphone open while the File tab is on screen would show a
+        // transport that explains none of what the meters are doing.
+        for (const tab of this.panel.querySelectorAll('.rzap-tab')) {
+            tab.addEventListener('click', () => this._setSourceMode(tab.dataset.source));
+        }
+
+        const deviceSelect = this.panel.querySelector('#audio-input-device');
+        deviceSelect.addEventListener('change', async () => {
+            this._deviceId = deviceSelect.value;
+            // Already listening: switch inputs there and then rather than making them press Stop
+            // and Listen again to hear the change.
+            if (this.audioClient?.liveKind === 'mic') await this._startLive();
+        });
+
+        this.panel.querySelector('#audio-live-toggle').addEventListener('click', async () => {
+            if (this.audioClient?.liveKind) {
+                this.audioClient.stopLiveInput();
+                this._syncTransport();
+                return;
+            }
+            await this._startLive();
+        });
+
         this.panel.querySelector('#audio-add-setup')
             .addEventListener('click', () => this.addSetupNode());
 
@@ -700,15 +770,111 @@ export class AudioSettingsPanel {
         }, 50);
     }
 
+    /**
+     * Show one source's controls and make sure it is the only one that can be running.
+     */
+    _setSourceMode(mode) {
+        if (!mode || mode === this._sourceMode) return;
+        this._sourceMode = mode;
+        this._loadError = null;
+
+        // Whatever was running belonged to the tab we just left.
+        this.audioClient?.stopLiveInput?.();
+        if (mode !== 'file' && this._isFilePlaying()) this.audioClient?.pause?.();
+
+        if (mode === 'mic') this._loadDevices();
+        this._syncTransport();
+    }
+
+    /**
+     * Fill the input picker.
+     *
+     * Device labels are blank until the page has been granted microphone access at least once, so
+     * this runs again after a successful start and the placeholder names are replaced with real
+     * ones. Until then the picker still works — the ids are real, only the labels are withheld.
+     */
+    async _loadDevices() {
+        const devices = await (this.audioClient?.listInputDevices?.() || []);
+        this._devices = devices;
+
+        const select = this.panel.querySelector('#audio-input-device');
+        if (!select) return;
+        const wanted = this._deviceId || select.value || '';
+        select.innerHTML = '';
+
+        const auto = document.createElement('option');
+        auto.value = '';
+        auto.textContent = devices.length ? 'Default input' : 'No inputs found';
+        select.appendChild(auto);
+
+        for (const device of devices) {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.textContent = device.label;
+            select.appendChild(option);
+        }
+        select.value = devices.some((d) => d.deviceId === wanted) ? wanted : '';
+        this._deviceId = select.value;
+    }
+
+    /** Open the live input the current tab describes, reporting whatever the browser says. */
+    async _startLive() {
+        if (this._starting) return;
+        this._starting = true;
+        this._loadError = null;
+        this._syncTransport();
+        try {
+            await this.audioClient?.startLiveInput?.({
+                kind: this._sourceMode === 'system' ? 'system' : 'mic',
+                deviceId: this._sourceMode === 'mic' ? (this._deviceId || null) : null,
+            });
+            // Permission granted means the device labels are readable now.
+            if (this._sourceMode === 'mic') await this._loadDevices();
+        } catch (error) {
+            // A denied permission and an unplugged interface look identical from a dead meter, so
+            // say which it was rather than leaving the panel silent.
+            this._loadError = this._liveErrorText(error);
+        } finally {
+            this._starting = false;
+            this._syncTransport();
+        }
+    }
+
+    /** The browser's DOMException names, in words that say what to do about it. */
+    _liveErrorText(error) {
+        const name = error?.name || '';
+        if (name === 'NotAllowedError') {
+            return this._sourceMode === 'system'
+                ? 'Screen share was cancelled'
+                : 'Microphone access was denied';
+        }
+        if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'That input is not available';
+        if (name === 'NotReadableError') return 'Another app is using that input';
+        return error?.message || 'Could not open that input';
+    }
+
+    /** Is the FILE transport playing? (A live input is playing, but not this.) */
+    _isFilePlaying() {
+        const el = this.audioClient?.audioElement;
+        return !!el && !el.paused && !el.ended && el.readyState > 2;
+    }
+
     /** One pass over the live values. */
     _refresh() {
         const taps = getAudioTapValues();
 
         for (const [channel, row] of this._rows) {
-            const value = typeof taps[channel] === 'number' ? taps[channel] : 0;
-            // A trigger is one frame wide and would almost never be caught by a 20 Hz poll, so its
-            // bar shows the matching envelope's decay — the same hit, made visible for long enough
-            // to see. The number stays honest: it is the trigger itself, 0 or 1.
+            // A trigger is one analysis step wide — 8 ms — and this poll runs at 20 Hz, so reading
+            // the 0/1 channel would catch about one hit in six and the row would look broken on a
+            // track that is plainly triggering. The fire COUNT cannot be missed: any hit since the
+            // last poll is still in it, which is the same reason a node reads it (see
+            // audioAnalysisTaps.js). So the number here is "did this drum fire since I last
+            // looked", which is what a 20 Hz readout can honestly answer.
+            const value = row.instrument
+                ? (this._firedSince(row.instrument, taps) ? 1 : 0)
+                : (typeof taps[channel] === 'number' ? taps[channel] : 0);
+            // The bar shows the matching envelope's decay — the same hit, made visible for long
+            // enough to see.
             const bar = row.envelope ? (taps[row.envelope] || 0) : value;
             row.fill.style.width = `${Math.min(1, Math.max(0, bar)) * 100}%`;
             row.value.textContent = value.toFixed(3);
@@ -721,8 +887,21 @@ export class AudioSettingsPanel {
         this._syncTransport();
     }
 
-    /** Is the player actually producing sound right now? */
+    /**
+     * Has this drum fired since the last poll? Reading the count leaves nothing to chance about
+     * when the poll happens to land relative to the 8 ms analysis step.
+     */
+    _firedSince(instrument, taps) {
+        const count = taps.trigCount?.[instrument] || 0;
+        const seen = this._trigSeen[instrument];
+        this._trigSeen[instrument] = count;
+        // First look: adopt the count rather than reporting every hit since the page loaded.
+        return seen !== undefined && count > seen;
+    }
+
+    /** Is anything feeding the analysis right now? */
     _isPlaying() {
+        if (this.audioClient?.liveKind) return true;
         const el = this.audioClient?.audioElement;
         // The element is the truth: `isPlaying` on the client is set by its own play()/pause() and
         // cannot know about a track that ran out or was stopped from somewhere else.
@@ -750,12 +929,34 @@ export class AudioSettingsPanel {
         // Shorter wording here than on the node: the chip sits under a "SOURCE" heading, next to
         // the transport, so it does not have to repeat the word "audio".
         const CHIP = { empty: 'No file', ready: 'Ready', paused: 'Paused', playing: 'Playing' };
-        const state = this._loadError ? 'error' : source.state;
-        const label = this._loadError || CHIP[source.state] || source.label;
+        // On a live tab the chip is about the live input, not about whatever the file transport was
+        // left doing — "Paused" next to a Listen button describes nothing the user can see.
+        const idleLive = this._sourceMode !== 'file' && !source.live;
+        const state = this._loadError ? 'error' : (idleLive ? 'empty' : source.state);
+        const label = this._loadError
+            || (source.live ? (source.fileName || source.label) : null)
+            || (idleLive ? 'Not listening' : (CHIP[source.state] || source.label));
+
+        // One tab's controls at a time, and the tab row shows which.
+        const mode = this._sourceMode;
+        for (const tab of this.panel.querySelectorAll('.rzap-tab')) {
+            const on = tab.dataset.source === mode;
+            tab.classList.toggle('is-on', on);
+            tab.setAttribute('aria-pressed', String(on));
+        }
+        this.panel.querySelector('#audio-file-block').hidden = mode !== 'file';
+        const liveBlock = this.panel.querySelector('#audio-live-block');
+        liveBlock.hidden = mode === 'file';
+        if (mode !== 'file') this._syncLive(mode);
 
         // Nothing is playing, so every channel below reads zero. Say it where the zeros are, not
-        // only up here — a node deployed from a silent panel looks broken otherwise.
-        this.panel.querySelector('#audio-silent').hidden = playing;
+        // only up here — a node deployed from a silent panel looks broken otherwise, and the way
+        // out of it depends on which source tab they are on.
+        const silent = this.panel.querySelector('#audio-silent');
+        silent.hidden = playing;
+        silent.textContent = this._sourceMode === 'file'
+            ? 'Nothing is playing, so every channel reads 0 — and so does any node reading one. Load a track above and press Play.'
+            : 'Nothing is playing, so every channel reads 0 — and so does any node reading one. Press Listen above.';
 
         const chip = this.panel.querySelector('#audio-state');
         chip.dataset.state = state;
@@ -780,6 +981,32 @@ export class AudioSettingsPanel {
         this.panel.querySelector('#audio-progress-head').style.left = `${ratio * 100}%`;
     }
 
+    /** The live block: device picker for the mic, one button, and what to expect. */
+    _syncLive(mode) {
+        const listening = this.audioClient?.liveKind || null;
+        const mine = listening === (mode === 'system' ? 'system' : 'mic');
+
+        this.panel.querySelector('#audio-device-row').hidden = mode !== 'mic';
+
+        const toggle = this.panel.querySelector('#audio-live-toggle');
+        toggle.textContent = this._starting ? '… Opening' : (mine ? '⏹ Stop listening' : '● Listen');
+        toggle.disabled = this._starting;
+        toggle.classList.toggle('is-playing', mine);
+
+        const note = this.panel.querySelector('#audio-live-note');
+        if (mine) {
+            // Nothing is monitored back out, and a silent panel with live meters would otherwise
+            // read as broken.
+            note.textContent = mode === 'system'
+                ? 'Analysing shared audio. Nothing is played back — you still hear it from its own tab.'
+                : 'Analysing the input. Nothing is played back, so there is no feedback loop.';
+        } else if (mode === 'system') {
+            note.textContent = 'Pick a tab, window or screen and tick "Share audio" — without it the stream arrives silent.';
+        } else {
+            note.textContent = 'Uses the browser\u2019s microphone permission. Echo cancellation and auto‑gain are turned off so the meters follow the music.';
+        }
+    }
+
     formatTime(seconds) {
         if (!isFinite(seconds) || seconds < 0) return '0:00';
         const mins = Math.floor(seconds / 60);
@@ -794,6 +1021,7 @@ export class AudioSettingsPanel {
             // Keep the analysis running while the meters are being watched, so thresholds can be
             // set before anything has been deployed.
             setAudioTapsWanted(true);
+            if (this._sourceMode === 'mic') this._loadDevices();
             this._refresh();
         }
     }
@@ -881,7 +1109,16 @@ export class AudioSettingsPanel {
             .rzap-state {
                 display: inline-flex; align-items: center; gap: 5px;
                 text-transform: none; letter-spacing: 0; color: var(--rz-text-3);
+                /* A device name is whatever the driver calls it — "Default - Scarlett 2i2 USB
+                   (1235:8210)" is a real one — and the heading it shares a line with must not be
+                   pushed off the panel by it. */
+                max-width: 62%; min-width: 0; overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap;
             }
+            .rzap-state #audio-state-text {
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .rzap-state .rzap-dot { flex: none; }
             .rzap-dot {
                 width: 6px; height: 6px; border-radius: 50%;
                 background: var(--rz-text-disabled);
@@ -891,6 +1128,8 @@ export class AudioSettingsPanel {
             .rzap-state[data-state="paused"] .rzap-dot { background: var(--rz-warn); }
             .rzap-state[data-state="error"] { color: var(--rz-error); }
             .rzap-state[data-state="error"] .rzap-dot { background: var(--rz-error); }
+            .rzap-state[data-state="live"] { color: var(--rz-accent); }
+            .rzap-state[data-state="live"] .rzap-dot { background: var(--rz-accent); }
             .rzap-state[data-state="playing"] { color: var(--rz-accent); }
             .rzap-state[data-state="playing"] .rzap-dot {
                 background: var(--rz-accent);
@@ -905,6 +1144,34 @@ export class AudioSettingsPanel {
             @media (prefers-reduced-motion: reduce) {
                 .rzap-state[data-state="playing"] .rzap-dot { animation: none; }
             }
+
+            /* Source tabs: which input the controls below belong to. */
+            .rzap-tabs { display: flex; gap: 2px; margin-bottom: 8px; }
+            .rzap-tab {
+                flex: 1; padding: 5px 4px; border: 1px solid var(--rz-line); border-radius: 6px;
+                background: transparent; color: var(--rz-text-3);
+                font-family: var(--rz-font-ui); font-size: 10px; cursor: pointer;
+            }
+            .rzap-tab:hover { background: var(--rz-hover); color: var(--rz-text); }
+            .rzap-tab.is-on {
+                color: var(--rz-accent); border-color: var(--rz-accent-30);
+                background: var(--rz-accent-08);
+            }
+
+            .rzap-device {
+                display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+                font-size: 11px; color: var(--rz-text-3);
+            }
+            /* The display:flex above and the UA stylesheet's [hidden] rule have equal specificity,
+               so the later one wins — which is this stylesheet's, and the row stayed on screen
+               (empty) on the System tab. */
+            .rzap-device[hidden] { display: none; }
+            .rzap-device select {
+                flex: 1; min-width: 0; padding: 5px 6px; border-radius: 6px;
+                border: 1px solid var(--rz-line-strong); background: var(--rz-surface-raised);
+                color: var(--rz-text); font-family: var(--rz-font-ui); font-size: 11px;
+            }
+            #audio-live-note { margin-top: 8px; }
 
             .rzap-file {
                 display: flex; align-items: center; gap: 8px; margin-bottom: 8px;

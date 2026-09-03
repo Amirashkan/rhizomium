@@ -116,6 +116,44 @@ fileInput.addEventListener('change', async (e) => {
 });
 ```
 
+### Live input — and why nothing measured reaches the speakers
+
+A file is not the only source. `startLiveInput({ kind, deviceId })` opens a microphone or line-in
+via `getUserMedia`, or system audio via `getDisplayMedia`, and feeds the same two analysers, so the
+meters, thresholds and every deployed node behave identically whichever is running. Only one source
+at a time: opening one closes the other.
+
+That forced a change to the graph. The analyser used to sit **in** the audible path
+(`source → analyser → destination`), which meant anything tapping the analyser was also wired to
+the output — fatal with a microphone, since `mic → analyser → speakers` is a feedback loop. The
+analysers are now branches:
+
+```javascript
+_tap(node) {              // measurement only, never audible
+  node.connect(this.analyser);
+  node.connect(this._fluxAnalyser);
+}
+
+// A file is heard; a live input is not.
+this.source.connect(this.audioContext.destination);
+```
+
+The browser's speech processing is disabled on a live input — `echoCancellation`,
+`noiseSuppression` and `autoGainControl` all off. AGC in particular erases the loud/quiet
+difference a threshold discriminates on.
+
+`getDisplayMedia` has to be asked for video for a browser to offer the audio checkbox at all; the
+video track is stopped as soon as the stream arrives. If the user did not tick "Share audio" the
+stream has no audio track, which is reported rather than left as a silent meter.
+
+### The analysis clock
+
+`_processAudio()` runs on its own `setInterval` at `ANALYSIS_INTERVAL_MS` (8 ms), not on the render
+frame, and emits an `analysis` event that `AudioAnalysisProcessor` takes its trigger decisions on.
+The unified RAF handler stays registered as a second driver — `tick()` de-dupes, and a frame tick
+defers while the timer is keeping up — because the two fail in opposite directions: a background
+tab throttles timers to 1 Hz but stops RAF outright.
+
 ## Key Points
 
 1. **Memory Management**: Always revoke object URLs when done:

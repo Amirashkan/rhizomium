@@ -1923,8 +1923,9 @@ case 'flip2d':
         background: ${quiet ? SURFACE.fillSoft : withAlpha(SEMANTIC.warn, 0.14)};
         color: ${quiet ? TEXT.tertiary : SEMANTIC.warn};
       `;
+      const running = source.live ? source.label : 'Playing';
       text.textContent = quiet
-        ? `Playing${source.fileName ? ` — ${source.fileName}` : ''}`
+        ? `${running}${source.fileName ? ` — ${source.fileName}` : ''}`
         : `${source.label} — every channel reads 0. Open Audio Setup…`;
     };
     paint();

@@ -1,5 +1,5 @@
 /**
- * The live value of every audio analysis channel, computed once per frame.
+ * The live value of every audio analysis channel.
  *
  * An Audio Value node is a TAP: it names one channel and outputs whatever that channel reads right
  * now. Every tap on the same channel reads the same number, and the Audio panel's meters read it
@@ -51,9 +51,23 @@ export const AUDIO_TAP_LABELS = Object.freeze({
 /** The drums each channel group is built from, in the order the panel lists them. */
 export const AUDIO_INSTRUMENTS = ['kick', 'snare', 'hat'];
 
+function zeroTriggerCounts() {
+  const out = {};
+  for (const name of AUDIO_INSTRUMENTS) out[name] = 0;
+  return out;
+}
+
 function zeroTaps() {
   const out = {};
   for (const name of AUDIO_TAP_CHANNELS) out[name] = 0;
+  // How many times each drum has fired since the page loaded, alongside the 0/1 channels.
+  //
+  // A trigger is one analysis step wide, and the analysis now runs on its own ~125 Hz clock rather
+  // than the render frame — so a consumer reading at the frame rate would sample the 0/1 channel
+  // between hits and miss most of them. A count cannot be missed: read it, compare it with the one
+  // you last saw, and any hits in between are still there. That is how AudioAnalysisProcessor
+  // turns a trigger into exactly one frame of 1, and how the panel's rows stay honest at 20 Hz.
+  out.trigCount = zeroTriggerCounts();
   return out;
 }
 
@@ -67,10 +81,17 @@ let live = false;
 // meters stay live even before anything has been deployed.
 let wanted = false;
 
-/** Replace this frame's values. Called by AudioAnalysisProcessor. */
+/** Replace this step's values. Called by AudioAnalysisProcessor. */
 export function setAudioTapValues(values) {
-  taps = { ...zeroTaps(), ...(values || {}) };
+  const next = { ...zeroTaps(), ...(values || {}) };
+  next.trigCount = { ...zeroTriggerCounts(), ...(values?.trigCount || {}) };
+  taps = next;
   live = true;
+}
+
+/** How many times each drum has fired, for a reader that samples slower than the analysis. */
+export function getAudioTriggerCounts() {
+  return taps.trigCount;
 }
 
 /** Every channel's current value, keyed by channel name. */

@@ -6,6 +6,7 @@ import {
   AUDIO_TAP_CHANNELS,
   audioTapsWanted,
   clearAudioTapValues,
+  getAudioTapValues,
   setAudioTapValues,
 } from '../audio/audioAnalysisTaps.js';
 import { numericParamValue } from './numericParam.js';
@@ -83,6 +84,15 @@ export class AudioAnalysisProcessor {
     this._tapState = null;
     this._lastConfigJson = null;
     this._audioClient = undefined;
+    // The settings the analysis steps run against, resolved once a frame off the setup node. A
+    // threshold moving at 60 Hz is plenty — it is a knob or an expression, not an edge — while the
+    // DECISION it feeds has to run far finer than that. See _stepAnalysis.
+    this._settings = null;
+    // A clock supplied by the host, if it supplies one; otherwise real time. See update().
+    this._clock = null;
+    // The trigger counts already turned into a frame's pulse, per instrument.
+    this._trigSeen = {};
+    this._stepBound = null;
   }
 
   /** The shared audio engine, resolved lazily (may be null in non-browser/test contexts). */
@@ -131,8 +141,11 @@ export class AudioAnalysisProcessor {
    * @param {Object} graph - the live editor graph (nodes + getNode)
    * @param {Object} opts
    * @param {number} opts.time - animation time in seconds, for expression evaluation only.
-   * @param {number} [opts.now] - wall-clock seconds, for trigger timing. Audio runs in real time
-   *   and does not slow with timeScale or stop when the sim clock pauses.
+   * @param {number} [opts.now] - wall-clock seconds for trigger timing. Omit it — the app does —
+   *   and audio runs on `performance.now()`, in real time, unaffected by timeScale or a paused sim
+   *   clock. A host that passes it owns the clock outright: every step until the next frame reads
+   *   the value given, which is what lets a test drive the detector deterministically instead of
+   *   racing the engine's own timer.
    * @param {Object} opts.uniformManager - the active ParameterUniformManager
    */
   update(graph, { time = 0, now, uniformManager } = {}) {
@@ -146,21 +159,115 @@ export class AudioAnalysisProcessor {
     // has been added — otherwise a threshold would have to be set against a dead readout.
     if (nodes.length === 0 && !setup && !audioTapsWanted()) {
       this._tapState = null;
+      // Without this the engine's own steps would keep deciding triggers for a patch that has
+      // stopped asking for them.
+      this._settings = null;
+      this._trigSeen = {};
       clearAudioTapValues();
       return;
     }
 
-    // Advance the engine before reading it. De-duped against its own RAF handler, so the meters
-    // stay live even if that handler never registered.
+    // Advance the engine before reading it. De-duped against its own timer and RAF handler, so the
+    // meters stay live even if neither of those is driving.
     try { this._client()?.tick?.(); } catch { /* never break the render loop */ }
 
+    this._clock = Number.isFinite(now) ? now : null;
+
+    // The settings the analysis steps read. Resolved here because it needs the graph and the
+    // expression context, both of which are frame-scoped.
     const ctx = this._buildContext(time);
-    const clock = Number.isFinite(now)
-      ? now
-      : (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+    this._settings = this._resolveSettings(setup, ctx);
+    this._applySettingsConfig(this._settings);
+
+    // Once the engine is running, every analysis step decides the triggers — not just the frames.
+    this._listenForAnalysisSteps();
+
+    // Step here too. The timer covers the common case, but nothing guarantees one is running: a
+    // test, a headless run, an engine that never started. A step is idempotent in the way that
+    // matters — it advances by elapsed time and an already-fired instrument stays fired.
+    this._stepAnalysis();
+
+    this._writeNodeValues(nodes, uniformManager);
+  }
+
+  /**
+   * Take the trigger decisions off the render frame.
+   *
+   * The analysis engine runs on its own ~8 ms clock (see BrowserAudioCapture), but until this hook
+   * existed the meter -> threshold -> edge decision below still ran once per rendered frame. That
+   * put trigger detection back on the frame rate it was supposed to be free of: at 20 fps a kick
+   * whose meter rose and fell inside 50 ms was never sampled above the threshold at all, so the hit
+   * was not late — it was gone. Deciding on every analysis step catches it; the count in the taps
+   * is what then carries it safely down to a consumer reading at the frame rate.
+   */
+  _listenForAnalysisSteps() {
+    if (this._stepBound) return;
+    const client = this._client();
+    if (!client?.on) return;
+    this._stepBound = () => this._stepAnalysis();
+    client.on('analysis', this._stepBound);
+  }
+
+  /**
+   * One analysis step: every channel's value, and one trigger decision per drum.
+   *
+   * Driven by the engine's clock, and by the render loop as a fallback. `performance.now()` is the
+   * clock either way — the two drivers must not disagree about what "now" is, or the envelope decay
+   * and the retrigger guard are computed across two different epochs.
+   */
+  _stepAnalysis() {
+    const settings = this._settings;
+    if (!settings) return;
+
+    const clock = this._clock ?? (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
     const bands = (typeof window !== 'undefined' && window._audioBands) || ZERO_BANDS;
 
-    this._updateTaps({ bands, clock, ctx, nodes, setup, uniformManager });
+    if (!this._tapState) this._tapState = this._newState(clock);
+    const st = this._tapState;
+    const decay = this._advance(st, clock);
+
+    const taps = {};
+    for (const name of METERS) taps[name] = bands[name] || 0;
+    const trigCount = {};
+    for (const name of INSTRUMENTS) {
+      const inst = st.inst[name];
+      const out = this._stepInstrument(inst, name, bands, settings[`${name}Thresh`], decay, clock);
+      taps[name] = out.env;
+      taps[`${name}Trig`] = out.trig;
+      taps[`${name}Meter`] = out.meter;
+      if (out.trig) inst.trigCount += 1;
+      trigCount[name] = inst.trigCount;
+    }
+    taps.trigCount = trigCount;
+    setAudioTapValues(taps);
+  }
+
+  /**
+   * Hand each Audio Value node this frame's number.
+   *
+   * A trigger channel is the one that cannot simply be sampled: it is one analysis step wide, and
+   * the steps are finer than the frames. Reading the count instead means a hit that landed between
+   * two frames still produces exactly one frame of 1 — never missed, and never held on for two.
+   */
+  _writeNodeValues(nodes, uniformManager) {
+    const taps = getAudioTapValues();
+    const pulses = {};
+    for (const name of INSTRUMENTS) {
+      const count = taps.trigCount?.[name] || 0;
+      pulses[`${name}Trig`] = count > (this._trigSeen[name] || 0) ? 1 : 0;
+      this._trigSeen[name] = count;
+    }
+
+    // Each node carries one number, under a fixed uniform name — so switching a node's channel is a
+    // different value written into the same uniform, with no shader rebuild behind it.
+    for (const node of nodes) {
+      const channel = node.params?.channel;
+      const value = channel in pulses
+        ? pulses[channel]
+        : (typeof taps[channel] === 'number' ? taps[channel] : taps[AUDIO_TAP_CHANNELS[0]]);
+      node.__audio_value = value;
+      this._writeUniform(uniformManager, `${node.id}.value`, value);
+    }
   }
 
   /**
@@ -186,48 +293,11 @@ export class AudioAnalysisProcessor {
     return resolved;
   }
 
-  /**
-   * Every channel's value this frame, and then each Audio Value node's own output.
-   *
-   * One decision per drum for the whole patch, taken once here against the one threshold that
-   * exists for it: two nodes reading `kickTrig` are two views of one kick and fire on the same
-   * frame. That is what the setup node buys — the drums are thresholded in a single place, which
-   * a knob can then be mapped to, instead of once per node reading them.
-   */
-  _updateTaps({ bands, clock, ctx, nodes, setup, uniformManager }) {
-    const settings = this._resolveSettings(setup, ctx);
-    this._applySettingsConfig(settings);
-
-    if (!this._tapState) this._tapState = this._newState(clock);
-    const st = this._tapState;
-    const decay = this._advance(st, clock);
-
-    const taps = {};
-    for (const name of METERS) taps[name] = bands[name] || 0;
-    for (const name of INSTRUMENTS) {
-      const threshold = settings[`${name}Thresh`];
-      const out = this._stepInstrument(st.inst[name], name, bands, threshold, decay, clock);
-      taps[name] = out.env;
-      taps[`${name}Trig`] = out.trig;
-      taps[`${name}Meter`] = out.meter;
-    }
-    setAudioTapValues(taps);
-
-    // Each node carries one number, under a fixed uniform name — so switching a node's channel is a
-    // different value written into the same uniform, with no shader rebuild behind it.
-    for (const node of nodes) {
-      const channel = node.params?.channel;
-      const value = typeof taps[channel] === 'number' ? taps[channel] : taps[AUDIO_TAP_CHANNELS[0]];
-      node.__audio_value = value;
-      this._writeUniform(uniformManager, `${node.id}.value`, value);
-    }
-  }
-
   /** Fresh per-instrument state: nothing has fired yet, so everything is armed. */
   _newState(clock) {
     const st = { lastTime: clock, inst: {} };
     for (const name of INSTRUMENTS) {
-      st.inst[name] = { armed: true, env: 0, peak: 0, lastTrigTime: -Infinity };
+      st.inst[name] = { armed: true, env: 0, peak: 0, lastTrigTime: -Infinity, trigCount: 0 };
     }
     return st;
   }

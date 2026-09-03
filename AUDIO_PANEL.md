@@ -31,11 +31,35 @@ drift apart.
 
 ## Source
 
-The transport reads its state back off the player rather than from the last button pressed, so what
-is on screen is what is actually happening: a chip naming the state (**No file** / **Ready** /
-**Playing** / **Paused**, or the reason a load or a play failed), one button showing the action that
-would change it (Play ⇄ Pause), a Stop that dims when there is nothing to stop, and a **Loop**
-toggle — the player has always looped by default, and now says so. The bar seeks on click or drag.
+Three of them, one at a time — the tabs at the top of the section pick which, and switching stops
+whatever the last one was doing. There is one analysis engine, so two sources feeding it would read
+as their sum with no way to tell which drum came from where.
+
+**File.** The transport reads its state back off the player rather than from the last button
+pressed, so what is on screen is what is actually happening: a chip naming the state (**No file** /
+**Ready** / **Playing** / **Paused**, or the reason a load or a play failed), one button showing
+the action that would change it (Play ⇄ Pause), a Stop that dims when there is nothing to stop, and
+a **Loop** toggle — the player has always looped by default, and now says so. The bar seeks on
+click or drag.
+
+**Mic / line-in.** A microphone or an audio interface, picked from the input list. The browser's
+speech processing — echo cancellation, noise suppression, automatic gain — is turned off: AGC in
+particular flattens exactly the loud/quiet difference a threshold discriminates on. Device *names*
+stay blank until the page has been granted microphone access once, so the list fills in properly
+after the first Listen.
+
+**System.** Whatever a tab, window or screen is playing, through the browser's screen-share picker
+— the only route a page is given to system audio. **Tick "Share audio" in that picker**; without it
+the stream arrives with no audio track at all, which the panel reports rather than sitting silently
+at zero. Video has to be requested for the checkbox to be offered, and is dropped the moment the
+stream arrives.
+
+Neither live source is monitored back out to the speakers. For a microphone that would be a
+feedback loop, and shared audio is already audible where it came from. They are measurement taps:
+the analysers are branches off the source, and only a file reaches the output.
+
+A recording or export made while a live input is running now carries that audio, the same as one
+made while a file is playing.
 
 ## Why a panel
 
@@ -151,12 +175,35 @@ follow. Nothing dialled in means no node: the stored defaults still hold.
 | `src/audio/audioAnalysisSettings.js` | The stored defaults, for a patch with no Audio node (localStorage-backed) |
 | `src/core/numericParam.js` | Resolves an `=expr` parameter a CPU processor needs as a number, `midi` / `osc` included |
 | `src/audio/audioAnalysisTaps.js` | This frame's channel values, the channel list, and the labels the UI uses |
-| `src/core/AudioAnalysisProcessor.js` | Meters → thresholds → triggers, once per frame, on the CPU |
+| `src/core/AudioAnalysisProcessor.js` | Meters → thresholds → triggers, on the analysis clock, on the CPU |
+| `src/audio/BrowserAudioCapture.js` | The sources (file, mic, system audio), the analysis clock, the envelope globals |
 | `src/core/projectMigrations.js` | Converting a patch saved with the old all-in-one node |
 
 The panel's settings are persisted to `localStorage`, not into the patch: they are dialled in
 against whatever track is playing, which is a property of the set rather than of the composition. A
 deployed node's Threshold is a node parameter and travels with the patch like any other.
+
+## The analysis clock
+
+The analysis does not run on the render frame. It has its own ~8 ms timer, and the trigger
+decisions — meter → threshold → rising edge — are taken on every one of its steps.
+
+This used to be frame-driven, which quietly tied hit detection to the frame rate. At 20 fps a kick
+whose meter rose and fell inside 50 ms was never sampled above the threshold at all: the hit was
+not late, it was **gone**, and it went missing exactly when the patch was heaviest and most worth
+watching. Measured with `requestAnimationFrame` blocked outright, the detector now still finds
+every kick in the track; before, it would have found none.
+
+A frame is still where the value reaches the GPU, and that is one number per frame. So the taps
+carry a per-drum **fire count** alongside the 0/1 channels: a reader compares it with the count it
+last saw, and a hit that landed between two frames still produces exactly one frame of `1` — never
+missed, never held on for two. Measured on a track with 12 kicks: 12 pulses, longest run of `1`s
+exactly one frame. The panel's trigger rows read the same count, which is the only way a 20 Hz
+readout can honestly report an 8 ms event.
+
+The render loop still drives a step as a fallback, and the two de-dupe, so the analysis stays live
+in a context where no timer is running (a test, a headless run) or where timers are throttled
+harder than frames.
 
 ## A note on `=midi` in CPU-evaluated parameters
 

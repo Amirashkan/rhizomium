@@ -92,15 +92,33 @@ describe('Audio panel', () => {
   });
 
   it('shows each channel’s live value, and flashes a trigger with its envelope', () => {
-    setAudioTapValues({ level: 0.42, kick: 0.8, kickTrig: 1 });
+    setAudioTapValues({ level: 0.42, kick: 0.8, kickTrig: 1, trigCount: { kick: 1 } });
     panel.show();
 
     expect(rowFor(panel, 'level').querySelector('.rzap-row-value').textContent).toBe('0.420');
     expect(rowFor(panel, 'level').querySelector('.rzap-bar-fill').style.width).toBe('42%');
-    // The number on a trigger row is the trigger itself...
-    expect(rowFor(panel, 'kickTrig').querySelector('.rzap-row-value').textContent).toBe('1.000');
-    // ...while its bar follows the envelope, which is what stays visible between polls.
+    // The first look adopts the count rather than reporting every hit since the page loaded.
+    expect(rowFor(panel, 'kickTrig').querySelector('.rzap-row-value').textContent).toBe('0.000');
+    // The bar follows the envelope, which is what stays visible between polls.
     expect(rowFor(panel, 'kickTrig').querySelector('.rzap-bar-fill').style.width).toBe('80%');
+  });
+
+  // The analysis decides triggers every ~8 ms and this panel polls at 20 Hz, so reading the 0/1
+  // channel would catch about one hit in six — the row would sit at 0.000 through a track that is
+  // plainly triggering. The fire count cannot be missed between two polls.
+  it('reports a trigger that fired between two polls', () => {
+    setAudioTapValues({ kick: 0.8, kickTrig: 0, trigCount: { kick: 4 } });
+    panel.show();
+    expect(rowFor(panel, 'kickTrig').querySelector('.rzap-row-value').textContent).toBe('0.000');
+
+    // A hit landed while nothing was looking: the 0/1 channel has already fallen back to 0.
+    setAudioTapValues({ kick: 0.8, kickTrig: 0, trigCount: { kick: 5 } });
+    panel._refresh();
+    expect(rowFor(panel, 'kickTrig').querySelector('.rzap-row-value').textContent).toBe('1.000');
+
+    // And nothing new since.
+    panel._refresh();
+    expect(rowFor(panel, 'kickTrig').querySelector('.rzap-row-value').textContent).toBe('0.000');
   });
 
   it('describes the source as empty with nothing loaded', () => {
