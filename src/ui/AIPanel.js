@@ -1711,10 +1711,21 @@ function directionsElement(result, onApplyArc) {
  * out against the live graph when the button is pressed, and said in the
  * dialog. Listing a plan here would go stale the moment a node was deleted,
  * and this element outlives several edits: it sits in the session log.
+ *
+ * It always renders something, and that is deliberate. An answer with no arc
+ * in it draws exactly like an answer from before arcs existed — prose, and no
+ * hint of why — so an artist cannot tell a director that judged the patch not
+ * ready from a backend too old to have been asked. Both of those are worth
+ * knowing and neither is visible in a silent absence.
  */
 function arcElement(arc, onApply) {
   const moves = Array.isArray(arc?.moves) ? arc.moves : [];
-  if (!arc || (!moves.length && !arc.summary)) return null;
+
+  // No `arc` property at all: nothing asked for one. The prompt and the schema
+  // that produce an arc live on the backend (api/_lib/features.js), not in this
+  // bundle, so an editor newer than the deployment it is talking to gets an
+  // answer in the old shape and nothing here is broken.
+  if (!arc) return missingArcElement();
 
   const wrap = document.createElement('div');
   wrap.className = 'ai-arc';
@@ -1729,6 +1740,9 @@ function arcElement(arc, onApply) {
   meta.className = 'ai-arc-meta';
   meta.textContent = moves.length
     ? `${formatSeconds(arc.durationSeconds)} · ${moves.length} ${moves.length === 1 ? 'move' : 'moves'} · ${keyframes} keyframes`
+    // An arc with no moves is an answer, not an absence: the director was
+    // asked for one and said this patch needs work before it needs an arc.
+    // The reading above says why.
     : 'No moves — the director says the patch comes first.';
   wrap.appendChild(meta);
 
@@ -1806,6 +1820,35 @@ function arcElement(arc, onApply) {
 
     wrap.appendChild(actions);
   }
+
+  return wrap;
+}
+
+/**
+ * What to show when a director answer carries no arc at all.
+ *
+ * Says which half is missing and where that half lives, because the two ways
+ * to get here look identical on screen and are fixed differently: an editor
+ * running ahead of its deployment, or a deployment that has not been updated.
+ * Neither is something the artist did.
+ */
+function missingArcElement() {
+  const wrap = document.createElement('div');
+  wrap.className = 'ai-arc is-absent';
+
+  const heading = document.createElement('div');
+  heading.className = 'ai-arc-heading';
+  heading.textContent = 'No arc in this answer';
+  wrap.appendChild(heading);
+
+  const detail = document.createElement('div');
+  detail.className = 'ai-finding-detail';
+  detail.textContent =
+    'The directions above are the whole of what came back. An arc is written by ' +
+    'the AI backend rather than by this editor, so a deployment that predates ' +
+    'arcs answers in the older shape — the direction stands, there is just ' +
+    'nothing to put on the timeline.';
+  wrap.appendChild(detail);
 
   return wrap;
 }

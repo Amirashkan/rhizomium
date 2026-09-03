@@ -449,6 +449,12 @@ Three pieces make that work, and each is where it is for a reason:
   parameter pinned, not a movement), and an over-long arc is cut. Unlike a
   generated patch, an arc that does not fit is *not* a failed call: the prose
   half is most of what was paid for, so this trims and says what it trimmed.
+- **The panel always says which of the two halves it got.** An answer with no
+  `arc` field draws a stated note rather than nothing, because a bundle newer
+  than the deployment it talks to gets the older answer shape — and a silent
+  absence there is indistinguishable from a director who judged the patch not
+  ready, or from a bug. `tests/aiDirectorArcPanel.test.js` holds the three
+  cases apart.
 - **`src/ai/applyArc.js`** meets the canvas. A director call is minutes long
   and what it was written against can be deleted while it runs, so the arc is
   planned against the live graph at the moment the artist presses the button:

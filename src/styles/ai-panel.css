@@ -692,6 +692,17 @@ button.ai-upgrade-link:disabled {
   gap: 6px;
 }
 
+/* An answer with no arc in it. Stated, not drawn as a feature: a dashed edge
+   and no accent, so it reads as a note about what is missing rather than as
+   something to act on. */
+.ai-arc.is-absent {
+  border-style: dashed;
+}
+
+.ai-arc.is-absent .ai-arc-heading {
+  color: var(--rz-text-faint);
+}
+
 .ai-arc-heading {
   font-size: 12px;
   font-weight: 600;
