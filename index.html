@@ -290,17 +290,22 @@
         <div>
           <p class="eyebrow eyebrow-olive mono">/ join</p>
           <h2 class="join-title">Grow your first field.</h2>
-          <p class="join-lede">Sign up for build access and specimen drops. No noise, just new fields.</p>
+          <p class="join-lede">One account across Rhizomium and the gallery: it carries your tier into the studio, and gives what you publish a page and a space of its own.</p>
         </div>
-        <!-- No sign-up backend exists yet. landing.js POSTs to
-             data-signup-endpoint when one is set, and otherwise says so
-             instead of swallowing the address — set the attribute to wire
-             it up. -->
-        <form class="join-form mono" data-signup novalidate>
+        <!-- Accounts belong to the gallery, so this form does not collect an
+             address, it carries one over: a plain GET to the gallery's sign-in
+             page, which prefills the field and mails a link back. That keeps
+             the handoff working with this page's JavaScript blocked, needs no
+             sign-up backend of our own, and never parks an address somewhere
+             nothing reads. landing.js only checks it before the trip.
+             The action must stay GALLERY_ORIGIN + /login, which
+             tests/landingSignup.test.js holds it to. -->
+        <form class="join-form mono" method="get" action="https://art.tenderworld.org/login" data-signup novalidate>
           <label class="visually-hidden" for="join-email">Email address</label>
           <input id="join-email" type="email" name="email" required autocomplete="email" placeholder="you@domain.com" />
           <button type="submit">sign up →</button>
           <p class="join-status" data-signup-status role="status"></p>
+          <p class="join-note mono">// finishes at <a href="https://art.tenderworld.org/login">art.tenderworld.org</a> — no password, the gallery mails you a link</p>
         </form>
       </div>
     </section>

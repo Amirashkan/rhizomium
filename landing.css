@@ -767,6 +767,17 @@ img { max-width: 100%; }
 .join-status:empty { display: none; }
 .join-status[data-tone="error"] { color: var(--rust-hi); }
 
+/* Where the form actually goes. Quiet, but it is the one thing a person
+   should not be surprised by after pressing the button. */
+.join-note {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg-faint);
+}
+.join-note a { color: inherit; }
+.join-note a:hover { color: var(--olive-hi); }
+
 /* --- Footer ------------------------------------------------------------- */
 
 .footer {

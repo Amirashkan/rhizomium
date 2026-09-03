@@ -318,9 +318,14 @@ async function initCompatibilityGate() {
 }
 
 /* --- Sign-up ------------------------------------------------------------
-   There is no sign-up backend yet. Rather than accept an address and drop it,
-   the form says so and points at the repo. Set `data-signup-endpoint` on the
-   form to the collecting URL and it starts posting instead. */
+   Accounts live in the gallery (art.tenderworld.org), not here, so the form
+   does not collect an address — it hands one over. The markup is a plain GET
+   form aimed at the gallery's sign-in page, which prefills the address and
+   mails a link back, and that trip happens with or without this module.
+
+   All that is added here is the check before the trip, so a typo is caught on
+   this page rather than after the navigation, and a word about where the
+   button is taking you. */
 
 function initSignup() {
   const form = document.querySelector("[data-signup]");
@@ -335,37 +340,16 @@ function initSignup() {
     else status.removeAttribute("data-tone");
   };
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-
+  form.addEventListener("submit", (event) => {
     if (!input.value.trim() || !input.checkValidity()) {
+      event.preventDefault();
       say("Enter a valid email address.", "error");
       return;
     }
 
-    const endpoint = form.dataset.signupEndpoint;
-    if (!endpoint) {
-      say(
-        "Sign-up isn’t live yet — nothing was sent. Watch the repo on GitHub for build drops.",
-        "error",
-      );
-      return;
-    }
-
-    say("Sending…");
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: input.value.trim() }),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      form.reset();
-      say("You’re on the list. Watch for the next specimen drop.");
-    } catch (error) {
-      console.error("Sign-up failed:", error);
-      say("Something went wrong. Try again in a moment.", "error");
-    }
+    // Nothing to preventDefault: the browser navigates to the form's action,
+    // which is the gallery. Saying so covers the moment before it does.
+    say("Taking you to the gallery to finish signing up…");
   });
 }
 
