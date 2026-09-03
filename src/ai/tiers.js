@@ -15,6 +15,12 @@
  * changes. See AI_TIER_INTEGRATION.md.
  */
 
+/**
+ * The tiers an account can be sold and stored on.
+ *
+ * `admin` is deliberately not here — it is not bought and never written to a
+ * profile's tier column. Mirrors TIERS in the gallery's lib/tiers.ts.
+ */
 export const TIERS = ['free', 'cloude', 'cloude_plus'];
 
 /** Higher wins. Used for "at least this tier" comparisons. */
@@ -22,6 +28,8 @@ export const TIER_RANK = {
   free: 0,
   cloude: 1,
   cloude_plus: 2,
+  // Above everything, and not sold. See TIER_DESCRIPTIONS.admin.
+  admin: 3,
 };
 
 /**
@@ -32,16 +40,62 @@ export const TIER_LABELS = {
   free: 'Free',
   cloude: 'Cloude',
   cloude_plus: 'Studio',
+  admin: 'Admin',
 };
 
 export const TIER_DESCRIPTIONS = {
   free: 'The open-source editor, and AI that reads the patch you already have.',
   cloude: 'Everything in Free, plus refactoring, the generative AI features, the web viewer and the pro artist panel.',
   cloude_plus: 'Everything in Cloude, plus NDI and multi-screen output, and the AI creative director.',
+  admin:
+    'Everything, unmetered. Held by the people who run this — for building the features and ' +
+    'supporting artists, not sold to anyone.',
 };
 
-export function isTier(value) {
+/**
+ * The tier nobody buys.
+ *
+ * `admin` exists because the people who build and support this app run its AI
+ * features far harder than any artist does — testing a change means running it
+ * a dozen times, and a plan's daily allowance is the wrong instrument for that.
+ * It ranks above Studio, so every tier gate passes, and it is unmetered, so
+ * `quotaFor()` returns nothing to count.
+ *
+ * **The gallery is the only thing that can put an account here.** Nothing in
+ * this file, and nothing in the browser, decides who is an admin: the tier
+ * arrives on `/api/entitlements` and inside grants the gallery signed, exactly
+ * as every other tier does. A visitor who sets this in devtools gets a panel
+ * with every button lit and a 401 from the backend on the first click, for the
+ * same reason `cloude_plus` in devtools buys nothing — see
+ * AI_TIER_INTEGRATION.md §Security.
+ *
+ * On the gallery's side it is not a subscription at all: an account is on it
+ * because `profiles.role = 'admin'`, the same flag its admin dashboard
+ * authorises on. That is why `resolveTier()` below reads a role, and why the
+ * tier column claiming 'admin' promotes nobody.
+ *
+ * Nothing is *sold* at this tier, so no feature names it in `FEATURES` and
+ * `requiredTier()` never returns it: an upsell that told an artist to upgrade
+ * to Admin would be an offer nobody can take.
+ */
+export const ADMIN_TIER = 'admin';
+
+/**
+ * Whether this is a tier an account can be **put on**. `admin` fails it on
+ * purpose: it comes from the account's role, and a path that could set it
+ * would be a path that hands it out.
+ */
+export function isSubscriptionTier(value) {
   return typeof value === 'string' && TIERS.includes(value);
+}
+
+/**
+ * Whether this is a tier that can be **in force** — the ones above, plus the
+ * operators'. For a tier that has already been resolved: a payload from the
+ * gallery, a grant. Never for one somebody is asking to set.
+ */
+export function isTier(value) {
+  return isSubscriptionTier(value) || value === ADMIN_TIER;
 }
 
 /**
@@ -184,6 +238,9 @@ const DAY = 24 * HOUR;
  * These are the values as vendored. The live numbers come from
  * /api/entitlements — read `catalog[].quota` there rather than this table when
  * showing an artist what they have left.
+ *
+ * `admin` is absent on purpose and is not the zero case: quotaFor() answers for
+ * it before reading this table, because nothing counts an admin's usage.
  */
 export const QUOTAS = {
   free: {
@@ -241,6 +298,10 @@ export const ANONYMOUS_QUOTA_DIVISOR = 3;
 
 export function quotaFor(tier, feature) {
   if (!FEATURES[feature]?.metered) return null;
+  // Unmetered rather than generous: a very large limit would still be a number
+  // the panel counted down, and would still refuse on the day it ran out.
+  // Nothing counts admin usage, so there is nothing to draw.
+  if (tier === ADMIN_TIER) return null;
   // An add-on's allowance follows the add-on, not the plan, and there is no
   // add-on allowance to follow yet. Draw nothing rather than a plan's number.
   if (FEATURES[feature].addon) return { limit: 0, windowSeconds: HOUR };
@@ -339,15 +400,24 @@ export function editorFeatures() {
 /**
  * The tier actually in force, which is not always the one stored.
  *
- * Mirrors public.effective_tier() in the gallery's schema and resolveTier() in
- * its lib/tiers.ts. The editor rarely needs this — /api/entitlements has
- * already resolved it — but a cached `auth/check` payload carries the raw
- * columns, and an expired subscription should read as free here too.
+ * Mirrors public.effective_tier() in the gallery's schema (add_admin_tier.sql)
+ * and resolveTier() in its lib/tiers.ts. The editor rarely needs this —
+ * /api/entitlements has already resolved it — but a cached `auth/check`
+ * payload carries the raw columns, and an expired subscription should read as
+ * free here too.
+ *
+ * `record` is a profile's raw columns: `tier`, `tier_expires_at`, `is_banned`
+ * and `role`.
  */
 export function resolveTier(record, now = new Date()) {
   if (!record) return 'free';
   if (record.is_banned) return 'free';
-  if (!isTier(record.tier)) return 'free';
+  // The role, ahead of the subscription columns: the admin tier does not
+  // expire, and a lapsed subscription an operator also happens to have must
+  // not take it away. A `tier` column claiming 'admin' promotes nobody —
+  // isSubscriptionTier() refuses it, which is why this reads the role instead.
+  if (record.role === ADMIN_TIER) return ADMIN_TIER;
+  if (!isSubscriptionTier(record.tier)) return 'free';
   if (record.tier_expires_at) {
     const expires = new Date(record.tier_expires_at);
     if (!Number.isNaN(expires.getTime()) && expires.getTime() <= now.getTime()) {

@@ -10,7 +10,7 @@
  *
  * Debug mode short-circuits the editor's half of that contract:
  *
- *   - every editor feature draws as available, on a Studio tier,
+ *   - every editor feature draws as available, on the admin tier,
  *   - `requestGrant()` answers locally instead of calling the gallery, so
  *     nothing is spent and there is no 402 or 429 to hit,
  *   - the grant it hands back is the sentinel token `debug:<feature>`.
@@ -32,7 +32,7 @@
  *   - `aiDebugMode.on()` in the console, `aiDebugMode.off()`, `.status()`.
  */
 
-import { FEATURES, FEATURE_KEYS, TIER_LABELS } from './tiers.js';
+import { FEATURES, FEATURE_KEYS, TIER_LABELS, ADMIN_TIER } from './tiers.js';
 
 /** Where the switch is remembered between reloads. */
 export const AI_DEBUG_STORAGE_KEY = 'glsl-node-editor.ai.debug-mode';
@@ -50,8 +50,15 @@ export const AI_DEBUG_QUERY_PARAM = 'aidebug';
  */
 export const DEBUG_GRANT_PREFIX = 'debug:';
 
-/** The tier debug mode reports. The highest one, so nothing draws as locked. */
-const DEBUG_TIER = 'cloude_plus';
+/**
+ * The tier debug mode reports: the one that means "everything, unmetered".
+ *
+ * Claiming `admin` rather than `cloude_plus` keeps one notion of the top of the
+ * ladder — debug mode is pretending to be an operator, which is exactly what
+ * that tier is for. It remains a claim the backend does not take on trust; see
+ * the module comment.
+ */
+const DEBUG_TIER = ADMIN_TIER;
 
 /**
  * The in-session answer, once something has set it explicitly. `null` means
