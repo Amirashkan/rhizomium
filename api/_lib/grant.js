@@ -109,7 +109,9 @@ export function readDebugGrant(token, { onInvalid } = {}) {
 
   return {
     feature,
-    tier: 'cloude_plus',
+    // The tier that means "everything, unmetered" — the same claim the editor
+    // makes for this mode. src/ai/tiers.js holds what it is for.
+    tier: 'admin',
     sub: 'ai-debug',
     jti: null,
     debug: true,

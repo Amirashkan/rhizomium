@@ -120,7 +120,7 @@ describe('AI debug mode — the editor half', () => {
     await client.load();
 
     expect(fetchImpl).not.toHaveBeenCalled();
-    expect(client.tier).toBe('cloude_plus');
+    expect(client.tier).toBe('admin');
     expect(client.current.debug).toBe(true);
     // The dearest feature on the highest tier: if this is drawn as available,
     // nothing below it is locked.
@@ -138,11 +138,11 @@ describe('AI debug mode — the editor half', () => {
     const client = new EntitlementsClient({ fetch: fetchImpl });
 
     setAIDebugMode(true);
-    // Loading while the mode is on must not leave a Studio tier in the cache:
+    // Loading while the mode is on must not leave an admin tier in the cache:
     // load() caches what it read, and this answer was invented rather than
     // read. Without that, turning the mode off left the panel unlocked.
     await client.load();
-    expect(client.tier).toBe('cloude_plus');
+    expect(client.tier).toBe('admin');
 
     setAIDebugMode(false);
     await client.load();
@@ -256,7 +256,7 @@ describe('AI debug mode — the backend half', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.body.tier).toBe('cloude_plus');
+    expect(res.body.tier).toBe('admin');
   });
 
   it('still takes the feature from the token, never from the body', async () => {

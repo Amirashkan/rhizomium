@@ -45,7 +45,7 @@ import {
 import { insertGeneratedNode, replaceGraphWithPatch, selectNodes } from '../ai/applyResult.js';
 import { planArc, applyArc, revertArc } from '../ai/applyArc.js';
 import { buildTimelineContext } from '../ai/timelineContext.js';
-import { FEATURES, TIER_LABELS } from '../ai/tiers.js';
+import { FEATURES, TIER_LABELS, ADMIN_TIER } from '../ai/tiers.js';
 import { setRightDockWidth, notifyCanvasResize } from './dockLayout.js';
 
 /** Features that need something typed before they can run. */
@@ -365,7 +365,7 @@ export class AIPanel {
 
     const rows = entitlements.editorCatalog?.() || [];
 
-    body.appendChild(this.renderAllowanceSummary(rows));
+    body.appendChild(this.renderAllowanceSummary(rows, state.tier));
     body.appendChild(this.renderContextSection());
 
     if (!rows.length) {
@@ -398,6 +398,13 @@ export class AIPanel {
 
     badge.textContent = state.tierLabel || TIER_LABELS[state.tier] || 'Free';
     badge.className = `ai-panel-tier tier-${state.tier}`;
+
+    if (state.tier === ADMIN_TIER) {
+      // Not a plan, and the panel should not call it one.
+      badge.title = 'Signed in as an operator — every feature, and nothing metered';
+      return;
+    }
+
     badge.title = state.authenticated
       ? `Signed in on the ${state.tierLabel} plan`
       : 'Signed out — the free allowance is smaller until you sign in';
@@ -410,18 +417,12 @@ export class AIPanel {
    * actually asks before starting something — how much have I got left today,
    * and when does it come back.
    */
-  renderAllowanceSummary(rows) {
+  renderAllowanceSummary(rows, tier) {
     const wrap = section('Allowance');
 
     const metered = rows.filter((row) => row.allowed && row.quota);
     if (!metered.length) {
-      wrap.appendChild(
-        quietLine(
-          isAIDebugMode()
-            ? 'Nothing is metered while debug mode is on — runs are unlimited from here.'
-            : 'Nothing here is metered on your plan.'
-        )
-      );
+      wrap.appendChild(quietLine(unmeteredLine(tier)));
       return wrap;
     }
 
@@ -1380,6 +1381,21 @@ function pill(text, title = '') {
   el.textContent = text;
   if (title) el.title = title;
   return el;
+}
+
+/**
+ * Why there are no allowance bars: three different reasons, and the difference
+ * matters. An artist whose plan meters nothing they can reach is being told
+ * something quite unlike an operator who is not counted at all.
+ */
+function unmeteredLine(tier) {
+  if (isAIDebugMode()) {
+    return 'Nothing is metered while debug mode is on — runs are unlimited from here.';
+  }
+  if (tier === ADMIN_TIER) {
+    return 'Nothing is metered on the admin tier — runs are unlimited.';
+  }
+  return 'Nothing here is metered on your plan.';
 }
 
 function quietLine(text) {

@@ -122,6 +122,18 @@
   border-color: var(--rz-accent-deep);
 }
 
+/* Admin is not a plan either, but it is a real account: solid and accented like
+   a paid tier, outlined rather than filled, so it reads as "above Studio"
+   without looking like something that was bought. */
+.ai-panel-tier.tier-admin {
+  color: var(--rz-accent-deep);
+  background: transparent;
+  border-color: var(--rz-accent-deep);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* Debug mode is not a plan, and must not read as one: dashed, in the warning
    colour, so a panel showing unlocked features is obviously not an account. */
 .ai-panel-tier.tier-debug {
