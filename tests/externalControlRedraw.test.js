@@ -32,6 +32,9 @@ let uniformValues;
 
 beforeEach(() => {
   uniformValues = new Map();
+  // The slot the compiler reserved for this parameter. writeParameterUniform only fills slots that
+  // exist — see the "leaves a parameter with no uniform alone" case below.
+  uniformValues.set('n7.kickThresh', 0);
   renderer = {
     render: vi.fn(),
     _updateParameterUniforms: vi.fn(),
@@ -57,13 +60,25 @@ const stoppedLoop = (simTime = 12.5) => {
 };
 
 describe('writeParameterUniform', () => {
-  it('always writes the value into the uniform buffer', () => {
+  it('writes the value into the uniform buffer', () => {
     runningLoop();
 
     writeParameterUniform('n7', 'kickThresh', 0.42);
 
     expect(uniformValues.get('n7.kickThresh')).toBe(0.42);
     expect(renderer._updateParameterUniforms).toHaveBeenCalled();
+  });
+
+  it('leaves a parameter with no uniform alone', () => {
+    // Not every controllable parameter reaches the shader: the Audio node's thresholds are read on
+    // the CPU and its node emits no code at all. Inserting a slot here would append a float to a
+    // buffer whose size was fixed at compile time — every value after it lands in the wrong field.
+    runningLoop();
+
+    writeParameterUniform('n7', 'cpuOnly', 0.42);
+
+    expect(uniformValues.has('n7.cpuOnly')).toBe(false);
+    expect(renderer._updateParameterUniforms).not.toHaveBeenCalled();
   });
 
   it('leaves the frame to a running render loop', () => {

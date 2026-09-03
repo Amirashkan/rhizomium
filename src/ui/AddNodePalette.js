@@ -127,6 +127,10 @@ export class AddNodePalette {
     const all = [];
 
     for (const [kind, def] of Object.entries(NodeDefs)) {
+      // A `hidden` kind is one that is created somewhere else and would be a worse node if it were
+      // picked blind from a list: an Audio Value names a channel you have to watch moving to
+      // choose, so it comes from the ＋ beside that channel's meter in the Audio panel.
+      if (def.hidden) continue;
       const cat = def.cat || "Misc";
       const entry = {
         kind,

@@ -449,7 +449,9 @@ describe('uniforms and persistence', () => {
   });
 
   it('writes the new value into the uniform buffer instead of recompiling', () => {
-    const uniformValues = new Map();
+    // Seeded with the slot the compiler reserves for a bound parameter: writeParameterUniform fills
+    // slots, it does not create them (a parameter the shader never reads has none).
+    const uniformValues = new Map([['n1.radius', 0]]);
     window.nodeCompiler = { uniformManager: { uniformValues } };
     window.gpuRenderer = { _updateParameterUniforms: vi.fn(), render: vi.fn() };
 

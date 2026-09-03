@@ -4,7 +4,6 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { getInputCount } from '../data/nodeInputs.js';
-import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from './audioAnalysisPins.js';
 import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
 import { hasClockExpressionParam } from './clockExpression.js';
 import { buildParamScope } from '../utils/paramReferences.js';
@@ -344,21 +343,10 @@ export class PreviewComputer {
       break;
     }
 
-    case "AudioAnalysis": {
-      // Many independent outputs (band meters, per-drum envelopes and triggers, spectral
-      // descriptors), advanced every frame on the CPU by AudioAnalysisProcessor. Exposed as
-      // a multi-output split — the same shape a Split node produces — so every downstream
-      // surface reads the RIGHT pin instead of collapsing to one value: the per-pin value
-      // tags (Renderer), a wire from any pin (_resolveInputValue indexes the split by source
-      // pin), and `=node_<id>_N` references (_addNodeRefsToContext unwraps the split). Pin 0
-      // (level) stays the node's on-canvas readout.
-      result = {
-        type: 'split',
-        // Independent scalar outputs, not a vector's channels: a bare `=node_<id>` reference
-        // resolves to pin 0 (level) rather than to the whole list. See _addNodeRefsToContext.
-        scalarPins: true,
-        values: AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i)),
-      };
+    case "AudioValue": {
+      // One channel of the live analysis, advanced every frame on the CPU by
+      // AudioAnalysisProcessor (which channel is the node's Channel parameter).
+      result = typeof node.__audio_value === 'number' ? node.__audio_value : 0.0;
       break;
     }
 
@@ -2094,19 +2082,14 @@ _renderOutputThumbnail(ctx, size, color, node) {
         this._invalidateNodeValueComputerCacheForNode(node.id);
       }
 
-      // Audio Analysis nodes change every frame from the live audio signal — not from params or
-      // wired inputs — so the param-hash/input checks above never flag them and the early-return
-      // above would serve a stale cached value, freezing the numeric preview and any =node_<id>
-      // readout while the GPU output keeps reacting. Force the node (and its dependents, e.g. a
-      // downstream Remap) dirty whenever any of its live outputs (band meters, drum triggers and
-      // the rest, advanced every frame by AudioAnalysisProcessor) differ from the last split.
-      if (node.kind === 'AudioAnalysis') {
-        const live = AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i));
-        const prev = this.lastComputedValues.get(node.id);
-        const prevVals = prev && prev.type === 'split' ? prev.values : null;
-        const changed = !prevVals || prevVals.length !== live.length
-          || live.some((v, i) => prevVals[i] !== v);
-        if (changed) {
+      // An Audio node changes every frame from the live audio signal — not from params or wired
+      // inputs — so the param-hash/input checks above never flag it and the early return would
+      // serve a stale cached value, freezing the numeric preview and any =node_<id> readout while
+      // the GPU output keeps reacting. Force it (and its dependents, e.g. a downstream Remap)
+      // dirty whenever its live value moves.
+      if (node.kind === 'AudioValue') {
+        const live = typeof node.__audio_value === 'number' ? node.__audio_value : 0;
+        if (this.lastComputedValues.get(node.id) !== live) {
           this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
           this._invalidateNodeValueComputerCacheForNode(node.id);
         }

@@ -122,18 +122,16 @@ describe('CountNodeProcessor', () => {
     expect(um.uniformValues.get('c.count')).toBeCloseTo(2);
   });
 
-  it('counts an Audio Analysis output wired into the pulse input (selects the connected pin)', () => {
-    // Audio Analysis exposes many pins; see core/audioAnalysisPins.js for the order. Here:
-    // level (pin 0), kick (pin 4), kickTrig (pin 5). AudioAnalysisProcessor stashes their live
-    // values on the node as __audio_<pin> each frame.
-    const audio = { id: 'a', kind: 'AudioAnalysis', params: {}, inputs: [],
-      __audio_level: 0, __audio_kick: 0, __audio_kickTrig: 0 };
+  it('counts an Audio node wired into the pulse input', () => {
+    // An Audio node reads one channel — here kickTrig, a single-frame pulse on each hit —
+    // and AudioAnalysisProcessor stashes its live value on the node as __audio_value each frame.
+    const audio = { id: 'a', kind: 'AudioValue', params: { channel: 'kickTrig' }, inputs: [],
+      __audio_value: 0 };
     const count = { ...countNode(), inputs: ['a'] };
-    // Wire the `kickTrig` output (pin 5) into the count's pulse pin (pin 0).
     const graph = {
       nodes: [audio, count],
       getNode: (id) => (id === 'a' ? audio : id === 'c' ? count : undefined),
-      connections: [{ from: { nodeId: 'a', pin: 5 }, to: { nodeId: 'c', pin: 0 } }],
+      connections: [{ from: { nodeId: 'a', pin: 0 }, to: { nodeId: 'c', pin: 0 } }],
     };
     const um = makeUniformManager(['c']);
 
@@ -142,35 +140,35 @@ describe('CountNodeProcessor', () => {
     expect(um.uniformValues.get('c.count')).toBe(0);
 
     // A detected hit sets trig to 1 for a single frame -> rising edge -> +1.
-    audio.__audio_kickTrig = 1;
+    audio.__audio_value = 1;
     proc.update(graph, { time: 0.016, uniformManager: um });
     expect(um.uniformValues.get('c.count')).toBeCloseTo(1);
 
     // Trig falls back to 0 (single-frame pulse), then a second hit -> +1.
-    audio.__audio_kickTrig = 0;
+    audio.__audio_value = 0;
     proc.update(graph, { time: 0.032, uniformManager: um });
-    audio.__audio_kickTrig = 1;
+    audio.__audio_value = 1;
     proc.update(graph, { time: 0.048, uniformManager: um });
     expect(um.uniformValues.get('c.count')).toBeCloseTo(2);
   });
 
-  it('reads the kick envelope (pin 4) when that output is the one wired', () => {
-    const audio = { id: 'a', kind: 'AudioAnalysis', params: {}, inputs: [],
-      __audio_level: 0.2, __audio_kick: 0, __audio_kickTrig: 0 };
+  it('counts an envelope channel crossing the threshold, not only a one-frame trigger', () => {
+    const audio = { id: 'a', kind: 'AudioValue', params: { channel: 'kick' }, inputs: [],
+      __audio_value: 0.2 };
     const count = { ...countNode(), inputs: ['a'] };
     const graph = {
       nodes: [audio, count],
       getNode: (id) => (id === 'a' ? audio : id === 'c' ? count : undefined),
-      connections: [{ from: { nodeId: 'a', pin: 4 }, to: { nodeId: 'c', pin: 0 } }],
+      connections: [{ from: { nodeId: 'a', pin: 0 }, to: { nodeId: 'c', pin: 0 } }],
     };
     const um = makeUniformManager(['c']);
 
-    // level (pin 0) is above threshold but kick (pin 4) is the wired output and is still low.
+    // Idling below the Count's threshold.
     proc.update(graph, { time: 0, uniformManager: um });
     expect(um.uniformValues.get('c.count')).toBe(0);
 
-    // kick envelope snaps up on a hit -> crosses threshold -> +1.
-    audio.__audio_kick = 1;
+    // The envelope snaps up on a hit -> crosses the threshold -> +1.
+    audio.__audio_value = 1;
     proc.update(graph, { time: 0.016, uniformManager: um });
     expect(um.uniformValues.get('c.count')).toBeCloseTo(1);
   });

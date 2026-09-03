@@ -80,9 +80,23 @@ export function applyFrameRate(mimeType, fps) {
   return isSupported(withRate) ? withRate : mimeType;
 }
 
-/** Is there a loaded audio file whose playback we could record? */
+/**
+ * The node carrying the audio a recording should contain: the file element's source, or a live
+ * input's if that is what the patch is running on.
+ *
+ * A live input has to be included or an export made while listening to a mic or to system audio
+ * comes out silent — which is the same "visuals dancing to music the viewer cannot hear" this
+ * module exists to fix, just arrived at from the other source.
+ */
+function recordableSource(capture) {
+  if (!capture?.audioContext) return null;
+  if (capture.liveSource) return capture.liveSource;
+  return capture.audioElement ? (capture.source || null) : null;
+}
+
+/** Is there audio — a loaded file or a live input — whose sound we could record? */
 export function hasRecordableAudio(capture) {
-  return !!(capture?.audioContext && capture?.source && capture?.audioElement);
+  return !!recordableSource(capture);
 }
 
 /**
@@ -113,13 +127,14 @@ export async function openAudioTap(capture) {
     }
   }
 
+  const source = recordableSource(capture);
   const destination = context.createMediaStreamDestination();
-  capture.source.connect(destination);
+  source.connect(destination);
 
   const track = destination.stream.getAudioTracks()[0] || null;
   if (!track) {
     try {
-      capture.source.disconnect(destination);
+      source.disconnect(destination);
     } catch {
       // Nothing to unwind if the connection never took.
     }
@@ -138,6 +153,8 @@ export async function openAudioTap(capture) {
      * track that was already playing is left alone on the way out.
      */
     async startPlayback() {
+      // A live input is already running and has no playhead to move; there is nothing to start.
+      if (capture.isLive?.()) return false;
       if (capture.getIsPlaying?.()) return false;
       resumePosition = capture.audioElement?.currentTime ?? 0;
       await capture.play();
@@ -152,7 +169,7 @@ export async function openAudioTap(capture) {
      */
     stop() {
       try {
-        capture.source.disconnect(destination);
+        source.disconnect(destination);
       } catch {
         // Already disconnected - the context may have been torn down.
       }

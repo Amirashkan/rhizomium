@@ -2,7 +2,6 @@
 // OPTIMIZED VERSION - Fixes timer spam and unnecessary updates
 
 import { PRIORITY } from '../UnifiedRAFManager.js';
-import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../audioAnalysisPins.js';
 import { isTriggerChangeMode } from '../triggerMode.js';
 
 export class PreviewIntegration {
@@ -176,9 +175,9 @@ updateTimeNodes() {
       // Count carries the same kind of CPU-side state as Hold (advanced every frame by
       // CountNodeProcessor via node.__countValue), and Random Value is clock-driven, so both need
       // to be refreshed here alongside Time/Hold so their thumbnails and downstream consumers don't
-      // freeze at a stale value. Audio Analysis is driven by the live audio signal (its level/kick/
-      // trig outputs are advanced every frame by AudioAnalysisProcessor), so it belongs here too —
-      // otherwise a downstream numeric thumbnail/label fed by one of its pins freezes.
+      // freeze at a stale value. Audio is driven by the live audio signal (its channel is advanced
+      // every frame by AudioAnalysisProcessor), so it belongs here too — otherwise a downstream
+      // numeric thumbnail/label fed by it freezes.
       // A Trigger in "On value change" mode is the same story: its pulse is CPU-side state
       // advanced every frame by TriggerNodeProcessor (node.__triggerPulse) and can flip without any
       // param or input edit this pass would notice. A threshold-mode Trigger is stateless and stays
@@ -186,7 +185,7 @@ updateTimeNodes() {
       // Wave is clock-driven like Time and Random Value — a free-running LFO with nothing wired in —
       // so its readout and downstream consumers belong on this list too.
       return kind === 'time' || kind === 'hold' || kind === 'count' || kind === 'randomvalue'
-        || kind === 'wave' || kind === 'audioanalysis' || isTriggerChangeMode(node);
+        || kind === 'wave' || kind === 'audiovalue' || isTriggerChangeMode(node);
     })
     .map(node => node.id);
 
@@ -499,28 +498,26 @@ updateTimeNodes() {
       if (refs) refs.forEach(depId => this._collectWithDownstream(depId, toUpdate, visited, exprDeps));
     }
 
-    // Audio Analysis nodes are driven by the live audio signal, advanced on the CPU every frame by
-    // AudioAnalysisProcessor (level moves continuously while audio plays; kick/trig fire on hits). A
-    // fragment/visual node downstream — WIRED from a pin, or referencing one via `=node_<id>_N` — has
-    // a live GPU thumbnail that no param/input edit triggers, so without this it freezes while the
-    // main output keeps reacting. Like Hold, refresh downstream only when an output actually CHANGED
-    // this frame, so a silent/paused track (values steady) costs no GPU readback. Unlike Random Value,
-    // wired consumers ARE followed: audio-reactive visuals are the node's whole purpose, so their
-    // thumbnails should track the audio the same way the main render does.
+    // Audio nodes are driven by the live audio signal, advanced on the CPU every frame by
+    // AudioAnalysisProcessor (a level moves continuously while audio plays; a trigger fires on
+    // hits). A fragment/visual node downstream — WIRED from one, or referencing it via
+    // `=node_<id>` — has a live GPU thumbnail that no param/input edit triggers, so without this it
+    // freezes while the main output keeps reacting. Like Hold, refresh downstream only when the
+    // value actually CHANGED this frame, so a silent/paused track costs no GPU readback. Unlike
+    // Random Value, wired consumers ARE followed: audio-reactive visuals are the node's whole
+    // purpose, so their thumbnails should track the audio the same way the main render does.
     if (!this._lastAudioValues) this._lastAudioValues = new Map();
     const seenAudio = new Set();
     for (const node of this.editor.graph.nodes) {
-      if (node?.kind?.toLowerCase() !== 'audioanalysis') continue;
+      if (node?.kind?.toLowerCase() !== 'audiovalue') continue;
       seenAudio.add(node.id);
-      const live = AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i));
-      const prev = this._lastAudioValues.get(node.id);
-      const changed = !prev || prev.length !== live.length || live.some((v, i) => prev[i] !== v);
-      if (changed) {
+      const live = typeof node.__audio_value === 'number' ? node.__audio_value : 0;
+      if (this._lastAudioValues.get(node.id) !== live) {
         this._lastAudioValues.set(node.id, live);
         this._collectWithDownstream(node.id, toUpdate, visited, exprDeps);
       }
     }
-    // Drop tracking for Audio Analysis nodes that were deleted so the map doesn't leak across edits.
+    // Drop tracking for Audio nodes that were deleted so the map doesn't leak across edits.
     if (this._lastAudioValues.size > seenAudio.size) {
       for (const id of this._lastAudioValues.keys()) {
         if (!seenAudio.has(id)) this._lastAudioValues.delete(id);

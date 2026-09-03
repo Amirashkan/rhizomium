@@ -211,3 +211,55 @@ describe('openAudioTap', () => {
     expect(() => tap.stop()).not.toThrow();
   });
 });
+
+// Live input — a microphone, or system audio shared from another tab — is the other thing a patch
+// can be reacting to. An export made while one is running used to come out silent, because the tap
+// only looked for a loaded file.
+describe('recording a live input', () => {
+  function liveCapture() {
+    const connected = [];
+    const liveSource = {
+      connect: (d) => connected.push(d),
+      disconnect: (d) => connected.splice(connected.indexOf(d), 1),
+    };
+    const track = { kind: 'audio', stop() { this.stopped = true; }, stopped: false };
+    return {
+      connected,
+      liveSource,
+      track,
+      audioContext: {
+        state: 'running',
+        createMediaStreamDestination: () => ({ stream: { getAudioTracks: () => [track] } }),
+      },
+      audioElement: null,
+      source: null,
+      isLive: () => true,
+      getIsPlaying: () => true,
+      play: vi.fn(),
+      pause: vi.fn(),
+    };
+  }
+
+  it('counts as recordable with no file loaded', () => {
+    expect(hasRecordableAudio(liveCapture())).toBe(true);
+  });
+
+  it('taps the live source', async () => {
+    const capture = liveCapture();
+    const tap = await openAudioTap(capture);
+    expect(tap).not.toBeNull();
+    expect(capture.connected).toHaveLength(1);
+    tap.stop();
+    expect(capture.connected).toHaveLength(0);
+  });
+
+  it('does not try to start playback that has no playhead', async () => {
+    const capture = liveCapture();
+    const tap = await openAudioTap(capture);
+    // capture.play() on a live input would throw: there is no audio element to play.
+    expect(await tap.startPlayback()).toBe(false);
+    expect(capture.play).not.toHaveBeenCalled();
+    tap.stop();
+    expect(capture.pause).not.toHaveBeenCalled();
+  });
+});

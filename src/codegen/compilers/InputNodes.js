@@ -39,7 +39,7 @@ export class InputNodes {
     return [
       'UV', 'Time', 'ConstFloat', 'ConstVec2', 'ConstVec3', 'ConstVec4',
       'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold', 'Count', 'RandomValue',
-      'Wave', 'AudioAnalysis'
+      'Wave', 'AudioValue'
     ].includes(kind);
   }
 
@@ -255,28 +255,15 @@ export class InputNodes {
         };
       }
 
-      case 'AudioAnalysis': {
-        // Real-time analysis has memory across frames (the meters' followers, and each trigger's
-        // armed/re-armed state), which a fragment shader has none of, so it runs on the CPU in
-        // AudioAnalysisProcessor and streams one uniform per output pin. The compiler just wires
-        // up the uniform references getParam registers. Pin 0 is `level`, so `=node_<id>` gives a
-        // live general-purpose value.
-        const OUTPUTS = [
-          'level', 'low', 'mid', 'high',
-          'kick', 'kickTrig', 'snare', 'snareTrig', 'hat', 'hatTrig',
-          'kickMeter', 'snareMeter', 'hatMeter',
-          'centroid', 'density',
-        ];
-        const levelRef = getParam ? getParam('level', 0.0) : null;
-        if (levelRef) {
-          return {
-            line: `let node_${nodeId} = ${levelRef};`,
-            outputType: "f32",
-            outputPins: OUTPUTS.map((name) => ({
-              expression: name === 'level' ? levelRef : getParam(name, 0.0),
-              type: "f32",
-            })),
-          };
+      case 'AudioValue': {
+        // A single channel of the live audio analysis. The analysis has memory across frames (the
+        // meters' followers, each trigger's armed state) which a fragment shader has none of, so it
+        // runs on the CPU in AudioAnalysisProcessor and streams one uniform per node. WHICH channel
+        // is a CPU-side decision too, so the emitted code is the same whatever the Channel
+        // parameter says and changing it costs no recompile.
+        const valueRef = getParam ? getParam('value', 0.0) : null;
+        if (valueRef) {
+          return { line: `let node_${nodeId} = ${valueRef};`, outputType: "f32" };
         }
         // Fallback (uniform registration unavailable): emit 0 so the node still compiles.
         return { line: `let node_${nodeId} = 0.0;`, outputType: "f32" };

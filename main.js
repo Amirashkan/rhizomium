@@ -27,7 +27,7 @@ import { signalAppReady } from "./src/core/tauriSplash.js";
 import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
-import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
+import { describeAudioSource, getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 import { MIDIManager } from './src/midi/MIDIManager.js';
 import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
@@ -1001,6 +1001,20 @@ function onNodeCreated(node) {
   if (undoManager && node) {
     undoManager.recordNodeCreation(node);
   }
+
+  // An audio node with no track loaded reads 0 on every channel, and so does everything downstream
+  // — which looks exactly like a broken node. The panel is where a source is chosen (and where the
+  // meters are, which is the only way to set a threshold), so open it the first time one is added
+  // with nothing playing. Not when a track IS loaded: then the node works immediately and the
+  // panel would be in the way.
+  if (node?.kind === 'Audio' || node?.kind === 'AudioValue') {
+    try {
+      const panel = getAudioSettingsPanel();
+      if (!panel.visible && !describeAudioSource().hasFile) panel.show();
+    } catch {
+      // Never let a convenience stop a node from being created.
+    }
+  }
 }
 
 function onGroupDeleted(nodesToDelete) {
@@ -1360,17 +1374,17 @@ function setupUIEventHandlers() {
 
           // Update button appearance based on panel state
           if (audioPanel.visible) {
-            audioSettingsBtn.textContent = "Audio Settings ✓";
+            audioSettingsBtn.textContent = "Audio ✓";
             audioSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
             audioSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
           } else {
-            audioSettingsBtn.textContent = "Audio Settings";
+            audioSettingsBtn.textContent = "Audio…";
             audioSettingsBtn.style.backgroundColor = "";
             audioSettingsBtn.style.borderColor = "";
           }
 
           if (typeof updateStatus === "function") {
-            updateStatus(audioPanel.visible ? "Audio settings opened" : "Audio settings closed");
+            updateStatus(audioPanel.visible ? "Audio panel opened" : "Audio panel closed");
           }
         } else {
           console.error('[main.js] Audio panel is invalid:', audioPanel);

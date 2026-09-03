@@ -18,6 +18,7 @@ import { nodeReferenceDropStyles } from './NodeReferenceDrop.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { nodeDisplayName } from '../core/nodeName.js';
 import { describeExternalControls } from '../parameters/ExternalParameterControl.js';
+import { describeAudioSource, getAudioSettingsPanel } from './AudioSettingsPanel.js';
 import {
   ACCENT,
   SEMANTIC,
@@ -41,6 +42,15 @@ const EXTERNAL_CONTROL_ICONS = {
   midi: 'midi-port',
   osc: 'wire',
 };
+
+/**
+ * Sources that move a parameter from outside this panel, continuously.
+ *
+ * They get the cheap display path: the field's text is corrected, the expensive refresh waits for
+ * the stream to stop. A field the artist is typing in, and one holding an expression, are both left
+ * alone — see _lightweightExternalValueUpdate.
+ */
+const EXTERNAL_PARAMETER_SOURCES = new Set(['midi', 'osc', 'audio-panel']);
 
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
@@ -1193,6 +1203,9 @@ case 'flip2d':
     this.panelContent.innerHTML = '';
     this.panelContent.appendChild(title);
 
+    const notice = this._nodeNotice(node);
+    if (notice) this.panelContent.appendChild(notice);
+
     // Parameters may declare an optional `group`. Consecutive parameters sharing one are rendered
     // under a collapsible heading, which keeps a node with many controls readable — without it,
     // something like Audio Analysis is a flat wall of eighteen fields where the ones that shape a
@@ -1855,6 +1868,12 @@ case 'flip2d':
           window.computeExecutor.resetNodeFeedback(node.id);
         }
         break;
+      case 'openAudioPanel':
+        // The node names a channel; the panel is where the channels can be watched, and where a
+        // threshold is set against the meter it is compared to. Show it rather than making the
+        // artist find it in the Tools menu with the node already selected.
+        getAudioSettingsPanel().show();
+        break;
       case 'resetCount':
         // Queue a reset of the CPU-side counter; CountNodeProcessor applies it on the next frame.
         window.countNodeProcessor?.requestReset?.(node.id);
@@ -1864,6 +1883,65 @@ case 'flip2d':
       default:
         console.warn(`[ParameterPanel] Unknown parameter action: ${action}`);
     }
+  }
+
+  /**
+   * A live status strip under the panel header, for nodes whose output depends on something outside
+   * the graph.
+   *
+   * The audio nodes read a live signal, so with no track playing every channel is 0 — the values
+   * are 0, the thresholds decide nothing, and everything downstream sits still. That is
+   * indistinguishable from "this node is broken" unless something says otherwise, and the place to
+   * say it is where the artist is already looking when they wonder why nothing moves. Clicking it
+   * opens the panel that fixes it.
+   */
+  _nodeNotice(node) {
+    if (node?.kind !== 'Audio' && node?.kind !== 'AudioValue') return null;
+
+    const strip = document.createElement('button');
+    strip.type = 'button';
+    strip.className = 'node-notice';
+    strip.title = 'Open the Audio panel: source, meter shape and thresholds';
+    strip.addEventListener('click', () => getAudioSettingsPanel().show());
+
+    const dot = document.createElement('span');
+    dot.style.cssText = 'flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor;';
+    const text = document.createElement('span');
+    strip.append(dot, text);
+
+    // Styled here rather than in a stylesheet, as everything else in this panel is.
+    const paint = () => {
+      const source = describeAudioSource();
+      const quiet = source.playing;
+      strip.dataset.state = source.state;
+      strip.style.cssText = `
+        display: flex; align-items: center; gap: 8px; width: 100%;
+        margin: 0 0 12px; padding: 8px 10px; text-align: left;
+        border-radius: 8px; cursor: pointer;
+        font-family: ${FONT_UI}; font-size: 11px; line-height: 1.35;
+        border: 1px solid ${quiet ? SURFACE.line : withAlpha(SEMANTIC.warn, 0.35)};
+        background: ${quiet ? SURFACE.fillSoft : withAlpha(SEMANTIC.warn, 0.14)};
+        color: ${quiet ? TEXT.tertiary : SEMANTIC.warn};
+      `;
+      const running = source.live ? source.label : 'Playing';
+      text.textContent = quiet
+        ? `${running}${source.fileName ? ` — ${source.fileName}` : ''}`
+        : `${source.label} — every channel reads 0. Open Audio Setup…`;
+    };
+    paint();
+
+    // Polled rather than event-driven: the transport can be driven from the panel, from another
+    // window, or by a track running out, and the strip has to be right in all three. It stops on
+    // its own once the panel has moved on to another node.
+    const timer = setInterval(() => {
+      if (!strip.isConnected) {
+        clearInterval(timer);
+        return;
+      }
+      paint();
+    }, 400);
+
+    return strip;
   }
 
   createBindingControls(param, node, bindingInfo) {
@@ -2601,15 +2679,20 @@ _processPreviewUpdate(node) {
     const { node, parameterName, newValue, source } = data;
 
     if (this.selectedNode && this.selectedNode.id === node.id) {
-      // For MIDI sources, use ultra-lightweight updates during active control
-      if (source === 'midi') {
+      // Anything driving a parameter from OUTSIDE this panel, continuously: a MIDI knob, an OSC
+      // message, a slider in the Audio panel. They all need the same thing — the number in the
+      // field kept honest without rebuilding the panel under the artist's cursor — and only the
+      // MIDI one used to get it, so an OSC-driven or panel-driven parameter sat at a stale value
+      // while the node underneath it moved. refreshParameterDisplays() below repaints expression
+      // readouts, not the field itself, which is why the plain number never budged.
+      if (EXTERNAL_PARAMETER_SOURCES.has(source)) {
         // LIGHTWEIGHT: Just update the input text value (no queries, no style changes)
-        this._lightweightMIDIValueUpdate(node.id, parameterName, newValue);
+        this._lightweightExternalValueUpdate(node.id, parameterName, newValue);
 
         // Store pending update data for potential flushing on deselect
         this._pendingMidiUpdate = { node, parameterName, newValue };
 
-        // Debounce expensive operations until MIDI activity stops
+        // Debounce expensive operations until the controller stops moving
         if (this._midiDisplayUpdateTimer) {
           clearTimeout(this._midiDisplayUpdateTimer);
         }
@@ -2642,7 +2725,7 @@ _processPreviewUpdate(node) {
     }
   }
 
-  _lightweightMIDIValueUpdate(nodeId, paramName, newValue) {
+  _lightweightExternalValueUpdate(nodeId, paramName, newValue) {
     // Ultra-lightweight: just update the input.value text, nothing else
     // No DOM queries, no style changes, no validation - just the text
     const key = `${nodeId}_${paramName}`;
@@ -2671,6 +2754,15 @@ _processPreviewUpdate(node) {
         ? Math.round(newValue * 10000) / 10000
         : newValue;
       inputData.input.value = String(displayValue);
+
+      // And the evaluated readout beside it. The field is a textarea — its text is not what the eye
+      // lands on, this "→ 0.5" is — and nothing else refreshes it for a plain number: the debounced
+      // refreshParameterDisplays repaints expression results only. Left out, a threshold moved from
+      // the Audio panel or by a controller showed its new value in the field and its OLD value in
+      // the readout, for the rest of the session.
+      if (inputData.resultDisplay) {
+        inputData.resultDisplay.textContent = `→ ${displayValue}`;
+      }
     }
   }
 

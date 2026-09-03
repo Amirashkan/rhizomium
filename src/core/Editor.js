@@ -2,7 +2,7 @@
 import { EventHandler } from "./EventHandler.js";
 import { Renderer } from "./Renderer.js";
 import { MenuManager } from "../ui/MenuManager.js";
-import { defaultParameterValues, applyNodeParameterValue } from "../data/NodeDefs.js";
+import { defaultParameterValues, applyNodeParameterValue, makeNode } from "../data/NodeDefs.js";
 import {
   getInputCount,
   canAddInput,
@@ -1232,13 +1232,14 @@ connectGPURenderer(renderFunction) {
       // it only changes when its pulse source does, and that source (a Time/Trigger/expression) is
       // what keeps the scene animated; Count's preview is refreshed via PreviewIntegration.
       //
-      // Audio Analysis is driven by the live audio signal (its level/kick change every frame on
-      // their own), so without counting it here the loop stops redrawing when the graph is otherwise
-      // static and the node's value only refreshes when something else forces a redraw (e.g. editing
-      // a parameter) — exactly the "only updates when I change a parameter" freeze.
+      // An Audio Value is driven by the live audio signal (its channel changes every frame on its
+      // own), so
+      // without counting it here the loop stops redrawing when the graph is otherwise static and
+      // the node's value only refreshes when something else forces a redraw (e.g. editing a
+      // parameter) — exactly the "only updates when I change a parameter" freeze.
       // Wave is a free-running LFO: it advances from the clock alone with nothing wired in, so it
       // has to keep the loop alive for the same reason Time does.
-      return kind === 'time' || kind === 'randomvalue' || kind === 'wave' || kind === 'audioanalysis';
+      return kind === 'time' || kind === 'randomvalue' || kind === 'wave' || kind === 'audiovalue';
     });
   }
 
@@ -1897,15 +1898,14 @@ connectGPURenderer(renderFunction) {
         throw new Error('Valid x and y coordinates are required');
       }
 
-      const { makeNode } = window.NodeDefs || {};
-      if (!makeNode || typeof makeNode !== 'function') {
-        throw new Error('makeNode function not available in NodeDefs');
-      }
-
       const snappedPosition = this.applySnapToPoint(x, y);
       const finalX = Number.isFinite(snappedPosition?.x) ? snappedPosition.x : x;
       const finalY = Number.isFinite(snappedPosition?.y) ? snappedPosition.y : y;
 
+      // Imported, not read off `window.NodeDefs`: that global is the definition MAP, so
+      // destructuring makeNode from it always came back undefined and every call through here
+      // failed with "makeNode function not available" — which is why the add-node palette builds
+      // its nodes with its own import instead of calling this.
       const newNode = makeNode(nodeType, finalX, finalY);
       
       if (!newNode) {
@@ -2752,9 +2752,9 @@ connectGPURenderer(renderFunction) {
   defaultNodePreviewEnabled(node) {
     try {
       if (!node) return false;
-      // Audio Analysis is a data-source node whose output is a single scalar; a thumbnail adds noise
-      // and just shows a number, so default it off (the user can still enable it from the node menu).
-      if (node.kind === 'AudioAnalysis') return false;
+      // An Audio Value is a data-source node whose output is a single scalar; a thumbnail adds
+      // noise and just shows a number, so default it off (still enableable from the node menu).
+      if (node.kind === 'AudioValue') return false;
       const spm = window.shaderPreviewManager;
       if (!spm) return true;
       return !!(spm.isComputeNode(node) || spm.isVisualNode(node));

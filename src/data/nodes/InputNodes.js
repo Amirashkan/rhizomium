@@ -5,6 +5,11 @@ import {
   TRIGGER_DEFAULT_MIN_CHANGE,
 } from '../../core/triggerMode.js';
 import { WAVE_SHAPES, DEFAULT_WAVE_SHAPE } from '../../core/waveform.js';
+import {
+  AUDIO_TAP_CHANNELS,
+  AUDIO_TAP_LABELS,
+  DEFAULT_AUDIO_TAP_CHANNEL,
+} from '../../audio/audioAnalysisTaps.js';
 
 /**
  * Input node definitions for constants, data sources, and textures
@@ -185,68 +190,93 @@ export const InputNodes = {
     ],
   },
 
-  AudioAnalysis: {
-    label: "Audio Analysis",
+  Audio: {
+    label: "Audio",
     cat: "Input",
     inputs: 0,
     pinsIn: [],
-    // Real-time audio analysis. Every output is computed from the CURRENT frame of audio: band
-    // meters for modulation, and one threshold per drum for triggers.
+    // No outputs on purpose: this node is the SETUP, not a signal.
+    pinsOut: [],
+    // The analysis's controls, as node parameters.
     //
-    // The arrangement follows a signal chain rather than a statistical test:
-    //   audio -> band split -> attack/release -> normalise -> METER (0..1)
-    //   METER -> threshold -> rising edge -> TRIGGER
-    // Everything that adapts sits on the first line, where it only decides how the meter is
-    // scaled. The second line is a plain comparison, which is why the threshold is findable: put
-    // the matching `*Meter` output on screen, watch where it peaks when the drum hits, and set the
-    // threshold under that.
+    // There is one analysis engine behind the whole patch, so these are one set of numbers however
+    // many Audio Value nodes read them (audio/audioAnalysisSettings.js holds them when no node
+    // does). What a node gives them that a panel slider cannot is everything a parameter gets:
+    // MIDI learn, expressions (`=midi`, `=midi * 0.6 + 0.2`), undo, and travelling with the patch.
+    // A threshold is the number a live set is spent dialling in, so it has to be reachable from a
+    // knob — that is the whole reason this node exists.
     //
-    // The two kinds of meter normalise differently because they are asked different questions.
-    // low/mid/high read absolute loudness, for modulation. kick/snare/hat read how far their band
-    // has jumped above its OWN recent background, so a drum meter means the same thing in every
-    // bar of every track and nothing outside its band can move it — which also means a band that
-    // is merely loud and steady (a held bass note under the kick) correctly reads near zero.
-    //
-    // See src/audio/RealtimeAudioAnalysis.js for the analysis and AudioAnalysisProcessor for the
-    // triggering. Pin 0 is `level`, so `=node_<id>` still gives a general-purpose live value.
-    pinsOut: [
-      { label: "level", type: "f32" },       // overall loudness, 0..1
-      { label: "low", type: "f32" },         // 20-250 Hz
-      { label: "mid", type: "f32" },         // 250-2000 Hz
-      { label: "high", type: "f32" },        // 2000-16000 Hz
-      { label: "kick", type: "f32" },        // envelope: snaps to 1 on a kick, decays
-      { label: "kickTrig", type: "f32" },    // single-frame pulse on a kick
-      { label: "snare", type: "f32" },
-      { label: "snareTrig", type: "f32" },
-      { label: "hat", type: "f32" },
-      { label: "hatTrig", type: "f32" },
-      { label: "kickMeter", type: "f32" },   // what Kick Thresh is compared against - watch this
-      { label: "snareMeter", type: "f32" },
-      { label: "hatMeter", type: "f32" },
-      { label: "centroid", type: "f32" },    // brightness, 0..1
-      { label: "density", type: "f32" },     // noisy (1) vs tonal (0)
-    ],
+    // One of these owns the settings; the panel's sliders edit it rather than a second copy. With
+    // none in the patch the panel edits the stored defaults instead, so a patch that never needed
+    // to automate its thresholds never needs the node either.
     params: [
-      // One threshold per drum, each on its own 0..1 meter. Wire the matching `*Meter` output to
-      // something visible: set the threshold ABOVE where the meter idles between hits and BELOW
-      // where it peaks on one. Setting it under the idle level leaves the trigger permanently held
-      // open, which produces fewer triggers rather than more — the meter makes that visible.
-      //
-      // `group` puts a parameter under a collapsible heading in the parameter panel; consecutive
-      // parameters sharing a name land in the same section. The thresholds are the ones actually
-      // dialled in per track, so their section stays open. The meter shaping below is set once and
-      // left alone, so it starts collapsed (`groupCollapsed` on the first parameter of a section)
-      // and stays out of the way until it is wanted.
-      { name: "kickThresh", type: "float", default: 0.5, label: "Kick Thresh", group: "Triggers" },
-      { name: "snareThresh", type: "float", default: 0.5, label: "Snare Thresh", group: "Triggers" },
-      { name: "hatThresh", type: "float", default: 0.5, label: "Hat Thresh", group: "Triggers" },
+      // One threshold per drum, each on its own 0..1 meter. Set each ABOVE where its meter idles
+      // between hits and BELOW where it peaks on one — which is what the panel's meters are for.
+      // Under the idle level the trigger stays permanently held open, which produces FEWER triggers
+      // rather than more.
+      { name: "kickThresh", type: "float", default: 0.5, min: 0, max: 1, label: "Kick Thresh", group: "Triggers" },
+      { name: "snareThresh", type: "float", default: 0.5, min: 0, max: 1, label: "Snare Thresh", group: "Triggers" },
+      { name: "hatThresh", type: "float", default: 0.5, min: 0, max: 1, label: "Hat Thresh", group: "Triggers" },
       // Shape of every meter. Attack short enough to catch a transient, release long enough that
       // the hit stays visible for a few frames. These change what the meters LOOK like, which in
-      // turn changes what a threshold has to be set to — they are not a second detector.
-      { name: "attack", type: "float", default: 8.0, label: "Attack (ms)", group: "Meter Shape", groupCollapsed: true },
-      { name: "release", type: "float", default: 120.0, label: "Release (ms)", group: "Meter Shape" },
+      // turn changes what a threshold has to be set to — they are not a second detector, so they
+      // are set once and left alone, and start collapsed.
+      { name: "attack", type: "float", default: 8.0, min: 1, max: 200, label: "Attack (ms)", group: "Meter Shape", groupCollapsed: true },
+      { name: "release", type: "float", default: 120.0, min: 1, max: 2000, label: "Release (ms)", group: "Meter Shape" },
       // Manual trim on top of the automatic gain, for material the auto-gain lands badly.
-      { name: "gain", type: "float", default: 1.0, label: "Gain", group: "Meter Shape" },
+      { name: "gain", type: "float", default: 1.0, min: 0, max: 8, label: "Gain", group: "Meter Shape" },
+      // A threshold is only findable by watching the meter it is compared against, and the meters
+      // are in the panel — so the node carries the way there rather than leaving you to hunt
+      // through the Tools menu with the node selected.
+      {
+        name: "panel",
+        type: "button",
+        displayName: "Open Audio Setup…",
+        action: "openAudioPanel",
+        description: "The source, the live meters, and the ＋ that adds nodes reading them",
+        group: "Meter Shape",
+      },
+    ],
+  },
+
+  AudioValue: {
+    label: "Audio Value",
+    cat: "Input",
+    inputs: 0,
+    pinsIn: [],
+    pinsOut: [{ label: "out", type: "f32" }],
+    // One channel of the live audio analysis, as a single float.
+    //
+    // Added from the Audio panel — press ＋ next to the meter you want — rather than from the node
+    // palette, which is why it is `hidden` here. A channel is chosen by watching it move, and the
+    // panel is the only place that shows fifteen of them at once; picking one blind from a dropdown
+    // and then hunting for the panel to see whether it was the right one is the long way round.
+    //
+    // It carries no threshold of its own: the drums are thresholded once, for the whole patch, on
+    // the Audio node above. Two nodes reading `kickTrig` are two views of one kick and fire on the
+    // same frame.
+    //
+    // The analysis has memory across frames (the meters' followers, each trigger's armed state),
+    // which a fragment shader has none of, so the value is computed on the CPU in
+    // AudioAnalysisProcessor and arrives as a per-frame uniform. The uniform's name does not depend
+    // on the channel, so switching channels is a different number in the same slot rather than a
+    // shader rebuild.
+    hidden: true,
+    params: [
+      {
+        name: "channel",
+        type: "select",
+        options: AUDIO_TAP_CHANNELS.map((name) => ({ value: name, label: AUDIO_TAP_LABELS[name] })),
+        default: DEFAULT_AUDIO_TAP_CHANNEL,
+        label: "Channel",
+      },
+      {
+        name: "panel",
+        type: "button",
+        displayName: "Open Audio Setup…",
+        action: "openAudioPanel",
+        description: "The source, the live meters, and the thresholds these channels are decided on",
+      },
     ],
   },
 

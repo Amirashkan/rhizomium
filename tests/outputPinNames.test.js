@@ -33,7 +33,7 @@ describe('_outputLabel resolves a pin name from either pinsOut form', () => {
     expect(renderer._outputLabel({ kind: 'Split3' }, 0)).toBe('x');
     expect(renderer._outputLabel({ kind: 'Split3' }, 2)).toBe('z');
     expect(renderer._outputLabel({ kind: 'Resolution' }, 3)).toBe('aspect');
-    expect(renderer._outputLabel({ kind: 'AudioAnalysis' }, 0)).toBe('level');
+    expect(renderer._outputLabel({ kind: 'Resolution' }, 0)).toBe('res');
   });
 
   it('reads the plain-string form used by the compute nodes', () => {
@@ -134,11 +134,11 @@ describe('node width reserves room for the output name', () => {
     // ConstFloat's sole output is the placeholder "out" and reserves nothing; Time's is "t" (1 char).
     expect(width(renderer, 'Time', 1) - width(renderer, 'ConstFloat', 1)).toBe(1 * 6 + 6);
 
-    // Only the first three of the Audio Analysis node's outputs are asked for here, so this measures
-    // "level" against level/low/mid — the widest of that slice, not of the whole bank.
-    expect(widestName('AudioAnalysis', 3)).toBe('level'.length);
-    expect(width(renderer, 'AudioAnalysis', 3) - width(renderer, 'ConstFloat', 1))
-      .toBe(widestName('AudioAnalysis', 3) * 6 + 6);
+    // Only the first three of Resolution's outputs are asked for here, so this measures against
+    // res/width/height — the widest of that slice, not of the whole bank.
+    expect(widestName('Resolution', 3)).toBe('height'.length);
+    expect(width(renderer, 'Resolution', 3) - width(renderer, 'ConstFloat', 1))
+      .toBe(widestName('Resolution', 3) * 6 + 6);
   });
 
   it('keeps the name width even when the value tag collapses to nothing', () => {
@@ -148,25 +148,23 @@ describe('node width reserves room for the output name', () => {
     const bare = (kind, outCount) => renderer._minNodeWidth({ id: 1, kind }, 0, outCount, false, 0);
 
     // Both are at the 160px floor without a tag, so compare through _minNodeWidth's row term by
-    // giving the names something to exceed: a wide node still has to fit "level".
-    expect(bare('AudioAnalysis', 3)).toBeGreaterThanOrEqual(bare('ConstFloat', 1));
+    // giving the names something to exceed: a wide node still has to fit "height".
+    expect(bare('Resolution', 3)).toBeGreaterThanOrEqual(bare('ConstFloat', 1));
   });
 
   it('_ensureNodeSize applies the reservation to the live node box', () => {
     delete globalThis.window;
     const renderer = makeRenderer();
 
-    const named = { id: 1, kind: 'AudioAnalysis', x: 0, y: 0, __valueTagW: TAG_W };
+    const named = { id: 1, kind: 'Resolution', x: 0, y: 0, __valueTagW: TAG_W };
     const unnamed = { id: 2, kind: 'ConstFloat', x: 0, y: 0, __valueTagW: TAG_W };
     renderer._ensureNodeSize(named);
     renderer._ensureNodeSize(unnamed);
 
-    // _ensureNodeSize takes the output count from the definition, so unlike the test above this
-    // reserves for the widest name in the WHOLE bank — currently "snareMeter", twice the width of
-    // the "level" the first row shows. Asserting a literal here is what rotted: the reservation was
-    // written against a three-output Audio Analysis node and the signal-chain rebuild grew it to
-    // fifteen, which is exactly the drift the node-box reservation exists to absorb.
-    expect(named.w - unnamed.w).toBe(widestName('AudioAnalysis') * 6 + 6);
-    expect(widestName('AudioAnalysis')).toBeGreaterThan(widestName('AudioAnalysis', 3));
+    // _ensureNodeSize takes the output count from the DEFINITION rather than from a caller's slice,
+    // so it reserves for the widest name in the whole bank. Asserting the measurement rather than a
+    // literal is the point: a node that grows an output later must not silently overflow its box.
+    expect(named.w - unnamed.w).toBe(widestName('Resolution') * 6 + 6);
+    expect(widestName('Resolution')).toBeGreaterThanOrEqual(widestName('Resolution', 3));
   });
 });

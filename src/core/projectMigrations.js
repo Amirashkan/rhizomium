@@ -5,7 +5,7 @@
 // validation - so adding a new format version only requires bumping
 // SAVE_FORMAT_VERSION and adding a migration step here.
 
-export const SAVE_FORMAT_VERSION = 7;
+export const SAVE_FORMAT_VERSION = 9;
 
 // Kinds whose multiple channel output pins (RGBA/RGB/R/G/B/A) were collapsed
 // into a single Color output in v4. A node kind is considered collapsed when it
@@ -33,6 +33,88 @@ const REMOVED_FIELD_MAPPER_PARAMS = [
   "colorScaleMin", "colorScaleMax",
   "displacementAxisX", "displacementAxisY", "displacementAxisZ",
 ];
+
+// The Audio Analysis node's output pins, in order, as they were when it existed. Index N here IS
+// pin N there, which is the whole basis of the v7 -> v8 conversion below: a wire from pin 4 becomes
+// a wire from an Audio node reading `kick`. Frozen as a literal on purpose — the live list
+// (audio/audioAnalysisTaps.js) is free to grow, and a migration must keep describing the past.
+const LEGACY_AUDIO_ANALYSIS_PINS = [
+  "level", "low", "mid", "high",
+  "kick", "kickTrig", "snare", "snareTrig", "hat", "hatTrig",
+  "kickMeter", "snareMeter", "hatMeter",
+  "centroid", "density",
+];
+
+/** Display names for the converted nodes, so a migrated patch reads as well as a new one. */
+const LEGACY_AUDIO_PIN_LABELS = {
+  level: "Level", low: "Low", mid: "Mid", high: "High",
+  kick: "Kick", kickTrig: "Kick Trigger",
+  snare: "Snare", snareTrig: "Snare Trigger",
+  hat: "Hat", hatTrig: "Hat Trigger",
+  kickMeter: "Kick Meter", snareMeter: "Snare Meter", hatMeter: "Hat Meter",
+  centroid: "Brightness", density: "Noisiness",
+};
+
+/** The drum a channel is decided on, or null for one that takes no threshold. */
+function legacyThresholdDrum(channel) {
+  for (const drum of ["kick", "snare", "hat"]) {
+    if (channel === drum || channel === `${drum}Trig`) return drum;
+  }
+  return null;
+}
+
+/** The old per-drum threshold parameter a converted channel should inherit, if any. */
+function legacyThresholdParam(channel) {
+  const drum = legacyThresholdDrum(channel);
+  return drum === null ? null : `${drum}Thresh`;
+}
+
+/**
+ * Every `node_<id>` reference in an expression, with an optional output-pin suffix.
+ * Written with an explicit trailing guard rather than \b so `node_1` does not match inside
+ * `node_12` or `node_1_x`.
+ */
+function nodeReferencePattern(id) {
+  return new RegExp(`node_${String(id).replace(/[^\w]/g, "\\$&")}(?:_(\\d+))?(?![0-9A-Za-z_])`, "g");
+}
+
+/** Rewrite every reference to one old node id across a saved node's expression parameters. */
+function rewriteNodeReferences(node, oldId, idForPin) {
+  const pattern = nodeReferencePattern(oldId);
+  const swap = (text) => text.replace(pattern, (match, pin) => {
+    const target = idForPin(pin === undefined ? 0 : Number(pin));
+    return target ? `node_${target}` : match;
+  });
+
+  let changed = false;
+  const next = { ...node };
+
+  if (node.params && typeof node.params === "object") {
+    const params = { ...node.params };
+    for (const [key, value] of Object.entries(params)) {
+      if (typeof value !== "string" || !value.includes(`node_${oldId}`)) continue;
+      const rewritten = swap(value);
+      if (rewritten !== value) {
+        params[key] = rewritten;
+        changed = true;
+      }
+    }
+    if (changed) next.params = params;
+  }
+
+  // `expr`, `value` and `code` are mirrored outside params (see graphHydration MIRRORED_PARAMS).
+  for (const key of ["expr", "value", "code"]) {
+    const value = node[key];
+    if (typeof value !== "string" || !value.includes(`node_${oldId}`)) continue;
+    const rewritten = swap(value);
+    if (rewritten !== value) {
+      next[key] = rewritten;
+      changed = true;
+    }
+  }
+
+  return changed ? next : node;
+}
 
 // Each step migrates from its key version to the next one.
 const migrations = {
@@ -191,6 +273,243 @@ const migrations = {
     ...data,
     oscBindings: data.oscBindings ?? null,
   }),
+
+  // v7 -> v8: the all-in-one Audio Analysis node became the single-channel Audio node.
+  //
+  // That node carried fifteen output pins and every setting the analysis has, which was the wrong
+  // shape twice over: a patch using two of its pins still dragged the other thirteen across the
+  // canvas, and each copy of the shaping settings fought over the one engine that actually exists
+  // (they now live in the Audio panel — see audio/audioAnalysisSettings.js).
+  //
+  // A saved node becomes one Audio node per pin the patch ACTUALLY used — wired, or named by a
+  // `=node_<id>_N` reference — so a patch that only read `level` comes back as one node rather than
+  // fifteen. The first of them keeps the original id, which is what lets the common single-pin case
+  // migrate without touching a single connection or reference.
+  //
+  // Carried across: the wiring (each connection re-pointed at the node for its pin), expression
+  // references (`node_<id>_5` -> `node_<newId>`), the per-drum thresholds (onto the Threshold of
+  // the nodes that decide on them), and any MIDI/OSC binding aimed at one of those thresholds.
+  // NOT carried: attack/release/gain, which are now one shared setting for the whole editor rather
+  // than a property of the document — writing them from a loaded file would silently re-shape every
+  // other patch too.
+  7: (data) => {
+    const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+    const legacy = nodes.filter((n) => n?.kind === "AudioAnalysis");
+    // `AudioValue` is the same node under the name it briefly had while this was being built.
+    const renamed = nodes.filter((n) => n?.kind === "AudioValue");
+    if (legacy.length === 0 && renamed.length === 0) return data;
+
+    const connections = Array.isArray(data.connections) ? data.connections : [];
+    let nextNodes = nodes.map((n) => (n?.kind === "AudioValue" ? { ...n, kind: "Audio" } : n));
+    let nextConnections = connections;
+
+    // Fresh ids continue the document's own numbering, so they read like every other node.
+    let nextId = nodes.reduce((max, n) => {
+      const num = Number.parseInt(n?.id, 10);
+      return Number.isFinite(num) && num > max ? num : max;
+    }, 0);
+
+    const bindingRetargets = new Map(); // "oldId.paramName" -> { nodeId, paramName }
+
+    for (const node of legacy) {
+      const oldId = String(node.id);
+      const params = (node.params && typeof node.params === "object") ? node.params : {};
+
+      // Which pins this patch actually reads: the wired ones...
+      const used = new Set(
+        nextConnections
+          .filter((c) => String(c?.from?.nodeId) === oldId)
+          .map((c) => (typeof c.from.pin === "number" ? c.from.pin : 0)),
+      );
+      // ...and the ones named by an expression anywhere in the document.
+      const refPattern = nodeReferencePattern(oldId);
+      for (const other of nextNodes) {
+        const texts = [
+          ...Object.values(other?.params || {}),
+          other?.expr, other?.value, other?.code,
+        ].filter((v) => typeof v === "string");
+        for (const text of texts) {
+          refPattern.lastIndex = 0;
+          let match;
+          while ((match = refPattern.exec(text)) !== null) {
+            used.add(match[1] === undefined ? 0 : Number(match[1]));
+          }
+        }
+      }
+      // A node nothing reads still stood on the canvas, so it comes back as its first pin rather
+      // than vanishing on load.
+      if (used.size === 0) used.add(0);
+
+      const pins = [...used]
+        .filter((pin) => pin >= 0 && pin < LEGACY_AUDIO_ANALYSIS_PINS.length)
+        .sort((a, b) => a - b);
+      if (pins.length === 0) pins.push(0);
+
+      const idForPin = new Map();
+      const replacements = pins.map((pin, index) => {
+        const channel = LEGACY_AUDIO_ANALYSIS_PINS[pin];
+        const id = index === 0 ? oldId : String(++nextId);
+        idForPin.set(pin, id);
+
+        const audioParams = { channel };
+        const thresholdParam = legacyThresholdParam(channel);
+        if (thresholdParam !== null) {
+          audioParams.threshold = params[thresholdParam] !== undefined
+            ? params[thresholdParam]
+            : 0.5;
+          // A controller aimed at that threshold follows it to its new home.
+          bindingRetargets.set(`${oldId}.${thresholdParam}`, { nodeId: id, paramName: "threshold" });
+        }
+
+        const position = node.position || { x: node.x || 0, y: node.y || 0 };
+        const replacement = {
+          ...node,
+          id,
+          kind: "Audio",
+          // Stacked, so a node that split into several reads as a rack rather than a pile.
+          position: { x: position.x || 0, y: (position.y || 0) + index * 78 },
+          size: { width: 180, height: 60 },
+          inputs: [],
+          // Named after the channel, as deploying one from the panel does. A single replacement
+          // keeps a name the artist chose.
+          name: (pins.length === 1 && typeof node.name === "string" && node.name.trim())
+            ? node.name
+            : (LEGACY_AUDIO_PIN_LABELS[channel] || channel),
+          params: audioParams,
+        };
+        // The old node's parameters were also mirrored here by some save paths; they describe a
+        // node that no longer exists.
+        delete replacement.props;
+        return replacement;
+      });
+
+      const pinToId = (pin) => idForPin.get(pin) ?? idForPin.get(pins[0]);
+
+      nextConnections = nextConnections.map((conn) => {
+        if (String(conn?.from?.nodeId) !== oldId) return conn;
+        const pin = typeof conn.from.pin === "number" ? conn.from.pin : 0;
+        return { ...conn, from: { nodeId: pinToId(pin), pin: 0 } };
+      });
+
+      const index = nextNodes.findIndex((n) => String(n?.id) === oldId);
+      nextNodes = [
+        ...nextNodes.slice(0, index < 0 ? nextNodes.length : index),
+        ...replacements,
+        ...nextNodes.slice(index < 0 ? nextNodes.length : index + 1),
+      ].map((n) => (replacements.includes(n) ? n : rewriteNodeReferences(n, oldId, pinToId)));
+    }
+
+    const retargetBindings = (section) => {
+      if (!section || !Array.isArray(section.bindings)) return section;
+      return {
+        ...section,
+        bindings: section.bindings.map((binding) => {
+          const target = bindingRetargets.get(`${binding?.nodeId}.${binding?.paramName}`);
+          return target ? { ...binding, ...target } : binding;
+        }),
+      };
+    };
+
+    return {
+      ...data,
+      nodes: nextNodes,
+      connections: nextConnections,
+      midiBindings: retargetBindings(data.midiBindings),
+      oscBindings: retargetBindings(data.oscBindings),
+    };
+  },
+
+  // v8 -> v9: the audio node split in two — `AudioValue` reads one channel, `Audio` carries the
+  // analysis's settings.
+  //
+  // v8 gave each channel-reading node its own Threshold, which made one drum's decision a
+  // per-node affair and left the shaping (attack/release/gain) on a panel slider that no
+  // controller could reach. Both are settings of the one analysis engine, so they belong together
+  // on one node, where they are ordinary parameters: MIDI-mappable, expression-driven, undoable,
+  // saved with the patch.
+  //
+  // A v8 `Audio` node is identified by its `channel` parameter — the setup node has none — and
+  // becomes an `AudioValue`. Any thresholds those nodes carried are gathered onto a single new
+  // setup node (per drum, the tightest one wins: it is the one that was dialled in, and a looser
+  // sibling would have been firing on everything). MIDI/OSC bindings on a converted node's
+  // threshold follow it there.
+  8: (data) => {
+    const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+    const taps = nodes.filter((n) => n?.kind === "Audio" && n?.params?.channel !== undefined);
+    if (taps.length === 0) return data;
+
+    // Per drum: the tightest threshold any of its nodes was using, and where it came from.
+    const thresholds = {};
+    const sources = new Map(); // "oldId.threshold" -> drum
+    for (const tap of taps) {
+      const drum = legacyThresholdDrum(tap.params.channel);
+      if (drum === null) continue;
+      const value = tap.params.threshold;
+      sources.set(`${tap.id}.threshold`, drum);
+      if (value === undefined) continue;
+      const current = thresholds[drum];
+      // An expression wins outright: it is the most deliberate thing anyone put there, and picking
+      // between two of them by value is not possible.
+      if (typeof value === "string") {
+        if (typeof current !== "string") thresholds[drum] = value;
+      } else if (typeof current !== "string"
+        && (current === undefined || Number(value) > Number(current))) {
+        thresholds[drum] = value;
+      }
+    }
+
+    let nextId = nodes.reduce((max, n) => {
+      const num = Number.parseInt(n?.id, 10);
+      return Number.isFinite(num) && num > max ? num : max;
+    }, 0);
+
+    const converted = nodes.map((node) => {
+      if (node?.kind !== "Audio" || node?.params?.channel === undefined) return node;
+      const params = { ...node.params };
+      delete params.threshold;
+      return { ...node, kind: "AudioValue", params };
+    });
+
+    // Only worth a node if something was actually dialled in; otherwise the stored defaults still
+    // hold and the patch stays as small as it was.
+    const carried = Object.keys(thresholds);
+    let setupId = null;
+    if (carried.length > 0) {
+      const anchor = taps[0];
+      const position = anchor.position || { x: anchor.x || 0, y: anchor.y || 0 };
+      setupId = String(++nextId);
+      const params = {};
+      for (const [drum, value] of Object.entries(thresholds)) params[`${drum}Thresh`] = value;
+      converted.push({
+        id: setupId,
+        kind: "Audio",
+        position: { x: (position.x || 0) - 220, y: position.y || 0 },
+        size: { width: 180, height: 60 },
+        inputs: [],
+        name: "Audio Setup",
+        params,
+      });
+    }
+
+    const retarget = (section) => {
+      if (!section || !Array.isArray(section.bindings)) return section;
+      return {
+        ...section,
+        bindings: section.bindings.map((binding) => {
+          const drum = sources.get(`${binding?.nodeId}.${binding?.paramName}`);
+          if (!drum || !setupId) return binding;
+          return { ...binding, nodeId: setupId, paramName: `${drum}Thresh` };
+        }),
+      };
+    };
+
+    return {
+      ...data,
+      nodes: converted,
+      midiBindings: retarget(data.midiBindings),
+      oscBindings: retarget(data.oscBindings),
+    };
+  },
 };
 
 export function migrateProjectData(data) {

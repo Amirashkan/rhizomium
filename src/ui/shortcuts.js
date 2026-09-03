@@ -249,7 +249,7 @@ export const SHORTCUT_SECTIONS = [
         // Not plain Mod+M: ⌘M is macOS's minimise-window and never reaches
         // the page, so the shortcut would be dead on half the machines.
       },
-      { id: "btn-audio-settings", label: "Audio Settings", keys: "Mod+Alt+A" },
+      { id: "btn-audio-settings", label: "Audio Panel", keys: "Mod+Alt+A" },
       { id: "btn-midi-settings", label: "MIDI Settings", keys: "Mod+Alt+M" },
       { id: "btn-osc-settings", label: "OSC Receiver", keys: "Mod+Alt+O" },
       {

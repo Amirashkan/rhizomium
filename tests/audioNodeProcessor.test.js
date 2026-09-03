@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { AudioAnalysisProcessor } from '../src/core/AudioAnalysisProcessor.js';
-import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../src/core/audioAnalysisPins.js';
+import { AUDIO_INSTRUMENTS, AUDIO_TAP_CHANNELS } from '../src/audio/audioAnalysisTaps.js';
+import {
+  resetAudioAnalysisSettings,
+  updateAudioAnalysisSettings,
+} from '../src/audio/audioAnalysisSettings.js';
 
 // Covers the decision half: turning a 0..1 meter into triggers. The analysis that produces those
 // meters is tested separately in realtimeAudioAnalysis.test.js.
@@ -10,21 +14,25 @@ function makeGraph(nodes) {
   return { nodes, getNode: (id) => byId.get(id) };
 }
 
-// A uniform manager with every pin registered, as the compiler's getParam() would leave it.
+// A uniform manager with each node's single value registered, as getParam() would leave it.
 function makeUniformManager(ids = []) {
   const uniformValues = new Map();
-  for (const id of ids) {
-    for (const name of AUDIO_ANALYSIS_PINS) uniformValues.set(`${id}.${name}`, 0);
-  }
+  for (const id of ids) uniformValues.set(`${id}.value`, 0);
   return { uniformValues };
 }
 
-function audioNode(params = {}) {
-  return {
-    id: 'a', kind: 'AudioAnalysis',
-    params: { kickThresh: 0.5, snareThresh: 0.5, hatThresh: 0.5, ...params },
-    inputs: [],
-  };
+/**
+ * A trigger node per drum, plus the Audio node the thresholds live on — which is how a patch that
+ * watches all three is built now: the decision is taken once, on settings a controller can reach.
+ */
+function triggerNodes(params = {}) {
+  const setup = { id: 'setup', kind: 'Audio', params: { ...params }, inputs: [] };
+  return [
+    setup,
+    ...AUDIO_INSTRUMENTS.map((name) => ({
+      id: name, kind: 'AudioValue', params: { channel: `${name}Trig` }, inputs: [],
+    })),
+  ];
 }
 
 function stubClient() {
@@ -49,11 +57,38 @@ function setBands(values = {}, presence = {}) {
   window._audioBands = out;
 }
 
+/**
+ * A rig with one Audio node per named channel — the shape a patch takes now that a node reads one
+ * channel. `read(channel)` is that node's uniform.
+ */
+function makeChannelRig(channels, threshold = 0.5) {
+  const nodes = channels.map((channel) => ({
+    id: channel, kind: 'AudioValue', params: { channel, threshold }, inputs: [],
+  }));
+  const graph = makeGraph(nodes);
+  const um = makeUniformManager(channels);
+  const proc = new AudioAnalysisProcessor();
+  proc._audioClient = stubClient();
+
+  let t = 0;
+  return {
+    proc, graph, um,
+    step(values, presence) {
+      setBands(values, presence);
+      t += 1 / 60;
+      proc.update(graph, { time: t, now: t, uniformManager: um });
+    },
+    read: (channel) => um.uniformValues.get(`${channel}.value`),
+    node: (channel) => nodes.find((n) => n.params.channel === channel),
+  };
+}
+
 /** Drive the processor frame by frame on an explicit clock. */
 function makeRig(params = {}) {
-  const node = audioNode(params);
-  const graph = makeGraph([node]);
-  const um = makeUniformManager(['a']);
+  const nodes = triggerNodes(params);
+  const node = nodes[0]; // the setup node, where the thresholds are
+  const graph = makeGraph(nodes);
+  const um = makeUniformManager(AUDIO_INSTRUMENTS);
   const proc = new AudioAnalysisProcessor();
   proc._audioClient = stubClient();
 
@@ -63,9 +98,9 @@ function makeRig(params = {}) {
     t += 1 / 60;
     proc.update(graph, { time: t, now: t, uniformManager: um });
     return {
-      kick: um.uniformValues.get('a.kickTrig'),
-      snare: um.uniformValues.get('a.snareTrig'),
-      hat: um.uniformValues.get('a.hatTrig'),
+      kick: um.uniformValues.get('kick.value'),
+      snare: um.uniformValues.get('snare.value'),
+      hat: um.uniformValues.get('hat.value'),
     };
   };
   // Hold a meter at a value for n frames, returning how many times the kick triggered.
@@ -83,12 +118,12 @@ function makeRig(params = {}) {
     return fired;
   };
 
-  return { proc, node, graph, um, step, hold, hit, get time() { return t; } };
+  return { proc, node, nodes, graph, um, step, hold, hit, get time() { return t; } };
 }
 
 describe('AudioAnalysisProcessor', () => {
-  beforeEach(() => { window._audioBands = undefined; });
-  afterEach(() => { delete window._audioBands; });
+  beforeEach(() => { window._audioBands = undefined; resetAudioAnalysisSettings(); });
+  afterEach(() => { delete window._audioBands; resetAudioAnalysisSettings(); });
 
   it('triggers once as a meter crosses the threshold', () => {
     const rig = makeRig();
@@ -180,34 +215,34 @@ describe('AudioAnalysisProcessor', () => {
   });
 
   it('passes the continuous meters straight through', () => {
-    const rig = makeRig();
+    const rig = makeChannelRig(['level', 'low', 'mid', 'high', 'centroid', 'density']);
     rig.step({ level: 0.4, low: 0.6, mid: 0.3, high: 0.2, centroid: 0.7, density: 0.15 });
-    expect(rig.um.uniformValues.get('a.level')).toBeCloseTo(0.4);
-    expect(rig.um.uniformValues.get('a.low')).toBeCloseTo(0.6);
-    expect(rig.um.uniformValues.get('a.mid')).toBeCloseTo(0.3);
-    expect(rig.um.uniformValues.get('a.high')).toBeCloseTo(0.2);
-    expect(rig.um.uniformValues.get('a.centroid')).toBeCloseTo(0.7);
-    expect(rig.um.uniformValues.get('a.density')).toBeCloseTo(0.15);
+    expect(rig.read('level')).toBeCloseTo(0.4);
+    expect(rig.read('low')).toBeCloseTo(0.6);
+    expect(rig.read('mid')).toBeCloseTo(0.3);
+    expect(rig.read('high')).toBeCloseTo(0.2);
+    expect(rig.read('centroid')).toBeCloseTo(0.7);
+    expect(rig.read('density')).toBeCloseTo(0.15);
   });
 
   it('reports each drum meter alongside its trigger, so a threshold can be aimed at it', () => {
-    const rig = makeRig();
+    const rig = makeChannelRig(['kickMeter', 'snareMeter', 'hatMeter']);
     rig.step({ kick: 0.42, snare: 0.31, hat: 0.77 });
-    expect(rig.um.uniformValues.get('a.kickMeter')).toBeCloseTo(0.42);
-    expect(rig.um.uniformValues.get('a.snareMeter')).toBeCloseTo(0.31);
-    expect(rig.um.uniformValues.get('a.hatMeter')).toBeCloseTo(0.77);
+    expect(rig.read('kickMeter')).toBeCloseTo(0.42);
+    expect(rig.read('snareMeter')).toBeCloseTo(0.31);
+    expect(rig.read('hatMeter')).toBeCloseTo(0.77);
   });
 
   it('decays the drum envelope after a trigger', () => {
-    const rig = makeRig();
+    const rig = makeChannelRig(['kick']);
     rig.step({ kick: 0.1 });
     rig.step({ kick: 0.9 });
-    const peak = rig.um.uniformValues.get('a.kick');
+    const peak = rig.read('kick');
     expect(peak).toBeCloseTo(1.0);
     let prev = peak;
     for (let i = 0; i < 14; i++) {
       rig.step({ kick: 0.0 });
-      const v = rig.um.uniformValues.get('a.kick');
+      const v = rig.read('kick');
       expect(v).toBeLessThan(prev);
       prev = v;
     }
@@ -215,32 +250,32 @@ describe('AudioAnalysisProcessor', () => {
   });
 
   it('times triggers on the wall clock, not the render loop\'s sim time', () => {
-    const node = audioNode();
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['a']);
-    const proc = new AudioAnalysisProcessor();
-    proc._audioClient = stubClient();
+    const rig = makeChannelRig(['kickTrig']);
     let wall = 0;
     const step = (kick) => {
       setBands({ kick });
       wall += 1 / 60;
-      proc.update(graph, { time: 0, now: wall, uniformManager: um }); // sim time frozen
-      return um.uniformValues.get('a.kickTrig');
+      // Sim time frozen: audio runs in real time and does not stop when the clock is paused.
+      rig.proc.update(rig.graph, { time: 0, now: wall, uniformManager: rig.um });
+      return rig.read('kickTrig');
     };
     step(0.1);
     expect(step(0.9)).toBe(1);
   });
 
-  it('mirrors every pin onto the node for the CPU preview, in pin order', () => {
-    const rig = makeRig();
+  it('mirrors the value onto the node for the CPU preview', () => {
+    const rig = makeChannelRig(['level', 'kickTrig', 'hatMeter']);
     rig.step({ level: 0.4, kick: 0.9, hat: 0.2 });
-    expect(audioAnalysisPinValue(rig.node, 0)).toBeCloseTo(0.4); // level
-    expect(audioAnalysisPinValue(rig.node, AUDIO_ANALYSIS_PINS.indexOf('kickTrig'))).toBe(1);
-    expect(audioAnalysisPinValue(rig.node, AUDIO_ANALYSIS_PINS.indexOf('hatMeter'))).toBeCloseTo(0.2);
+    expect(rig.node('level').__audio_value).toBeCloseTo(0.4);
+    expect(rig.node('kickTrig').__audio_value).toBe(1);
+    expect(rig.node('hatMeter').__audio_value).toBeCloseTo(0.2);
   });
 
   it('pushes envelope shaping to the audio engine, and only when it changes', () => {
-    const rig = makeRig({ attack: 12, release: 200, gain: 2 });
+    // Shaping is one setting for the whole editor now (the Audio panel owns it), because there is
+    // one engine behind every audio node — copies of it per node meant the last one written won.
+    updateAudioAnalysisSettings({ attack: 12, release: 200, gain: 2 });
+    const rig = makeRig();
     rig.step({ kick: 0 });
     expect(rig.proc._audioClient.configs.length).toBe(1);
     expect(rig.proc._audioClient.configs[0].analysis).toEqual({
@@ -249,7 +284,7 @@ describe('AudioAnalysisProcessor', () => {
     for (let i = 0; i < 10; i++) rig.step({ kick: 0 });
     expect(rig.proc._audioClient.configs.length).toBe(1);
 
-    rig.node.params.attack = 30;
+    updateAudioAnalysisSettings({ attack: 30 });
     rig.step({ kick: 0 });
     expect(rig.proc._audioClient.configs.length).toBe(2);
   });
@@ -261,27 +296,25 @@ describe('AudioAnalysisProcessor', () => {
     expect(rig.proc._audioClient.ticks).toBe(2);
   });
 
-  it('reads zero for everything when no analysis has been published', () => {
-    const node = audioNode();
-    const um = makeUniformManager(['a']);
-    const proc = new AudioAnalysisProcessor();
-    proc._audioClient = stubClient();
+  it('reads zero for every channel when no analysis has been published', () => {
+    const rig = makeChannelRig(AUDIO_TAP_CHANNELS);
     window._audioBands = undefined;
-    proc.update(makeGraph([node]), { time: 0, now: 0, uniformManager: um });
-    for (const name of AUDIO_ANALYSIS_PINS) {
-      expect(um.uniformValues.get(`a.${name}`)).toBe(0);
+    rig.proc.update(rig.graph, { time: 0, now: 0, uniformManager: rig.um });
+    for (const channel of AUDIO_TAP_CHANNELS) {
+      expect(rig.read(channel), channel).toBe(0);
     }
   });
 
-  it('prunes state for deleted nodes', () => {
+  it('drops the analysis once the last audio node is gone', () => {
     const proc = new AudioAnalysisProcessor();
     proc._audioClient = stubClient();
     setBands({ kick: 0.9 });
-    proc.update(makeGraph([audioNode()]), { time: 0, now: 0, uniformManager: makeUniformManager(['a']) });
-    expect(proc._state.has('a')).toBe(true);
+    const node = { id: 'a', kind: 'AudioValue', params: { channel: 'kickTrig' }, inputs: [] };
+    proc.update(makeGraph([node]), { time: 0, now: 0, uniformManager: makeUniformManager(['a']) });
+    expect(proc._tapState).not.toBeNull();
 
     const other = { id: 'x', kind: 'Time', params: {}, inputs: [] };
     proc.update(makeGraph([other]), { time: 0.016, now: 0.016, uniformManager: makeUniformManager([]) });
-    expect(proc._state.has('a')).toBe(false);
+    expect(proc._tapState).toBeNull();
   });
 });

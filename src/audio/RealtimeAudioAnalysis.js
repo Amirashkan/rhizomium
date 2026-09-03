@@ -88,22 +88,33 @@ const INSTRUMENT_BANDS = new Set(['kick', 'snare', 'hat']);
 // spans two beats at 120 BPM, so even sixteenth-note patterns still stand above their own average,
 // while a section change is absorbed within a bar or two.
 const REFERENCE_TAU_S = 1.0;
-// The contrast — band level over its own reference — that reads full scale. Eight is +18 dB above
-// the band's recent background, which a drum hit in a mix comfortably exceeds while ordinary
-// programme material does not get near.
+// The contrast — band level over its own reference — that reads full scale.
 //
 // The mapping is logarithmic, so equal ratios are equal distances on the meter: contrast 1 (a band
-// sitting exactly at its own average, i.e. nothing happening) reads 0, contrast 8 reads 1, and the
-// halfway mark is contrast ~2.8. A linear map would cram everything interesting into the bottom of
-// the range and give the threshold nothing to grip.
+// sitting exactly at its own average, i.e. nothing happening) reads 0. A linear map would cram
+// everything interesting into the bottom of the range and give the threshold nothing to grip.
 //
 // This is also what makes the meter self-clearing, which the fixed-scale version was not: there,
 // a wound-up gain could pin the meter at the 1.0 clamp for seconds, and since re-arming needs the
 // meter to fall back below the threshold, the detector latched and stopped triggering entirely.
 // A ratio against a converging reference cannot stay pinned — holding the band high just pulls the
 // reference up after it, and the meter returns to 0.
-const CONTRAST_FULL = 8;
+//
+// Full scale was 8 (+18 dB), which turned out to be INSIDE the range hits actually occupy rather
+// than above it. Measured on a kick against a quiet background: contrast sat at ~2 between hits and
+// peaked between 8.4 and 12.8 on them — so every hit reached the clamp, every hit read exactly 1.0,
+// and no threshold could tell a downbeat from a ghost note. The symptom was the whole control doing
+// nothing: the same six triggers at 0.05 as at 0.95. Full scale has to sit ABOVE where hits land,
+// or the meter has no range left to be thresholded in.
+//
+// At 24 (+27.6 dB) those same peaks land between 0.67 and 0.80, spread out and well clear of the
+// ~0.29 the band idles at, so the default threshold of 0.5 still falls between the two.
+const CONTRAST_FULL = 24;
 const LOG_CONTRAST_FULL = Math.log2(CONTRAST_FULL);
+// Above this the meter stops being linear-in-log and eases toward 1 without ever arriving, so
+// material louder than full scale still reads louder rather than flattening onto the clamp. The
+// join is smooth — same value and same slope — so nothing steps as a hit crosses it.
+const CONTRAST_KNEE = 0.8;
 // Auto-gain (the `audiodynamics` equivalent): a slow trim that brings the whole signal toward a
 // working level, so a quietly mastered track and a loud one present similar meters.
 const AUTOGAIN_TAU_S = 1.5;
@@ -118,6 +129,23 @@ const AUTOGAIN_MAX = 2000;
 const AUTOGAIN_MIN_MEAN = 1e-7;
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/**
+ * Log-contrast to a 0..1 meter, with a soft knee at the top.
+ *
+ * Below the knee this is exactly the linear-in-log mapping. Above it, the remaining headroom is
+ * approached asymptotically: a hit twice as far above its background as full scale still reads
+ * higher than one at full scale, instead of both landing on 1.0 with nothing between them. Strictly
+ * increasing and never reaching 1, which is what keeps a threshold meaningful however extreme the
+ * material gets.
+ */
+export function contrastMeter(contrast) {
+  if (!(contrast > 1)) return 0;
+  const x = Math.log2(contrast) / LOG_CONTRAST_FULL;
+  if (x <= CONTRAST_KNEE) return x;
+  const headroom = 1 - CONTRAST_KNEE;
+  return 1 - headroom * Math.exp(-(x - CONTRAST_KNEE) / headroom);
+}
 
 /** One band's running state. */
 class BandState {
@@ -256,10 +284,7 @@ export class RealtimeAudioAnalysis {
         // loudness sits at ratio 1 and reads 0; only a jump above the background moves the meter,
         // which is why a held bass note in the kick band no longer parks it halfway up.
         const ref = Math.max(st.slow, AUDIBLE_FLOOR);
-        const contrast = st.env / ref;
-        st.meter = audible && contrast > 1
-          ? clamp01(Math.log2(contrast) / LOG_CONTRAST_FULL)
-          : 0;
+        st.meter = audible ? contrastMeter(st.env / ref) : 0;
       } else {
         // Tonal band: an absolute reading, auto-gained and scaled to land in range.
         const target = audible ? rms * g : 0;

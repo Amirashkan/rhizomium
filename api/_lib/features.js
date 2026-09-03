@@ -165,7 +165,8 @@ This is how a static patch is made to move. Prefer an expression when one parame
 Only numeric parameters take one: select, bool, color and text parameters take literal values, and a file, font or button parameter is not yours to set at all.
 
 ## Sound
-Two ways in, and they combine: the audioEnvelope* variables in any numeric parameter, and the AudioAnalysis node, whose pins carry level, low, mid, high, kick/snare/hat with their trigger and meter forms, centroid and density into the graph as ordinary signals.
+Two ways in, and they combine: the audioEnvelope* variables in any numeric parameter, and the AudioValue node, which carries ONE channel of the analysis into the graph as an ordinary signal. Its "channel" picks which: level, low, mid, high, kick/snare/hat with their Trig and Meter forms (kickTrig, kickMeter, …), centroid, density. One node per channel you need — two of them for a kick that both flashes and displaces.
+The Audio node is the analysis's settings (the three drum thresholds, and the meter shaping) and has no outputs, so add one only if the patch is about tuning the detection; the defaults are usable without it.
 Audio is silent until the artist enables an input, so keep a base value and add the audio on top ("=0.4+audioEnvelopeBass*0.6") rather than multiplying the picture by something that is zero until someone plays music.
 
 ## 3D
@@ -578,7 +579,7 @@ Your task is to build a complete patch from a description.
 
 Build the smallest graph that actually produces what was asked for. Every node must earn its place, and every branch must reach the Output node — a node whose output goes nowhere is a bug, not a flourish.
 
-Decide first which of the editor's capabilities the description is asking for, and build with it: 3D means ComputeFieldMapper; reacting to sound means the audioEnvelope variables or an AudioAnalysis node; movement means an expression on the parameter that should move; smoke, fluid, growth, swarms and feedback are what the Dynamics nodes do. A patch that imitates one of those out of Math nodes is worse than the one node that does it.
+Decide first which of the editor's capabilities the description is asking for, and build with it: 3D means ComputeFieldMapper; reacting to sound means the audioEnvelope variables or an AudioValue node; movement means an expression on the parameter that should move; smoke, fluid, growth, swarms and feedback are what the Dynamics nodes do. A patch that imitates one of those out of Math nodes is worse than the one node that does it.
 
 Rules that make the difference between a patch that opens and one that wastes the artist's call:
 - Exactly one OutputFinal node, and something must be wired into it.
