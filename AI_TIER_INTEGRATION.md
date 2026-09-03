@@ -572,19 +572,29 @@ grants the gallery signed, exactly as `cloude` and `cloude_plus` do. Setting
 `tier = 'admin'` in devtools lights up every button and buys nothing, for the
 same reason §Security gives for every other tier.
 
-So an account becomes admin on the **gallery** side, and until that lands here
-this tier changes nobody's allowance. Its half of the contract:
+So an account becomes admin on the **gallery** side. What it does there —
+implemented in `claude/admin-tier-ak9858` on tenderworld-gallery — is read the
+account's **role**:
 
-- `lib/tiers.ts` — add `admin` to the tier union, rank it above `cloude_plus`,
-  label it *Admin*. This file is the mirror of that one and has to match.
-- Whatever puts an account on a tier — mark the operators' accounts, with no
-  expiry (`tier_expires_at` null). `resolveTier()` treats an expired or banned
-  admin as free, here and there.
-- `/api/entitlements` — send `tier: 'admin'` with every feature in `features`,
-  and catalog rows with `quota: null`. A quota object with a big number would
+- An account is on the tier because `profiles.role = 'admin'`, the flag its
+  admin dashboard already authorises on. Not a stored tier: `profiles.tier`
+  keeps its `CHECK (tier IN ('free', 'cloude', 'cloude_plus'))`, so there is no
+  second thing to grant and no way to hold unmetered AI without being an admin
+  everywhere else.
+- `resolveTier()` reads the ban first, then the role, then the subscription
+  columns — so a banned admin is free like anyone else, and a lapsed
+  subscription an operator also happens to have cannot take the tier away.
+  `resolveTier()` here mirrors that, which is why it reads `record.role`.
+- `/api/entitlements` sends `tier: 'admin'` with every feature in `features`
+  and `quota: null` on each catalog row. A quota object with a big number would
   still be counted down and would still refuse on the day it ran out.
-- `/api/entitlements/grant` — issue grants for an admin without spending
-  anything, and sign them with `tier: 'admin'`.
+- `/api/entitlements/grant` issues a grant without spending anything —
+  `quotaFor()` returning null puts it on `consumeFeature()`'s existing
+  unmetered path — and signs it with `tier: 'admin'`.
+
+Two guards worth mirroring if this file grows a validator. `isSubscriptionTier()`
+is for a tier somebody is *setting* and excludes `admin`; `isTier()` is for one
+that has already been resolved and includes it.
 
 Nothing changes on our backend. `/api/ai/run` takes the *feature* from the
 grant and never the tier, so an admin's grant is checked exactly as anyone

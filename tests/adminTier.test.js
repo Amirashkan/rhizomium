@@ -44,6 +44,8 @@ const {
   TIER_LABELS,
   editorFeatures,
   hasFeature,
+  isSubscriptionTier,
+  isTier,
   quotaFor,
   requiredTier,
   resolveTier,
@@ -78,11 +80,20 @@ function adminPayload() {
 
 describe('the admin tier in the catalogue', () => {
   it('sits above Studio and is labelled as itself', () => {
-    expect(TIERS).toContain(ADMIN_TIER);
     expect(tierAtLeast(ADMIN_TIER, 'cloude_plus')).toBe(true);
     expect(tierAtLeast('cloude_plus', ADMIN_TIER)).toBe(false);
     expect(TIER_LABELS[ADMIN_TIER]).toBe('Admin');
     expect(tierLabel(ADMIN_TIER)).toBe('Admin');
+  });
+
+  it('is a tier that can be in force, never one that can be set', () => {
+    // The distinction the gallery's types now make, mirrored here: TIERS is
+    // what an account can be sold and stored on, and the admin tier is not in
+    // it. A path that could set this tier would be a path that hands it out.
+    expect(TIERS).not.toContain(ADMIN_TIER);
+    expect(isTier(ADMIN_TIER)).toBe(true);
+    expect(isSubscriptionTier(ADMIN_TIER)).toBe(false);
+    expect(isSubscriptionTier('cloude_plus')).toBe(true);
   });
 
   it('passes every tier gate', () => {
@@ -120,11 +131,25 @@ describe('the admin tier in the catalogue', () => {
     }
   });
 
-  it('expires and is revoked like any other tier', () => {
+  it('comes from the account role, and nothing else', () => {
+    expect(resolveTier({ role: 'admin', tier: 'free' })).toBe(ADMIN_TIER);
+    // A tier column claiming it promotes nobody — this is the shape a browser
+    // could put in a cached auth/check payload.
+    expect(resolveTier({ role: 'user', tier: ADMIN_TIER })).toBe('free');
+    // Only 'admin'. A moderator keeps whatever they are subscribed to.
+    expect(resolveTier({ role: 'moderator', tier: 'cloude' })).toBe('cloude');
+  });
+
+  it('does not expire, and a ban still takes it', () => {
     const past = new Date(Date.now() - 1000).toISOString();
-    expect(resolveTier({ tier: ADMIN_TIER, tier_expires_at: null })).toBe(ADMIN_TIER);
-    expect(resolveTier({ tier: ADMIN_TIER, tier_expires_at: past })).toBe('free');
-    expect(resolveTier({ tier: ADMIN_TIER, is_banned: true })).toBe('free');
+    // An operator may also hold a subscription; its lapsing is not their role
+    // lapsing.
+    expect(resolveTier({ role: 'admin', tier: 'cloude', tier_expires_at: past })).toBe(ADMIN_TIER);
+    // A ban closes every paid surface, whatever else the account is.
+    expect(resolveTier({ role: 'admin', is_banned: true })).toBe('free');
+    // And ordinary accounts are untouched by any of this.
+    expect(resolveTier({ role: 'user', tier: 'cloude', tier_expires_at: past })).toBe('free');
+    expect(resolveTier({ role: 'user', tier: 'cloude' })).toBe('cloude');
   });
 });
 

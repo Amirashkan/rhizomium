@@ -15,7 +15,13 @@
  * changes. See AI_TIER_INTEGRATION.md.
  */
 
-export const TIERS = ['free', 'cloude', 'cloude_plus', 'admin'];
+/**
+ * The tiers an account can be sold and stored on.
+ *
+ * `admin` is deliberately not here — it is not bought and never written to a
+ * profile's tier column. Mirrors TIERS in the gallery's lib/tiers.ts.
+ */
+export const TIERS = ['free', 'cloude', 'cloude_plus'];
 
 /** Higher wins. Used for "at least this tier" comparisons. */
 export const TIER_RANK = {
@@ -63,14 +69,33 @@ export const TIER_DESCRIPTIONS = {
  * same reason `cloude_plus` in devtools buys nothing — see
  * AI_TIER_INTEGRATION.md §Security.
  *
+ * On the gallery's side it is not a subscription at all: an account is on it
+ * because `profiles.role = 'admin'`, the same flag its admin dashboard
+ * authorises on. That is why `resolveTier()` below reads a role, and why the
+ * tier column claiming 'admin' promotes nobody.
+ *
  * Nothing is *sold* at this tier, so no feature names it in `FEATURES` and
  * `requiredTier()` never returns it: an upsell that told an artist to upgrade
  * to Admin would be an offer nobody can take.
  */
 export const ADMIN_TIER = 'admin';
 
-export function isTier(value) {
+/**
+ * Whether this is a tier an account can be **put on**. `admin` fails it on
+ * purpose: it comes from the account's role, and a path that could set it
+ * would be a path that hands it out.
+ */
+export function isSubscriptionTier(value) {
   return typeof value === 'string' && TIERS.includes(value);
+}
+
+/**
+ * Whether this is a tier that can be **in force** — the ones above, plus the
+ * operators'. For a tier that has already been resolved: a payload from the
+ * gallery, a grant. Never for one somebody is asking to set.
+ */
+export function isTier(value) {
+  return isSubscriptionTier(value) || value === ADMIN_TIER;
 }
 
 /**
@@ -375,15 +400,24 @@ export function editorFeatures() {
 /**
  * The tier actually in force, which is not always the one stored.
  *
- * Mirrors public.effective_tier() in the gallery's schema and resolveTier() in
- * its lib/tiers.ts. The editor rarely needs this — /api/entitlements has
- * already resolved it — but a cached `auth/check` payload carries the raw
- * columns, and an expired subscription should read as free here too.
+ * Mirrors public.effective_tier() in the gallery's schema (add_admin_tier.sql)
+ * and resolveTier() in its lib/tiers.ts. The editor rarely needs this —
+ * /api/entitlements has already resolved it — but a cached `auth/check`
+ * payload carries the raw columns, and an expired subscription should read as
+ * free here too.
+ *
+ * `record` is a profile's raw columns: `tier`, `tier_expires_at`, `is_banned`
+ * and `role`.
  */
 export function resolveTier(record, now = new Date()) {
   if (!record) return 'free';
   if (record.is_banned) return 'free';
-  if (!isTier(record.tier)) return 'free';
+  // The role, ahead of the subscription columns: the admin tier does not
+  // expire, and a lapsed subscription an operator also happens to have must
+  // not take it away. A `tier` column claiming 'admin' promotes nobody —
+  // isSubscriptionTier() refuses it, which is why this reads the role instead.
+  if (record.role === ADMIN_TIER) return ADMIN_TIER;
+  if (!isSubscriptionTier(record.tier)) return 'free';
   if (record.tier_expires_at) {
     const expires = new Date(record.tier_expires_at);
     if (!Number.isNaN(expires.getTime()) && expires.getTime() <= now.getTime()) {
