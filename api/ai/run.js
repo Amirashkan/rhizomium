@@ -38,6 +38,7 @@ import {
   BadInputError,
 } from '../_lib/features.js';
 import { validateGeneratedPatch } from '../_lib/nodeCatalog.js';
+import { shapeArc } from '../_lib/directorArc.js';
 import { refactorFit } from '../../src/ai/patchContext.js';
 
 /**
@@ -605,6 +606,14 @@ function shapeResult(feature, { input, usage }) {
 
   if (feature === 'ai.node_generator') {
     return { ...meta, result: shapeGeneratedNode(input) };
+  }
+
+  if (feature === 'ai.creative_director') {
+    // Unlike a patch, an arc that does not fit is not a failed call: the
+    // reading and the directions are most of what was paid for and stand on
+    // their own. So this trims rather than throws, and says what it trimmed.
+    const { arc, warnings } = shapeArc(input.arc);
+    return { ...meta, result: { ...input, arc }, warnings };
   }
 
   return { ...meta, result: input };

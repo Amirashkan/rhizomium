@@ -106,10 +106,12 @@ describe('the token cost of every AI feature', () => {
     // caching worth having. If these ever diverge by much, one feature has
     // grown its own preamble.
     //
-    // The spread is ~270 tokens today and the patch generator is all of it:
-    // its task text says which capability to reach for, which is the one thing
-    // that genuinely belongs to it rather than to every feature. Anything
-    // beyond this is a preamble to move into sharedContext().
+    // The spread is ~310 tokens today, and two features own it: the patch
+    // generator's task text says which capability to reach for, and the
+    // director's says what makes an arc worth applying. Both are the one thing
+    // that genuinely belongs to that feature rather than to every feature —
+    // the arc rules would cost five other features tokens they cannot use.
+    // Anything beyond this is a preamble to move into sharedContext().
     const system = ranges.map((range) => range.input.system);
     const spread = Math.max(...system) - Math.min(...system);
     expect(spread).toBeLessThan(400);
