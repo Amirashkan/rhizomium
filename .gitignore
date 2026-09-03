@@ -1,4 +1,10 @@
 node_modules/
+
+# Env files. This repo reads TIER_GRANT_SECRET and OPENAI_API_KEY on the AI
+# backend, and `vercel env pull` writes them to .env.local by default -- so
+# until now nothing here stopped a deployment's secrets being committed.
+.env*
+!.env.example
 __pycache__/
 /docs/profiling/
 coverage/
