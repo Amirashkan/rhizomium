@@ -1,6 +1,9 @@
 // src/core/AudioAnalysisProcessor.js
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
-import { getAudioAnalysisSettings } from '../audio/audioAnalysisSettings.js';
+import {
+  AUDIO_ANALYSIS_DEFAULTS,
+  clampAudioSetting,
+} from '../audio/audioAnalysisDefaults.js';
 import {
   AUDIO_INSTRUMENTS,
   AUDIO_TAP_CHANNELS,
@@ -116,11 +119,13 @@ export class AudioAnalysisProcessor {
    * copies of them on each node meant the last one written won and the rest did nothing.
    */
   _applySettingsConfig(settings) {
+    // No guards here: _resolveSettings clamps every value to its declared range on the way out of
+    // the node, so there is one place a bad number is caught rather than two that can disagree.
     this._pushConfig({
       analysis: {
-        attack_ms: Math.max(1, settings.attack),
-        release_ms: Math.max(1, settings.release),
-        gain: Math.max(0, settings.gain),
+        attack_ms: settings.attack,
+        release_ms: settings.release,
+        gain: settings.gain,
       },
     });
   }
@@ -271,8 +276,12 @@ export class AudioAnalysisProcessor {
   }
 
   /**
-   * The analysis's settings this frame: the setup node's parameters when the patch has one,
-   * otherwise the stored defaults the panel edits.
+   * The analysis's settings this frame: the Audio node's parameters, or the built-in defaults when
+   * the patch has no Audio node.
+   *
+   * The node is the only writable home for these. There used to be a localStorage store beside it
+   * that the panel wrote to, which meant a patch could carry two disagreeing copies of the same
+   * number with nothing on screen saying which one the engine had picked.
    *
    * The node's are read through the shared parameter evaluator, so a threshold written as `=midi`
    * (or `=midi * 0.6 + 0.2`, or anything reading the clock) is a live number every frame rather
@@ -280,12 +289,14 @@ export class AudioAnalysisProcessor {
    * at all. See core/numericParam.js.
    */
   _resolveSettings(setup, ctx) {
-    const stored = getAudioAnalysisSettings();
-    if (!setup) return stored;
+    if (!setup) return { ...AUDIO_ANALYSIS_DEFAULTS };
 
     const resolved = {};
-    for (const [name, fallback] of Object.entries(stored)) {
-      resolved[name] = this._numericParam(setup, name, fallback, ctx);
+    for (const [name, fallback] of Object.entries(AUDIO_ANALYSIS_DEFAULTS)) {
+      // Clamped here, once, on the way out of the node. A parameter can hold an expression and an
+      // expression can produce anything: a release of -5 ms or a threshold of 40 does not just
+      // misbehave, it wedges the detector.
+      resolved[name] = clampAudioSetting(name, this._numericParam(setup, name, fallback, ctx));
     }
     // What the panel draws as the marker on each drum's meter: the number actually decided on,
     // after any expression or controller reading, not the text in the field.

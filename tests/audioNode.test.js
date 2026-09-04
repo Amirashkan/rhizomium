@@ -22,10 +22,9 @@ import {
 } from '../src/parameters/ExternalParameterControl.js';
 import { MIDIParameterBinding } from '../src/midi/MIDIParameterBinding.js';
 import {
-  getAudioAnalysisSettings,
-  resetAudioAnalysisSettings,
-  updateAudioAnalysisSettings,
-} from '../src/audio/audioAnalysisSettings.js';
+  AUDIO_ANALYSIS_DEFAULTS,
+  clampAudioSetting,
+} from '../src/audio/audioAnalysisDefaults.js';
 
 function makeGraph(nodes) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -85,12 +84,10 @@ function makeRig(nodes) {
 describe('Audio node', () => {
   beforeEach(() => {
     window._audioBands = undefined;
-    resetAudioAnalysisSettings();
     setAudioTapsWanted(false);
   });
   afterEach(() => {
     delete window._audioBands;
-    resetAudioAnalysisSettings();
     setAudioTapsWanted(false);
     clearExternalReadings('a');
     clearExternalReadings('b');
@@ -292,17 +289,25 @@ describe('Audio node', () => {
       expect(env.__audio_value).toBeLessThan(1);
     });
 
-    it('falls back to the stored settings when the patch has no setup node', () => {
+    it('falls back to the built-in defaults when the patch has no Audio node', () => {
       const tap = tapNode('a', 'kickTrig');
       const rig = makeRig([tap]);
 
-      updateAudioAnalysisSettings({ kickThresh: 0.3 });
+      // The default threshold is 0.5, so a peak of 0.6 is a hit and a peak of 0.4 is not.
       let fired = 0;
-      for (const v of [0.05, 0.2, 0.4, 0.2, 0.05]) {
+      for (const v of [0.05, 0.2, 0.6, 0.2, 0.05]) {
         rig.step({ kick: v });
         fired += tap.__audio_value;
       }
       expect(fired).toBe(1);
+      expect(AUDIO_ANALYSIS_DEFAULTS.kickThresh).toBe(0.5);
+
+      let quiet = 0;
+      for (const v of [0.05, 0.2, 0.4, 0.2, 0.05]) {
+        rig.step({ kick: v });
+        quiet += tap.__audio_value;
+      }
+      expect(quiet).toBe(0);
     });
 
     it('publishes every channel for the panel to display', () => {
@@ -336,13 +341,22 @@ describe('Audio node', () => {
       expect(getAudioTapValues().level).toBe(0);
     });
 
-    it('pushes the panel meter shaping to the engine', () => {
-      const rig = makeRig([tapNode('a', 'level')]);
-      updateAudioAnalysisSettings({ attack: 20, release: 300, gain: 2 });
+    it('pushes the Audio node meter shaping to the engine', () => {
+      const setup = { id: 'setup', kind: 'Audio', params: { attack: 20, release: 300, gain: 2 }, inputs: [] };
+      const rig = makeRig([setup, tapNode('a', 'level')]);
       rig.step({ level: 0.5 });
 
       expect(rig.proc._audioClient.configs.at(-1)).toEqual({
         analysis: { attack_ms: 20, release_ms: 300, gain: 2 },
+      });
+    });
+
+    it('pushes the built-in defaults with no Audio node', () => {
+      const rig = makeRig([tapNode('a', 'level')]);
+      rig.step({ level: 0.5 });
+
+      expect(rig.proc._audioClient.configs.at(-1)).toEqual({
+        analysis: { attack_ms: 8, release_ms: 120, gain: 1 },
       });
     });
 
@@ -416,18 +430,30 @@ describe('Audio node', () => {
     });
   });
 
-  describe('shared settings', () => {
+  describe('the settings declaration', () => {
+    // A value out of range does not merely misbehave, it wedges the detector: a release of -5 ms or
+    // a threshold of 40 leaves an instrument that can never fire. A parameter can hold an
+    // expression and an expression can produce anything, so the engine takes the nearest usable
+    // number instead of the one it was handed.
     it('clamps to a usable range instead of rejecting an out-of-range value', () => {
-      expect(updateAudioAnalysisSettings({ kickThresh: 4 }).kickThresh).toBe(1);
-      expect(updateAudioAnalysisSettings({ gain: -2 }).gain).toBe(0);
-      expect(updateAudioAnalysisSettings({ attack: 'nonsense' }).attack)
-        .toBe(getAudioAnalysisSettings().attack);
+      expect(clampAudioSetting('kickThresh', 4)).toBe(1);
+      expect(clampAudioSetting('gain', -2)).toBe(0);
+      expect(clampAudioSetting('release', 0)).toBe(1);
+      expect(clampAudioSetting('attack', 'nonsense')).toBe(AUDIO_ANALYSIS_DEFAULTS.attack);
     });
 
-    it('hands back a copy, so a caller cannot mutate the shared state', () => {
-      const snapshot = getAudioAnalysisSettings();
-      snapshot.gain = 99;
-      expect(getAudioAnalysisSettings().gain).not.toBe(99);
+    it('clamps what the processor reads off a node, not just what a field accepts', () => {
+      const setup = {
+        id: 'setup', kind: 'Audio',
+        // An expression is the way a wild number actually gets here.
+        params: { kickThresh: '=1 + 40', release: '=0 - 5' },
+        inputs: [],
+      };
+      const rig = makeRig([setup, tapNode('a', 'kickTrig')]);
+      rig.step({ kick: 0.9 });
+
+      expect(setup.__audio_settings.kickThresh).toBe(1);
+      expect(setup.__audio_settings.release).toBe(1);
     });
   });
 });

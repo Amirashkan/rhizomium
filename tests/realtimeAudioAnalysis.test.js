@@ -312,4 +312,46 @@ describe('the drum meter has room above where hits land', () => {
     const above = contrastMeter(2 ** (0.8 * Math.log2(24) + 0.001));
     expect(Math.abs(above - below)).toBeLessThan(0.005);
   });
+
+  // Gain used to be documented as a "manual trim on top of the auto-gain" and applied only on the
+  // tonal path. On a drum band it did nothing at all — the meter there is a RATIO of a band against
+  // its own background, and a trim multiplies both halves, so it cancels exactly. Measured before
+  // the fix: gain 0.1 and gain 4 gave a kick meter of 0.846 and 0.876. Those are the meters every
+  // threshold is set against, so from the artist's seat the control was dead.
+  describe('gain on a drum meter', () => {
+    it('leaves the meter alone at 1', () => {
+      expect(contrastMeter(6, 1)).toBeCloseTo(contrastMeter(6));
+    });
+
+    it('moves full scale rather than the reading', () => {
+      const plain = contrastMeter(6);
+      expect(contrastMeter(6, 2)).toBeGreaterThan(plain);
+      expect(contrastMeter(6, 0.5)).toBeLessThan(plain);
+    });
+
+    it('is monotonic in gain across the range a hit occupies', () => {
+      for (const contrast of [2, 4, 8.4, 12.8]) {
+        let previous = -1;
+        for (const gain of [0.25, 0.5, 1, 2, 4]) {
+          const meter = contrastMeter(contrast, gain);
+          expect(meter).toBeGreaterThan(previous);
+          previous = meter;
+        }
+      }
+    });
+
+    it('stays inside 0..1 however far the gain is pushed', () => {
+      for (const gain of [0, 0.05, 1, 8]) {
+        for (const contrast of [1.001, 2, 24, 500]) {
+          const meter = contrastMeter(contrast, gain);
+          expect(meter).toBeGreaterThanOrEqual(0);
+          expect(meter).toBeLessThanOrEqual(1);
+        }
+      }
+    });
+
+    it('reads zero at gain 0, which is what a gain of nothing means', () => {
+      expect(contrastMeter(12, 0)).toBe(0);
+    });
+  });
 });

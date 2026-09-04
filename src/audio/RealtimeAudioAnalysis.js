@@ -139,9 +139,14 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
  * increasing and never reaching 1, which is what keeps a threshold meaningful however extreme the
  * material gets.
  */
-export function contrastMeter(contrast) {
-  if (!(contrast > 1)) return 0;
-  const x = Math.log2(contrast) / LOG_CONTRAST_FULL;
+export function contrastMeter(contrast, gain = 1) {
+  if (!(contrast > 1) || !(gain > 0)) return 0;
+  // Gain moves full scale rather than the reading: at 2 a hit needs half as big a jump above its
+  // background to reach the top, at 0.5 twice as big. Scaling the reading itself would do nothing
+  // here — the contrast is a RATIO, and a trim applied to a band multiplies its level and its own
+  // background alike, so it cancels out exactly. That is why the control appeared dead on the drum
+  // meters, which are the ones a threshold is set against.
+  const x = gain * Math.log2(contrast) / LOG_CONTRAST_FULL;
   if (x <= CONTRAST_KNEE) return x;
   const headroom = 1 - CONTRAST_KNEE;
   return 1 - headroom * Math.exp(-(x - CONTRAST_KNEE) / headroom);
@@ -203,7 +208,9 @@ export class RealtimeAudioAnalysis {
    * @param {Object} opts
    * @param {number} opts.attackMs - how fast a meter rises. Short, so a hit is not rounded off.
    * @param {number} opts.releaseMs - how fast it falls back, which sets how long a hit reads as one.
-   * @param {number} opts.gain - manual trim on top of the auto-gain.
+   * @param {number} opts.gain - how hot the meters read. On a tonal band it is a trim on top of the
+ *   auto-gain; on a drum band it moves where full scale sits, since a trim would cancel in the
+ *   ratio that band's meter is built from.
    */
   process(analyser, dt, { attackMs = 8, releaseMs = 120, gain = 1 } = {}) {
     if (!analyser) return this.out;
@@ -258,8 +265,10 @@ export class RealtimeAudioAnalysis {
         // Instrument band: measure the hit against this band's own recent background.
         //
         // The follower runs on the RAW band level, deliberately skipping the auto-gain and the
-        // manual trim. Both cancel in the ratio below, so applying them would only couple this
-        // meter back to material in other bands — the bug this path exists to fix.
+        // manual trim. Both cancel in the ratio below, so applying them here would only couple this
+        // meter back to material in other bands — the bug this path exists to fix. The manual trim
+        // still reaches the meter, further down, where it can mean something: it moves full scale
+        // rather than the level. See contrastMeter.
         const target = audible ? rms : 0;
         st.frames++;
         if (st.frames === 1) {
@@ -284,7 +293,7 @@ export class RealtimeAudioAnalysis {
         // loudness sits at ratio 1 and reads 0; only a jump above the background moves the meter,
         // which is why a held bass note in the kick band no longer parks it halfway up.
         const ref = Math.max(st.slow, AUDIBLE_FLOOR);
-        st.meter = audible ? contrastMeter(st.env / ref) : 0;
+        st.meter = audible ? contrastMeter(st.env / ref, gain) : 0;
       } else {
         // Tonal band: an absolute reading, auto-gained and scaled to land in range.
         const target = audible ? rms * g : 0;

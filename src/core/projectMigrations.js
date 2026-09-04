@@ -279,7 +279,7 @@ const migrations = {
   // That node carried fifteen output pins and every setting the analysis has, which was the wrong
   // shape twice over: a patch using two of its pins still dragged the other thirteen across the
   // canvas, and each copy of the shaping settings fought over the one engine that actually exists
-  // (they now live in the Audio panel — see audio/audioAnalysisSettings.js).
+  // (there is one Audio node carrying them now — see data/nodes/InputNodes.js).
   //
   // A saved node becomes one Audio node per pin the patch ACTUALLY used — wired, or named by a
   // `=node_<id>_N` reference — so a patch that only read `level` comes back as one node rather than
@@ -470,7 +470,7 @@ const migrations = {
       return { ...node, kind: "AudioValue", params };
     });
 
-    // Only worth a node if something was actually dialled in; otherwise the stored defaults still
+    // Only worth a node if something was actually dialled in; otherwise the built-in defaults still
     // hold and the patch stays as small as it was.
     const carried = Object.keys(thresholds);
     let setupId = null;
