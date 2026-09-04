@@ -40,6 +40,13 @@ impl PendingOpen {
     }
 
     /// Record a path the OS gave us, and park it for the frontend.
+    ///
+    /// The only caller is `handle_opened`, which is macOS/iOS-only, so on every
+    /// other platform this is genuinely dead code and rustc says so. The
+    /// warning is correct and not actionable — a Windows build has no
+    /// `RunEvent::Opened` to answer — so silence it exactly where it applies.
+    /// Left loud on Apple targets, where an unused `offer` would be a real bug.
+    #[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(dead_code))]
     fn offer(&self, path: String) {
         if let Ok(mut offered) = self.offered.lock() {
             offered.insert(path.clone());

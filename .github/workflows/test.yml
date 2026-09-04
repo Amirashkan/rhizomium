@@ -125,10 +125,119 @@ jobs:
             coverage/
             test-results/
 
+  # The Rust half of the desktop app, on every pull request.
+  #
+  # Until this existed, src-tauri was compiled by exactly one workflow —
+  # desktop-release.yml, which runs on a version tag. That is the wrong moment
+  # to learn the crate does not build: the tag is the release. So `cargo check`
+  # runs here instead, where a break costs a red pull request rather than a
+  # pulled release.
+  #
+  # Windows only, matching desktop-release.yml. That leaves a real gap and it
+  # is deliberate rather than overlooked: handle_opened() and its try_state
+  # deref in src/lib.rs are behind #[cfg(any(target_os = "macos", target_os =
+  # "ios"))], so no Windows compiler ever looks inside them. See
+  # SECURITY_OPEN_ITEMS.md — the macOS file-open path is still uncompiled, and
+  # a cross-target check from this runner cannot cover it (see the note below).
+  rust-check:
+    name: Rust (Tauri)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Same cache configuration as desktop-release.yml, so the two jobs share
+      # the compiled dependency tree rather than each paying for it.
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Not optional: tauri-build reads `frontendDist` ("../dist") from
+      # tauri.conf.json and fails the build script outright if that directory
+      # does not exist, so the frontend has to be built before cargo runs.
+      - name: Build the frontend tauri-build expects
+        run: npm run build:desktop
+
+      - name: cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
+      # Advisory to begin with. Clippy has never run on this crate, so nobody
+      # knows what it will say; failing pull requests on its first opinion
+      # would be a poor trade. Promote it to blocking once the backlog (if
+      # any) is cleared.
+      - name: cargo clippy
+        continue-on-error: true
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+
+      # No cross-target macOS check here: it was tried on run 848 and cannot
+      # work. `cargo check` does not link Rust crates, but it does still run
+      # build scripts, and objc2-exception-helper's compiles Objective-C
+      # (src/try_catch.m) with cc-rs — the Windows cc rejects `-arch arm64` and
+      # `-mmacosx-version-min` outright. Type-checking the cfg(macos) code
+      # needs a real Apple toolchain, so the gap stands as recorded in
+      # SECURITY_OPEN_ITEMS.md until there is a macOS runner.
+
+  # src-tauri/Cargo.lock has never been checked against RustSec. Nobody knows
+  # what a Tauri dependency tree will report, so this is advisory: it publishes
+  # the answer in the job summary without wedging every pull request on a
+  # transitive advisory with no fix. Make it blocking once the first result has
+  # been read.
+  #
+  # cargo-audit is installed with cargo rather than through a RustSec action:
+  # the only third-party actions here are ones the repo already trusts, which
+  # is worth keeping as the repository heads for public.
+  rust-audit:
+    name: Rust dependency audit (advisory)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Building cargo-audit from source is a few minutes cold, and it changes
+      # far less often than the lockfile it inspects.
+      - name: Cache cargo-audit
+        id: cache-audit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-v1
+
+      - name: Install cargo-audit
+        if: steps.cache-audit.outputs.cache-hit != 'true'
+        run: cargo install cargo-audit --locked
+
+      - name: cargo audit
+        id: audit
+        continue-on-error: true
+        run: |
+          cargo audit --file src-tauri/Cargo.lock | tee audit.txt
+          echo '## Rust dependency audit' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat audit.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [lint-and-build, unit-tests, integration-tests, performance-tests]
+    needs: [lint-and-build, unit-tests, integration-tests, performance-tests, rust-check, rust-audit]
     if: always()
     
     steps:
@@ -143,6 +252,10 @@ jobs:
           UNIT_RESULT="${{ needs.unit-tests.result }}"
           INTEGRATION_RESULT="${{ needs.integration-tests.result }}"
           PERFORMANCE_RESULT="${{ needs.performance-tests.result }}"
+          RUST_RESULT="${{ needs.rust-check.result }}"
+          # Advisory — reported in the table, deliberately absent from the
+          # pass/fail condition below.
+          AUDIT_RESULT="${{ needs.rust-audit.result }}"
           
           # Map results to emoji and status text
           get_status() {
@@ -161,9 +274,11 @@ jobs:
           echo "| **Unit Tests** (Node 20.x, 22.x) | $(get_status "$UNIT_RESULT") |" >> $GITHUB_STEP_SUMMARY
           echo "| **Integration Tests** | $(get_status "$INTEGRATION_RESULT") |" >> $GITHUB_STEP_SUMMARY
           echo "| **Performance Tests** | $(get_status "$PERFORMANCE_RESULT") |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Rust (Tauri)** | $(get_status "$RUST_RESULT") |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Rust audit** (advisory — findings in that job's summary) | $(get_status "$AUDIT_RESULT") |" >> $GITHUB_STEP_SUMMARY
           
           # Exit with failure if any test suite failed
-          if [ "$LINT_RESULT" != "success" ] || [ "$UNIT_RESULT" != "success" ] || [ "$INTEGRATION_RESULT" != "success" ] || [ "$PERFORMANCE_RESULT" != "success" ]; then
+          if [ "$LINT_RESULT" != "success" ] || [ "$UNIT_RESULT" != "success" ] || [ "$INTEGRATION_RESULT" != "success" ] || [ "$PERFORMANCE_RESULT" != "success" ] || [ "$RUST_RESULT" != "success" ]; then
             exit 1
           fi
 

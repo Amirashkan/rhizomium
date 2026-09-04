@@ -98,8 +98,8 @@ describe('the web viewer CSP', () => {
   });
 
   it('runs no inline script — the viewer page has none to run', () => {
-    // The editor's policy still needs 'unsafe-inline' for its own markup. This
-    // page was written after that lesson, so it should never acquire it.
+    // This page was written that way from the start; the editor and the splash
+    // have since been brought to the same line (see the suite below).
     expect(directive(viewerMetaPolicy(), 'script-src')).toEqual(["'self'"]);
   });
 
@@ -109,5 +109,61 @@ describe('the web viewer CSP', () => {
     for (const name of ['img-src', 'media-src']) {
       expect(directive(viewerMetaPolicy(), name)).toEqual(expect.arrayContaining(['data:', 'blob:']));
     }
+  });
+});
+
+// No page the app ships may run inline script.
+//
+// `script-src 'unsafe-inline'` was the last real hole in an otherwise tight
+// policy, and it mattered here more than it does in most apps: the editor
+// renders patches other people wrote, and `connect-src` reaches the gallery, so
+// script injected into the editor could read the machine and upload what it
+// found to the attacker's own account. The three inline blocks that required
+// the exemption — the splash's version line, the editor's device check, and the
+// warning overlay's onclick — are modules under src/ now.
+//
+// The failure mode this guards is quiet in one direction and loud in the other:
+// re-adding 'unsafe-inline' silently gives the hole back, and adding an inline
+// <script> without it leaves a page that only breaks once it is running under
+// the real policy, which no other test loads. So check both halves — the
+// policies, and the markup they have to be true of.
+describe('no page runs inline script', () => {
+  // Every HTML page either build emits. viewer/ is web-only and splash.html is
+  // desktop-only; the editor and the second monitor ship in both.
+  const PAGES = [
+    'editor/index.html',
+    'editor/second-monitor.html',
+    'viewer/index.html',
+    'splash.html',
+    'index.html',
+  ];
+
+  it.each([
+    ['the editor meta CSP (web build)', () => editorMetaPolicy()],
+    ['the Tauri CSP (desktop build)', () => tauriPolicy()],
+    ['the viewer meta CSP', () => viewerMetaPolicy()],
+  ])('%s forbids inline script', (_name, policy) => {
+    expect(directive(policy(), 'script-src')).toEqual(["'self'"]);
+  });
+
+  it.each(PAGES)('%s has no inline <script> block', (page) => {
+    const html = readFileSync(join(repoRoot, page), 'utf8');
+    const inline = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)]
+      .filter(([, attrs, body]) => !/\bsrc=/.test(attrs) && body.trim())
+      .map(([, , body]) => body.trim().slice(0, 80));
+    expect(inline).toEqual([]);
+  });
+
+  it.each(PAGES)('%s has no inline event-handler attribute', (page) => {
+    const html = readFileSync(join(repoRoot, page), 'utf8');
+    // onclick=, onload=, onerror=... An attribute handler is inline script and
+    // is blocked by the same directive; bind it with addEventListener instead.
+    const handlers = [...html.matchAll(/\son[a-zA-Z]+\s*=\s*["']/g)].map((m) => m[0].trim());
+    expect(handlers).toEqual([]);
+  });
+
+  it.each(PAGES)('%s has no javascript: URL', (page) => {
+    const html = readFileSync(join(repoRoot, page), 'utf8');
+    expect(html).not.toMatch(/["'(]\s*javascript:/i);
   });
 });

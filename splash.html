@@ -196,25 +196,9 @@
       </div>
     </div>
 
-    <!-- type="module" so Vite processes the block and substitutes
-         __APP_VERSION__; a classic script is copied through untouched. -->
-    <script type="module">
-      // Two honest pieces of state, and nothing else.
-      //
-      // 1. The version, so a tester can tell at a glance which build launched.
-      //    __APP_VERSION__ is substituted by Vite from package.json.
-      // 2. A "slower than usual" line. The editor is a GPU app: on a cold
-      //    shader cache, or behind a driver that is spinning up a discrete
-      //    card, boot legitimately takes a while. Saying so beats a silent box
-      //    — and if it never resolves at all, the Rust side gives up on the
-      //    splash after SPLASH_TIMEOUT and shows the editor window anyway, so
-      //    the app can still be closed the normal way.
-      document.getElementById("version").textContent = "v" + __APP_VERSION__;
-
-      setTimeout(() => {
-        const status = document.getElementById("status");
-        if (status) status.textContent = "Still starting — warming up the GPU…";
-      }, 8000);
-    </script>
+    <!-- An external module, not an inline block: the webview's CSP no longer
+         allows inline script. Vite still substitutes the version, because it
+         processes the module it emits for this entry. -->
+    <script type="module" src="./src/ui/splashBoot.js"></script>
   </body>
 </html>
