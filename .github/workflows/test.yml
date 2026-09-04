@@ -138,7 +138,7 @@ jobs:
   # deref in src/lib.rs are behind #[cfg(any(target_os = "macos", target_os =
   # "ios"))], so no Windows compiler ever looks inside them. See
   # SECURITY_OPEN_ITEMS.md — the macOS file-open path is still uncompiled, and
-  # the cross-target step below is the cheap attempt at covering it.
+  # a cross-target check from this runner cannot cover it (see the note below).
   rust-check:
     name: Rust (Tauri)
     runs-on: windows-latest
@@ -184,23 +184,13 @@ jobs:
         continue-on-error: true
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
 
-      # An experiment, and free: `cargo check` does not link, so a macOS target
-      # may well type-check from a Windows host, which would give the
-      # cfg(macos) code the compiler coverage it has never had without paying
-      # for a macOS runner (they bill at 10x while this repo is private).
-      #
-      # Whether Tauri's Apple-side dependencies actually check cross-target is
-      # not something that can be answered from a container with no crates.io
-      # access — the first run of this step answers it. Non-blocking either
-      # way: if it works, promote it and close the gap; if it does not, delete
-      # these two steps and the gap stays recorded in SECURITY_OPEN_ITEMS.md.
-      - name: Add the macOS target (experiment)
-        continue-on-error: true
-        run: rustup target add aarch64-apple-darwin
-
-      - name: cargo check for macOS, from Windows (experiment)
-        continue-on-error: true
-        run: cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin
+      # No cross-target macOS check here: it was tried on run 848 and cannot
+      # work. `cargo check` does not link Rust crates, but it does still run
+      # build scripts, and objc2-exception-helper's compiles Objective-C
+      # (src/try_catch.m) with cc-rs — the Windows cc rejects `-arch arm64` and
+      # `-mmacosx-version-min` outright. Type-checking the cfg(macos) code
+      # needs a real Apple toolchain, so the gap stands as recorded in
+      # SECURITY_OPEN_ITEMS.md until there is a macOS runner.
 
   # src-tauri/Cargo.lock has never been checked against RustSec. Nobody knows
   # what a Tauri dependency tree will report, so this is advisory: it publishes
