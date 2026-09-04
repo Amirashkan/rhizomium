@@ -489,7 +489,7 @@ updateTimeNodes() {
     // visual node on it EVERY frame — that per-frame GPU work froze the editor when a Count (or any
     // node) was wired between a Random Value and the output. Wired clock->visual thumbnails stay on
     // the normal cadence, matching how wired Time references already behave
-    // (see TIME_NODE_REFERENCE_NOTES.md). Only its visual consumers are re-rendered, via the
+    // (see docs/internal/TIME_NODE_REFERENCE_NOTES.md). Only its visual consumers are re-rendered, via the
     // isVisualNode filter below.
     for (const node of this.editor.graph.nodes) {
       const clockKind = node?.kind?.toLowerCase();

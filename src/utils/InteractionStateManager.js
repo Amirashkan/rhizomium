@@ -135,7 +135,7 @@ export class InteractionStateManager {
       this.interactionStartTime = performance.now();
       this.interactionDuration = 0;
       // Quality reduction removed - always use full quality
-      // See PERFORMANCE_WORKAROUND_POLICY.md
+      // See docs/internal/PERFORMANCE_WORKAROUND_POLICY.md
     }
     
     // Emit interaction start event

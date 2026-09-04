@@ -3,7 +3,7 @@
 
 /**
  * Default throttling configuration per trigger type
- * See REDRAW_THROTTLING_POLICY.md for detailed documentation
+ * See docs/REDRAW_THROTTLING_POLICY.md for detailed documentation
  */
 const DEFAULT_TRIGGER_CONFIG = {
   // User Interaction Events

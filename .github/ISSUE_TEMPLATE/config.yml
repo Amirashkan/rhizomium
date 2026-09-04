@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or idea
+    url: https://github.com/Amirashkan/glsl-node-editor/discussions
+    about: For anything that is not a specific bug or a concrete proposal.
+  - name: Security vulnerability
+    url: https://github.com/Amirashkan/glsl-node-editor/security/advisories/new
+    about: Report privately. Please do not open a public issue.
+  - name: Documentation
+    url: https://studio.tenderworld.org/docs
+    about: User guide, node reference and tutorials.

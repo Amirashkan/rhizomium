@@ -1,269 +1,228 @@
-# Rhizomium — GLSL Node Editor
+# Rhizomium
 
-A modular GPU node environment built for real-time generative visuals with WebGPU and IPC-based external viewer support.
+A node editor for real-time generative visuals. Build a shader by connecting
+nodes, drive any parameter from audio, MIDI, OSC or a timeline, and push the
+result to a projector, a video wall or an NDI feed.
 
-## 🚀 Quick Start
+Runs in the browser on WebGPU. No installation, no account.
 
-### 1. Install Dependencies
+[**Open the editor →**](https://studio.tenderworld.org/studio) ·
+[Documentation](https://studio.tenderworld.org/docs) ·
+[Contributing](CONTRIBUTING.md) · [Architecture](ARCHITECTURE.md)
+
+> **Requires WebGPU:** Chrome or Edge 113+. Firefox and Safari support is
+> arriving but is not there yet. Nothing else is needed to try it.
+
+---
+
+## Run it locally
+
+```bash
+git clone https://github.com/Amirashkan/glsl-node-editor
+cd glsl-node-editor
+npm install
+npm run dev
+```
+
+That is the whole development setup. The editor opens on
+`http://localhost:5173`, renders locally, and saves `.rz` patches to disk. No
+Python, no account, no API key.
+
+The Python servers in this repository are **optional bridges** for things a
+browser cannot do itself — receiving OSC over UDP, sending NDI, streaming
+frames to a native viewer. They are described under
+[Local bridges](#local-bridges) below. You do not need them to work on the
+editor.
+
+```bash
+npm test        # ~222 test files (Vitest)
+npm run lint
+npm run build:web
+```
+
+## What is open, and what is a service
+
+Rhizomium is [AGPL-3.0-or-later](LICENSE). The editor is complete on its own:
+it runs, renders and saves patches offline, forever, for free.
+
+Two things in the wider product are services rather than parts of this
+repository:
+
+- **The gallery** (`art.tenderworld.org`) — accounts, patch sharing, plans and
+  billing. A separate closed codebase. Nothing here requires it.
+- **Hosted model usage** behind `api/ai/run.js`. That endpoint is AGPL like
+  everything else and you can deploy it against your own OpenAI key; what a
+  plan buys is *our* deployment of it.
+
+Some features in the editor are gated on a plan — the web viewer, multi-screen
+output, the generative AI tools. The gate is real and enforced server-side
+(`api/_lib/grant.js`), and it is deliberately visible in the source. Setting
+your tier in devtools lights up the buttons and earns you a 401.
+
+**Working on AI features without an account:** set `AI_DEBUG_MODE` and use the
+unsigned debug grant — see `src/ai/debugMode.js`. This is the supported local
+path.
+
+For redistribution or embedding under terms other than the AGPL, see
+[COMMERCIAL.md](COMMERCIAL.md). Names and logos are reserved — see
+[NOTICE](NOTICE).
+
+## Contributing
+
+Contributions are welcome, and the engine is where help is most valuable:
+shader codegen, the WebGPU renderer, and the graph model.
+
+Start with **[ARCHITECTURE.md](ARCHITECTURE.md)** — it traces one signal from a
+node on the canvas to pixels on screen and names the file that owns each step.
+Then [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests and the sign-off we
+ask for.
+
+Adding a node is usually two files: a definition in `src/data/nodes/` and an
+emitter in `src/codegen/compilers/`. There is a walkthrough in
+[ARCHITECTURE.md § Adding a node](ARCHITECTURE.md#adding-a-node).
+
+Issues labelled `good first issue` are a reasonable entry point. If you are
+unsure whether something is wanted, open an issue before writing the patch.
+
+## Features
+
+- **WebGPU rendering** with a WGSL shader compiled from the graph
+- **Compute nodes** alongside fragment nodes, with automatic bridging
+- **Expressions** on any parameter, evaluated by an AST interpreter (never `eval`)
+- **Audio reactivity** — mic or system audio, with envelope following
+- **MIDI** and **OSC** parameter mapping, with learn mode
+- **Timeline** keyframing
+- **3D viewport** and field visualisation
+- **Multi-screen output** and projection mapping *(plan feature)*
+- **NDI output** to a vision mixer or OBS
+- **Web patch viewer** — a link to a patch running live *(plan feature)*
+- **Desktop app** via Tauri (Windows)
+- **AI assistance** — patch review, refactoring, a creative director *(plan feature)*
+
+## Desktop app (Tauri)
+
+The editor also runs as a native app, **shipped for Windows**. It opens
+straight into the editor; the landing page is left out of the bundle and a
+small loading window (`splash.html`) shows while the editor boots.
+
+```bash
+npm run tauri:dev      # run in development
+npm run tauri:build    # build a distributable
+```
+
+The `.msi` and NSIS `.exe` land in `src-tauri/target/release/bundle/`. Pushing
+a `v*` tag builds them in CI and attaches them to a draft release
+(`.github/workflows/desktop-release.yml`).
+
+> Tauri renders in the OS WebView, so WebGPU support is the OS's, not Tauri's —
+> and WebView2 on Windows is the only one that reliably has it today. That is
+> why Windows is the only bundled platform; `tauri:dev` runs anywhere.
+> Details in [docs/internal/DESKTOP_APP.md](docs/internal/DESKTOP_APP.md).
+
+## Multi-screen output
+
+*Vite dev server and desktop build only.*
+
+**View → Open Output** opens chrome-free black windows on the displays the
+patch is thrown onto and renders the live output there, letterboxed and
+centred — a performance surface with no editor UI. The output paints on its own
+animation frame, so it keeps the second display's refresh rate even when the
+editor window is occluded. **Esc** closes it; **F** or double-click toggles
+fullscreen.
+
+**View → Output Screens…** lays a rig out across several displays: a projector
+panorama, a video wall, or a stage where each surface shows its own slice. Every
+screen renders the same composition and shows its own region of it, with
+one-click layouts (2 across, 3 across, 2 × 2), edge-blend overlap for
+projectors, and per-screen display and resolution. The composition's state is
+broadcast once for the whole rig, so extra screens cost the editor almost
+nothing. Requires the `output.multiscreen` entitlement; the rig saves with the
+project. See [docs/multi-screen.md](docs/multi-screen.md).
+
+Two backends are chosen automatically:
+
+- **Desktop (Tauri):** the OS WebView blocks `window.open()`, so a borderless
+  native window is created on the detected display via the Tauri window API and
+  driven to true OS fullscreen. The editor mirrors `#gpu-canvas` by
+  broadcasting frames over a same-origin `BroadcastChannel`;
+  `editor/second-monitor.html` paints them. Needs the window/webview
+  permissions in `src-tauri/capabilities/default.json`.
+- **Browser (`npm run dev`):** a borderless popup opened synchronously inside
+  the click and placed on an external display via the Window Management API
+  (`getScreenDetails`), falling back to a draggable popup.
+
+Hidden in the raw web deployments, where the in-editor floating preview is the
+only output surface. The build is detected at runtime through
+`import.meta.env` (`src/utils/isViteBuild.js`); the desktop path also checks
+the Tauri globals (`src/utils/isTauri.js`).
+
+## Web patch viewer (`/viewer`)
+
+A published patch running live in a browser with no editor around it — the page
+a link to your work leads to. **File → Open in Web Viewer**
+(`Ctrl/⌘+Shift+W`) opens the patch you are editing in a second tab, handed over
+through IndexedDB rather than through the gallery, so looking at your own work
+does not mean publishing it first.
+
+Requires the `viewer.web` entitlement, and unlike the live-output features it
+refuses when the gallery is unreachable rather than allowing. Audio, MIDI, OSC
+and the 3D field visualisers do not travel with a patch, and the page says so
+under the render. See [docs/web-viewer.md](docs/web-viewer.md).
+
+Web only: the desktop app's WebView blocks `window.open()`, and the
+second-monitor viewer is its full-screen surface.
+
+## Local bridges
+
+Optional Python processes for protocols a browser cannot speak. All are
+local-only and cannot work on a static web deploy.
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Start the Server
+**OSC** — arrives over UDP, which a browser cannot listen for, so a small
+bridge forwards it. It starts automatically with `npm run dev`,
+`npm run tauri:dev` and `python rhizo_server.py`; alongside a built desktop
+binary run `npm run osc`. Open **Tools → OSC Receiver**, click **Connect**, and
+point your sender at `udp://<this machine>:9000`. To map a control: select a
+node, click a parameter field, click **Start OSC Learn**, then move the
+control. Details in [src/osc/README.md](src/osc/README.md).
 
-**Linux/Mac:**
-```bash
-./START_SERVER.sh
-```
+**NDI** — publishes the render onto the network for a vision mixer, OBS or
+another machine. Run `npm run ndi`, then **View → NDI Output**
+(`Mod+Shift+N`). Needs the runtime from <https://ndi.video/> and
+`pip install cyndilib`; without them the bridge still runs and reports which is
+missing rather than leaving a dead toggle. Details in
+[src/output/README.md](src/output/README.md).
 
-**Windows:**
-```batch
-START_SERVER.bat
-```
+**External viewer** — IPC frame streaming to a native window. Run
+`python rhizo_server.py`, then **Open External Viewer** in the toolbar. See
+[docs/internal/RHIZOMIUM_VIEWER_SETUP.md](docs/internal/RHIZOMIUM_VIEWER_SETUP.md).
 
-**Or manually:**
-```bash
-python rhizo_server.py
-```
+**MIDI** needs no bridge — it is Web MIDI. See
+[src/midi/README.md](src/midi/README.md).
 
-### 3. Open the Editor
+## Documentation
 
-Navigate to: **http://127.0.0.1:5000/studio**
+- [Full docs site](https://studio.tenderworld.org/docs) — user guide, node
+  reference, tutorials
+- [ARCHITECTURE.md](ARCHITECTURE.md) — how the engine fits together
+- [docs/frame-rate.md](docs/frame-rate.md) — **read this if the fps readout is
+  below your monitor's refresh rate**
+- [docs/node-reference.md](docs/node-reference.md) — every node
+- [docs/compute-nodes.md](docs/compute-nodes.md) — the compute path
+- [docs/multi-screen.md](docs/multi-screen.md),
+  [docs/web-viewer.md](docs/web-viewer.md)
+- [docs/internal/](docs/internal/) — engineering notes, investigation logs and
+  design scratch. Useful when digging, not maintained as documentation, and
+  deliberately not published to the docs site.
 
-## 🖥️ Desktop App (Tauri)
+## Security
 
-The editor can run as a native desktop app via [Tauri](https://tauri.app),
-**shipped for Windows**. It opens straight into the editor: the landing page is
-a web thing, so the desktop build leaves it out of the bundle entirely and shows
-a small loading window (`splash.html`) while the editor boots hidden behind it.
-See [DESKTOP_APP.md](DESKTOP_APP.md) for how that handoff works, why Windows is
-the only bundled platform, and what code signing, auto-updates and releasing
-still need.
+Please do not file security issues publicly. See [SECURITY.md](SECURITY.md).
 
-### Prerequisites (one time)
+## Licence
 
-- [Node.js](https://nodejs.org) 18+
-- The [Tauri system prerequisites](https://tauri.app/start/prerequisites/) for
-  your OS (Rust toolchain + WebView dependencies).
-
-```bash
-# install JS deps (Vite, Tauri CLI, etc.)
-npm install
-
-# generate the app icon set from the logo (writes src-tauri/icons/)
-npm run tauri icon assets/logo.png
-```
-
-### Run in development
-
-```bash
-npm run tauri:dev
-```
-
-This starts the Vite dev server on `http://localhost:5173`, shows the loading
-window, and opens the editor once it has booted.
-
-### Build a distributable
-
-```bash
-npm run tauri:build
-```
-
-The `.msi` and NSIS `.exe` are written to `src-tauri/target/release/bundle/`.
-Pushing a `v*` tag builds them in CI and attaches them to a draft release
-(`.github/workflows/desktop-release.yml`).
-
-> **Note:** Tauri renders in the OS WebView, so WebGPU support is the OS's, not
-> Tauri's — and WebView2 on Windows is the only one that reliably has it today.
-> That is why Windows is the only platform bundled; `tauri:dev` still runs
-> anywhere. Details in [DESKTOP_APP.md](DESKTOP_APP.md).
-
-### Multi-Screen Output (Vite/desktop build only)
-
-The Vite build (`npm run dev` and the Tauri desktop app) adds a **View → Open
-Output** entry. It opens chrome-free black windows on the displays the patch is
-thrown onto and renders the live output there, letterboxed and centred — a
-pristine performance surface with no editor UI. The output paints on its own animation
-frame, so it keeps running at the second display's refresh rate even when the
-editor window is occluded or minimised. Press **Esc** to close it, or **F** /
-double-click to toggle fullscreen.
-
-**View → Output Screens…** lays a rig out across several displays: a projector
-panorama, a video wall, or a stage where each surface shows its own slice. Every
-screen renders the same composition and shows its own **region** of it, with
-one-click layouts (2 across, 3 across, 2 × 2), an edge-blend overlap for
-projectors, and per-screen display and resolution. The composition's state is
-broadcast once for the whole rig, so a second and third screen cost the editor
-almost nothing. It is a **Cloude Plus** entitlement (`output.multiscreen`), and
-the rig saves with the project. Details in
-[docs/multi-screen.md](docs/multi-screen.md).
-
-There are two backends, chosen automatically at runtime:
-
-- **Desktop app (Tauri):** the OS WebView blocks `window.open()`, so a real,
-  borderless native window is created on the detected second display via the
-  Tauri window API and driven to true OS fullscreen. The editor mirrors
-  `#gpu-canvas` by broadcasting frames over a same-origin `BroadcastChannel`;
-  the receiver page (`editor/second-monitor.html`) paints them. This requires
-  the window/webview permissions in `src-tauri/capabilities/default.json`.
-- **Browser (`npm run dev`):** a borderless popup is opened synchronously inside
-  the click (so it is not blocked) and placed on a detected external display via
-  the Window Management API (`getScreenDetails`), falling back to a draggable
-  popup. The popup mirrors the canvas directly.
-
-This entry is intentionally hidden in the raw web deployments (the Python server
-and the static Vercel host), where the in-editor floating preview is the only
-output surface. The build is detected at runtime via `import.meta.env`, which
-Vite injects but the raw deployments do not (see `src/utils/isViteBuild.js`);
-the desktop path additionally checks for the Tauri globals (`src/utils/isTauri.js`).
-
-### Web Patch Viewer (`/viewer`)
-
-A published patch, running live in a browser with no editor around it — the page
-a link to your work leads to. **File → Open in Web Viewer** (`Ctrl/⌘+Shift+W`)
-opens the patch you are editing there in a second tab, handed over through
-IndexedDB rather than through the gallery, so looking at your own work does not
-mean publishing it first.
-
-The viewer is a **Cloude** entitlement (`viewer.web`): free and signed-out
-visitors get an upsell rather than a render, and unlike the live-output features
-it refuses when the gallery cannot be reached instead of allowing. Audio, MIDI,
-OSC and the 3D field visualisers do not travel with a patch, and the page says
-so under the render. Details in [docs/web-viewer.md](docs/web-viewer.md).
-
-Web only: the desktop app's WebView blocks `window.open()`, and the
-second-monitor viewer is its full-screen surface.
-
-## 📖 Documentation
-
-- **[docs/multi-screen.md](docs/multi-screen.md)** - Driving several displays from one patch, with per-screen framing
-- **[docs/web-viewer.md](docs/web-viewer.md)** - The web patch viewer, and the tier gate on it
-- **[docs/frame-rate.md](docs/frame-rate.md)** - **Frame rate & display refresh — read this if the fps readout is lower than your monitor's refresh rate**
-- **[QUICKSTART.md](QUICKSTART.md)** - Get started in 3 steps
-- **[RHIZOMIUM_VIEWER_SETUP.md](RHIZOMIUM_VIEWER_SETUP.md)** - External viewer setup
-- **[DEPLOYMENT_NOTES.md](DEPLOYMENT_NOTES.md)** - Cloud vs local deployment
-- **[src/osc/README.md](src/osc/README.md)** - OSC receiver and bridge
-- **[src/midi/README.md](src/midi/README.md)** - MIDI controller integration
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
-
-## ✨ Features
-
-- **WebGPU Core** - Real-time GPU-accelerated rendering
-- **Node Editor** - Visual shader programming
-- **External Viewer** - IPC-based frame streaming to secondary displays
-- **Audio Reactivity** - Audio envelope integration
-- **MIDI Control** - Map hardware controllers to any parameter
-- **OSC Control** - Map TouchOSC, Max, SuperCollider and friends to any parameter
-- **Save/Load** - Project management with backups
-- **Web Viewer** - Published patches running live in the browser (Cloude)
-
-## 🎛️ OSC Control
-
-OSC arrives over UDP, which a browser cannot listen for, so a small local
-bridge forwards it to the editor. It starts automatically with
-`python rhizo_server.py`, `npm run dev` and `npm run tauri:dev`; alongside a
-built desktop binary, run `npm run osc`. Then open **Tools → OSC Receiver**,
-click **Connect**, and point your sender at `udp://<this machine>:9000`.
-
-Because the bridge is a local process, OSC is a local-only feature like the
-external viewer — it cannot work on the static web deploy.
-
-To map a control: select a node, click the parameter field, click **Start OSC
-Learn**, then move the control. Full details — input ranges, multi-argument
-messages, network exposure — are in [src/osc/README.md](src/osc/README.md).
-
-## 📡 NDI Output
-
-Publishes the render onto the network as an NDI source, for a vision mixer, OBS
-or a monitor on another machine. NDI is a native protocol a browser cannot
-speak, so a local bridge owns the sender: run `npm run ndi`, then open
-**View → NDI Output** (`Mod+Shift+N`).
-
-NDI itself needs the runtime from <https://ndi.video/> and `pip install
-cyndilib`. Both are optional — without them the bridge still runs and tells the
-editor which one is missing, rather than leaving a dead toggle.
-
-Like OSC and the external viewer, this is a local-only feature: it cannot work
-on the static web deploy. Full details — the wire protocol, the bandwidth it
-costs, diagnostics — are in [src/output/README.md](src/output/README.md).
-
-## 🎨 Using the External Viewer
-
-**⚠️ Local-Only Feature:** The external viewer requires running the Python server locally. It will NOT work on cloud-hosted deployments (Vercel, Netlify, etc.). See [DEPLOYMENT_NOTES.md](DEPLOYMENT_NOTES.md).
-
-**On local server:**
-1. Click **"Open External Viewer"** in the editor toolbar
-2. The viewer window opens automatically
-3. Frames render in real-time via shared memory
-
-## 🛠️ Development
-
-### ⚠️ CRITICAL PERFORMANCE REQUIREMENT FOR ALL AGENTS ⚠️
-
-**30 FPS IS NEVER ACCEPTED. ALL OPTIMIZATIONS MUST TARGET 60 FPS.**
-
-- **Target frame time:** <16.67ms (60 FPS)
-- **Throttling values:** Use 16.67ms (60 FPS), NOT 33.33ms (30 FPS)
-- **Frame skipping:** Should target 60 FPS, not 30 FPS
-- **Any code that limits performance to 30 FPS must be changed to 60 FPS**
-
-This is a non-negotiable requirement. If you see any 30 FPS throttling, frame skipping that results in 30 FPS, or comments mentioning 30 FPS as acceptable, you MUST change it to 60 FPS.
-
-### Project Structure
-
-```
-rhizomium/
-├── rhizo_server.py          ← Integrated web server + API
-├── osc_bridge_server.py     ← OSC bridge (UDP → WebSocket)
-├── rhizo_viewer.py          ← External viewer application
-├── GPUCanvas.py             ← GPU renderer with IPC
-├── ipc_protocol.py          ← IPC protocol definitions
-├── ipc_shared.py            ← Shared memory channel
-├── editor/                  ← Editor UI
-│   └── index.html
-├── main.js                  ← Main editor logic
-└── src/                     ← Source modules
-    ├── gpu/
-    ├── core/
-    ├── midi/
-    ├── osc/
-    └── ui/
-```
-
-### Running Components Separately
-
-**Server:**
-```bash
-python rhizo_server.py
-```
-
-**GPU Renderer (testing):**
-```bash
-python GPUCanvas.py
-```
-
-**External Viewer (manual):**
-```bash
-python rhizo_viewer.py
-```
-
-## 🌐 Alternative Server Options
-
-**Python built-in:**
-```bash
-python -m http.server 8000
-```
-
-**Node.js serve:**
-```bash
-npx serve .
-```
-
-**Note:** The standalone `viewer_api.py` server and the `POST /api/launch-viewer` endpoint were removed: the endpoint took a filesystem path from the request body and executed it, and with CORS open to all origins any website could reach it on localhost. Nothing in the editor called it.
-
-## 🔧 Requirements
-
-- Python 3.8+
-- Modern browser with WebGPU support (Chrome 113+, Edge 113+)
-- See [requirements.txt](requirements.txt) for Python packages
+[GNU Affero General Public License v3.0 or later](LICENSE).
+Commercial terms: [COMMERCIAL.md](COMMERCIAL.md). Trademarks: [NOTICE](NOTICE).

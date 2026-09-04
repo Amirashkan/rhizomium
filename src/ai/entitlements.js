@@ -14,7 +14,7 @@
  * Nothing here is a security boundary. The browser can lie about its tier and
  * the buttons it draws; the gate is the gallery signing a grant and the AI
  * backend refusing to call a model without one that verifies. See
- * AI_TIER_INTEGRATION.md §Security.
+ * docs/internal/AI_TIER_INTEGRATION.md §Security.
  *
  * Which is what lets debug mode exist at all: with it on, both calls below are
  * answered locally so that testing the features is not rationed by an

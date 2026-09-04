@@ -1,0 +1,41 @@
+name: Node request
+description: Propose a new node
+labels: ["node", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Adding a node is usually two files — see
+        [ARCHITECTURE.md § Adding a node](../blob/main/ARCHITECTURE.md#adding-a-node).
+        If you would like to write it yourself, say so and we will help.
+  - type: input
+    id: name
+    attributes:
+      label: Node name
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options: [Input, Output, Math, Vector, Pattern, Noise, Transform, Color, Utility, Blend, Texture, Text, Compute, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: does
+    attributes:
+      label: What should it do
+      description: Inputs, outputs, parameters, and the maths or formula if you know it.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What are you trying to make
+      description: The visual result you are after. This often suggests a better shape for the node.
+  - type: checkboxes
+    id: offer
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to implement this myself

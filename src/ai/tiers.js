@@ -12,7 +12,7 @@
  * answer. This file drifting costs a wrong-looking button, not a free upgrade.
  *
  * Source of truth: tenderworld-gallery `lib/tiers.ts`. When that changes, this
- * changes. See AI_TIER_INTEGRATION.md.
+ * changes. See docs/internal/AI_TIER_INTEGRATION.md.
  */
 
 /**
@@ -67,7 +67,7 @@ export const TIER_DESCRIPTIONS = {
  * as every other tier does. A visitor who sets this in devtools gets a panel
  * with every button lit and a 401 from the backend on the first click, for the
  * same reason `cloude_plus` in devtools buys nothing — see
- * AI_TIER_INTEGRATION.md §Security.
+ * docs/internal/AI_TIER_INTEGRATION.md §Security.
  *
  * On the gallery's side it is not a subscription at all: an account is on it
  * because `profiles.role = 'admin'`, the same flag its admin dashboard
