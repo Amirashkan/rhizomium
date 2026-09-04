@@ -1,10 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { AudioAnalysisProcessor } from '../src/core/AudioAnalysisProcessor.js';
 import { AUDIO_INSTRUMENTS, AUDIO_TAP_CHANNELS } from '../src/audio/audioAnalysisTaps.js';
-import {
-  resetAudioAnalysisSettings,
-  updateAudioAnalysisSettings,
-} from '../src/audio/audioAnalysisSettings.js';
 
 // Covers the decision half: turning a 0..1 meter into triggers. The analysis that produces those
 // meters is tested separately in realtimeAudioAnalysis.test.js.
@@ -122,8 +118,8 @@ function makeRig(params = {}) {
 }
 
 describe('AudioAnalysisProcessor', () => {
-  beforeEach(() => { window._audioBands = undefined; resetAudioAnalysisSettings(); });
-  afterEach(() => { delete window._audioBands; resetAudioAnalysisSettings(); });
+  beforeEach(() => { window._audioBands = undefined; });
+  afterEach(() => { delete window._audioBands; });
 
   it('triggers once as a meter crosses the threshold', () => {
     const rig = makeRig();
@@ -272,10 +268,9 @@ describe('AudioAnalysisProcessor', () => {
   });
 
   it('pushes envelope shaping to the audio engine, and only when it changes', () => {
-    // Shaping is one setting for the whole editor now (the Audio panel owns it), because there is
-    // one engine behind every audio node — copies of it per node meant the last one written won.
-    updateAudioAnalysisSettings({ attack: 12, release: 200, gain: 2 });
-    const rig = makeRig();
+    // Shaping is one setting for the whole patch, on the one Audio node, because there is one
+    // engine behind every audio node — copies of it per node meant the last one written won.
+    const rig = makeRig({ attack: 12, release: 200, gain: 2 });
     rig.step({ kick: 0 });
     expect(rig.proc._audioClient.configs.length).toBe(1);
     expect(rig.proc._audioClient.configs[0].analysis).toEqual({
@@ -284,7 +279,8 @@ describe('AudioAnalysisProcessor', () => {
     for (let i = 0; i < 10; i++) rig.step({ kick: 0 });
     expect(rig.proc._audioClient.configs.length).toBe(1);
 
-    updateAudioAnalysisSettings({ attack: 30 });
+    // Moved on the node — a knob, a typed value, an expression — and the engine hears about it.
+    rig.node.params.attack = 30;
     rig.step({ kick: 0 });
     expect(rig.proc._audioClient.configs.length).toBe(2);
   });

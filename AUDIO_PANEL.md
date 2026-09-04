@@ -61,20 +61,36 @@ the analysers are branches off the source, and only a file reaches the output.
 A recording or export made while a live input is running now carries that audio, the same as one
 made while a file is playing.
 
-## Why a panel
+## Who sets what
+
+**The Audio node sets. The panel shows.** One rule, no exceptions:
+
+| | Audio node | Audio panel |
+| --- | --- | --- |
+| Thresholds, attack, release, gain | **set here** | shown, next to the meters they are judged against |
+| MIDI learn, `=midi` expressions, undo, saved with the patch | yes | — |
+| Live meters, the source, deploying a reader | — | here |
 
 There is one analysis engine behind all of this (`BrowserAudioCapture` →
-`RealtimeAudioAnalysis`), producing one set of meters, so there is one set of settings for it. They
-used to be copied onto every **Audio Analysis** node, which meant two of those in one patch fought
-over the engine: the last one written won and the other node's sliders silently did nothing. One
-setup node, and a panel that edits it, is the same settings with one owner.
+`RealtimeAudioAnalysis`), producing one set of meters, so there is one set of settings for it —
+and one place they can be written. A control has to be MIDI-learnable, expression-driveable,
+undoable and saved with the patch, and a node parameter is all four; a panel slider was none of
+them.
 
-The panel is where a threshold is found, because a threshold is only findable next to the meter it
-is compared against:
+The panel used to carry sliders that wrote to a `localStorage` store beside the node. That store
+was a second home for the same numbers: a patch could hold both, the node saying 0.8 and the store
+saying 0.3, with which one the engine used depending on whether the patch happened to contain an
+Audio node — invisible from either surface. It is gone. With no Audio node the analysis runs on
+built-in defaults, the panel says `defaults — no Audio node`, and the button under the readouts
+offers one.
+
+Finding a threshold still happens at the panel, because a threshold is only findable next to the
+meter it is compared against:
 
 1. Play the track.
 2. Watch the drum's **Meter** row — the marker on the bar is where its threshold sits.
-3. Drag the threshold above where the meter idles between hits and below where it peaks on one.
+3. Press **Edit on Audio #n** and move the threshold until the marker sits above where the meter
+   idles between hits and below where it peaks on one.
 4. Press `+` on the **Trigger** row to add a node reading it.
 
 A threshold set under the idle level leaves the trigger permanently held open, which produces
@@ -87,24 +103,23 @@ threshold was inert (the same six triggers at 0.05 as at 0.95). Full scale is 24
 knee above it so nothing ever flattens onto the ceiling: those same peaks land between 0.67 and
 0.80, and a threshold at 0.6 passes the loud kicks while rejecting the soft ones.
 
-## Where a threshold lives, and how a knob reaches it
+## How a knob reaches a threshold
 
-The panel's **Threshold** slider is where a threshold is *found* — against the meter it is compared
-to, which is the only way. Where it *lives* is the **Audio** node, as an ordinary parameter, which
-is what makes it:
+Every setting is an ordinary parameter of the **Audio** node, which is what makes it:
 
 - **MIDI-mappable.** Select the node, MIDI-learn its Kick Thresh, and the knob moves the decision
-  every reader of that drum is made on. The panel's slider and the marker on the drum's meter follow
-  the knob, so you can see whether the mapping is aimed anywhere useful.
+  every reader of that drum is made on. The panel's readout and the marker on the drum's meter
+  follow the knob, so you can see whether the mapping is aimed anywhere useful.
 - **Expression-capable.** `=midi`, `=midi * 0.6 + 0.2` (a knob over a floor), or anything else the
   expression system resolves. As everywhere else, a CC arriving on a parameter that holds an
-  expression feeds the `midi` identifier rather than overwriting the formula.
-- **Undoable, and saved with the patch**, unlike the panel's own stored defaults.
+  expression feeds the `midi` identifier rather than overwriting the formula. The panel shows the
+  formula and, in its tooltip, what it evaluated to this frame — because the formula alone does not
+  say where the threshold actually is.
+- **Undoable, and saved with the patch.**
 
-The panel edits that node rather than a second copy of the same numbers — two sources for one engine
-is the bug this whole arrangement replaced. With no Audio node in the patch it edits the stored
-defaults instead, and offers the node: **＋ Audio node — to MIDI-map these**, seeded with the values
-as they stand. A patch that never needs to automate its thresholds never needs the node.
+Whatever the value comes from, it is clamped to the setting's declared range on the way out of the
+node. An expression can produce anything, and a release of −5 ms or a threshold of 40 does not
+merely misbehave — it leaves an instrument that can never fire.
 
 One decision per drum, for the whole patch: two Audio Values reading `kickTrig` are two views of one
 kick and fire on the same frame.
@@ -171,17 +186,17 @@ follow. Nothing dialled in means no node: the stored defaults still hold.
 
 | File | Role |
 | --- | --- |
-| `src/ui/AudioSettingsPanel.js` | The panel: source, transport, meter shape, thresholds, channel rows, deploy |
-| `src/audio/audioAnalysisSettings.js` | The stored defaults, for a patch with no Audio node (localStorage-backed) |
+| `src/ui/AudioSettingsPanel.js` | The panel: source, transport, setting readouts, channel rows, deploy |
+| `src/audio/audioAnalysisDefaults.js` | What the settings are, their ranges, and their defaults — declarations only |
+| `src/data/nodes/InputNodes.js` | The Audio node, whose parameters ARE the settings, built from that declaration |
 | `src/core/numericParam.js` | Resolves an `=expr` parameter a CPU processor needs as a number, `midi` / `osc` included |
 | `src/audio/audioAnalysisTaps.js` | This frame's channel values, the channel list, and the labels the UI uses |
 | `src/core/AudioAnalysisProcessor.js` | Meters → thresholds → triggers, on the analysis clock, on the CPU |
 | `src/audio/BrowserAudioCapture.js` | The sources (file, mic, system audio), the analysis clock, the envelope globals |
 | `src/core/projectMigrations.js` | Converting a patch saved with the old all-in-one node |
 
-The panel's settings are persisted to `localStorage`, not into the patch: they are dialled in
-against whatever track is playing, which is a property of the set rather than of the composition. A
-deployed node's Threshold is a node parameter and travels with the patch like any other.
+The settings travel with the patch, on the Audio node, like any other node parameter. Nothing about
+the analysis is stored outside it.
 
 ## The analysis clock
 

@@ -12,7 +12,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { AudioAnalysisProcessor } from '../src/core/AudioAnalysisProcessor.js';
 import { getAudioTapValues } from '../src/audio/audioAnalysisTaps.js';
-import { resetAudioAnalysisSettings } from '../src/audio/audioAnalysisSettings.js';
 
 function makeGraph(nodes) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -67,7 +66,6 @@ function makeRig({ threshold = 0.5 } = {}) {
 }
 
 beforeEach(() => {
-  resetAudioAnalysisSettings();
   setBands();
 });
 

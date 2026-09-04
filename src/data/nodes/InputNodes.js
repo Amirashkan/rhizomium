@@ -10,6 +10,7 @@ import {
   AUDIO_TAP_LABELS,
   DEFAULT_AUDIO_TAP_CHANNEL,
 } from '../../audio/audioAnalysisTaps.js';
+import { AUDIO_ANALYSIS_SETTINGS } from '../../audio/audioAnalysisDefaults.js';
 
 /**
  * Input node definitions for constants, data sources, and textures
@@ -197,34 +198,33 @@ export const InputNodes = {
     pinsIn: [],
     // No outputs on purpose: this node is the SETUP, not a signal.
     pinsOut: [],
-    // The analysis's controls, as node parameters.
+    // The analysis's controls, and the ONLY place they can be set.
     //
     // There is one analysis engine behind the whole patch, so these are one set of numbers however
-    // many Audio Value nodes read them (audio/audioAnalysisSettings.js holds them when no node
-    // does). What a node gives them that a panel slider cannot is everything a parameter gets:
-    // MIDI learn, expressions (`=midi`, `=midi * 0.6 + 0.2`), undo, and travelling with the patch.
-    // A threshold is the number a live set is spent dialling in, so it has to be reachable from a
-    // knob — that is the whole reason this node exists.
+    // many Audio Value nodes read them. They are node parameters because that is what a control has
+    // to be: MIDI-learnable, driveable by an expression (`=midi`, `=midi * 0.6 + 0.2`), undoable,
+    // and saved with the patch. A threshold is the number a live set is spent dialling in, so it
+    // has to be reachable from a knob — that is the whole reason this node exists.
     //
-    // One of these owns the settings; the panel's sliders edit it rather than a second copy. With
-    // none in the patch the panel edits the stored defaults instead, so a patch that never needed
-    // to automate its thresholds never needs the node either.
+    // The Audio panel shows these against the meters they are compared to; it does not edit them.
+    // It used to, into a localStorage store that was a second home for the same numbers, and a
+    // patch could hold two disagreeing copies with no way to see which one the engine was using.
+    //
+    // Built from the one declaration in audio/audioAnalysisDefaults.js, so a range cannot drift
+    // between the field a value is typed into and the engine that reads it.
     params: [
-      // One threshold per drum, each on its own 0..1 meter. Set each ABOVE where its meter idles
-      // between hits and BELOW where it peaks on one — which is what the panel's meters are for.
-      // Under the idle level the trigger stays permanently held open, which produces FEWER triggers
-      // rather than more.
-      { name: "kickThresh", type: "float", default: 0.5, min: 0, max: 1, label: "Kick Thresh", group: "Triggers" },
-      { name: "snareThresh", type: "float", default: 0.5, min: 0, max: 1, label: "Snare Thresh", group: "Triggers" },
-      { name: "hatThresh", type: "float", default: 0.5, min: 0, max: 1, label: "Hat Thresh", group: "Triggers" },
-      // Shape of every meter. Attack short enough to catch a transient, release long enough that
-      // the hit stays visible for a few frames. These change what the meters LOOK like, which in
-      // turn changes what a threshold has to be set to — they are not a second detector, so they
-      // are set once and left alone, and start collapsed.
-      { name: "attack", type: "float", default: 8.0, min: 1, max: 200, label: "Attack (ms)", group: "Meter Shape", groupCollapsed: true },
-      { name: "release", type: "float", default: 120.0, min: 1, max: 2000, label: "Release (ms)", group: "Meter Shape" },
-      // Manual trim on top of the automatic gain, for material the auto-gain lands badly.
-      { name: "gain", type: "float", default: 1.0, min: 0, max: 8, label: "Gain", group: "Meter Shape" },
+      ...AUDIO_ANALYSIS_SETTINGS.map((spec) => ({
+        name: spec.name,
+        type: "float",
+        default: spec.default,
+        min: spec.min,
+        max: spec.max,
+        label: spec.label,
+        // The thresholds are what a set is spent on; the meter shaping is set once and left, so it
+        // starts collapsed under its own heading.
+        group: spec.name.endsWith("Thresh") ? "Triggers" : "Meter Shape",
+        ...(spec.name === "attack" ? { groupCollapsed: true } : {}),
+      })),
       // A threshold is only findable by watching the meter it is compared against, and the meters
       // are in the panel — so the node carries the way there rather than leaving you to hunt
       // through the Tools menu with the node selected.
