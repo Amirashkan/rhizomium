@@ -6,7 +6,8 @@
 
 Report privately through GitHub's
 [private vulnerability reporting](https://github.com/Amirashkan/glsl-node-editor/security/advisories/new),
-or email **me@ashkankhodaverdi.com**.
+or email **security@tenderworld.org** — that address is not routed yet, so
+until it is, write to **me@ashkankhodaverdi.com** instead.
 
 Please include what you found, how to reproduce it, and what an attacker gets
 out of it. A proof of concept helps a great deal.
@@ -15,7 +16,7 @@ You can expect an acknowledgement within a few days and an honest estimate of
 when it will be fixed. If you would like credit in the advisory, say so and
 tell us the name to use.
 
-This is a small project with one maintainer; there is no bug bounty. What there
+This is a small project run by a small team; there is no bug bounty. What there
 is, is a real commitment to fixing what you find and crediting you for it.
 
 ## What is in scope

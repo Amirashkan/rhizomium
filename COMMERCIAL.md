@@ -34,8 +34,9 @@ Rhizomium under terms other than the AGPL. The usual reason to want that is
 redistribution: you want to embed Rhizomium in a product you ship, or offer a
 modified version as a hosted service, without publishing your changes.
 
-If that is you, write to **me@ashkankhodaverdi.com** with a sentence or two
-about what you are building. There is no price list; for small studios and
+If that is you, write to **licensing@tenderworld.org** with a sentence or two
+about what you are building. (That address is not routed yet; until it is,
+use **me@ashkankhodaverdi.com**.) There is no price list; for small studios and
 artists there is usually no charge.
 
 ## Contributing, and why we ask for a sign-off

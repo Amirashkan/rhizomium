@@ -45,18 +45,15 @@ someone unsafe participating here.
 
 ## Reporting
 
-Email **me@ashkankhodaverdi.com**.
+Email **conduct@tenderworld.org** — that address is not routed yet, so until
+it is, write to **me@ashkankhodaverdi.com** instead.
 
-Reports are read by the maintainer and kept confidential. You will get an
-acknowledgement, and you will be told what came of it.
+Reports are read by the project maintainers and kept confidential. You will get
+an acknowledgement, and you will be told what came of it.
 
-Be aware of what that means today: Rhizomium has **one** maintainer, so a
-report about the maintainer's own conduct goes to the person it is about.
-That is an uncomfortable thing to ask of anyone, and you should know it
-before you write rather than after. If that is your situation you are free
-to raise it in public instead, and doing so will not itself be treated as a
-breach of this document. If the project grows a second maintainer, this
-paragraph gets replaced with a real separation.
+If your report concerns a maintainer, say so — it will be handled by someone
+else, and if that is not possible we will tell you rather than quietly handle
+it ourselves.
 
 You will not be penalised for reporting in good faith, and you do not have to
 be the target of the behaviour to report it.
