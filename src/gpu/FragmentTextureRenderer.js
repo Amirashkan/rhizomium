@@ -22,6 +22,18 @@ import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 import { isSharedSampler, sharedSampler } from './sharedSamplers.js';
 import { isTriggerChangeMode } from '../core/triggerMode.js';
 
+/**
+ * Node kinds whose output is driven by the clock (they compile to an expression over g.time), so
+ * anything downstream of one in a fragment chain moves every frame.
+ */
+const CLOCK_DRIVEN_KINDS = new Set(['Time', 'Wave', 'RandomValue']);
+
+/**
+ * Per-node CPU state advanced every frame by the node processors (Audio, Hold, Count, Trigger,
+ * Wave sync). It never appears in node.params, so change detection has to read it directly.
+ */
+const LIVE_CPU_STATE_FIELDS = ['__audio_value', '__holdValue', '__countValue', '__triggerPulse', '__waveSyncTime'];
+
 export class FragmentTextureRenderer {
   constructor(device) {
     this.device = device;
@@ -408,7 +420,13 @@ export class FragmentTextureRenderer {
    * @private
    */
   _freshenReferencedValues(node) {
-    const refIds = this._extractParamNodeReferences(node);
+    // Every node of the chain compiled into this shader, not just the bridged one: the reference
+    // that needs a live value is usually on a shape several hops upstream (a Circle whose radius is
+    // `=node_<audio>`), and leaving those stale renders the frame with the value the bridge was
+    // built with even once change detection has correctly asked for a re-render.
+    const refIds = Array.from(new Set(
+      this._fragmentChainNodes(node).flatMap((n) => this._extractParamNodeReferences(n)),
+    ));
     if (refIds.length === 0) return;
 
     const editor = typeof window !== 'undefined' ? window.editor : null;
@@ -513,36 +531,44 @@ export class FragmentTextureRenderer {
    * @private
    */
   _checkFragmentNodeNeedsRender(nodeId, node, time, audioContext) {
+    // Walked once and reused by every question below: all three are asked about the whole chain
+    // compiled into this node's shader, and the walk is the only part of them that is not free.
+    const chain = this._fragmentChainNodes(node);
+
     // Always render on first call (no hash exists yet)
     const previousHash = this.parameterHashes.get(nodeId);
     if (!previousHash) {
       // Build initial hash
-      const hash = this._buildFragmentNodeHash(node, time, audioContext);
+      const hash = this._buildFragmentNodeHash(node, time, audioContext, chain);
       this.parameterHashes.set(nodeId, hash);
       return true;
     }
 
     // Check if node has time-dependent parameters
-    if (this._hasTimeDependentParameters(node)) {
+    if (this._hasTimeDependentParameters(node, chain)) {
       // Time-dependent nodes need to render every frame
-      const hash = this._buildFragmentNodeHash(node, time, audioContext);
+      const hash = this._buildFragmentNodeHash(node, time, audioContext, chain);
       this.parameterHashes.set(nodeId, hash);
       return true;
     }
 
     // Check if parameters or inputs changed
-    const currentHash = this._buildFragmentNodeHash(node, time, audioContext);
+    const currentHash = this._buildFragmentNodeHash(node, time, audioContext, chain);
     if (currentHash !== previousHash) {
       this.parameterHashes.set(nodeId, currentHash);
       return true;
     }
 
-    // Check if compute node inputs changed (via compute executor)
-    if (node.inputs && Array.isArray(node.inputs)) {
-      const computeExecutor = window.computeExecutor;
-      if (computeExecutor && computeExecutor.fragmentNodesRenderedThisFrame) {
+    // Check if compute node inputs changed (via compute executor). Asked for every node of the
+    // chain compiled into this shader, not only the bridged node: a compute node feeding a Circle
+    // three hops upstream is just as visible in the picture, and its new output is invisible to the
+    // hash above (which stops walking at compute nodes).
+    const computeExecutor = window.computeExecutor;
+    if (computeExecutor && computeExecutor.fragmentNodesRenderedThisFrame) {
+      for (const chainNode of chain) {
+        if (!Array.isArray(chainNode.inputs)) continue;
         // If any compute node input was re-rendered this frame, we need to re-render
-        for (const inputId of node.inputs) {
+        for (const inputId of chainNode.inputs) {
           if (inputId && computeExecutor.fragmentNodesRenderedThisFrame.has(inputId)) {
             return true;
           }
@@ -561,13 +587,84 @@ export class FragmentTextureRenderer {
   }
 
   /**
+   * Every fragment node compiled into this node's shader: the node itself and everything upstream
+   * of it through fragment wires.
+   *
+   * _compileNodeToShader builds ONE shader out of the whole chain, so the picture this node
+   * materializes moves whenever anything in that chain moves — not only when its own parameters
+   * do. Change detection asked its questions about the bridged node alone, and the bridged node is
+   * the LAST one in the chain: typically a Color Mix or a Blend carrying nothing but static
+   * parameters, with the audio-driven Circle several hops above it. That is why adding a Gradient
+   * or a Color Adjust (both compute nodes, so the chain above them has to be bridged) froze the
+   * audio reactions of everything upstream.
+   *
+   * Follows both ways a node reaches the shader, exactly as _extractSubgraph does when it builds
+   * it: wires, and `=node_<id>` parameter references (an Audio tap driving a radius is usually
+   * referenced, not wired). The walk stops at compute nodes: their output is a texture whose
+   * identity and this-frame dispatch the input hash and _checkFragmentNodeNeedsRender already
+   * cover.
+   * @private
+   */
+  _fragmentChainNodes(node) {
+    if (!node) return [];
+    const chain = [];
+    const seen = new Set();
+    const queue = [node];
+
+    const enqueue = (id) => {
+      if (id === null || id === undefined || seen.has(String(id))) return;
+      const upstream = window.graph?.getNode?.(id)
+        || window.editor?.graph?.nodes?.find((n) => String(n.id) === String(id));
+      if (upstream && !upstream.kind?.startsWith('Compute')) queue.push(upstream);
+    };
+
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current || seen.has(String(current.id))) continue;
+      seen.add(String(current.id));
+      chain.push(current);
+
+      for (const inputId of current.inputs || []) enqueue(inputId);
+      for (const refId of this._extractParamNodeReferences(current)) enqueue(refId);
+    }
+
+    return chain;
+  }
+
+  /**
    * Build hash of fragment node parameters and inputs
    * PERFORMANCE: Optimized to avoid expensive JSON.stringify calls
    * @private
    */
-  _buildFragmentNodeHash(node, time, _audioContext) {
+  _buildFragmentNodeHash(node, time, _audioContext, chain = this._fragmentChainNodes(node)) {
     // PERFORMANCE: Use simple string concatenation instead of JSON.stringify
     // JSON.stringify is expensive and can cause frame time spikes
+    let hash = '';
+
+    // One section per node of the chain that gets compiled into this node's shader — see
+    // _fragmentChainNodes. The id prefix keeps two nodes' sections from running together into the
+    // same string.
+    for (const chainNode of chain) {
+      hash += `${chainNode.id}|${this._nodeHashSection(chainNode, time)}`;
+    }
+
+    // Fold in the frame every video upstream of this node is showing. A video's pixels change
+    // without any parameter changing, so the hash above is constant for a Texture 2D playing one —
+    // and a constant hash freezes the bridged texture that feeds a compute consumer (Transform GPU,
+    // Mix, the 3D visualizer, ...) on whichever frame was up when the bridge was built, until some
+    // unrelated edit forces a render. Keying on currentTime re-fires the render exactly while the
+    // video is advancing, so a paused or trimmed-to-a-hold clip still costs nothing.
+    hash += this._videoFrameHash(node, chain);
+
+    return hash;
+  }
+
+  /**
+   * The hash terms for ONE node of the chain: its parameters, the live CPU values its parameter
+   * expressions reach, and the identity of its inputs.
+   * @private
+   */
+  _nodeHashSection(node, time) {
     let hash = '';
 
     // Bypass state changes the compiled subgraph (a bypassed node passes its input
@@ -593,6 +690,17 @@ export class FragmentTextureRenderer {
           }
         }
       }
+    }
+
+    // Fold in this node's own live CPU state. A live input WIRED into the chain — an Audio tap
+    // feeding a Circle's radius pin, a Hold, a Count, a Trigger, a Wave whose sync pin is wired —
+    // carries its value on the CPU (advanced every frame by its processor) and not in its params,
+    // so without this a wired audio chain has a hash that never moves and the bridged texture keeps
+    // the frame it was built with. The `=node_<id>` reference form of the same thing is folded in
+    // just below.
+    for (const field of LIVE_CPU_STATE_FIELDS) {
+      const live = node[field];
+      if (typeof live === 'number' && Number.isFinite(live)) hash += `${field}:${live};`;
     }
 
     // Fold in the live value of any Hold node referenced via a `=node_<id>` parameter expression
@@ -630,10 +738,10 @@ export class FragmentTextureRenderer {
     // time/audioEnvelope, or a chain through Remap — never changes the hash and
     // the bridged texture freezes for EVERY compute consumer (ComputeMix, the
     // 3D Field Visualizer, ...). _hasTimeDependentParameters only catches
-    // literal time/audioEnvelope in this node's own params; this catches the
-    // transitive case by hashing the resolved number, so the render re-fires
-    // exactly when the value moves. The value fed to the shader is still
-    // evaluated fresh at render time (this only decides IF we render).
+    // literal time/audioEnvelope keywords; this catches the transitive case by
+    // hashing the resolved number, so the render re-fires exactly when the
+    // value moves. The value fed to the shader is still evaluated fresh at
+    // render time (this only decides IF we render).
     const exprSystem = typeof window !== 'undefined' ? window.expressionSystem : null;
     if (exprSystem && node.params && typeof exprSystem.isExpression === 'function') {
       const t = (typeof window.renderLoop?._simTime === 'number') ? window.renderLoop._simTime : time;
@@ -661,14 +769,6 @@ export class FragmentTextureRenderer {
       }
     }
 
-    // Fold in the frame every video upstream of this node is showing. A video's pixels change
-    // without any parameter changing, so the hash above is constant for a Texture 2D playing one —
-    // and a constant hash freezes the bridged texture that feeds a compute consumer (Transform GPU,
-    // Mix, the 3D visualizer, ...) on whichever frame was up when the bridge was built, until some
-    // unrelated edit forces a render. Keying on currentTime re-fires the render exactly while the
-    // video is advancing, so a paused or trimmed-to-a-hold clip still costs nothing.
-    hash += this._videoFrameHash(node);
-
     // Hash inputs (texture references)
     if (node.inputs && Array.isArray(node.inputs)) {
       const computeExecutor = window.computeExecutor;
@@ -693,32 +793,18 @@ export class FragmentTextureRenderer {
   /**
    * The playback position of every video sampled by this node or by anything upstream of it in
    * the fragment chain. The video may sit several nodes above the one being materialized
-   * (Texture 2D → Color Mix → a compute node), so the walk goes up through fragment inputs and
-   * stops at compute nodes, whose output is already covered by the input hash.
+   * (Texture 2D → Color Mix → a compute node), so the walk covers the whole chain compiled into
+   * this node's shader, stopping at compute nodes whose output the input hash already covers.
    * @private
    */
-  _videoFrameHash(node) {
+  _videoFrameHash(node, chain = this._fragmentChainNodes(node)) {
     const videos = window.textureManager?.videos;
     if (!videos || videos.size === 0) return '';
 
     let hash = '';
-    const seen = new Set();
-    const queue = [node];
-
-    while (queue.length) {
-      const current = queue.shift();
-      if (!current || seen.has(current.id)) continue;
-      seen.add(current.id);
-
-      const video = videos.get(current.id)?.video;
-      if (video) hash += `${current.id}.frame:${Number(video.currentTime || 0).toFixed(4)};`;
-
-      for (const inputId of current.inputs || []) {
-        if (inputId === null || inputId === undefined || seen.has(inputId)) continue;
-        const upstream = window.graph?.getNode?.(inputId)
-          || window.editor?.graph?.nodes?.find((n) => String(n.id) === String(inputId));
-        if (upstream && !upstream.kind?.startsWith('Compute')) queue.push(upstream);
-      }
+    for (const chainNode of chain) {
+      const video = videos.get(chainNode.id)?.video;
+      if (video) hash += `${chainNode.id}.frame:${Number(video.currentTime || 0).toFixed(4)};`;
     }
 
     return hash;
@@ -726,17 +812,25 @@ export class FragmentTextureRenderer {
 
   /**
    * Check if fragment node has time-dependent parameters
+   *
+   * Asked about the whole chain compiled into this node's shader, not just the node itself: a
+   * Circle whose radius is `=audioEnvelope * 0.3` keeps the picture moving every frame however
+   * many static Color Mixes sit between it and the node being materialized.
    * @private
    */
-  _hasTimeDependentParameters(node) {
-    if (!node || !node.params) return false;
-
-    for (const value of Object.values(node.params)) {
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        // Check if parameter contains time or audio envelope references
-        if (/time|audioEnvelope/i.test(trimmed)) {
-          return true;
+  _hasTimeDependentParameters(node, chain = this._fragmentChainNodes(node)) {
+    for (const chainNode of chain) {
+      // A Time, Wave or Random Value node compiles to an expression over g.time, so the picture
+      // moves every frame with nothing in anyone's params to show for it.
+      if (CLOCK_DRIVEN_KINDS.has(chainNode.kind)) return true;
+      if (!chainNode.params) continue;
+      for (const value of Object.values(chainNode.params)) {
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          // Check if parameter contains time or audio envelope references
+          if (/time|audioEnvelope/i.test(trimmed)) {
+            return true;
+          }
         }
       }
     }
