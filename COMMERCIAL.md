@@ -29,12 +29,12 @@ are not licensed under the AGPL. See [NOTICE](NOTICE).
 
 ## Buying a commercial licence
 
-As the copyright holder, Amirashkan Khodaverdinejad Mollaei can license
+As the copyright holder, AMIRASHKAN KHODAVERDINEJAD MOLLAEI can license
 Rhizomium under terms other than the AGPL. The usual reason to want that is
 redistribution: you want to embed Rhizomium in a product you ship, or offer a
 modified version as a hosted service, without publishing your changes.
 
-If that is you, write to **licensing@tenderworld.org** with a sentence or two
+If that is you, write to **me@ashkankhodaverdi.com** with a sentence or two
 about what you are building. There is no price list; for small studios and
 artists there is usually no charge.
 
