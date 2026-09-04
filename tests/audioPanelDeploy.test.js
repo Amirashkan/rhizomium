@@ -8,10 +8,15 @@ import {
   setAudioTapValues,
   setAudioTapsWanted,
 } from '../src/audio/audioAnalysisTaps.js';
-import {
-  getAudioAnalysisSettings,
-  resetAudioAnalysisSettings,
-} from '../src/audio/audioAnalysisSettings.js';
+
+/** A readout row by its label, and the value it is showing. */
+function readoutRow(panel, label) {
+  return [...panel.panel.querySelectorAll('.rzap-readout')]
+    .find((r) => r.querySelector('.rzap-readout-label').textContent === label);
+}
+function readoutValue(panel, label) {
+  return readoutRow(panel, label)?.querySelector('.rzap-readout-value').textContent;
+}
 
 /** A stand-in editor that records what the panel asks it to create. */
 function stubEditor() {
@@ -28,6 +33,8 @@ function stubEditor() {
     },
     markDirty: vi.fn(),
     safeDraw: vi.fn(),
+    // Where the panel sends you to actually change a setting.
+    paramPanel: { shown: [], showNodeParameters(node) { this.shown.push(node); } },
   };
 }
 
@@ -39,7 +46,6 @@ describe('Audio panel', () => {
   let panel;
 
   beforeEach(() => {
-    resetAudioAnalysisSettings();
     clearAudioTapValues();
     window.editor = stubEditor();
     panel = new AudioSettingsPanel();
@@ -50,7 +56,6 @@ describe('Audio panel', () => {
     delete window.editor;
     clearAudioTapValues();
     setAudioTapsWanted(false);
-    resetAudioAnalysisSettings();
   });
 
   it('lists every channel with a deploy button', () => {
@@ -139,126 +144,81 @@ describe('Audio panel', () => {
     expect(panel.visible).toBe(true);
   });
 
-  it('writes the threshold sliders straight to the shared settings, and marks the meter', () => {
-    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
-    slider.value = '0.75';
-    slider.dispatchEvent(new Event('input'));
-
-    expect(getAudioAnalysisSettings().kickThresh).toBeCloseTo(0.75);
-    // The marker on the kick METER row is what a threshold is actually set against.
-    const mark = rowFor(panel, 'kickMeter').querySelector('.rzap-bar-mark');
-    expect(mark.style.left).toBe('75%');
-  });
-
   it('deploys a reader with no threshold of its own', () => {
     // The drums are thresholded once, on the Audio node; a reader just names a channel.
     rowFor(panel, 'kickTrig').querySelector('.rzap-add').click();
     expect(window.editor.nodes.at(-1).params.threshold).toBeUndefined();
   });
 
-  it('writes the thresholds to the Audio node when the patch has one', () => {
-    // This is what the whole split is for: on a node, the threshold is a parameter MIDI can reach.
-    const setup = { id: '9', kind: 'Audio', params: {} };
-    window.editor.nodes.push(setup);
-
-    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
-    slider.value = '0.62';
-    slider.dispatchEvent(new Event('input'));
-
-    expect(setup.params.kickThresh).toBeCloseTo(0.62);
-  });
-
-  it('offers the Audio node while the settings are not on one, and stops once they are', () => {
+  // The panel SHOWS the settings; the Audio node is where they are set. This is the guard on that:
+  // any control here would be a second writable home for numbers that already live on a node, and
+  // a patch could then carry two disagreeing copies with nothing on screen saying which one won.
+  it('has nothing in it that can change a setting', () => {
     panel.show();
-    expect(panel.panel.querySelector('#audio-add-setup').hidden).toBe(false);
-    expect(panel.panel.querySelector('#audio-setup-note').textContent).toContain('not on a node');
-
-    panel.addSetupNode();
-    panel._refresh();
-
-    const setup = window.editor.nodes.find((n) => n.kind === 'Audio');
-    expect(setup).toBeTruthy();
-    // Seeded with the values as they stand: adding one is usually about automating a threshold
-    // that has already been dialled in.
-    expect(setup.params.kickThresh).toBeCloseTo(0.5);
-    expect(panel.panel.querySelector('#audio-add-setup').hidden).toBe(true);
-    expect(panel.panel.querySelector('#audio-setup-note').textContent).toContain(`#${setup.id}`);
+    const controls = panel.panel.querySelectorAll(
+      '#audio-shape input, #audio-shape select, #audio-channels input, #audio-channels select',
+    );
+    expect([...controls]).toEqual([]);
   });
 
-  it('refuses to write over a threshold that holds an expression', () => {
-    // The slider shows what the formula evaluated to, which looks exactly like a number somebody
-    // set — so a drag would replace `=midi * 0.6 + 0.2` with that number, silently, on the one
-    // parameter whose entire purpose is being driven by a controller.
-    const setup = {
+  it('reads each setting off the Audio node', () => {
+    window.editor.nodes.push({
+      id: '9', kind: 'Audio', params: { kickThresh: 0.62, gain: 2.5, attack: 20 },
+    });
+    panel.show();
+
+    expect(readoutValue(panel, 'Threshold')).toBe('0.62');
+    expect(readoutValue(panel, 'Gain')).toBe('2.50');
+    expect(readoutValue(panel, 'Attack')).toBe('20 ms');
+    // The marker on the kick METER row is what a threshold is actually judged against.
+    expect(rowFor(panel, 'kickMeter').querySelector('.rzap-bar-mark').style.left).toBe('62%');
+  });
+
+  it('shows the built-in defaults, and says so, with no Audio node in the patch', () => {
+    panel.show();
+    expect(readoutValue(panel, 'Threshold')).toBe('0.50');
+    expect(readoutValue(panel, 'Gain')).toBe('1.00');
+    // A readout with no way to reach it looks broken unless the panel says where it came from.
+    expect(panel.panel.querySelector('#audio-setup-note').textContent).toContain('defaults');
+    expect(panel.panel.querySelector('#audio-add-setup').textContent).toContain('+ Audio node');
+  });
+
+  it('shows what an expression evaluated to, next to the expression', () => {
+    // The number is where the threshold actually IS this frame; the formula alone would not say.
+    window.editor.nodes.push({
       id: '9', kind: 'Audio',
       params: { kickThresh: '=midi * 0.6 + 0.2' },
       __audio_settings: { kickThresh: 0.44 },
-    };
-    window.editor.nodes.push(setup);
+    });
     panel._refresh();
 
-    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
-    // Shown as a readout of the live value, not as something to grab.
-    expect(slider.disabled).toBe(true);
-    expect(slider.closest('.rzap-slider').classList.contains('is-driven')).toBe(true);
-    expect(slider.value).toBe('0.44');
-
-    slider.value = '0.9';
-    slider.dispatchEvent(new Event('input'));
-    expect(setup.params.kickThresh).toBe('=midi * 0.6 + 0.2');
+    const row = readoutRow(panel, 'Threshold');
+    expect(row.classList.contains('is-driven')).toBe(true);
+    expect(row.querySelector('.rzap-readout-value').textContent).toBe('=midi * 0.6 + 0.2');
+    expect(row.title).toContain('0.440');
+    expect(rowFor(panel, 'kickMeter').querySelector('.rzap-bar-mark').style.left).toBe('44%');
   });
 
-  it('records one undo entry per drag, not one per pointer event', () => {
-    const recorded = [];
-    window.undoManager = { recordParameterChange: (...args) => recorded.push(args) };
-    const setup = { id: '9', kind: 'Audio', params: { kickThresh: 0.5 } };
-    window.editor.nodes.push(setup);
+  it('adds the Audio node and opens it when there is nowhere to set them', () => {
+    panel.show();
+    panel.panel.querySelector('#audio-add-setup').click();
 
-    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
-    for (const value of ['0.55', '0.6', '0.65', '0.7']) {
-      slider.value = value;
-      slider.dispatchEvent(new Event('input'));
-    }
-    expect(recorded).toHaveLength(0); // still mid-gesture
-
-    panel._endSettingGesture();
-    // One entry, spanning the whole run: where it started to where it ended up.
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0][1]).toBe('kickThresh');
-    expect(recorded[0][2]).toBe(0.5);
-    expect(recorded[0][3]).toBeCloseTo(0.7);
-    delete window.undoManager;
+    const setup = window.editor.nodes.find((n) => n.kind === 'Audio');
+    expect(setup).toBeTruthy();
+    expect(window.editor.paramPanel.shown).toEqual([setup]);
+    expect([...window.editor.graph.selection]).toEqual([setup.id]);
   });
 
-  it('marks the patch unsaved and tells the editor a parameter moved', () => {
-    // markDirty is only the canvas's redraw flag; without these two the dial-in is never part of
-    // the document, and a bound parameter moves underneath the binding system unannounced.
-    const emitted = [];
-    window.editor.eventSystem = { emit: (type, data) => emitted.push([type, data]) };
-    window.saveLoadManager = { markUnsaved: vi.fn() };
-    const setup = { id: '9', kind: 'Audio', params: { kickThresh: 0.5 } };
+  it('goes to the existing node rather than adding a second one', () => {
+    // Two Audio nodes would be two answers to a question with one engine behind it.
+    const setup = { id: '9', kind: 'Audio', params: {} };
     window.editor.nodes.push(setup);
+    panel._refresh();
+    expect(panel.panel.querySelector('#audio-add-setup').textContent).toContain('#9');
 
-    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
-    slider.value = '0.7';
-    slider.dispatchEvent(new Event('input'));
-
-    expect(window.saveLoadManager.markUnsaved).toHaveBeenCalled();
-    expect(emitted.map(([type]) => type)).toContain('PARAMETER_CHANGED');
-    expect(emitted.at(-1)[1]).toMatchObject({ parameterName: 'kickThresh', newValue: 0.7 });
-    delete window.saveLoadManager;
-  });
-
-  it('clamps in one place, so the node and the stored defaults cannot disagree', () => {
-    const setup = { id: '9', kind: 'Audio', params: { kickThresh: 0.5 } };
-    window.editor.nodes.push(setup);
-
-    const slider = panel.panel.querySelectorAll('.rzap-slider.is-thresh input')[0];
-    slider.value = '4';
-    slider.dispatchEvent(new Event('input'));
-
-    expect(setup.params.kickThresh).toBe(1);
-    expect(getAudioAnalysisSettings().kickThresh).toBe(1);
+    panel.panel.querySelector('#audio-add-setup').click();
+    expect(window.editor.nodes.filter((n) => n.kind === 'Audio')).toHaveLength(1);
+    expect(window.editor.paramPanel.shown).toEqual([setup]);
   });
 
   it('marks each drum’s meter with the threshold actually being decided on', () => {
@@ -281,10 +241,4 @@ describe('Audio panel', () => {
     expect(panel.panel.querySelector('#audio-silent').hidden).toBe(false);
   });
 
-  it('writes the meter shaping sliders to the shared settings', () => {
-    const gain = panel.panel.querySelectorAll('.rzap-sec .rzap-slider:not(.is-thresh) input')[2];
-    gain.value = '2.5';
-    gain.dispatchEvent(new Event('input'));
-    expect(getAudioAnalysisSettings().gain).toBeCloseTo(2.5);
-  });
 });
