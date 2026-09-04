@@ -227,7 +227,7 @@ export class FrameBudgetAllocator {
    * Get current quality multiplier (always 1.0 - no quality degradation)
    */
   getQualityMultiplier() {
-    return 1.0; // Always full quality - see PERFORMANCE_WORKAROUND_POLICY.md
+    return 1.0; // Always full quality - see docs/internal/PERFORMANCE_WORKAROUND_POLICY.md
   }
   
   /**
@@ -285,7 +285,7 @@ export class FrameBudgetAllocator {
   
   /**
    * Quality adjustment is permanently disabled - always use full quality
-   * See PERFORMANCE_WORKAROUND_POLICY.md
+   * See docs/internal/PERFORMANCE_WORKAROUND_POLICY.md
    */
   setQualityAdjustmentEnabled(_enabled) {
     // No-op: quality adjustment removed to prevent quality degradation

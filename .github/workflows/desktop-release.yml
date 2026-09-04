@@ -6,13 +6,13 @@
 #
 # Unsigned until the secrets below exist. That is deliberate — the workflow is
 # useful from day one, and adding a certificate later changes nothing here.
-# See DESKTOP_APP.md for what each secret is and how to produce it.
+# See docs/internal/DESKTOP_APP.md for what each secret is and how to produce it.
 #
 # Windows only, on purpose. Tauri renders in the operating system's webview,
 # so WebGPU support is the OS's to give: WebView2 is Chromium and has it,
 # WKWebView only from macOS 26, and WebKitGTK not at all. Building for the
 # other two would mean shipping installers that run and then show the editor's
-# "no GPU device" screen. DESKTOP_APP.md has the detail and what it would take
+# "no GPU device" screen. docs/internal/DESKTOP_APP.md has the detail and what it would take
 # to add them back.
 
 name: Desktop release
@@ -59,7 +59,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
           # Updater signing. Only meaningful once the updater plugin is wired
-          # up; harmless before that. See DESKTOP_APP.md, "Auto-updates".
+          # up; harmless before that. See docs/internal/DESKTOP_APP.md, "Auto-updates".
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
@@ -68,6 +68,6 @@ jobs:
           releaseBody: |
             Windows build of Rhizomium ${{ github.ref_name }}.
 
-            Requires Windows 10 or 11 with WebView2 — see DESKTOP_APP.md.
+            Requires Windows 10 or 11 with WebView2 — see docs/internal/DESKTOP_APP.md.
           releaseDraft: true
           prerelease: false

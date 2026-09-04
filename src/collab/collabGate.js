@@ -31,7 +31,7 @@
  * would be a lie about their plan and an upsell for something they already
  * bought, so this gate detects the case (a live payload whose catalogue has
  * never heard of the key) and reports it as `feature_unpublished` with no
- * remedy to sell. See AI_TIER_INTEGRATION.md §6.
+ * remedy to sell. See docs/internal/AI_TIER_INTEGRATION.md §6.
  */
 
 import { entitlements } from '../ai/entitlements.js';

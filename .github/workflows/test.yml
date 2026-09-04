@@ -3,8 +3,9 @@ name: Automated Testing & Performance
 on:
   push:
     branches: [ main, develop ]
+  # Every pull request, whatever branch it targets and whether or not it comes
+  # from a fork. Outside contributors only ever open the latter.
   pull_request:
-    branches: [ main, develop ]
   schedule:
     # Run performance tests daily at 2 AM UTC
     - cron: '0 2 * * *'
@@ -54,8 +55,13 @@ jobs:
       - name: Run unit tests with coverage
         run: npm run test:coverage
       
+      # Forks have no Codecov token, and a coverage upload failing is not a
+      # reason to fail a contributor's pull request. Skipped on forks, and
+      # non-fatal everywhere else.
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+        if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: codecov/codecov-action@v5
         with:
           files: ./coverage/coverage-final.json
           flags: unittests

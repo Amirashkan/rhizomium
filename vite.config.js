@@ -3,6 +3,7 @@ import { resolve, sep } from 'node:path'
 import { cpSync, existsSync, readFileSync } from 'node:fs'
 import { generate as generateDocsMeta } from './scripts/docs-meta.mjs'
 import { oscBridge } from './scripts/osc-bridge-plugin.mjs'
+import { DOCS_NOT_PUBLISHED } from './scripts/docs-meta.mjs'
 
 // Single source of truth for the version the app reports about itself (see
 // src/utils/appVersion.js) - read from package.json so it cannot drift.
@@ -17,8 +18,17 @@ const { version: appVersion } = JSON.parse(
 // `/docs` 404s. Copy the directory verbatim after the bundle is written.
 function copyDocs() {
   const src = resolve(__dirname, 'docs')
-  // Local profiling output (gitignored) — not part of the published site.
-  const skip = resolve(src, 'profiling')
+  // Subdirectories of docs/ that are in the repository but not on the site:
+  //   profiling/ — local profiling output (gitignored).
+  //   internal/  — engineering notes kept for contributors reading the source.
+  //                They are investigation logs and design scratch, they go
+  //                stale, and several describe the AI tier internals. Public
+  //                in the repo, deliberately not published as documentation.
+  // scripts/docs-meta.mjs applies the same list, so llms.txt and sitemap.xml
+  // cannot disagree with what is copied here.
+  const skip = DOCS_NOT_PUBLISHED.map((d) => resolve(src, d))
+  const excluded = (from) =>
+    skip.some((s) => from === s || from.startsWith(s + sep))
   return {
     name: 'rhizomium-copy-docs',
     apply: 'build',
@@ -26,7 +36,7 @@ function copyDocs() {
       if (!existsSync(src)) return
       cpSync(src, resolve(__dirname, 'dist/docs'), {
         recursive: true,
-        filter: (from) => from !== skip && !from.startsWith(skip + sep),
+        filter: (from) => !excluded(from),
       })
       // The docs render client-side, so a crawler that does not execute
       // JavaScript sees an empty shell. Emit the plain-text corpus and the

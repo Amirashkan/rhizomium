@@ -14,6 +14,12 @@ import { join } from 'node:path';
 
 export const SITE = 'https://studio.tenderworld.org';
 
+// Subdirectories of docs/ that ship in the repository but never on the site.
+// vite.config.js filters these out of the copy into dist/docs; the generators
+// below are driven by _sidebar.md and so exclude them already. Kept here so
+// there is one list rather than two that can drift.
+export const DOCS_NOT_PUBLISHED = ['profiling', 'internal'];
+
 // Pull the curated order and titles straight from the sidebar so this never
 // drifts from the navigation readers actually see.
 export function readSidebar(docsDir) {

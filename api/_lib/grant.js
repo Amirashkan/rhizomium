@@ -172,7 +172,7 @@ export function verifyGrant(token, { now = Date.now(), onInvalid } = {}) {
  * land on the same warm instance. That is the honest limit of remembering
  * anything in memory here, and it is still worth having: a replay loop hits
  * one instance far more often than not. A Redis or Postgres set is the upgrade
- * if replay ever becomes a real cost — see AI_TIER_INTEGRATION.md.
+ * if replay ever becomes a real cost — see docs/internal/AI_TIER_INTEGRATION.md.
  */
 const seenGrantIds = new Map();
 

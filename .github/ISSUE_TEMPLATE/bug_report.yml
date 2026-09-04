@@ -1,0 +1,67 @@
+name: Bug report
+description: Something behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A patch file (`.rz`) that reproduces the problem
+        is the single most useful thing you can attach — drag it into a comment.
+
+        Security issues do **not** belong here. See
+        [SECURITY.md](../blob/main/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: And what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add a Noise node
+        2. Connect it to Output
+        3. Drag the scale parameter
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where are you running it
+      options:
+        - Hosted editor (studio.tenderworld.org)
+        - Local dev server (npm run dev)
+        - Desktop app (Tauri)
+        - Local Python server (rhizo_server.py)
+        - Web viewer (/viewer)
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Chrome 141 / Edge 141
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: OS and GPU
+      description: The adapter name from the editor's About panel is ideal.
+      placeholder: Windows 11, RTX 4070
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output
+      description: Any errors or warnings from the browser console.
+      render: shell
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, a clip, the patch file.
