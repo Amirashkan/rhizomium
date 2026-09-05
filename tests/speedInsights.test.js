@@ -8,8 +8,15 @@
 // `script-src 'self'` refuses, and the offline app acquires telemetry it is not
 // supposed to have. The origin gate below is what keeps it on the web.
 //
-// The second suite is the one that would have caught the original breakage.
-// The editor is served UNBUNDLED by rhizo_server.py — editor/index.html loads
+// The tag is appended by hand rather than by '@vercel/speed-insights', which
+// for a router-less app contributed nothing but that one line and a bare
+// specifier that had to resolve — a stale `node_modules` turned the editor into
+// a Vite 500, and the unbundled deployments could not resolve it at all. The
+// second suite pins the tag so replacing the package cannot quietly change what
+// the deployment collects.
+//
+// The last suite is the one that would have caught the original breakage. The
+// editor is served UNBUNDLED by rhizo_server.py — editor/index.html loads
 // `../main.js` as a plain module script — so a static bare import anywhere in
 // its graph is not a missing feature, it is an unresolvable specifier that
 // takes the whole page down. Every third-party import in this tree is dynamic
@@ -20,7 +27,11 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 
-import { speedInsightsApplies, initSpeedInsights } from '../src/utils/speedInsights.js';
+import {
+  speedInsightsApplies,
+  initSpeedInsights,
+  SPEED_INSIGHTS_SCRIPT,
+} from '../src/utils/speedInsights.js';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -70,12 +81,102 @@ describe('where Speed Insights runs', () => {
   });
 });
 
+// A document stub, rather than the happy-dom one: appending a real <script
+// src> makes happy-dom fetch it, and the src under test is a Vercel edge route,
+// so the suite would either hit the network or log a load failure from outside
+// any test. What is being asserted is the tag, not the running of it.
+function fakePage(url, { inTauri = false } = {}) {
+  const appended = [];
+  const window = {};
+  const document = {
+    defaultView: window,
+    createElement: (tagName) => ({ tagName: tagName.toUpperCase() }),
+    head: {
+      appendChild: (node) => appended.push(node),
+      querySelector: (selector) => {
+        const src = selector.match(/src="([^"]+)"/)?.[1];
+        return appended.find((node) => node.src === src) ?? null;
+      },
+    },
+  };
+  return { env: { ...page(url, { inTauri }), document }, appended, window };
+}
+
+const VERCEL_PAGE = 'https://studio.tenderworld.org/studio';
+
 describe('starting Speed Insights', () => {
-  it('resolves false instead of throwing where it does not apply', async () => {
+  it('returns false and touches nothing where it does not apply', () => {
     // The test environment's page is http://localhost, which is one of the
     // hosts above — so this exercises the path every desktop and local boot
-    // takes: decide, decline, and never reach for the package at all.
-    await expect(initSpeedInsights()).resolves.toBe(false);
+    // takes: decide, decline, and leave the document alone.
+    const { env, appended } = fakePage('http://localhost:5173/editor/');
+    expect(initSpeedInsights(env)).toBe(false);
+    expect(appended).toEqual([]);
+  });
+
+  it('does not inject in the desktop app', () => {
+    const { env, appended } = fakePage('tauri://localhost/editor/index.html', { inTauri: true });
+    expect(initSpeedInsights(env)).toBe(false);
+    expect(appended).toEqual([]);
+  });
+
+  it('does not inject in the desktop app on Windows, which serves over http', () => {
+    const { env, appended } = fakePage('http://tauri.localhost/editor/index.html', { inTauri: true });
+    expect(initSpeedInsights(env)).toBe(false);
+    expect(appended).toEqual([]);
+  });
+
+  it('appends one script on the deployment', () => {
+    const { env, appended } = fakePage(VERCEL_PAGE);
+    expect(initSpeedInsights(env)).toBe(true);
+    expect(appended).toHaveLength(1);
+    expect(appended[0].tagName).toBe('SCRIPT');
+  });
+
+  it('points it at the same-origin Vercel route, which is all script-src \'self\' allows', () => {
+    // The package reached for https://va.vercel-scripts.com under a
+    // development NODE_ENV, and the CSP every page ships refuses that. A
+    // root-relative path is same-origin wherever the deployment is served.
+    const { env, appended } = fakePage(VERCEL_PAGE);
+    initSpeedInsights(env);
+    expect(appended[0].src).toBe('/_vercel/speed-insights/script.js');
+    expect(appended[0].src).toBe(SPEED_INSIGHTS_SCRIPT);
+  });
+
+  it('defers it, so collecting metrics never blocks the editor boot', () => {
+    const { env, appended } = fakePage(VERCEL_PAGE);
+    initSpeedInsights(env);
+    expect(appended[0].defer).toBe(true);
+  });
+
+  it('stubs the window.si queue the collector pushes into before it loads', () => {
+    const { env, window } = fakePage(VERCEL_PAGE);
+    initSpeedInsights(env);
+    expect(typeof window.si).toBe('function');
+    window.si('event', { name: 'boot' });
+    expect(window.siq).toEqual([['event', { name: 'boot' }]]);
+  });
+
+  it('leaves an existing window.si alone', () => {
+    const { env, window } = fakePage(VERCEL_PAGE);
+    const existing = () => {};
+    window.si = existing;
+    initSpeedInsights(env);
+    expect(window.si).toBe(existing);
+  });
+
+  it('injects once, so a second entry point cannot double-count samples', () => {
+    const { env, appended } = fakePage(VERCEL_PAGE);
+    expect(initSpeedInsights(env)).toBe(true);
+    expect(initSpeedInsights(env)).toBe(false);
+    expect(appended).toHaveLength(1);
+  });
+
+  it('does not throw with no document to inject into', () => {
+    // A worker, a server-side render, a harness with no DOM: decline rather
+    // than dereference a head that is not there.
+    const env = { ...page(VERCEL_PAGE), document: {} };
+    expect(initSpeedInsights(env)).toBe(false);
   });
 });
 

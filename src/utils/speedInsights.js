@@ -13,28 +13,44 @@
 //  1. IT MUST NOT RUN IN THE DESKTOP APP. Tauri serves every page from
 //     `tauri://localhost` (`http://tauri.localhost` on Windows) out of the
 //     bundled `dist/`, so `/_vercel/speed-insights/script.js` is a path the
-//     asset protocol has nothing to answer with, and under `tauri dev` the
-//     library asks for `https://va.vercel-scripts.com/...` instead, which
-//     `script-src 'self'` refuses outright — the same policy every page ships
-//     and tests/editorCspEndpoints.test.js pins. Beyond the mechanics: the
+//     asset protocol has nothing to answer with. Beyond the mechanics: the
 //     desktop app is the offline one. It has no telemetry, and adding some by
 //     way of a web analytics package is not how it would get any.
 //
-//  2. THE PACKAGE MUST BE REACHED THROUGH DYNAMIC import(). '@vercel/speed-
-//     insights' is a bare specifier, and the raw web deployments (the Python
-//     server in rhizo_server.py, any plain static host) serve `main.js` and
-//     this module to the browser UNBUNDLED — editor/index.html loads
-//     `../main.js` as a module script. A static bare import there is not a
-//     degraded feature, it is an unresolvable specifier that fails the whole
-//     module graph and leaves the editor a blank page. Every other third-party
-//     import in this tree is dynamic for exactly this reason; see the same
-//     note in openExternal.js, isTauri.js, AutosaveStore.js and ScreenWindow.js.
+//  2. IT MUST NOT ADD A DEPENDENCY. The '@vercel/speed-insights' package used
+//     to be imported here and was nothing but trouble for a plain, unbundled,
+//     desktop-shipping app like this one:
 //
-// So: check the origin first, then load. Nothing here throws and nothing here
-// is awaited by a caller — with the package missing, the network down or the
-// script blocked, the app is unchanged and the metric is simply not collected.
+//       - Its bare specifier has to resolve. Vite fails the whole module at
+//         transform time when the package is not installed, so a stale
+//         `node_modules` took the editor down with a 500 rather than quietly
+//         skipping a metric — and `npm install` is not always available to the
+//         person trying to start the app.
+//       - The raw web deployments (rhizo_server.py, any plain static host)
+//         serve `main.js` and this module to the browser UNBUNDLED, so a bare
+//         specifier is unresolvable there at runtime too.
+//       - Under a development NODE_ENV it swaps the same-origin script for
+//         `https://va.vercel-scripts.com/...`, which `script-src 'self'` — the
+//         policy every page ships, pinned by tests/editorCspEndpoints.test.js —
+//         refuses outright.
+//
+//     For an app with no framework router, the package's entire contribution is
+//     the <script> tag below; everything else in it is Next/Nuxt/SvelteKit route
+//     bookkeeping. So append the tag directly. Same endpoint, same data, nothing
+//     to install, and nothing that can fail before the origin check runs.
+//
+// So: check the origin first, then inject. Nothing here throws and nothing here
+// is awaited by a caller — with the script blocked or the network down, the app
+// is unchanged and the metric is simply not collected.
 
 import { isTauri } from './isTauri.js';
+
+/**
+ * The Vercel edge route that serves the Web Vitals collector. Same-origin, so
+ * `script-src 'self'` allows it; it beacons to `/_vercel/speed-insights/vitals`
+ * on the same origin, which `connect-src 'self'` allows for the same reason.
+ */
+export const SPEED_INSIGHTS_SCRIPT = '/_vercel/speed-insights/script.js';
 
 /**
  * Hosts that never have a Vercel edge behind them: a developer's machine, the
@@ -72,20 +88,39 @@ export function speedInsightsApplies(env) {
 /**
  * Start Speed Insights, if this is a page it belongs on.
  *
- * @returns {Promise<boolean>} whether the package was loaded and injected.
- *   Nobody needs the answer at runtime — it is there so the tests can await
- *   the decision rather than race it.
+ * @param {{ isTauri?: boolean, location?: object, document?: Document }} [env]
+ *   injectable for the tests; defaults to the live page.
+ * @returns {boolean} whether the script was injected. Nobody needs the answer
+ *   at runtime — it is there so the tests can assert the decision.
  */
-export async function initSpeedInsights() {
-  if (!speedInsightsApplies()) return false;
+export function initSpeedInsights(env) {
+  if (!speedInsightsApplies(env)) return false;
 
-  try {
-    const { injectSpeedInsights } = await import('@vercel/speed-insights');
-    injectSpeedInsights();
-    return true;
-  } catch {
-    // Unresolvable on an unbundled host, blocked by a content blocker, offline:
-    // all of them mean no metrics, none of them mean a broken editor.
-    return false;
+  const doc = env?.document ?? globalThis.document;
+  if (!doc?.head) return false;
+
+  // Called from three entry points (main.js, the viewer, the landing page) and
+  // only ever one page at a time, but a second tag would mean double-counted
+  // samples, so make it idempotent rather than assume.
+  if (doc.head.querySelector(`script[src="${SPEED_INSIGHTS_SCRIPT}"]`)) return false;
+
+  // The collector pushes into `window.si` before its own script has parsed and
+  // flushes the queue on load; without the stub those early calls throw.
+  const win = doc.defaultView ?? globalThis.window;
+  if (win && !win.si) {
+    win.si = function speedInsightsQueue(...params) {
+      win.siq = win.siq || [];
+      win.siq.push(params);
+    };
   }
+
+  // Deferred, and with no onerror handler: a content blocker, an ad blocker or
+  // an offline tab means the script never runs, which means no metrics and
+  // nothing else. That is the whole failure mode, and it needs no handling.
+  const script = doc.createElement('script');
+  script.src = SPEED_INSIGHTS_SCRIPT;
+  script.defer = true;
+  doc.head.appendChild(script);
+
+  return true;
 }
