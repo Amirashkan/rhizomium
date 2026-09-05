@@ -672,21 +672,23 @@ async importProject(projectData, options = {}) {
       this.editor.draw();
     }
 
-    // Generate previews for all nodes that should have them enabled
+    // Thumbnails for the loaded graph, once the shader rebuild above has settled. They go through
+    // the ONE preview funnel (PreviewSystem.generateNodePreview), the same one every other path
+    // uses: it renders compute and visual nodes on the GPU and falls back to the CPU approximation
+    // only when that genuinely fails, and it honours the per-node eye toggle.
+    //
+    // This used to paint a thumbnail for every node itself, calling the CPU renderer registry
+    // directly and assigning node.__thumb - so a loaded project showed the registry's stand-in
+    // cards ("REMAP", "GRAY", "INV", "fx", ...) over nodes whose real rendered output the GPU had
+    // already produced, or was about to. The hand-painted write landed last and nothing re-rendered
+    // those nodes afterwards, so the placeholder text stayed on screen until the artist touched a
+    // parameter. Nothing in the load path writes __thumb by hand any more - including OutputFinal,
+    // whose thumbnail the fragment path builds from the node feeding it, at the composition's
+    // aspect ratio rather than as a squashed square copy of the output canvas.
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    if (this.editor && this.editor.previewSystem && this.graph && this.graph.nodes) {
-      for (const node of this.graph.nodes) {
-        const previewSettings = this.editor.nodePreviews?.get(node.id);
-
-        if (previewSettings && previewSettings.enabled) {
-          if (typeof this.editor.previewSystem.generatePreview === 'function') {
-            await this.editor.previewSystem.generatePreview(node.id, node);
-          }
-
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      }
+    if (this.editor?.previewSystem?.updateAllPreviews && this.graph?.nodes) {
+      this.editor.previewSystem.updateAllPreviews(this.graph.nodes);
     }
 
     // Final editor redraw
@@ -694,107 +696,6 @@ async importProject(projectData, options = {}) {
     if (this.editor && this.editor.draw) {
       if (this.editor.markDirty) this.editor.markDirty('file-load-complete');
       this.editor.draw();
-    }
-
-    this.hasUnsavedChanges = false;
-    this.updateStatus("Project loaded successfully");
-
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    if (this.graph && this.graph.nodes) {
-      const sorted = this.topologicalSortNodes(this.graph.nodes);
-
-      for (const node of sorted) {
-        try {
-          if (node.kind?.toLowerCase() === 'outputfinal') {
-            continue;
-          }
-
-          // Don't delete __thumb - keep existing preview so dependent nodes can use it
-          // Only create new canvas if needed
-          let canvas = node.__thumb;
-
-          if (!canvas || canvas.width !== 128 || canvas.height !== 128) {
-            canvas = document.createElement('canvas');
-            canvas.width = 128;
-            canvas.height = 128;
-          }
-
-          const ctx = canvas.getContext('2d');
-
-          let renderer = null;
-
-          if (this.editor?.previewSystem?.rendererRegistry) {
-            const registry = this.editor.previewSystem.rendererRegistry;
-            const nodeType = node.kind?.toLowerCase();
-
-            if (registry[nodeType]) {
-              renderer = registry[nodeType];
-            } else if (typeof registry.get === 'function') {
-              renderer = registry.get(nodeType);
-            } else if (typeof registry.getRenderer === 'function') {
-              renderer = registry.getRenderer(nodeType);
-            } else if (registry.renderers && registry.renderers[nodeType]) {
-              renderer = registry.renderers[nodeType];
-            }
-          }
-
-          if (renderer && typeof renderer === 'function') {
-            renderer(ctx, node);
-            node.__thumb = canvas;
-          }
-
-          await new Promise(resolve => setTimeout(resolve, 30));
-        } catch {
-
-        }
-      }
-
-      // Capture OutputFinal thumbnail from the actual rendered shader
-      const outputNode = this.graph.nodes.find(n => n.kind?.toLowerCase() === 'outputfinal');
-      if (outputNode) {
-        await new Promise(resolve => setTimeout(resolve, 150));
-        
-        if (typeof window.render === "function") {
-          await window.render();
-        }
-        
-        const gpuCanvas = document.getElementById("gpu-canvas");
-        if (gpuCanvas) {
-          const thumbCanvas = document.createElement('canvas');
-          thumbCanvas.width = 128;
-          thumbCanvas.height = 128;
-          const thumbCtx = thumbCanvas.getContext('2d');
-
-          thumbCtx.drawImage(gpuCanvas, 0, 0, 128, 128);
-          outputNode.__thumb = thumbCanvas;
-
-          await new Promise(resolve => setTimeout(resolve, 200));
-
-          for (let i = 0; i < 5; i++) {
-            if (this.editor && this.editor.draw) {
-              if (this.editor.markDirty) this.editor.markDirty('file-load-retry');
-              this.editor.draw();
-            }
-            await new Promise(resolve => setTimeout(resolve, 50));
-          }
-
-          if (this.graph && this.graph.nodes) {
-            for (const node of this.graph.nodes) {
-              if (this.editor && typeof this.editor.onNodeChanged === 'function') {
-                this.editor.onNodeChanged(node);
-              }
-            }
-          }
-
-          if (this.editor && this.editor.draw) {
-            if (this.editor.markDirty) this.editor.markDirty('file-load-final-retry');
-            this.editor.draw();
-          }
-
-          this.hasUnsavedChanges = false;    
-        }
-      }
     }
 
     this.hasUnsavedChanges = false;
@@ -867,39 +768,6 @@ async reinitializeWebGPU() {
     });
     return null;
   }
-}topologicalSortNodes(nodes) {
-  const sorted = [];
-  const visited = new Set();
-  const temp = new Set();
-  
-  const visit = (node) => {
-    if (temp.has(node.id)) return; // Circular dependency
-    if (visited.has(node.id)) return;
-    
-    temp.add(node.id);
-    
-    // Visit dependencies first
-    if (node.inputs) {
-      for (const inputId of node.inputs) {
-        if (inputId) {
-          const inputNode = nodes.find(n => n.id === inputId);
-          if (inputNode) visit(inputNode);
-        }
-      }
-    }
-    
-    temp.delete(node.id);
-    visited.add(node.id);
-    sorted.push(node);
-  };
-  
-  for (const node of nodes) {
-    if (!visited.has(node.id)) {
-      visit(node);
-    }
-  }
-  
-  return sorted;
 }
 
   async forceShaderUpdate() {
