@@ -14,6 +14,7 @@
 // render loop — see _toggleRender.
 
 import { TYPE_COLORS } from "../core/theme.js";
+import { resolveResolution } from "./OutputFormat.js";
 
 // How often the sampled readouts refresh. Fast enough to feel live, slow enough
 // that it never competes with the render loop — the cursor readout doesn't wait
@@ -124,10 +125,10 @@ export class StatusBar {
   destroy() {
     clearInterval(this._timer);
     this._timer = null;
-    if (this._onPointerMove && this.editor?.canvas) {
-      this.editor.canvas.removeEventListener("pointermove", this._onPointerMove);
-      this._onPointerMove = null;
+    for (const { el, handler } of this._cursorSurfaces || []) {
+      el.removeEventListener("pointermove", handler);
     }
+    this._cursorSurfaces = [];
     this.el?.remove();
     this.el = null;
   }
@@ -172,22 +173,84 @@ export class StatusBar {
    * The cursor readout tracks the pointer directly rather than waiting for the
    * sample timer — a position that lags a quarter second behind the mouse reads
    * as broken.
+   *
+   * Two surfaces sit under the pointer, and they are different spaces with
+   * different origins: the graph, where the number that means something is a
+   * node position, and the render, where it is a pixel in the output frame —
+   * the same coordinate the shader addresses. Quoting graph coordinates while
+   * the user is pointing at the image is what made the readout look like it had
+   * the wrong 0,0, so each surface reports its own space and the readout says
+   * which one it is quoting.
    */
   _bindCursor() {
-    const canvas = this.editor?.canvas;
-    if (!canvas) return;
-    this._onPointerMove = (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const pos = this.editor.viewport?.screenToCanvas?.(
-        e.clientX - rect.left,
-        e.clientY - rect.top,
-      );
-      if (!pos) return;
-      if (this.cursorEl) {
-        this.cursorEl.textContent = `x ${Math.round(pos.x)}  y ${Math.round(pos.y)}`;
-      }
+    this._cursorSurfaces = [];
+
+    const graphCanvas = this.editor?.canvas;
+    if (graphCanvas) {
+      this._trackCursorOn(graphCanvas, (e) => this._graphReadout(graphCanvas, e));
+    }
+
+    // The render canvas moves around — floating panel, docked, fullscreen, a
+    // second monitor — but it stays the same element, so one listener follows it
+    // everywhere it goes. It only receives the pointer while it is actually on
+    // top of the graph, which is exactly when the readout should switch.
+    const gpuCanvas = document.getElementById("gpu-canvas");
+    if (gpuCanvas) {
+      this._trackCursorOn(gpuCanvas, (e) => this._outputReadout(gpuCanvas, e));
+    }
+  }
+
+  /** Wire one surface's pointer to the readout, and remember it for destroy(). */
+  _trackCursorOn(el, readout) {
+    const handler = (e) => {
+      const out = readout(e);
+      if (!out || !this.cursorEl) return;
+      this.cursorEl.textContent = out.text;
+      this.cursorEl.title = out.title;
     };
-    canvas.addEventListener("pointermove", this._onPointerMove, { passive: true });
+    el.addEventListener("pointermove", handler, { passive: true });
+    this._cursorSurfaces.push({ el, handler });
+  }
+
+  /** Graph space: where a node dropped here would sit. */
+  _graphReadout(canvas, e) {
+    const rect = canvas.getBoundingClientRect();
+    const pos = this.editor.viewport?.screenToCanvas?.(
+      e.clientX - rect.left,
+      e.clientY - rect.top,
+    );
+    if (!pos) return null;
+    return {
+      text: `x ${Math.round(pos.x)}  y ${Math.round(pos.y)}`,
+      title: "Cursor position in graph space",
+    };
+  }
+
+  /**
+   * Output space: the pixel of the composition under the pointer, with 0,0 at
+   * the top-left of the frame — the same corner the compute shaders index from.
+   *
+   * The canvas is fitted to whatever box it is in, so its client rect *is* the
+   * image: a fraction across the rect is that same fraction across the frame,
+   * however large the panel has been dragged and whatever resolution the
+   * preview happens to be rendering at. Reported against the output format
+   * rather than the preview's own resolution, since the output is the frame the
+   * user is composing.
+   */
+  _outputReadout(canvas, e) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    const u = (e.clientX - rect.left) / rect.width;
+    const v = (e.clientY - rect.top) / rect.height;
+    const { width, height } = resolveResolution("output");
+
+    return {
+      text: `out x ${Math.round(u * width)}  y ${Math.round(v * height)}`,
+      title:
+        `Cursor position in the output frame — ${width}×${height}, ` +
+        `uv ${u.toFixed(3)}, ${v.toFixed(3)} from the top-left`,
+    };
   }
 
   update() {
