@@ -189,76 +189,38 @@
 
 /* --- Shared scrollbar ---------------------------------------------------
    The lime "inset pill": a 2px transparent border with background-clip keeps
-   the thumb off the track edge without a painted track. Applied to the
-   scrolling surfaces the editor already had, so nothing new scrolls. */
-.rzscroll,
-.custom-scroll,
-.ctx-menu,
-.rz-palette-rail,
-.rz-palette-results,
-.menu-submenu,
-#code,
-.param-panel,
-#param-panel,
-.parameter-panel,
-.parameter-panel__content,
-.welcome-dialog,
-.modal-dialog,
-.menu-dropdown {
+   the thumb off the track edge without a painted track. Applied app-wide
+   rather than to a hand-kept list of selectors, so floating windows that
+   scroll — settings panels, palettes, dialogs — never fall back to the
+   platform scrollbar. Anything that wants the native one can opt out with
+   scrollbar-width/`::-webkit-scrollbar` rules of its own. */
+:root {
   scrollbar-width: thin;
   scrollbar-color: rgba(198, 242, 78, 0.32) transparent;
 }
 
-.rzscroll::-webkit-scrollbar,
-.custom-scroll::-webkit-scrollbar,
-.ctx-menu::-webkit-scrollbar,
-.rz-palette-rail::-webkit-scrollbar,
-.rz-palette-results::-webkit-scrollbar,
-.menu-submenu::-webkit-scrollbar,
-#code::-webkit-scrollbar,
-.param-panel::-webkit-scrollbar,
-#param-panel::-webkit-scrollbar,
-.parameter-panel::-webkit-scrollbar,
-.parameter-panel__content::-webkit-scrollbar,
-.welcome-dialog::-webkit-scrollbar,
-.modal-dialog::-webkit-scrollbar,
-.menu-dropdown::-webkit-scrollbar {
+*,
+*::before,
+*::after {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(198, 242, 78, 0.32) transparent;
+}
+
+::-webkit-scrollbar {
   width: 9px;
   height: 9px;
 }
 
-.rzscroll::-webkit-scrollbar-track,
-.custom-scroll::-webkit-scrollbar-track,
-.ctx-menu::-webkit-scrollbar-track,
-.rz-palette-rail::-webkit-scrollbar-track,
-.rz-palette-results::-webkit-scrollbar-track,
-.menu-submenu::-webkit-scrollbar-track,
-#code::-webkit-scrollbar-track,
-.param-panel::-webkit-scrollbar-track,
-#param-panel::-webkit-scrollbar-track,
-.parameter-panel::-webkit-scrollbar-track,
-.parameter-panel__content::-webkit-scrollbar-track,
-.welcome-dialog::-webkit-scrollbar-track,
-.modal-dialog::-webkit-scrollbar-track,
-.menu-dropdown::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: transparent;
   margin: 4px 0;
 }
 
-.rzscroll::-webkit-scrollbar-thumb,
-.custom-scroll::-webkit-scrollbar-thumb,
-.ctx-menu::-webkit-scrollbar-thumb,
-.rz-palette-rail::-webkit-scrollbar-thumb,
-.rz-palette-results::-webkit-scrollbar-thumb,
-.menu-submenu::-webkit-scrollbar-thumb,
-#code::-webkit-scrollbar-thumb,
-.param-panel::-webkit-scrollbar-thumb,
-#param-panel::-webkit-scrollbar-thumb,
-.parameter-panel::-webkit-scrollbar-thumb,
-.parameter-panel__content::-webkit-scrollbar-thumb,
-.welcome-dialog::-webkit-scrollbar-thumb,
-.modal-dialog::-webkit-scrollbar-thumb,
-.menu-dropdown::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
   background: linear-gradient(
     rgba(198, 242, 78, 0.3),
     rgba(198, 242, 78, 0.18)
@@ -268,44 +230,12 @@
   background-clip: padding-box;
 }
 
-.rzscroll::-webkit-scrollbar-thumb:hover,
-.custom-scroll::-webkit-scrollbar-thumb:hover,
-.ctx-menu::-webkit-scrollbar-thumb:hover,
-.rz-palette-rail::-webkit-scrollbar-thumb:hover,
-.rz-palette-results::-webkit-scrollbar-thumb:hover,
-.menu-submenu::-webkit-scrollbar-thumb:hover,
-#code::-webkit-scrollbar-thumb:hover,
-.param-panel::-webkit-scrollbar-thumb:hover,
-#param-panel::-webkit-scrollbar-thumb:hover,
-.parameter-panel::-webkit-scrollbar-thumb:hover,
-.parameter-panel__content::-webkit-scrollbar-thumb:hover,
-.welcome-dialog::-webkit-scrollbar-thumb:hover,
-.modal-dialog::-webkit-scrollbar-thumb:hover,
-.menu-dropdown::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(
     rgba(198, 242, 78, 0.5),
     rgba(198, 242, 78, 0.32)
   );
   background-clip: padding-box;
-}
-
-/* A scroll container's corner would otherwise paint the platform's own
-   light square where the two bars meet. */
-.rzscroll::-webkit-scrollbar-corner,
-.custom-scroll::-webkit-scrollbar-corner,
-.ctx-menu::-webkit-scrollbar-corner,
-.rz-palette-rail::-webkit-scrollbar-corner,
-.rz-palette-results::-webkit-scrollbar-corner,
-.menu-submenu::-webkit-scrollbar-corner,
-#code::-webkit-scrollbar-corner,
-.param-panel::-webkit-scrollbar-corner,
-#param-panel::-webkit-scrollbar-corner,
-.parameter-panel::-webkit-scrollbar-corner,
-.parameter-panel__content::-webkit-scrollbar-corner,
-.welcome-dialog::-webkit-scrollbar-corner,
-.modal-dialog::-webkit-scrollbar-corner,
-.menu-dropdown::-webkit-scrollbar-corner {
-  background: transparent;
 }
 
 ::selection {
