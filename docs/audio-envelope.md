@@ -101,13 +101,14 @@ Create pulsing effects that are modulated by audio.
 
 The editor's Audio panel — **Tools → Audio…** (`Cmd/Ctrl+Alt+A`) — drives the
 in-browser analysis, not the server on this page. It carries three source tabs
-(File, Mic / line-in, System), four settings that shape the meters (**Attack**,
-**Release**, **Gain**, and one threshold per drum), and a live meter for every
-analysis channel with a **+** that deploys an Audio Value node reading it.
+(File, Mic / line-in, System), readouts for the meter shaping (**Attack**,
+**Release**, **Gain**), and a live meter for every analysis channel with a **＋**
+that deploys an Audio Value node reading it.
 
-The settings live on the **Audio node** rather than in the panel, so each is an
-ordinary node parameter — MIDI-mappable, expression-drivable, undoable, saved
-with the patch.
+Nothing in that panel is editable. The settings are parameters of the **Audio
+node**, which is the only place they can be set — so each is MIDI-learnable,
+expression-drivable, undoable and saved with the patch. With no Audio node in
+the patch the analysis runs on the defaults and the panel offers to add one.
 
 The older Follower / ADSR / Shaping controls this section used to describe are
 gone; there is no Threshold, Decay, Sustain, Curve or Auto-normalize control any
