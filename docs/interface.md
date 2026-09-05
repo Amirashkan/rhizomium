@@ -70,28 +70,24 @@ Shows your visual output in real-time:
 
 ### 4. Right-Click Menu
 
-Right-clicking empty canvas opens the **Add Node** menu - a ring of the twelve
-node categories:
+Right-clicking empty canvas opens the **Add Node** palette - a search field
+over a rail of the twelve node categories:
 
-![The radial Add Node menu](images/radial-menu.webp)
+![The Add Node palette: search field, category rail, and the suggested nodes](images/radial-menu.webp)
 
 The categories are **Input**, **Output**, **Math**, **Vector**, **Generators**,
-**Transform**, **Modifiers**, **Effects**, **Dynamics**, **Utility**,
-**Blend** and **Texture**. Click one to fan its nodes out around the ring:
-
-![The Transform category expanded](images/radial-menu-category.webp)
-
-**You can also just type.** With the menu open, typing filters every node in
-the editor by name, so you never have to remember which category something is
-filed under:
-
-![Typing "noise" filters the menu](images/radial-menu-search.webp)
+**Transform**, **Modifiers**, **Utility**, **Blend**, **Texture**,
+**Dynamics** and **Effects**. Pick one from the rail to list just its nodes, or
+stay on **All** and type - the search matches every node in the editor by name,
+so you never have to remember which category something is filed under.
 
 - **Type** to search
 - **Arrow keys** to move the selection
 - **Enter** to place the highlighted node
-- **Esc** or **←** to step back out
-- **Scroll** to page through a category with more nodes than fit the ring
+- **Tab** to cycle through the categories
+- **Esc** to close without placing anything
+
+The node lands at the cursor, so right-click where you want it.
 
 **On a node**, right-click gives that node's own menu - edit parameters, delete,
 duplicate, and toggle its preview thumbnail. It also offers **Reset parameters

@@ -2,130 +2,117 @@
   "_comment": "Crops and callout positions for docs/images, consumed by scripts/docs-images.mjs. All values are fractions of the source image (0-1) so they survive a re-capture at a different resolution. 'box' outlines the feature, and the numbered badge sits in nearby empty space rather than on top of it. The matching numbered list lives in the markdown next to the image, which keeps the labels as real text for search engines and assistants.",
   "images": {
     "editor-overview": {
-      "crop": {
-        "x": 0,
-        "y": 0,
-        "w": 0.4,
-        "h": 0.42
-      },
       "callouts": [
         {
           "n": 1,
-          "x": 0.66,
-          "y": 0.155,
+          "x": 0.38,
+          "y": 0.033,
           "box": {
-            "x": 0.005,
-            "y": 0.005,
-            "w": 0.63,
-            "h": 0.09
+            "x": 0.011,
+            "y": 0.008,
+            "w": 0.329,
+            "h": 0.049
           },
           "label": "Menu bar - File, Edit, View, Node, Tools, Window, Help"
         },
         {
           "n": 2,
-          "x": 0.94,
-          "y": 0.05,
+          "x": 0.97,
+          "y": 0.104,
           "box": {
-            "x": 0.79,
-            "y": 0.01,
-            "w": 0.11,
-            "h": 0.08
+            "x": 0.951,
+            "y": 0.011,
+            "w": 0.04,
+            "h": 0.033
           },
           "label": "Status - \"Idle\" or \"Shader compiled\""
         },
         {
           "n": 3,
-          "x": 0.245,
-          "y": 0.955,
+          "x": 0.166,
+          "y": 0.815,
           "box": {
-            "x": 0.03,
-            "y": 0.135,
-            "w": 0.435,
-            "h": 0.8
+            "x": 0.009,
+            "y": 0.1,
+            "w": 0.314,
+            "h": 0.656
           },
           "label": "Preview window - the rendered output, floating over the canvas"
         },
         {
           "n": 4,
-          "x": 0.71,
-          "y": 0.72,
+          "x": 0.614,
+          "y": 0.724,
           "box": {
-            "x": 0.475,
-            "y": 0.29,
-            "w": 0.47,
-            "h": 0.25
+            "x": 0.354,
+            "y": 0.355,
+            "w": 0.526,
+            "h": 0.272
           },
           "label": "Canvas - the node graph you are building"
         }
       ]
     },
-    "welcome-dialog": {
-      "crop": {
-        "x": 0.28,
-        "y": 0.05,
-        "w": 0.44,
-        "h": 0.88
-      }
-    },
+    "welcome-dialog": {},
     "parameter-panel": {
       "callouts": [
         {
           "n": 1,
-          "x": 0.55,
-          "y": 0.125,
+          "x": 0.521,
+          "y": 0.065,
           "box": {
-            "x": 0.07,
-            "y": 0.075,
-            "w": 0.36,
-            "h": 0.1
+            "x": 0.042,
+            "y": 0.025,
+            "w": 0.906,
+            "h": 0.087
           },
           "label": "Panel header - which node these parameters belong to"
         },
         {
           "n": 2,
-          "x": 0.045,
-          "y": 0.42,
+          "x": 0.417,
+          "y": 0.23,
           "box": {
-            "x": 0.11,
-            "y": 0.355,
-            "w": 0.79,
-            "h": 0.13
+            "x": 0.058,
+            "y": 0.267,
+            "w": 0.858,
+            "h": 0.112
           },
           "label": "Value field - type a number, or an = expression"
         },
         {
           "n": 3,
-          "x": 0.045,
-          "y": 0.53,
+          "x": 0.333,
+          "y": 0.419,
           "box": {
-            "x": 0.11,
-            "y": 0.495,
-            "w": 0.17,
-            "h": 0.07
+            "x": 0.054,
+            "y": 0.391,
+            "w": 0.133,
+            "h": 0.056
           },
           "label": "Evaluated value - what the expression currently resolves to"
         },
         {
           "n": 4,
-          "x": 0.045,
-          "y": 0.61,
+          "x": 0.479,
+          "y": 0.478,
           "box": {
-            "x": 0.11,
-            "y": 0.575,
-            "w": 0.28,
-            "h": 0.07
+            "x": 0.054,
+            "y": 0.447,
+            "w": 0.221,
+            "h": 0.062
           },
           "label": "Accepted range for this parameter"
         },
         {
           "n": 5,
-          "x": 0.955,
-          "y": 0.19,
+          "x": 0.688,
+          "y": 0.23,
           "box": {
-            "x": 0.715,
-            "y": 0.265,
-            "w": 0.19,
-            "h": 0.1
+            "x": 0.779,
+            "y": 0.193,
+            "w": 0.146,
+            "h": 0.075
           },
           "label": "Copy reference, bind (MIDI / parameter link), and keyframe"
         }

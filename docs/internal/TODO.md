@@ -133,6 +133,10 @@ cannot present to a canvas — the previews come out black and node thumbnails
 read `COMP`. **Blocked: the UI wants changes first, so these are deliberately
 not re-shot yet.** Re-capture once those land.
 
+`editor-overview`, `welcome-dialog`, `radial-menu`, `parameter-panel`,
+`panel-audio-envelope` and `panel-midi-controllers` have since been re-shot
+from the running app and are off this list.
+
 Replacing one is a drop-in: overwrite `docs/images/<name>.png`, run
 `node scripts/docs-images.mjs optimize <name>`, and every reference, caption
 and alt text stays as it is. A sheet of several nodes at once is better still —
@@ -140,25 +144,21 @@ add its boxes to `docs/images/images.config.json` and run `slice`; positions
 are fractions, so a re-capture at another resolution keeps working. See the
 header of `scripts/docs-images.mjs`.
 
-- [ ] `editor-overview` — the worst of them: the preview window is black where
-      the real editor shows output. Used on `interface.md` and
-      `quickstart-web.md`, both with numbered callouts that re-annotate from
-      `images.config.json` via `docs-images.mjs annotate`
 - [ ] `menu-file` — stale as well as headless: the Publish submenu is now
       **Publish Image… / Publish Animation…** (PR #317), not the old target
       picker with a commit message
 - [ ] `menu-edit`, `menu-view`, `menu-node`, `menu-tools`, `menu-window`,
       `menu-help` — accurate but headless; currently unreferenced by any page,
       so either re-shoot or delete
-- [ ] `welcome-dialog`, `radial-menu`, `radial-menu-category`,
-      `radial-menu-search`, `parameter-panel` — real UI and accurate, but
-      captured in the container
 - [ ] Cosmetic, worth fixing before any node re-shoot: the output value readout
       (`0.000`) is drawn over the preview thumbnail on nodes that have one —
       Polygon, Worley Noise, Cell Noise, Voronoi Noise all show it sitting on
       top of the image
 
-Not blocked, already done from real captures: every `node-*` image, the four
+`panel-osc-receiver` is shot and optimized but not referenced by any page yet —
+the OSC Receiver panel has no section of its own in `interface.md`.
+
+Not blocked, already done from real captures: every `node-*` image, the
 `panel-*` panels, `node-graph-live`, `menu-bar`, `profiler-compact`,
 `profiler-expanded` and `wgsl-console`.
 
