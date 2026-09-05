@@ -38,22 +38,17 @@ Let's build a circle from scratch. Start by deleting the three starter nodes
 
 ### The Add Node menu
 
-**Right-click** anywhere on the canvas. The **Add Node** menu opens as a ring of
-the twelve categories:
+**Right-click** anywhere on the canvas. The **Add Node** palette opens with a
+search field, the twelve categories down the left, and a few suggested nodes:
 
-![The radial Add Node menu, showing the twelve categories](images/radial-menu.webp)
+![The Add Node palette, with the category rail and the suggested nodes](images/radial-menu.webp)
 
-Click a category to fan out the nodes inside it:
+Click a category to list just the nodes inside it. You do not have to hunt
+through them, though - **just start typing** and the search filters every node
+by name.
 
-![The Transform category expanded in the radial menu](images/radial-menu-category.webp)
-
-You do not have to hunt through categories, though. With the menu open, **just
-start typing** and it filters every node by name:
-
-![Typing "noise" filters the menu to the noise generators](images/radial-menu-search.webp)
-
-Arrow keys move the selection, **Enter** places the highlighted node, and
-**Esc** (or the left arrow) steps back out.
+Arrow keys move the selection, **Enter** places the highlighted node at the
+cursor, **Tab** cycles the categories, and **Esc** closes the palette.
 
 ### Add a UV node
 
