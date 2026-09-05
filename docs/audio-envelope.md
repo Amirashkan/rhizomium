@@ -1,5 +1,12 @@
 # Audio Envelope User Guide
 
+> **This page documents the standalone Python audio server** in `audio/`, which
+> runs as a separate process and exposes envelope values over WebSocket and
+> HTTP. The editor no longer connects to it: audio analysis runs in the browser,
+> from a file, microphone or shared system audio, with no server to start. For
+> that — the route almost everyone wants — see
+> **[Working with Audio](audio-web.md)**.
+
 ## Overview
 
 The Audio Envelope feature allows you to control shader parameters in real-time based on audio input (microphone or desktop audio). This creates dynamic, audio-reactive visuals that respond to music, voice, or any other sound.
@@ -33,20 +40,30 @@ HTTP endpoint: http://localhost:8765/envelope
 Update rate: 60 Hz
 ```
 
-### 2. Open the GLSL Node Editor
+### 2. Read the envelope
 
-Open your browser and navigate to the GLSL Node Editor (usually `http://localhost:8080/editor` or wherever your editor is hosted).
+The editor has no client for this server — it does its own analysis in the
+browser, and its Audio panel neither connects to `localhost:8765` nor shows a
+connection status. Consume the server from your own code instead, over either
+endpoint:
 
-### 3. Open Audio Settings
+```bash
+# One reading
+curl http://localhost:8765/envelope
 
-Click the **Audio Settings** button in the top menu. You should see:
-- Status: Connected (green) or Disconnected (red)
-- Current envelope value (0.000 - 1.000)
-- A visual bar showing the current value
+# A stream of them
+websocat ws://localhost:8765/ws
+```
 
-### 4. Use Audio in Parameters
+Both are documented under [API Reference](#api-reference) below.
 
-Now you can use `audioEnvelope` in any parameter expression! Simply prefix your expression with `=`:
+### 3. Use audio in parameters
+
+To drive parameters from *the editor's own* analysis — which is what
+`audioEnvelope` reads — open **Tools → Audio…** and start a source, then prefix
+any parameter expression with `=`. See
+**[Working with Audio](audio-web.md)**. The expression syntax below applies
+either way:
 
 **Example 1: Basic usage**
 ```
@@ -82,43 +99,19 @@ Create pulsing effects that are modulated by audio.
 
 ![The Audio panel: File / Mic / System source, Attack, Release and Gain settings, and live meters for the signal and drum channels](images/panel-audio-envelope.webp)
 
-Load an MP3, WAV or OGG file, then use Play / Pause / Stop to drive the envelope. The meter shows the current `audioEnvelope` value, which is what parameter expressions read.
+The editor's Audio panel — **Tools → Audio…** (`Cmd/Ctrl+Alt+A`) — drives the
+in-browser analysis, not the server on this page. It carries three source tabs
+(File, Mic / line-in, System), four settings that shape the meters (**Attack**,
+**Release**, **Gain**, and one threshold per drum), and a live meter for every
+analysis channel with a **+** that deploys an Audio Value node reading it.
 
-The Audio Settings panel allows you to fine-tune how audio is processed:
+The settings live on the **Audio node** rather than in the panel, so each is an
+ordinary node parameter — MIDI-mappable, expression-drivable, undoable, saved
+with the patch.
 
-### Follower
-
-The follower tracks the audio signal's amplitude:
-
-- **Attack (0-200ms)**: How quickly the envelope rises when sound is detected
-  - Lower = snappier response
-  - Higher = smoother rise
-
-- **Release (0-500ms)**: How quickly the envelope falls when sound stops
-  - Lower = quick decay
-  - Higher = sustained hold
-
-- **Threshold (0.0-1.0)**: Minimum level to trigger the envelope
-  - Lower = more sensitive
-  - Higher = only loud sounds trigger
-
-### ADSR Envelope
-
-The ADSR (Attack, Decay, Sustain, Release) shapes the envelope response:
-
-- **Attack (0-2000ms)**: Time to reach peak after gate opens
-- **Decay (0-2000ms)**: Time to fall from peak to sustain level
-- **Sustain (0.0-1.0)**: Level held while audio is present
-- **Release (0-3000ms)**: Time to fade out after audio stops
-
-### Shaping
-
-- **Curve**:
-  - **Linear**: Direct 1:1 mapping
-  - **Exponential**: Emphasizes louder sounds (default)
-  - **Sigmoid**: S-curve for smoother transitions
-
-- **Auto-normalize**: Automatically scales to 0-1 range
+The older Follower / ADSR / Shaping controls this section used to describe are
+gone; there is no Threshold, Decay, Sustain, Curve or Auto-normalize control any
+more. See **[Working with Audio](audio-web.md)** for the panel as it now stands.
 
 ## Use Cases & Examples
 
@@ -190,7 +183,7 @@ hue: =audioEnvelope * 360
 ### No audio response
 - **Value stays at 0.000**
   - Make some noise into your microphone
-  - Try lowering the **Threshold** in Audio Settings
+  - Try lowering the follower **threshold** (`POST /config`, see below)
   - Check your system's microphone permissions
   - Verify the correct audio input is selected in system settings
 
@@ -199,10 +192,14 @@ hue: =audioEnvelope * 360
   ```bash
   python -m audio.audio_server --rate 30
   ```
-- **Increase Release time** in Audio Settings for smoother decay
-- **Use Exponential or Sigmoid curve** instead of Linear
+- **Increase the follower `release_ms`** for smoother decay
+- **Use the `exp` or `sigmoid` shaping curve** instead of `linear`
 
 ## Advanced Tips
+
+These tune the server's own envelope processor, which is configured over HTTP
+(`POST /config`) rather than from any panel in the editor — see
+[HTTP Endpoints](#http-endpoints) below for the full payload.
 
 ### 1. Smooth Transitions
 
@@ -213,17 +210,17 @@ For smoother audio response, increase the Follower Release time:
 ### 2. Beat Detection
 
 For beat-reactive effects:
-- Set Threshold higher (0.3-0.5)
-- Use low Attack (10-30ms)
-- Use medium Release (100-200ms)
+- Set the follower `threshold` higher (0.3-0.5)
+- Use a low follower `attack_ms` (10-30 ms)
+- Use a medium follower `release_ms` (100-200 ms)
 
 ### 3. Ambient Response
 
 For gentle ambient reactions:
-- Set Threshold lower (0.05-0.15)
-- Use medium Attack (100-200ms)
-- Use long Release (400-800ms)
-- Use Sigmoid curve for smooth response
+- Set the follower `threshold` lower (0.05-0.15)
+- Use a medium follower `attack_ms` (100-200 ms)
+- Use a long follower `release_ms` (400-800 ms)
+- Use the `sigmoid` shaping curve for smooth response
 
 ### 4. Combining Multiple Effects
 
