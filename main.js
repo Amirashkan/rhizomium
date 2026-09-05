@@ -93,6 +93,9 @@ import {
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
 
+
+// Initialize Vercel Speed Insights
+import "./src/utils/speedInsights.js";
 // Verify timeline imports loaded
 
 // The NDI publisher, built the first time the artist switches NDI output on.

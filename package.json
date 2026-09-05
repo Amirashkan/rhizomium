@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
+    "@vercel/speed-insights": "^2.0.0",
     "openai": "^7.5.0"
   }
 }

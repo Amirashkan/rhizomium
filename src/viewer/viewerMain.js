@@ -23,6 +23,9 @@ import { resolveViewerPage } from './ViewerPage.js';
 import { FEATURES } from '../ai/tiers.js';
 import { GALLERY_ORIGIN } from '../ai/entitlements.js';
 
+// Initialize Vercel Speed Insights
+import '../utils/speedInsights.js';
+
 const dom = {};
 let runtime = null;
 let controlsUi = null;
