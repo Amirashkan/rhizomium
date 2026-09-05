@@ -391,6 +391,38 @@ the window says that too rather than showing an empty view.
 
 ---
 
+## GLSL Utilities
+
+The Custom GLSL node takes WGSL; the shader code you arrive with is usually
+GLSL. This window is the bridge, and the reference for what a node body may
+say:
+
+**Open:** **Tools → Shader Tools → GLSL Utilities** (`Ctrl+Alt+G`)
+
+**Convert** - Paste GLSL, press **Convert to WGSL**. Types, constructors,
+casts, function signatures, `mod`, two-argument `atan` and the usual Shadertoy
+uniforms (`iTime`) are translated outright. Anything that needs a decision -
+a texture lookup, a `?:`, a uniform declaration, `iResolution` - is left in
+place and listed underneath with its line number; click a note to select that
+line in the source pane. Nothing is dropped silently. **Sample** fills the
+pane with a shader to try it on.
+
+**Snippets** - Bodies ready to drop into a Custom GLSL node: polar
+coordinates, kaleidoscope fold, hash and value noise, a cosine palette,
+vignette, scanlines, circle and box SDFs, a checkerboard, an audio-reactive
+ring. Search matches the title, category and the code itself; each snippet
+names the Output Type to set on the node.
+
+**Built-ins** - The names a node body can reach for (`uv`, `time`, the audio
+envelopes, `input0…input7`, `pi`, `E`) and the rules a body is read by.
+
+**Insert into node** - Writes the conversion or the snippet straight into the
+selected Custom GLSL node, as an ordinary parameter edit: it rebuilds the
+shader and it undoes. The footer says which node it would write into, or why
+it can't.
+
+---
+
 ## Audio Settings Panel
 
 Configure audio reactivity:
