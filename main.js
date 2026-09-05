@@ -94,11 +94,6 @@ import {
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
 
 
-// Web-deployment performance metrics. A no-op in the desktop app and on any
-// host without a Vercel edge behind it; see src/utils/speedInsights.js.
-import { initSpeedInsights } from "./src/utils/speedInsights.js";
-
-initSpeedInsights();
 // Verify timeline imports loaded
 
 // The NDI publisher, built the first time the artist switches NDI output on.
