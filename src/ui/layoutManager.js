@@ -49,6 +49,7 @@ import { getAIPanel } from './AIPanel.js';
 import { getReviewPanel } from './ReviewPanel.js';
 import { getCollabPanel } from './CollabPanel.js';
 import { getShaderCompilerWindow } from './ShaderCompilerWindow.js';
+import { getGLSLUtilitiesWindow } from './GLSLUtilitiesWindow.js';
 import { getAudioSettingsPanel } from './AudioSettingsPanel.js';
 
 /** The arrangement the user saved with Window → Layouts → Save Current. */
@@ -245,6 +246,13 @@ export const PANEL_REGISTRY = [
     kind: 'tool',
     selector: '#shader-compiler-window',
     get: () => getShaderCompilerWindow(),
+  },
+  {
+    key: 'glslUtilities',
+    label: 'GLSL Utilities',
+    kind: 'tool',
+    selector: '#glsl-utilities-window',
+    get: () => getGLSLUtilitiesWindow(),
   },
   {
     key: 'previewExportSettings',

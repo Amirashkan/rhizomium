@@ -1,0 +1,443 @@
+/* src/styles/glsl-utilities.css
+   Tools → Shader Tools → GLSL Utilities (src/ui/GLSLUtilitiesWindow.js).
+
+   A floating tool window built like the Shader Compiler beside it, but split
+   two ways: source in, source out. The token colours are the compiler's own
+   (.rz-sc-*), so converted WGSL and generated WGSL read the same. */
+
+#glsl-utilities-window {
+  position: fixed;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 880px;
+  max-width: calc(100vw - 32px);
+  height: 640px;
+  max-height: calc(100vh - 116px);
+  min-width: 520px;
+  min-height: 320px;
+  display: none;
+  flex-direction: column;
+  background: linear-gradient(var(--rz-panel-top), var(--rz-panel-bottom));
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 10px;
+  box-shadow: var(--rz-shadow-pop, 0 12px 40px rgba(0, 0, 0, 0.6));
+  color: var(--rz-text);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+#glsl-utilities-window.rz-glu-open {
+  display: flex;
+}
+
+/* --- header and tabs ------------------------------------------------------ */
+
+.rz-glu-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  cursor: move;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.rz-glu-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.rz-glu-close {
+  background: none;
+  border: none;
+  color: var(--rz-text-3);
+  font-size: 18px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.rz-glu-close:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+.rz-glu-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid var(--rz-line);
+  flex-shrink: 0;
+}
+
+.rz-glu-tab {
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: var(--rz-text-3);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rz-glu-tab:hover {
+  color: var(--rz-text);
+  background: var(--rz-hover);
+}
+
+.rz-glu-tab-active,
+.rz-glu-tab-active:hover {
+  color: var(--rz-accent);
+  border-color: var(--rz-line-strong);
+  background: var(--rz-accent-10);
+}
+
+/* --- pages ---------------------------------------------------------------- */
+
+.rz-glu-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rz-glu-page[hidden] {
+  display: none;
+}
+
+.rz-glu-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  flex-shrink: 0;
+}
+
+.rz-glu-spacer {
+  flex: 1;
+}
+
+.rz-glu-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  background: var(--rz-fill-soft);
+  color: var(--rz-text-2);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rz-glu-btn:hover {
+  background: var(--rz-hover);
+  color: var(--rz-text);
+}
+
+.rz-glu-primary {
+  border-color: var(--rz-accent-30);
+  background: var(--rz-accent-10);
+  color: var(--rz-accent);
+}
+
+.rz-glu-primary:hover {
+  background: var(--rz-accent-14);
+  color: var(--rz-accent-hover);
+}
+
+.rz-glu-search {
+  flex: 0 1 260px;
+  padding: 5px 8px;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field, 5px);
+  background: var(--rz-well);
+  color: var(--rz-text);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+}
+
+.rz-glu-status {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  color: var(--rz-text-3);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.rz-glu-status-text[data-state="warn"] {
+  color: var(--rz-warn);
+}
+
+.rz-glu-status-text[data-state="ok"] {
+  color: var(--rz-success-dot);
+}
+
+/* --- the two panes -------------------------------------------------------- */
+
+.rz-glu-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.rz-glu-pane {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--rz-line);
+}
+
+.rz-glu-pane:first-child {
+  border-left: none;
+}
+
+.rz-glu-pane-title {
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--rz-line);
+  color: var(--rz-text-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.rz-glu-input {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 12px;
+  border: none;
+  resize: none;
+  background: var(--rz-bg-deep);
+  color: var(--rz-text-2);
+  font-family: var(--rz-font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.rz-glu-input:focus-visible {
+  outline: 1px solid var(--rz-accent-30);
+  outline-offset: -1px;
+}
+
+.rz-glu-code {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--rz-bg-deep);
+  font-family: var(--rz-font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  padding: 6px 0;
+}
+
+.rz-glu-code:focus-visible {
+  outline: 1px solid var(--rz-accent-30);
+  outline-offset: -1px;
+}
+
+.rz-glu-line {
+  display: flex;
+  align-items: flex-start;
+  white-space: pre;
+  min-width: max-content;
+}
+
+.rz-glu-ln {
+  position: sticky;
+  left: 0;
+  flex: 0 0 auto;
+  width: 40px;
+  padding-right: 10px;
+  text-align: right;
+  color: var(--rz-text-disabled);
+  background: var(--rz-bg-deep);
+  user-select: none;
+}
+
+.rz-glu-src {
+  flex: 1 1 auto;
+  padding-right: 14px;
+  color: var(--rz-text-2);
+  font-family: inherit;
+}
+
+.rz-glu-empty {
+  padding: 18px 16px;
+  color: var(--rz-text-3);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+}
+
+/* --- notes ---------------------------------------------------------------- */
+
+.rz-glu-notes {
+  flex: 0 0 auto;
+  max-height: 156px;
+  overflow-y: auto;
+  border-top: 1px solid var(--rz-line);
+}
+
+.rz-glu-notes.rz-glu-quiet {
+  display: none;
+}
+
+.rz-glu-note {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  border-bottom: 1px solid var(--rz-line);
+  background: none;
+  color: var(--rz-text-2);
+  font-family: var(--rz-font-ui);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rz-glu-note:hover {
+  background: var(--rz-hover);
+}
+
+.rz-glu-note-loc {
+  flex: 0 0 auto;
+  min-width: 32px;
+  font-family: var(--rz-font-mono);
+  color: var(--rz-text-faint);
+}
+
+.rz-glu-note.rz-glu-warn .rz-glu-note-loc {
+  color: var(--rz-warn);
+}
+
+.rz-glu-note-text {
+  white-space: pre-wrap;
+}
+
+/* --- snippet list --------------------------------------------------------- */
+
+.rz-glu-list {
+  flex: 0 0 260px;
+  min-width: 180px;
+  overflow-y: auto;
+  border-right: 1px solid var(--rz-line);
+}
+
+.rz-glu-snippet {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1px solid var(--rz-line);
+  background: none;
+  color: var(--rz-text-2);
+  font-family: var(--rz-font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.rz-glu-snippet:hover {
+  background: var(--rz-hover);
+}
+
+.rz-glu-snippet-active {
+  background: var(--rz-accent-10);
+  box-shadow: inset 2px 0 0 var(--rz-accent);
+}
+
+.rz-glu-snippet-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--rz-text);
+}
+
+.rz-glu-snippet-meta {
+  font-family: var(--rz-font-mono);
+  font-size: 10.5px;
+  color: var(--rz-text-faint);
+}
+
+.rz-glu-snippet-desc {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--rz-text-3);
+}
+
+/* --- reference ------------------------------------------------------------ */
+
+.rz-glu-reference {
+  overflow-y: auto;
+}
+
+.rz-glu-reference-body {
+  padding: 4px 16px 16px;
+}
+
+.rz-glu-ref-heading {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rz-text);
+}
+
+.rz-glu-ref-table {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 6px 14px;
+  align-items: baseline;
+}
+
+.rz-glu-ref-name {
+  font-family: var(--rz-font-mono);
+  font-size: 11.5px;
+  color: var(--rz-accent);
+}
+
+.rz-glu-ref-type {
+  font-family: var(--rz-font-mono);
+  font-size: 11.5px;
+  color: var(--rz-text-faint);
+}
+
+.rz-glu-ref-what {
+  font-size: 11.5px;
+  color: var(--rz-text-2);
+}
+
+.rz-glu-ref-rules {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--rz-text-2);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+/* --- footer --------------------------------------------------------------- */
+
+.rz-glu-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--rz-line);
+  color: var(--rz-text-faint);
+  font-size: 11px;
+  flex-shrink: 0;
+}

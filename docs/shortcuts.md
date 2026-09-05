@@ -89,7 +89,7 @@ is open.
 | `Ctrl+Shift+A` | AI Assistant… | |
 | `Ctrl+Alt+S` | Script Editor / Python Console | |
 | `Ctrl+Alt+C` | Shader Compiler | |
-| `Ctrl+Alt+G` | GLSL Utilities | |
+| `Ctrl+Alt+G` | GLSL Utilities | GLSL → WGSL conversion, snippets, node-body reference |
 | `Ctrl+Shift+M` | Projection Mapping… | |
 | `Ctrl+Alt+A` | Audio Settings | |
 | `Ctrl+Alt+M` | MIDI Settings | |

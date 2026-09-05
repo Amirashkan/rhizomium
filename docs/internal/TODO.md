@@ -43,11 +43,13 @@ A handful of menu items in `main.js` are wired but empty
 (`grep -n "TODO" main.js`): grid display + visibility toggle, global
 node-preview toggle, anti-aliasing, frame range / loop / alpha / compression
 export settings, new project, publish to cloud, unsaved-changes check on exit,
-connect/disconnect pins, script editor, GLSL utilities, about dialog.
+connect/disconnect pins, script editor, about dialog.
 
 - [x] Window menu layout system — `src/ui/layoutManager.js`: the Default / Custom / Minimal presets, Save Current as Custom, the Floating Windows hide-and-restore toggle, and Reset Layout (positions, remembered panel sizes and dock widths).
 
 - [x] Shader Compiler (Tools → Shader Tools) — `src/ui/ShaderCompilerWindow.js`: compiles the graph on demand, lists the fragment shader plus every compute node's shader, and prints the driver's errors and warnings against the source.
+
+- [x] GLSL Utilities (Tools → Shader Tools) — `src/ui/GLSLUtilitiesWindow.js`: translates pasted GLSL into the WGSL a Custom GLSL node body speaks (reporting what it will not decide by itself rather than dropping it), a searchable snippet library, the built-in name reference, and "Insert into node" writing either one into the selected Custom GLSL node through the parameter panel's value manager.
 
 - [ ] Triage: implement, or hide the menu items for beta so testers don't hit dead buttons
 - [ ] `PreferencesWindow.js` stubs: keymap editor, reset shortcuts, node-preview toggle, auto-save interval, logging level

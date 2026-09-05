@@ -44,6 +44,7 @@ import { ViewerPageModel } from './src/viewer/ViewerPage.js';
 import { getWebViewerTool } from './src/ui/WebViewerTool.js';
 import { getOutputAspect } from './src/ui/OutputFormat.js';
 import { getShaderCompilerWindow } from './src/ui/ShaderCompilerWindow.js';
+import { getGLSLUtilitiesWindow } from './src/ui/GLSLUtilitiesWindow.js';
 import { getLayoutManager } from './src/ui/layoutManager.js';
 import {
   installMenuToggleRowPainting,
@@ -2507,15 +2508,20 @@ function setupRhizomiumMenu() {
     });
   }
 
-  // GLSL Utilities
+  // GLSL Utilities — the GLSL → WGSL translator, the snippet library and the
+  // reference for what a Custom GLSL node body may say. A window like the
+  // compiler above it, so the same row opens and closes it.
   const glslUtilitiesBtn = document.getElementById("btn-glsl-utilities");
   if (glslUtilitiesBtn) {
     glslUtilitiesBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Implement GLSL utilities
+      const utilities = getGLSLUtilitiesWindow();
+      utilities.toggle();
       if (typeof updateStatus === "function") {
-        updateStatus("GLSL Utilities: Feature coming soon");
+        updateStatus(utilities.isVisible()
+          ? "GLSL Utilities opened"
+          : "GLSL Utilities closed");
       }
     });
   }
