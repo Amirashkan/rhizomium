@@ -169,6 +169,12 @@ Drivers: `src/audio/`, `src/midi/`, `src/osc/`, `src/core/TimelineManager.js`,
 - `src/collab/` — multi-user editing.
 - `src/ai/` — AI features. See [Open-core boundary](#open-core-boundary).
 
+A pointer position crosses three spaces on its way in — client, graph and
+output frame — and the two stacked canvases share neither an origin nor a
+size. `docs/internal/CANVAS_COORDINATE_SPACES.md` has the conversions and who
+performs them; read it before touching anything that turns an event into a
+coordinate.
+
 `main.js` at the repo root (~161 kB) is the boot file: it imports and wires
 every subsystem at startup. It is why the editor bundle is one large chunk and
 not code-split — there is no route to defer and no third-party dependency of
