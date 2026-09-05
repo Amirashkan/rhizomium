@@ -30,6 +30,7 @@ import {
 import { parameterHoldsExpression } from '../parameters/ExternalParameterControl.js';
 import { normalizeNodeName } from '../core/nodeName.js';
 import { makeDraggable } from './utils/draggable.js';
+import { makeResizable } from './utils/resizable.js';
 
 /**
  * What the audio source is doing right now, in one place.
@@ -252,6 +253,13 @@ export class AudioSettingsPanel {
         document.body.appendChild(this.panel);
 
         this.cleanupDraggable = makeDraggable(this.panel, this.panel.querySelector('.rzap-head'));
+        // Parked against the right edge next to the parameter panel; keep it
+        // there when the width changes.
+        this.cleanupResizable = makeResizable(this.panel, {
+            minWidth: 300,
+            minHeight: 240,
+            anchor: { x: 'right', y: 'top' },
+        });
     }
 
     /**
@@ -1012,7 +1020,7 @@ export class AudioSettingsPanel {
             }
             .rzap-close:hover { color: var(--rz-text); }
 
-            .rzap-body { overflow-y: auto; padding: 4px 14px 14px; }
+            .rzap-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 14px 14px; }
             .rzap-sec { padding: 12px 0; border-bottom: 1px solid var(--rz-line); }
             .rzap-sec:last-child { border-bottom: none; }
             .rzap-sec-title {

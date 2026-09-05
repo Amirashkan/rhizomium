@@ -1,6 +1,7 @@
 // src/ui/MIDISettingsPanel.js
 
 import { makeDraggable } from './utils/draggable.js';
+import { makeResizable } from './utils/resizable.js';
 import { modalManager } from './ModalManager.js';
 
 /**
@@ -16,6 +17,7 @@ export class MIDISettingsPanel {
     this.devicesList = null;
     this.bindingsList = null;
     this.cleanupDraggable = null;
+    this.cleanupResizable = null;
 
     // Throttle updateActivity to prevent excessive DOM updates
     this.lastActivityUpdate = 0;
@@ -39,18 +41,18 @@ export class MIDISettingsPanel {
       background: rgba(30, 30, 30, 0.95);
       border: 1px solid rgba(255,244,230,0.08);
       border-radius: 8px;
-      padding: 16px;
       color: #f3ede4;
       font-family: var(--rz-font-ui);
       font-size: 13px;
       z-index: 1000;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
       display: none;
-      overflow-y: auto;
+      flex-direction: column;
+      overflow: hidden;
     `;
 
     this.panel.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+      <div class="midi-panel-head" style="display: flex; justify-content: space-between; align-items: center; padding: 16px 16px 12px; flex: 0 0 auto;">
         <h3 style="margin: 0; font-size: 16px; font-weight: 600;">MIDI Controllers</h3>
         <button id="midi-close-btn" style="
           background: none;
@@ -65,6 +67,11 @@ export class MIDISettingsPanel {
           text-align: center;
         ">&times;</button>
       </div>
+
+      <!-- Everything below the header scrolls, so the panel itself stays a
+           fixed box: the resize handles live on its edges and must not scroll
+           away with the content. -->
+      <div class="midi-panel-body" style="flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 16px 16px;">
 
       <!-- MIDI Status -->
       <div style="margin-bottom: 16px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
@@ -196,6 +203,7 @@ export class MIDISettingsPanel {
           MIDI CC values (0-127) are automatically mapped to parameter ranges.
         </p>
       </div>
+      </div>
     `;
 
     document.body.appendChild(this.panel);
@@ -205,11 +213,17 @@ export class MIDISettingsPanel {
     this.devicesList = this.panel.querySelector('#midi-devices-list');
     this.bindingsList = this.panel.querySelector('#midi-bindings-list');
 
-    // Make panel draggable by its header
-    const header = this.panel.querySelector('div[style*="display: flex"]');
+    // Make panel draggable by its header, and sizable from any edge
+    const header = this.panel.querySelector('.midi-panel-head');
     if (header) {
       this.cleanupDraggable = makeDraggable(this.panel, header);
     }
+    // Parked against the right edge beside the parameter panel; keep it there.
+    this.cleanupResizable = makeResizable(this.panel, {
+      minWidth: 280,
+      minHeight: 220,
+      anchor: { x: 'right', y: 'top' },
+    });
   }
 
   setupEventListeners() {
@@ -512,7 +526,7 @@ export class MIDISettingsPanel {
 
   show() {
     if (this.panel) {
-      this.panel.style.display = 'block';
+      this.panel.style.display = 'flex';
       this.visible = true;
       this.updateStatus();
       this.updateDevicesList();

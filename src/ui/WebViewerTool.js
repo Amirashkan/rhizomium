@@ -17,6 +17,7 @@
 // as it stands rather than as the tool last remembered it.
 
 import { makeDraggable } from './utils/draggable.js';
+import { makeResizable } from './utils/resizable.js';
 import {
   MAX_VIEWER_CONTROLS,
   exposableParameters,
@@ -119,6 +120,7 @@ export class WebViewerTool {
     this.bodyEl = panel.querySelector('[data-role="body"]');
 
     this._cleanupDraggable = makeDraggable(panel, panel.querySelector('.rz-wv-header'));
+    this._cleanupResizable = makeResizable(panel, { minWidth: 400, minHeight: 320 });
 
     panel.addEventListener('click', (e) => this._onClick(e));
     panel.addEventListener('change', (e) => this._onChange(e));
@@ -149,6 +151,7 @@ export class WebViewerTool {
       try { off(); } catch { /* ignore */ }
     }
     try { this._cleanupDraggable?.(); } catch { /* ignore */ }
+    try { this._cleanupResizable?.(); } catch { /* ignore */ }
     try { this.panel?.remove(); } catch { /* ignore */ }
   }
 

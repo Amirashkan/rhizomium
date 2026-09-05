@@ -9,6 +9,7 @@
  */
 
 import { makeDraggable } from './utils/draggable.js';
+import { makeResizable } from './utils/resizable.js';
 import { showExportPanel } from './ExportPanel.js';
 import {
   MAX_HEIGHT,
@@ -71,6 +72,9 @@ export class PreviewExportSettingsWindow {
         this.window.style.top = top + 'px';
       }
       this.window.style.transform = "scale(1)";
+      // Hiding tears the drag and resize handlers down; reopening has to put
+      // them back, or a reopened window is a frozen one.
+      this._attachWindowHandlers();
       this._refreshFromState();
       return;
     }
@@ -171,8 +175,24 @@ export class PreviewExportSettingsWindow {
       this.window.style.top = rect.top + 'px';
       this.window.style.transform = 'scale(1)';
 
-      this.cleanupDraggable = makeDraggable(this.window, header);
+      this.header = header;
+      this._attachWindowHandlers();
     });
+  }
+
+  /** Drag by the header, size from any edge. Idempotent — see show(). */
+  _attachWindowHandlers() {
+    if (!this.window || !this.header) return;
+
+    if (!this.cleanupDraggable) {
+      this.cleanupDraggable = makeDraggable(this.window, this.header);
+    }
+    if (!this.cleanupResizable) {
+      this.cleanupResizable = makeResizable(this.window, {
+        minWidth: 320,
+        minHeight: 220,
+      });
+    }
   }
 
   hide() {
@@ -181,6 +201,11 @@ export class PreviewExportSettingsWindow {
     if (this.cleanupDraggable) {
       this.cleanupDraggable();
       this.cleanupDraggable = null;
+    }
+
+    if (this.cleanupResizable) {
+      this.cleanupResizable();
+      this.cleanupResizable = null;
     }
 
     this.window.style.opacity = "0";

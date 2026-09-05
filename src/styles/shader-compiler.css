@@ -27,7 +27,6 @@
   font-size: 12px;
   z-index: 1000;
   overflow: hidden;
-  resize: both;
 }
 
 #shader-compiler-window.rz-sc-open {

@@ -1,6 +1,7 @@
 // src/ui/OSCSettingsPanel.js
 
 import { makeDraggable } from './utils/draggable.js';
+import { makeResizable } from './utils/resizable.js';
 import { modalManager } from './ModalManager.js';
 import { formatOSCArg } from '../osc/OSCDecoder.js';
 
@@ -86,6 +87,7 @@ export class OSCSettingsPanel {
     this.panel = null;
     this.visible = false;
     this.cleanupDraggable = null;
+    this.cleanupResizable = null;
 
     // Throttle the activity readout — OSC senders happily push hundreds of
     // messages a second and each one must not cost a DOM write.
@@ -122,7 +124,6 @@ export class OSCSettingsPanel {
       background: rgba(30, 30, 30, 0.95);
       border: 1px solid rgba(255,244,230,0.08);
       border-radius: 8px;
-      padding: 16px;
       color: #f3ede4;
       font-family: var(--rz-font-ui);
       font-size: 13px;
@@ -131,11 +132,12 @@ export class OSCSettingsPanel {
       z-index: 1001;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
       display: none;
-      overflow-y: auto;
+      flex-direction: column;
+      overflow: hidden;
     `;
 
     this.panel.innerHTML = `
-      <div id="osc-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+      <div id="osc-header" style="display: flex; justify-content: space-between; align-items: center; padding: 16px 16px 12px; flex: 0 0 auto;">
         <h3 style="margin: 0; font-size: 16px; font-weight: 600;">OSC Receiver</h3>
         <button id="osc-close-btn" style="
           background: none; border: none; color: #8f867a; font-size: 20px;
@@ -143,6 +145,11 @@ export class OSCSettingsPanel {
           line-height: 24px; text-align: center;
         ">&times;</button>
       </div>
+
+      <!-- Everything below the header scrolls, so the panel itself stays a
+           fixed box: the resize handles live on its edges and must not scroll
+           away with the content. -->
+      <div class="osc-panel-body" style="flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 16px 16px;">
 
       <!-- Connection -->
       <div style="margin-bottom: 14px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
@@ -260,6 +267,7 @@ export class OSCSettingsPanel {
           Ranges below the arrow map the incoming value onto the parameter.
         </p>
       </div>
+      </div>
     `;
 
     document.body.appendChild(this.panel);
@@ -287,6 +295,12 @@ export class OSCSettingsPanel {
 
     const header = this.panel.querySelector('#osc-header');
     if (header) this.cleanupDraggable = makeDraggable(this.panel, header);
+    // Parked against the right edge beside the parameter panel; keep it there.
+    this.cleanupResizable = makeResizable(this.panel, {
+      minWidth: 300,
+      minHeight: 240,
+      anchor: { x: 'right', y: 'top' },
+    });
   }
 
   // --------------------------------------------------------------------
@@ -1014,7 +1028,7 @@ export class OSCSettingsPanel {
 
   show() {
     if (!this.panel) return;
-    this.panel.style.display = 'block';
+    this.panel.style.display = 'flex';
     this.visible = true;
     this.continuousBox.checked = !!this.oscBinding.continuousLearn;
     this.updateStatus();
@@ -1052,6 +1066,7 @@ export class OSCSettingsPanel {
     if (this.activityRAF) cancelAnimationFrame(this.activityRAF);
     if (this.addressesRAF) cancelAnimationFrame(this.addressesRAF);
     this.cleanupDraggable?.();
+    this.cleanupResizable?.();
     this.panel?.remove();
     this.panel = null;
   }

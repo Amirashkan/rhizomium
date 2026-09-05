@@ -13,6 +13,7 @@ import { PlaylistManager } from './PlaylistManager.js';
 import { BeatSyncManager } from './BeatSyncManager.js';
 import { setMasterOpacity } from './MasterOutput.js';
 import { makeDraggable } from '../ui/utils/draggable.js';
+import { makeResizable } from '../ui/utils/resizable.js';
 
 // Siblings of SceneManager's 'rhizomium.vj.scenes'.
 const PRESETS_STORAGE_KEY = 'rhizomium.vj.presets';
@@ -135,6 +136,13 @@ export class VJControlPanel {
     // Drag by the header, like every other floating panel in the editor. The
     // helper ignores mousedown on buttons, so × still closes.
     this.cleanupDraggable = makeDraggable(this.container, header);
+    // Parked against the bottom-left corner, so the top edge is the one that
+    // moves when the panel is made taller - keep it anchored there.
+    this.cleanupResizable = makeResizable(this.container, {
+      minWidth: 340,
+      minHeight: 260,
+      anchor: { x: 'left', y: 'bottom' },
+    });
   }
 
   /**

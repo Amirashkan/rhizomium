@@ -9,6 +9,7 @@ import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '
 import { getPresentedFps } from '../core/presentedFrameRate.js';
 import { setIcon } from './iconSprite.js';
 import { clampPanelPosition, keepPanelInBounds } from './utils/windowBounds.js';
+import { makeResizable } from './utils/resizable.js';
 
 // Panel chrome: the header strip plus the 1px border on each edge. The canvas
 // area is whatever is left, and the render is fitted into it.
@@ -28,6 +29,7 @@ export class FloatingGPUPreview {
     this.isLocked = false;
     this.isDocked = false;
     this.isResizing = false;
+    this._cleanupResizable = null;
     this.position = { x: 20, y: 60 };
     // The panel is sized freely by the user (drag its corner); the render is
     // fitted inside whatever size it has. Sizes persist per docking mode.
@@ -729,10 +731,15 @@ async show() {
       this._visibilityHandler = null;
     }
 
-    // The next show() builds a fresh container and re-registers this.
+    // The next show() builds a fresh container and re-registers these.
     if (this._viewportResizeHandler) {
       window.removeEventListener('resize', this._viewportResizeHandler);
       this._viewportResizeHandler = null;
+    }
+
+    if (this._cleanupResizable) {
+      this._cleanupResizable();
+      this._cleanupResizable = null;
     }
 
     const originalContainer = document.querySelector(".canvas-wrapper");
@@ -1282,24 +1289,6 @@ canvasWrapper.style.cssText = `
       this.fpsCounter.refreshElementCache();
     }
 
-    // The panel is freely resizable in both docking modes - the render is
-    // fitted into whatever size it ends up with.
-    const resizeHandle = document.createElement("div");
-    resizeHandle.className = "preview-resize-handle";
-    resizeHandle.title = "Drag to resize the preview panel";
-    resizeHandle.style.cssText = `
-      position: absolute;
-      bottom: 0;
-      right: 0;
-      width: 16px;
-      height: 16px;
-      background: linear-gradient(135deg, transparent 50%, rgba(255,244,230,0.28) 60%);
-      cursor: se-resize;
-      border-radius: 0 0 14px 0;
-      z-index: 20;
-    `;
-    canvasWrapper.appendChild(resizeHandle);
-
     container.appendChild(header);
     container.appendChild(canvasWrapper);
 
@@ -1459,48 +1448,35 @@ canvasWrapper.style.cssText = `
   /**
    * Free resize: width and height move independently and the render is
    * letterboxed inside the result, so the panel is never forced back to the
-   * render's aspect ratio.
+   * render's aspect ratio. Every edge and corner is grabbable, in both docking
+   * modes — docked the panel keeps its top-right anchor, so widening it grows
+   * the window into the canvas rather than off the side of the screen.
+   *
+   * The size itself is written by the shared handler; what happens here is the
+   * part that is this panel's own — re-fitting the render into the new box, on
+   * a frame, and remembering the size for the next session.
    */
   _setupResize() {
-    const resizeHandle = this.container.querySelector(".preview-resize-handle");
-    if (!resizeHandle) return;
+    this._cleanupResizable?.();
 
-    let startX, startY, startWidth, startHeight;
-
-    const onMouseDown = (e) => {
-      this.isResizing = true;
-      startX = e.clientX;
-      startY = e.clientY;
-
-      const rect = this.container.getBoundingClientRect();
-      this._recordPerfRead("resize:startBounds");
-      startWidth = rect.width;
-      startHeight = rect.height;
-
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
-      e.preventDefault();
-      e.stopPropagation();
-    };
-
-    const onMouseMove = (e) => {
-      if (!this.isResizing) return;
-
-      const newWidth = Math.max(MIN_PANEL_WIDTH, startWidth + (e.clientX - startX));
-      const newHeight = Math.max(MIN_PANEL_HEIGHT, startHeight + (e.clientY - startY));
-
-      this._pendingResizeDimensions = { width: newWidth, height: newHeight };
-      this._scheduleResizeFlush();
-    };
-
-    const onMouseUp = () => {
-      this.isResizing = false;
-      this._flushResizeDimensions();
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-    };
-
-    resizeHandle.addEventListener("mousedown", onMouseDown);
+    this._cleanupResizable = makeResizable(this.container, {
+      minWidth: MIN_PANEL_WIDTH,
+      minHeight: MIN_PANEL_HEIGHT,
+      // Fullscreen owns the whole viewport, and a locked panel is click-through
+      // scenery — neither is the user's to drag a border on.
+      enabled: () => !this.isFullscreen && !this.isLocked,
+      anchor: () => (this.isDocked ? { x: "right", y: "top" } : { x: "left", y: "top" }),
+      onResize: ({ width, height }) => {
+        this.isResizing = true;
+        this._pendingResizeDimensions = { width, height };
+        this._scheduleResizeFlush();
+      },
+      onResizeEnd: ({ width, height }) => {
+        this._pendingResizeDimensions = { width, height };
+        this._flushResizeDimensions();
+        this.isResizing = false;
+      },
+    });
   }
 
   _setupVisibilityHandler() {

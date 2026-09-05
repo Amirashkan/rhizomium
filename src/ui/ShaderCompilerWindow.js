@@ -25,6 +25,7 @@
 import { buildWGSL } from '../codegen/glslBuilder.js';
 import { nodeDisplayName } from '../core/nodeName.js';
 import { makeDraggable } from './utils/draggable.js';
+import { makeResizable } from './utils/resizable.js';
 
 /** The id of the one target that always exists: the main output's shader. */
 export const FRAGMENT_TARGET_ID = 'fragment';
@@ -489,6 +490,9 @@ export class ShaderCompilerWindow {
     });
 
     this._cleanupDraggable = makeDraggable(panel, panel.querySelector('.rz-sc-header'));
+    // Sized from any edge: the code view is the whole point of this window and
+    // a long line or a deep listing is read by giving it more room.
+    this._cleanupResizable = makeResizable(panel, { minWidth: 420, minHeight: 280 });
   }
 
   // --- lifecycle ----------------------------------------------------------
@@ -528,6 +532,8 @@ export class ShaderCompilerWindow {
     this.hide();
     if (this._cleanupDraggable) this._cleanupDraggable();
     this._cleanupDraggable = null;
+    if (this._cleanupResizable) this._cleanupResizable();
+    this._cleanupResizable = null;
     if (this.panel?.parentNode) this.panel.parentNode.removeChild(this.panel);
     this.panel = null;
   }

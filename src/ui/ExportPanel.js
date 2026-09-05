@@ -20,6 +20,7 @@
  */
 
 import { makeDraggable } from './utils/draggable.js';
+import { makeResizable } from './utils/resizable.js';
 import { canRecordAudio, isVideoExportSupported, runExport } from './exportRender.js';
 import { AUDIO_BITRATE, selectRecordingMimeType } from '../audio/recordingAudio.js';
 import {
@@ -382,6 +383,7 @@ export class ExportPanel {
 
   destroy() {
     this.cleanupDraggable?.();
+    this.cleanupResizable?.();
     this.unsubscribes.forEach((off) => off());
     this.unsubscribes = [];
     this.panel?.remove();
@@ -466,6 +468,7 @@ export class ExportPanel {
     requestAnimationFrame(() => {
       panel.classList.add('visible');
       this.cleanupDraggable = makeDraggable(panel, header);
+      this.cleanupResizable = makeResizable(panel, { minWidth: 320, minHeight: 260 });
     });
 
     // The size lives in OutputFormat and the rest in exportSettings; either can
