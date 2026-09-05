@@ -41,6 +41,8 @@ vi.mock('../src/ai/entitlements.js', () => ({
 vi.mock('../src/ai/applyResult.js', () => ({
   insertGeneratedNode: vi.fn(),
   replaceGraphWithPatch: vi.fn(),
+  planSelectionSplice: vi.fn(),
+  spliceSelectionPatch: vi.fn(),
   selectNodes: vi.fn(),
 }));
 

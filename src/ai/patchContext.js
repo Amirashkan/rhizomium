@@ -273,6 +273,56 @@ export class RefactorTooLargeError extends Error {
 }
 
 /**
+ * The wires that leave the selection.
+ *
+ * A selection is a piece cut out of a working patch, and the cut runs through
+ * wires. Dropping those wires — which is all this did until the selection
+ * scope was made to mean something — hands the model a patch where the
+ * selection's inputs come from nowhere and its output goes nowhere, and every
+ * conclusion drawn from that is wrong in the same direction: an unwired pin
+ * that is actually fed, a branch that looks stranded because the Output node
+ * it feeds was not selected, a node that looks safe to delete because nothing
+ * visible reads it.
+ *
+ * So they travel, as facts about the edge rather than as ordinary wires: the
+ * node beyond the cut is named and typed, but it is not in `nodes` and must
+ * not be returned. What the model has to know is that these pins are
+ * load-bearing — the ids and pin numbers at this end are what the editor
+ * reconnects the selection to the rest of the patch by.
+ *
+ * @returns {Array<{inside: {nodeId: string, pin: number}, outside: {nodeId: string, kind: string, pin: number}, direction: 'in'|'out'}>}
+ */
+function crossingWires(connections, keep, kindById) {
+  const crossing = [];
+
+  for (const conn of connections) {
+    const from = String(conn?.from?.nodeId ?? '');
+    const to = String(conn?.to?.nodeId ?? '');
+    if (!from || !to) continue;
+
+    const fromIn = keep.has(from);
+    const toIn = keep.has(to);
+    if (fromIn === toIn) continue;
+
+    if (toIn) {
+      crossing.push({
+        direction: 'in',
+        inside: { nodeId: to, pin: Number(conn?.to?.pin ?? 0) || 0 },
+        outside: { nodeId: from, kind: kindById.get(from) || 'unknown', pin: Number(conn?.from?.pin ?? 0) || 0 },
+      });
+    } else {
+      crossing.push({
+        direction: 'out',
+        inside: { nodeId: from, pin: Number(conn?.from?.pin ?? 0) || 0 },
+        outside: { nodeId: to, kind: kindById.get(to) || 'unknown', pin: Number(conn?.to?.pin ?? 0) || 0 },
+      });
+    }
+  }
+
+  return crossing;
+}
+
+/**
  * Build the model-facing view of the current project.
  *
  * @param {Object} projectData - what SaveLoadManager.exportProject() returns.
@@ -281,7 +331,9 @@ export class RefactorTooLargeError extends Error {
  *   these nodes and the wires that run between them. This is the panel's
  *   "selection only" scope: a review of one branch of a large patch, which
  *   both costs less and gets a more specific answer than the whole document.
- * @returns {{nodes: Array, connections: Array, nodeCount: number, scope: string}}
+ *   The wires that cross the edge of the selection come too, as `boundary`.
+ * @returns {{nodes: Array, connections: Array, boundary: Array, nodeCount: number,
+ *   scope: string, patchNodeCount: number}}
  */
 export function buildPatchContext(projectData, { nodeIds } = {}) {
   let nodes = Array.isArray(projectData?.nodes) ? projectData.nodes : [];
@@ -289,14 +341,21 @@ export function buildPatchContext(projectData, { nodeIds } = {}) {
 
   if (!nodes.length) throw new EmptyPatchError();
 
+  const patchNodeCount = nodes.length;
   const keep = nodeIds ? new Set([...nodeIds].map(String)) : null;
+  let boundary = [];
+
   if (keep) {
+    const kindById = new Map(nodes.map((node) => [String(node?.id), node?.kind]));
+    boundary = crossingWires(connections, keep, kindById);
+
     nodes = nodes.filter((node) => keep.has(String(node?.id)));
     if (!nodes.length) {
       throw new EmptyPatchError('Nothing is selected, so there is nothing to send.');
     }
-    // A wire with one end outside the selection would name a node the model
-    // never sees, which reads as a broken patch rather than a partial one.
+    // Wires with both ends inside are the selection's own. The ones that cross
+    // are in `boundary` instead: they name a node the model was not given, and
+    // a wire to a node that is not there reads as a broken patch.
     connections = connections.filter(
       (conn) =>
         keep.has(String(conn?.from?.nodeId)) && keep.has(String(conn?.to?.nodeId))
@@ -311,7 +370,10 @@ export function buildPatchContext(projectData, { nodeIds } = {}) {
       from: { nodeId: String(conn?.from?.nodeId ?? ''), pin: conn?.from?.pin ?? 0 },
       to: { nodeId: String(conn?.to?.nodeId ?? ''), pin: conn?.to?.pin ?? 0 },
     })),
+    boundary,
     nodeCount: nodes.length,
+    /** How large the patch this came out of is, so a selection can say so. */
+    patchNodeCount,
     scope: keep ? 'selection' : 'patch',
   };
 }

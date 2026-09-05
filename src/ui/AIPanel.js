@@ -42,7 +42,13 @@ import {
   PatchTooLargeError,
   MAX_NODES,
 } from '../ai/patchContext.js';
-import { insertGeneratedNode, replaceGraphWithPatch, selectNodes } from '../ai/applyResult.js';
+import {
+  insertGeneratedNode,
+  replaceGraphWithPatch,
+  planSelectionSplice,
+  spliceSelectionPatch,
+  selectNodes,
+} from '../ai/applyResult.js';
 import { planArc, applyArc, revertArc } from '../ai/applyArc.js';
 import { buildTimelineContext } from '../ai/timelineContext.js';
 import { FEATURES, TIER_LABELS, ADMIN_TIER } from '../ai/tiers.js';
@@ -754,15 +760,37 @@ export class AIPanel {
 
     wrap.appendChild(button);
 
-    if (needsPatch(row.feature)) {
-      const scopeNote = document.createElement('span');
-      scopeNote.className = 'ai-feature-scope';
-      scopeNote.textContent =
-        this.prefs.scope === 'selection' ? 'Reads the selection' : 'Reads the whole patch';
-      wrap.appendChild(scopeNote);
-    }
+    const scopeNote = document.createElement('span');
+    scopeNote.className = 'ai-feature-scope';
+    scopeNote.textContent = this.scopeNote(row.feature);
+    if (scopeNote.textContent) wrap.appendChild(scopeNote);
 
     return wrap;
+  }
+
+  /**
+   * What the scope means for this feature, in the words of what it does.
+   *
+   * "Reads the selection" was the whole of this, and it was true of the
+   * reading features and misleading everywhere else: the refactor *writes*,
+   * and the two generators do not look at the scope at all — they write a new
+   * patch over the canvas whichever way the switch is set. An artist who reads
+   * one label on every card reasonably concludes the switch does nothing.
+   */
+  scopeNote(feature) {
+    const selection = this.prefs.scope === 'selection';
+
+    if (feature === 'ai.patch_refactor') {
+      return selection
+        ? 'Rewrites the selection, leaves the rest of the patch alone'
+        : 'Rewrites the whole canvas';
+    }
+
+    if (feature === 'ai.patch_generator') return 'Ignores the scope: replaces the whole canvas';
+    if (feature === 'ai.node_generator') return 'Ignores the scope: adds one new node';
+
+    if (!needsPatch(feature)) return '';
+    return selection ? 'Reads the selection' : 'Reads the whole patch';
   }
 
   /**
@@ -910,11 +938,20 @@ export class AIPanel {
 
     // Features that read the canvas need the canvas. Gather before spending a
     // grant, so an empty canvas costs nothing.
+    // What the answer is about. Read once, here, and carried through to the
+    // apply step: a refactor takes minutes, and the artist is free to click
+    // somewhere else while it runs. Splicing an answer into whatever happens
+    // to be selected when it lands would rewrite the wrong nodes.
+    let sentNodeIds = null;
+
     if (needsPatch(feature)) {
       try {
         payload.patch = this.buildPatch();
         const selected = window.graph?.selection;
         if (selected?.size) payload.selectedNodeIds = [...selected].map(String);
+        if (this.prefs.scope === 'selection') {
+          sentNodeIds = payload.patch.nodes.map((node) => String(node.id));
+        }
       } catch (error) {
         if (error instanceof EmptyPatchError || error instanceof PatchTooLargeError) {
           modalManager.toast(error.message, 'warning');
@@ -981,6 +1018,7 @@ export class AIPanel {
         durationMs: 0,
         usage: null,
         repeat: true,
+        sentScope: this.lastAnswer.sentScope,
       });
       return;
     }
@@ -992,14 +1030,15 @@ export class AIPanel {
     try {
       const { result, warnings, label, usage } = await runFeature(feature, payload);
       const durationMs = performance.now() - startedAt;
+      const sentScope = { scope: sentNodeIds ? 'selection' : 'patch', nodeIds: sentNodeIds };
 
       this.session.runs += 1;
       this.session.totalMs += durationMs;
       this.session.inputTokens += usage?.inputTokens || 0;
       this.session.outputTokens += usage?.outputTokens || 0;
 
-      if (fingerprint) this.lastAnswer = { fingerprint, label, result, warnings, offered: false };
-      await this.presentResult(feature, label, result, warnings, { durationMs, usage });
+      if (fingerprint) this.lastAnswer = { fingerprint, label, result, warnings, offered: false, sentScope };
+      await this.presentResult(feature, label, result, warnings, { durationMs, usage, sentScope });
     } catch (error) {
       this.session.runs += 1;
       this.session.failures += 1;
@@ -1090,9 +1129,15 @@ export class AIPanel {
           ),
         });
         return this.applyGeneratedPatch(label, result, `Apply "${result.title}"?`);
-      case 'ai.patch_refactor':
-        this.log({ ...entry, body: refactorElement(result, () => this.applyRefactor(label, result)) });
-        return this.applyRefactor(label, result);
+      case 'ai.patch_refactor': {
+        const sentScope = meta.sentScope || { scope: 'patch', nodeIds: null };
+        this.log({
+          ...entry,
+          scope: sentScope.scope,
+          body: refactorElement(result, () => this.applyRefactor(label, result, sentScope)),
+        });
+        return this.applyRefactor(label, result, sentScope);
+      }
       default:
         return this.log({ ...entry, body: findingsElement(JSON.stringify(result), [], 'findings') });
     }
@@ -1208,10 +1253,24 @@ export class AIPanel {
     }
   }
 
-  async applyRefactor(label, result) {
+  /**
+   * Apply a refactor, either over the whole canvas or into the selection it
+   * was run on.
+   *
+   * The two are genuinely different operations, and only one of them used to
+   * exist: a selection-scoped refactor went down the replace path like any
+   * other, so tidying six nodes of a hundred left a canvas with six nodes on
+   * it. `sentScope` says which this answer is, and it comes from the run
+   * rather than from the live selection — the artist may have clicked
+   * elsewhere in the minutes the call took.
+   */
+  async applyRefactor(label, result, sentScope = { scope: 'patch', nodeIds: null }) {
     const changes = (result.changes || [])
       .map((change) => `• ${change.kind}: ${change.detail}`)
       .join('\n');
+
+    const scoped = sentScope.scope === 'selection' && Array.isArray(sentScope.nodeIds) && sentScope.nodeIds.length;
+    if (scoped) return this.applyScopedRefactor(label, result, sentScope.nodeIds, changes);
 
     const accepted = await modalManager.confirm(
       `${result.summary}\n\n${changes}\n\nApply this? It replaces what is on the canvas now, and a backup is saved first.`,
@@ -1228,6 +1287,72 @@ export class AIPanel {
         preserveLongParams: true,
       });
       modalManager.toast('Refactor applied.', 'success', label);
+      this.measurement = null;
+      this.lastAnswer = null;
+      this.renderBody();
+    } catch (error) {
+      modalManager.toast(`Could not apply the refactor: ${error.message}`, 'error', label);
+    }
+  }
+
+  /**
+   * Splice a refactored selection back into the patch it came out of.
+   *
+   * Planned before the dialog rather than after it, so what the artist is
+   * asked to accept is what will actually happen — how many nodes are
+   * rewritten, how many are left alone, and which wires to the rest of the
+   * patch cannot be reconnected because the pin they went into is gone. That
+   * last one is the only lossy part of a splice, and it is the one thing an
+   * artist cannot see coming from a summary.
+   */
+  async applyScopedRefactor(label, result, nodeIds, changes) {
+    let plan;
+    try {
+      plan = planSelectionSplice(result.patch, {
+        projectData: window.saveLoadManager?.exportProject?.(),
+        nodeIds,
+      });
+    } catch (error) {
+      modalManager.toast(`Could not work out how to apply this: ${error.message}`, 'error', label);
+      return;
+    }
+
+    const notes = [
+      result.summary,
+      changes,
+      `${plan.replaced} of the ${nodeIds.length} nodes you sent come back rewritten` +
+        `${plan.added ? `, ${plan.added} new ${plan.added === 1 ? 'node is' : 'nodes are'} added` : ''}` +
+        `${plan.removed.length ? `, ${plan.removed.length} ${plan.removed.length === 1 ? 'is' : 'are'} removed` : ''}.`,
+      `The other ${plan.untouched} ${plan.untouched === 1 ? 'node' : 'nodes'} on the canvas are left exactly as they are.`,
+      plan.reconnected
+        ? `${plan.reconnected} ${plan.reconnected === 1 ? 'wire' : 'wires'} to the rest of the patch stay connected.`
+        : '',
+      plan.droppedWires.length
+        ? `These wires to the rest of the patch cannot be kept:\n${plan.droppedWires.map((wire) => `• ${wire}`).join('\n')}`
+        : '',
+      plan.renamed.length
+        ? `${plan.renamed.length} generated ${plan.renamed.length === 1 ? 'node had' : 'nodes had'} to be renamed ` +
+          'to avoid clashing with a node outside the selection.'
+        : '',
+      'A backup is saved first.',
+    ].filter(Boolean);
+
+    const accepted = await modalManager.confirm(
+      `${notes.join('\n\n')}\n\nApply it to the selection?`,
+      label,
+      { confirmLabel: 'Apply to selection', cancelLabel: 'Keep mine' }
+    );
+    if (!accepted) return;
+
+    try {
+      const applied = await spliceSelectionPatch(result.patch, { nodeIds });
+      modalManager.toast(
+        `Refactor applied to ${applied.replaced + applied.added} ` +
+          `${applied.replaced + applied.added === 1 ? 'node' : 'nodes'}. ` +
+          `The other ${applied.untouched} on the canvas are untouched.`,
+        'success',
+        label
+      );
       this.measurement = null;
       this.lastAnswer = null;
       this.renderBody();
