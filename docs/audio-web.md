@@ -109,7 +109,7 @@ Circle 3: Radius = audioEnvelopeHighs * 0.4
 
 ## Audio Settings Panel
 
-![The Audio Envelope panel, showing a loaded file and the live envelope value](images/panel-audio-envelope.webp)
+![The Audio panel, showing system audio being analysed and the live channel meters](images/panel-audio-envelope.webp)
 
 ### Smoothing
 Controls how quickly audio values change:
