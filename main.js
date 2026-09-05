@@ -45,6 +45,10 @@ import { getWebViewerTool } from './src/ui/WebViewerTool.js';
 import { getOutputAspect } from './src/ui/OutputFormat.js';
 import { getShaderCompilerWindow } from './src/ui/ShaderCompilerWindow.js';
 import { getLayoutManager } from './src/ui/layoutManager.js';
+import {
+  installMenuToggleRowPainting,
+  repaintMenuToggleRows,
+} from './src/ui/menuToggleRows.js';
 import { findProjectionMapNode, syncMappingToNode } from './src/mapping/projectionMapNode.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
@@ -1125,6 +1129,11 @@ function setupUIEventHandlers() {
 
   setupMenuDropdowns();
 
+  // Keep every state-bearing menu row (Timeline ✓, Hide Console, Audio ✓ …)
+  // reading off its panel rather than off whatever its own last click left
+  // behind — a Window → Layouts preset closes those panels too.
+  installMenuToggleRowPainting();
+
   // Undo/Redo button handlers
   const undoBtn = removeExistingHandlers("btn-undo");
   if (undoBtn) {
@@ -1324,12 +1333,9 @@ function setupUIEventHandlers() {
     if (!consoleContainer) return;
     consoleVisible = visible;
     consoleContainer.classList.toggle("closed", !visible);
-    if (toggleConsoleBtn) {
-      toggleConsoleBtn.textContent = visible ? "Hide Console" : "Show Console";
-      // Add visual feedback
-      toggleConsoleBtn.style.backgroundColor = visible ? "rgba(74, 74, 78, 0.8)" : "";
-      toggleConsoleBtn.style.borderColor = visible ? "rgba(102, 170, 255, 0.4)" : "";
-    }
+    // The row's label is derived from the console, not written here — see
+    // src/ui/menuToggleRows.js.
+    repaintMenuToggleRows();
     if (notify && typeof updateStatus === "function") {
       updateStatus(visible ? "Console shown" : "Console hidden");
     }
@@ -1374,16 +1380,7 @@ function setupUIEventHandlers() {
         if (audioPanel && typeof audioPanel.toggle === 'function') {
           audioPanel.toggle();
 
-          // Update button appearance based on panel state
-          if (audioPanel.visible) {
-            audioSettingsBtn.textContent = "Audio ✓";
-            audioSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
-            audioSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
-          } else {
-            audioSettingsBtn.textContent = "Audio…";
-            audioSettingsBtn.style.backgroundColor = "";
-            audioSettingsBtn.style.borderColor = "";
-          }
+          repaintMenuToggleRows();
 
           if (typeof updateStatus === "function") {
             updateStatus(audioPanel.visible ? "Audio panel opened" : "Audio panel closed");
@@ -1418,9 +1415,7 @@ function setupUIEventHandlers() {
 
         if (mappingPanel && typeof mappingPanel.toggle === "function") {
           mappingPanel.toggle();
-          mappingBtn.textContent = mappingPanel.isVisible()
-            ? "Projection Mapping \u2713"
-            : "Projection Mapping\u2026";
+          repaintMenuToggleRows();
           if (typeof updateStatus === "function") {
             updateStatus(mappingPanel.isVisible()
               ? "Projection mapping opened"
@@ -1451,16 +1446,7 @@ function setupUIEventHandlers() {
         if (midiPanel && typeof midiPanel.toggle === 'function') {
           midiPanel.toggle();
 
-          // Update button appearance based on panel state
-          if (midiPanel.visible) {
-            midiSettingsBtn.textContent = "MIDI Settings ✓";
-            midiSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
-            midiSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
-          } else {
-            midiSettingsBtn.textContent = "MIDI Settings";
-            midiSettingsBtn.style.backgroundColor = "";
-            midiSettingsBtn.style.borderColor = "";
-          }
+          repaintMenuToggleRows();
 
           if (typeof updateStatus === "function") {
             updateStatus(midiPanel.visible ? "MIDI settings opened" : "MIDI settings closed");
@@ -1495,15 +1481,7 @@ function setupUIEventHandlers() {
         if (oscPanel && typeof oscPanel.toggle === 'function') {
           oscPanel.toggle();
 
-          if (oscPanel.visible) {
-            oscSettingsBtn.textContent = "OSC Receiver ✓";
-            oscSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
-            oscSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
-          } else {
-            oscSettingsBtn.textContent = "OSC Receiver";
-            oscSettingsBtn.style.backgroundColor = "";
-            oscSettingsBtn.style.borderColor = "";
-          }
+          repaintMenuToggleRows();
 
           if (typeof updateStatus === "function") {
             updateStatus(oscPanel.visible ? "OSC receiver opened" : "OSC receiver closed");
@@ -1536,16 +1514,7 @@ function setupUIEventHandlers() {
         if (timelinePanel && typeof timelinePanel.toggle === 'function') {
           timelinePanel.toggle();
 
-          // Update button appearance based on panel state
-          if (timelinePanel.visible) {
-            timelineBtn.textContent = "Timeline ✓";
-            timelineBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
-            timelineBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
-          } else {
-            timelineBtn.textContent = "Timeline";
-            timelineBtn.style.backgroundColor = "";
-            timelineBtn.style.borderColor = "";
-          }
+          repaintMenuToggleRows();
 
           if (typeof updateStatus === "function") {
             updateStatus(timelinePanel.visible ? "Timeline opened" : "Timeline closed");
@@ -1578,16 +1547,7 @@ function setupUIEventHandlers() {
         if (vjControlPanel && typeof vjControlPanel.toggle === 'function') {
           vjControlPanel.toggle();
 
-          // Update button appearance based on panel state
-          if (vjControlPanel.visible) {
-            vjBtn.textContent = "VJ Control ✓";
-            vjBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
-            vjBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
-          } else {
-            vjBtn.textContent = "VJ Control";
-            vjBtn.style.backgroundColor = "";
-            vjBtn.style.borderColor = "";
-          }
+          repaintMenuToggleRows();
 
           if (typeof updateStatus === "function") {
             updateStatus(vjControlPanel.visible ? "VJ Control opened" : "VJ Control closed");
@@ -1615,13 +1575,6 @@ function setupUIEventHandlers() {
   const profilerBtn = removeExistingHandlers("btn-toggle-profiler");
 
   if (profilerBtn) {
-    const paintProfilerBtn = () => {
-      const on = !!profilerOverlay?.visible;
-      profilerBtn.textContent = on ? "Compute Profiler ✓" : "Compute Profiler";
-      profilerBtn.style.backgroundColor = on ? "rgba(74, 74, 78, 0.8)" : "";
-      profilerBtn.style.borderColor = on ? "rgba(102, 170, 255, 0.4)" : "";
-    };
-
     profilerBtn.addEventListener("click", (e) => {
       e.preventDefault();
 
@@ -1633,7 +1586,7 @@ function setupUIEventHandlers() {
       }
 
       profilerOverlay.toggle();
-      paintProfilerBtn();
+      repaintMenuToggleRows();
       updateStatus(
         profilerOverlay.visible
           ? "Compute profiler opened — per-frame GPU timing is on"
@@ -1641,11 +1594,6 @@ function setupUIEventHandlers() {
       );
     });
 
-    // The shortcut and the panel's own close button change it behind our back,
-    // so re-read the state each time the menu is opened rather than trusting
-    // whatever the last click left behind.
-    document.getElementById("dropdown-view")?.addEventListener("pointerenter", paintProfilerBtn);
-    paintProfilerBtn();
   }
 
   // Second-monitor full-screen viewer (Vite/desktop build only).
