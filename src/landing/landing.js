@@ -7,10 +7,10 @@
 
 import { DeviceDetector } from "../utils/DeviceDetector.js";
 import { APP_VERSION } from "../utils/appVersion.js";
-import { injectSpeedInsights } from "@vercel/speed-insights";
+import { initSpeedInsights } from "../utils/speedInsights.js";
 
-// Initialize Vercel Speed Insights
-injectSpeedInsights();
+// Web-deployment performance metrics; a no-op anywhere without a Vercel edge.
+initSpeedInsights();
 
 const prefersReducedMotion = window.matchMedia?.(
   "(prefers-reduced-motion: reduce)",
