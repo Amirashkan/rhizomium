@@ -51,8 +51,24 @@ const PATCH_SCHEMA = {
             type: 'string',
             description: 'The node\'s label on the canvas. Keep the artist\'s name unless you are improving it.',
           },
-          x: { type: 'number', description: 'Canvas position. Lay signal flow out left to right, ~220 apart.' },
-          y: { type: 'number', description: 'Canvas position. Separate parallel branches by ~140.' },
+          /**
+           * Positions overlapped constantly until these said how big a node
+           * actually is: a card is 180 wide, and one showing its preview band
+           * stands around 250 tall, so the ~220/~140 these used to ask for was
+           * a patch whose nodes sat on each other. spaceOutPatch() in
+           * patchLayout.js catches what still comes back stacked; saying the
+           * real numbers here is what stops it having to.
+           */
+          x: {
+            type: 'number',
+            description:
+              'Canvas position, laid out left to right along the signal. A node is 180 wide: leave at least 270 between one column and the next.',
+          },
+          y: {
+            type: 'number',
+            description:
+              'Canvas position. A node stands up to 250 tall: leave at least 290 between nodes in the same column, and never give two nodes the same position.',
+          },
           /**
            * Optional, and meaningful only on the handful of nodes the registry
            * marks `dynamic-in(min-max)` — Mix, Switch, Expr, CustomGLSL,

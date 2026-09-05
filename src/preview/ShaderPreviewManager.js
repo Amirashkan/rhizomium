@@ -204,6 +204,10 @@ export class ShaderPreviewManager {
    * Vector outputs (vec2/3/4 — UV, colors, noise fields, patterns, transforms, gradients)
    * render to a meaningful image; scalar f32 nodes (Math results, Time, ConstFloat) are better
    * served by the existing numeric overlay than a flat gray swatch.
+   * The same test, as a pure kind check, is showsPreviewBand() in
+   * src/ai/patchLayout.js — which needs it server-side, where there is no
+   * preview manager to ask. Change one and change the other, or a generated
+   * patch gets laid out around node heights the editor does not draw.
    * @param {object|string} nodeOrKind
    * @returns {boolean}
    */

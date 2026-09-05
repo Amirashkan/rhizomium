@@ -20,6 +20,10 @@ import { NodeDefs } from '../../src/data/NodeDefs.js';
 // both, so anything reading a definition has to as well, or the pair renders as "[object Object]"
 // and no value ever validates.
 import { optionValues } from '../../src/utils/discreteParams.js';
+// A model writes coordinates as an afterthought — often the same ones for every
+// node. The patch is spaced out here so no artist opens one to find twenty
+// nodes stacked in a single pile.
+import { spaceOutPatch } from '../../src/ai/patchLayout.js';
 
 /** Kinds a generated patch may not contain, whatever the model says. */
 const UNSUPPORTED_IN_GENERATED_PATCHES = new Set([
@@ -315,7 +319,14 @@ export function validateGeneratedPatch(patch) {
 
   growInputCounts(cleanNodes, cleanConnections);
 
-  return { patch: { nodes: cleanNodes, connections: cleanConnections }, warnings };
+  // Last, because the pin counts settled above are what a node's height is
+  // measured from: a Mix grown to eight inputs is a taller card than the
+  // two-pin one its definition declares, and laying out around the short one
+  // would put the node below it back underneath.
+  // No warning when it fires: a patch whose nodes were spaced out is not a
+  // patch with something wrong with it, and the artist has a toast for things
+  // they need to know about.
+  return { patch: spaceOutPatch({ nodes: cleanNodes, connections: cleanConnections }), warnings };
 }
 
 /**
