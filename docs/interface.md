@@ -550,15 +550,32 @@ See [Performance Profiler Guide](profiler.md) for detailed information.
 
 ## Status Bar
 
-Bottom-right corner shows current status:
+The strip along the bottom of the canvas, left to right:
 
-- **Idle** - Ready for input
-- **Compiling...** - Building shader
-- **Saved** - Project saved successfully
-- **Error** - Shader compilation failed
-- **Loading...** - Loading project
+**Left** - zoom level, the render toggle (click **Live** to stop and restart
+rendering; the graph stays editable), and the cursor position.
 
-Status updates automatically as you work.
+**Center** - node and wire counts, how many nodes are selected, and **TYPES**,
+which explains the wire colors on hover.
+
+**Right** - timeline position, frame rate, and the status message: Idle,
+Compiling..., Saved, Error, Loading...
+
+### Cursor position
+
+The readout follows whichever surface the pointer is over, because they are
+different spaces with different origins:
+
+- **Over the graph** - `x 400  y 260`, the position in graph space. This is
+  where a node dropped here would sit, and it moves as you pan and zoom.
+- **Over the render** - `out x 960  y 540`, the pixel of the output frame
+  under the pointer, measured from the frame's top-left. Hover the readout for
+  the frame size and the uv coordinate.
+
+So a point in the preview reads as an output pixel whatever size the preview
+panel has been dragged to, and it keeps reading that way in the fullscreen
+preview and on a second monitor. `out` is the marker that says the number is
+in output space rather than graph space.
 
 ---
 
