@@ -52,6 +52,13 @@ const EXTERNAL_CONTROL_ICONS = {
  */
 const EXTERNAL_PARAMETER_SOURCES = new Set(['midi', 'osc', 'audio-panel']);
 
+/**
+ * Where the panel sits before anyone drags or resizes it: pinned to the
+ * top-right corner. Dragging writes `left`/`top` instead, and resizing writes
+ * a width and height, so Window → Reset Layout puts these back (resetGeometry).
+ */
+const DEFAULT_GEOMETRY = { top: '10px', right: '10px', width: '320px' };
+
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
     this.colorStopInputHandler = new ColorStopInputHandler(undoManager);
@@ -161,9 +168,9 @@ export class ParameterPanel {
     this.panel.className = 'parameter-panel';
     this.panel.style.cssText = `
       position: fixed;
-      top: 10px;
-      right: 10px;
-      width: 320px;
+      top: ${DEFAULT_GEOMETRY.top};
+      right: ${DEFAULT_GEOMETRY.right};
+      width: ${DEFAULT_GEOMETRY.width};
       min-width: 220px;
       min-height: 220px;
       max-height: calc(100vh - 20px);
@@ -303,6 +310,33 @@ export class ParameterPanel {
 
     this.panel.style.width = `${Math.round(clampedWidth)}px`;
     this.panel.style.height = `${Math.round(clampedHeight)}px`;
+  }
+
+  /**
+   * Put the panel back in its corner at its default width, and forget the size
+   * it was dragged to. Window → Reset Layout.
+   *
+   * Its geometry is inline (the panel is styled in JS), so this rewrites the
+   * defaults rather than clearing the properties — clearing them would leave a
+   * `position: fixed` panel with no anchor at all.
+   */
+  resetGeometry() {
+    try {
+      localStorage.removeItem('glsl-node-editor.parameter-panel.size');
+    } catch {
+      // Nothing stored to forget.
+    }
+
+    if (!this.panel) return;
+
+    // Dragging anchors the panel by its left/top; the default anchors it by
+    // its right edge, so the drag's coordinates have to go.
+    for (const property of ['left', 'bottom', 'height', 'transform']) {
+      this.panel.style.removeProperty(property);
+    }
+    this.panel.style.top = DEFAULT_GEOMETRY.top;
+    this.panel.style.right = DEFAULT_GEOMETRY.right;
+    this.panel.style.width = DEFAULT_GEOMETRY.width;
   }
 
   savePanelSize() {

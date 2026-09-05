@@ -459,6 +459,12 @@
               <button id="btn-layout-default" class="submenu-button">Default</button>
               <button id="btn-layout-custom" class="submenu-button">Custom</button>
               <button id="btn-layout-minimal" class="submenu-button">Minimal</button>
+              <div class="menu-separator"></div>
+              <!-- What "Custom" means. Without this row the Custom layout
+                   could be applied but never written, so it would only ever
+                   be whatever the workspace happened to look like the first
+                   time the row was clicked. -->
+              <button id="btn-layout-save-custom" class="submenu-button">Save Current as Custom</button>
             </div>
           </div>
           

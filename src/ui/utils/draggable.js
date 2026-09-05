@@ -12,12 +12,17 @@
  * @returns {Function} cleanup function to remove event listeners
  */
 import { clampPanelPosition, keepPanelInBounds } from './windowBounds.js';
+import { rememberDefaultGeometry } from './panelGeometry.js';
 
 export function makeDraggable(panel, dragHandle) {
   if (!panel || !dragHandle) {
 
     return () => {};
   }
+
+  // Before the first drag, so Window → Reset Layout can undo every drag that
+  // follows (see panelGeometry.js).
+  rememberDefaultGeometry(panel);
 
   let isDragging = false;
   let currentX = 0;

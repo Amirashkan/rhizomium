@@ -99,11 +99,12 @@ is open.
 
 | Shortcut | Action | Description |
 |----------|--------|-------------|
-| `Ctrl+Alt+1` | Layout: Default | |
-| `Ctrl+Alt+2` | Layout: Custom | |
-| `Ctrl+Alt+3` | Layout: Minimal | |
-| `Ctrl+Alt+F` | Floating Windows | |
-| `Ctrl+Alt+0` | Reset Layout | |
+| `Ctrl+Alt+1` | Layout: Default | The preview over the graph |
+| `Ctrl+Alt+2` | Layout: Custom | The arrangement you saved |
+| `Ctrl+Alt+3` | Layout: Minimal | Nothing but the node graph |
+| `Ctrl+Alt+4` | Save Current as Custom | Writes the Custom layout from the panels open right now |
+| `Ctrl+Alt+F` | Floating Windows | Hides every panel, and puts the same ones back |
+| `Ctrl+Alt+0` | Reset Layout | Default arrangement, default positions and sizes |
 
 ## Help
 

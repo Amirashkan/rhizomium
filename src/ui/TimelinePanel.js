@@ -7,6 +7,9 @@ import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/th
  * Displays time ruler, playback controls, and parameter tracks with keyframes.
  */
 
+/** How tall the docked timeline opens, in CSS pixels. */
+const DEFAULT_HEIGHT = 200;
+
 export class TimelinePanel {
   constructor(editor) {
     if (!editor) {
@@ -20,7 +23,7 @@ export class TimelinePanel {
     this.editor = editor;
     this.timelineManager = editor.timelineManager;
     this.visible = false;
-    this.height = 200;
+    this.height = DEFAULT_HEIGHT;
     this.minHeight = 100;
     this.maxHeight = 600;
 
@@ -318,6 +321,18 @@ export class TimelinePanel {
   updateLayout() {
     this.container.style.height = `${this.height}px`;
     this.updateCanvasSize();
+  }
+
+  /**
+   * Back to the height the panel opens at. Window → Reset Layout.
+   *
+   * The timeline is docked across the bottom rather than dragged, so its
+   * height is the only geometry it has — and it lives in JS state that
+   * updateLayout() writes out, not in the inline style a reset could clear.
+   */
+  resetGeometry() {
+    this.height = DEFAULT_HEIGHT;
+    this.updateLayout();
   }
 
   /**

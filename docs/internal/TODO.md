@@ -39,12 +39,13 @@ project — it is not served by this repo's deployment.
 
 ## Unfinished features (stub handlers in code)
 
-~25 menu items in `main.js` are wired but empty (`grep -n "TODO" main.js`):
-grid display + visibility toggle, global node-preview toggle, anti-aliasing,
-frame range / loop / alpha / compression export settings, new project,
-publish to cloud, unsaved-changes check on exit, connect/disconnect pins,
-script editor, GLSL utilities, layout system (custom /
-minimal / floating windows / reset panels), open documentation.
+A handful of menu items in `main.js` are wired but empty
+(`grep -n "TODO" main.js`): grid display + visibility toggle, global
+node-preview toggle, anti-aliasing, frame range / loop / alpha / compression
+export settings, new project, publish to cloud, unsaved-changes check on exit,
+connect/disconnect pins, script editor, GLSL utilities, about dialog.
+
+- [x] Window menu layout system — `src/ui/layoutManager.js`: the Default / Custom / Minimal presets, Save Current as Custom, the Floating Windows hide-and-restore toggle, and Reset Layout (positions, remembered panel sizes and dock widths).
 
 - [x] Shader Compiler (Tools → Shader Tools) — `src/ui/ShaderCompilerWindow.js`: compiles the graph on demand, lists the fragment shader plus every compute node's shader, and prints the driver's errors and warnings against the source.
 

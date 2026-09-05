@@ -49,7 +49,21 @@ Disconnect Pins), Node Settings / Params…
 **Tools** - Script Editor / Python Console, Shader Tools (Shader Compiler,
 GLSL Utilities), Audio Settings, MIDI Settings
 
-**Window** - Layouts (Default, Custom, Minimal), Floating Windows, Reset Layout
+**Window** - Layouts (Default, Custom, Minimal, Save Current as Custom),
+Floating Windows, Reset Layout
+
+**Default** is what the editor boots into: the preview over the graph. (Not
+the parameter panel - that one follows your selection and closes itself when
+you click away, so no layout opens it.) **Minimal** leaves nothing but the
+node graph. **Custom** is your own
+arrangement - **Save Current as Custom** writes it from whatever is open at
+the time, tool windows included, and it survives a restart.
+
+**Floating Windows** clears every panel out of the way and puts exactly the
+same ones back on the second press, which is the quick way to read a wide
+patch without losing the panels you had open. **Reset Layout** is the way
+back from a panel dragged off screen: the default arrangement, with every
+window at the position and size it opens with.
 
 **Help** - Documentation, Shortcuts / Keymap, Welcome, About
 

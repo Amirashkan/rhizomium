@@ -44,6 +44,11 @@ import { ViewerPageModel } from './src/viewer/ViewerPage.js';
 import { getWebViewerTool } from './src/ui/WebViewerTool.js';
 import { getOutputAspect } from './src/ui/OutputFormat.js';
 import { getShaderCompilerWindow } from './src/ui/ShaderCompilerWindow.js';
+import { getLayoutManager } from './src/ui/layoutManager.js';
+import {
+  installMenuToggleRowPainting,
+  repaintMenuToggleRows,
+} from './src/ui/menuToggleRows.js';
 import { findProjectionMapNode, syncMappingToNode } from './src/mapping/projectionMapNode.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
@@ -1124,6 +1129,11 @@ function setupUIEventHandlers() {
 
   setupMenuDropdowns();
 
+  // Keep every state-bearing menu row (Timeline ✓, Hide Console, Audio ✓ …)
+  // reading off its panel rather than off whatever its own last click left
+  // behind — a Window → Layouts preset closes those panels too.
+  installMenuToggleRowPainting();
+
   // Undo/Redo button handlers
   const undoBtn = removeExistingHandlers("btn-undo");
   if (undoBtn) {
@@ -1323,12 +1333,9 @@ function setupUIEventHandlers() {
     if (!consoleContainer) return;
     consoleVisible = visible;
     consoleContainer.classList.toggle("closed", !visible);
-    if (toggleConsoleBtn) {
-      toggleConsoleBtn.textContent = visible ? "Hide Console" : "Show Console";
-      // Add visual feedback
-      toggleConsoleBtn.style.backgroundColor = visible ? "rgba(74, 74, 78, 0.8)" : "";
-      toggleConsoleBtn.style.borderColor = visible ? "rgba(102, 170, 255, 0.4)" : "";
-    }
+    // The row's label is derived from the console, not written here — see
+    // src/ui/menuToggleRows.js.
+    repaintMenuToggleRows();
     if (notify && typeof updateStatus === "function") {
       updateStatus(visible ? "Console shown" : "Console hidden");
     }
@@ -1373,16 +1380,7 @@ function setupUIEventHandlers() {
         if (audioPanel && typeof audioPanel.toggle === 'function') {
           audioPanel.toggle();
 
-          // Update button appearance based on panel state
-          if (audioPanel.visible) {
-            audioSettingsBtn.textContent = "Audio ✓";
-            audioSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
-            audioSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
-          } else {
-            audioSettingsBtn.textContent = "Audio…";
-            audioSettingsBtn.style.backgroundColor = "";
-            audioSettingsBtn.style.borderColor = "";
-          }
+          repaintMenuToggleRows();
 
           if (typeof updateStatus === "function") {
             updateStatus(audioPanel.visible ? "Audio panel opened" : "Audio panel closed");
@@ -1417,9 +1415,7 @@ function setupUIEventHandlers() {
 
         if (mappingPanel && typeof mappingPanel.toggle === "function") {
           mappingPanel.toggle();
-          mappingBtn.textContent = mappingPanel.isVisible()
-            ? "Projection Mapping \u2713"
-            : "Projection Mapping\u2026";
+          repaintMenuToggleRows();
           if (typeof updateStatus === "function") {
             updateStatus(mappingPanel.isVisible()
               ? "Projection mapping opened"
@@ -1450,16 +1446,7 @@ function setupUIEventHandlers() {
         if (midiPanel && typeof midiPanel.toggle === 'function') {
           midiPanel.toggle();
 
-          // Update button appearance based on panel state
-          if (midiPanel.visible) {
-            midiSettingsBtn.textContent = "MIDI Settings ✓";
-            midiSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
-            midiSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
-          } else {
-            midiSettingsBtn.textContent = "MIDI Settings";
-            midiSettingsBtn.style.backgroundColor = "";
-            midiSettingsBtn.style.borderColor = "";
-          }
+          repaintMenuToggleRows();
 
           if (typeof updateStatus === "function") {
             updateStatus(midiPanel.visible ? "MIDI settings opened" : "MIDI settings closed");
@@ -1494,15 +1481,7 @@ function setupUIEventHandlers() {
         if (oscPanel && typeof oscPanel.toggle === 'function') {
           oscPanel.toggle();
 
-          if (oscPanel.visible) {
-            oscSettingsBtn.textContent = "OSC Receiver ✓";
-            oscSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
-            oscSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
-          } else {
-            oscSettingsBtn.textContent = "OSC Receiver";
-            oscSettingsBtn.style.backgroundColor = "";
-            oscSettingsBtn.style.borderColor = "";
-          }
+          repaintMenuToggleRows();
 
           if (typeof updateStatus === "function") {
             updateStatus(oscPanel.visible ? "OSC receiver opened" : "OSC receiver closed");
@@ -1535,16 +1514,7 @@ function setupUIEventHandlers() {
         if (timelinePanel && typeof timelinePanel.toggle === 'function') {
           timelinePanel.toggle();
 
-          // Update button appearance based on panel state
-          if (timelinePanel.visible) {
-            timelineBtn.textContent = "Timeline ✓";
-            timelineBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
-            timelineBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
-          } else {
-            timelineBtn.textContent = "Timeline";
-            timelineBtn.style.backgroundColor = "";
-            timelineBtn.style.borderColor = "";
-          }
+          repaintMenuToggleRows();
 
           if (typeof updateStatus === "function") {
             updateStatus(timelinePanel.visible ? "Timeline opened" : "Timeline closed");
@@ -1577,16 +1547,7 @@ function setupUIEventHandlers() {
         if (vjControlPanel && typeof vjControlPanel.toggle === 'function') {
           vjControlPanel.toggle();
 
-          // Update button appearance based on panel state
-          if (vjControlPanel.visible) {
-            vjBtn.textContent = "VJ Control ✓";
-            vjBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
-            vjBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
-          } else {
-            vjBtn.textContent = "VJ Control";
-            vjBtn.style.backgroundColor = "";
-            vjBtn.style.borderColor = "";
-          }
+          repaintMenuToggleRows();
 
           if (typeof updateStatus === "function") {
             updateStatus(vjControlPanel.visible ? "VJ Control opened" : "VJ Control closed");
@@ -1614,13 +1575,6 @@ function setupUIEventHandlers() {
   const profilerBtn = removeExistingHandlers("btn-toggle-profiler");
 
   if (profilerBtn) {
-    const paintProfilerBtn = () => {
-      const on = !!profilerOverlay?.visible;
-      profilerBtn.textContent = on ? "Compute Profiler ✓" : "Compute Profiler";
-      profilerBtn.style.backgroundColor = on ? "rgba(74, 74, 78, 0.8)" : "";
-      profilerBtn.style.borderColor = on ? "rgba(102, 170, 255, 0.4)" : "";
-    };
-
     profilerBtn.addEventListener("click", (e) => {
       e.preventDefault();
 
@@ -1632,7 +1586,7 @@ function setupUIEventHandlers() {
       }
 
       profilerOverlay.toggle();
-      paintProfilerBtn();
+      repaintMenuToggleRows();
       updateStatus(
         profilerOverlay.visible
           ? "Compute profiler opened — per-frame GPU timing is on"
@@ -1640,11 +1594,6 @@ function setupUIEventHandlers() {
       );
     });
 
-    // The shortcut and the panel's own close button change it behind our back,
-    // so re-read the state each time the menu is opened rather than trusting
-    // whatever the last click left behind.
-    document.getElementById("dropdown-view")?.addEventListener("pointerenter", paintProfilerBtn);
-    paintProfilerBtn();
   }
 
   // Second-monitor full-screen viewer (Vite/desktop build only).
@@ -2575,71 +2524,165 @@ function setupRhizomiumMenu() {
   // They use removeExistingHandlers() so they'll work with the new menu structure
 
   // ========== WINDOW MENU ==========
-  
-  // Layout Default
-  const layoutDefaultBtn = document.getElementById("btn-layout-default");
-  if (layoutDefaultBtn) {
-    layoutDefaultBtn.addEventListener("click", (e) => {
+  //
+  // The whole menu is one object: src/ui/layoutManager.js owns which panels
+  // exist, how each is opened and closed, and what the presets mean. These
+  // handlers are the menu's half of that — a click, a status line, and the
+  // ticks the rows are painted with.
+
+  const layoutManager = getLayoutManager();
+
+  /** Layout rows, in menu order: [row id, layout name, label]. */
+  const LAYOUT_ROWS = [
+    ["btn-layout-default", "default", "Default"],
+    ["btn-layout-custom", "custom", "Custom"],
+    ["btn-layout-minimal", "minimal", "Minimal"],
+  ];
+
+  /**
+   * Re-read the layout state onto the menu.
+   *
+   * The tick says which layout the workspace is *in*, not which row was
+   * pressed last — open one panel by hand and no row is ticked — so it is
+   * re-derived here, each time the menu is opened.
+   */
+  const paintWindowMenu = () => {
+    const current = layoutManager.currentLayout();
+    for (const [id, name, label] of LAYOUT_ROWS) {
+      const row = document.getElementById(id);
+      if (!row) continue;
+      const active = current === name;
+      row.textContent = active ? `${label} ✓` : label;
+      row.style.backgroundColor = active ? "rgba(74, 74, 78, 0.8)" : "";
+      row.style.borderColor = active ? "rgba(102, 170, 255, 0.4)" : "";
+    }
+
+    const saveRow = document.getElementById("btn-layout-save-custom");
+    if (saveRow) {
+      saveRow.textContent = layoutManager.hasCustomLayout()
+        ? "Save Current as Custom (replace)"
+        : "Save Current as Custom";
+    }
+
+    const floatingRow = document.getElementById("btn-floating-windows");
+    if (floatingRow) {
+      floatingRow.textContent = layoutManager.areFloatingWindowsHidden()
+        ? "Show Floating Windows"
+        : "Hide Floating Windows";
+    }
+  };
+
+  /**
+   * Panels do not close the instant they are told to — the preview tears its
+   * container down over 200ms and only then reports itself closed, and Reset
+   * Layout rebuilds it 50ms after that. A tick painted on the click alone can
+   * therefore still be reading the outgoing arrangement, so the menu is
+   * painted again once everything has settled.
+   */
+  const PANEL_SETTLE_MS = 400;
+
+  const repaintWindowMenu = () => {
+    paintWindowMenu();
+    setTimeout(paintWindowMenu, PANEL_SETTLE_MS);
+  };
+
+  /** "opened Preview, Timeline; closed VJ Control", or nothing when nothing moved. */
+  const describeLayoutChange = (result) => {
+    const parts = [];
+    if (result.opened.length) parts.push(`opened ${result.opened.join(", ")}`);
+    if (result.closed.length) parts.push(`closed ${result.closed.join(", ")}`);
+    return parts.join("; ");
+  };
+
+  for (const [id, name, label] of LAYOUT_ROWS) {
+    const row = document.getElementById(id);
+    if (!row) continue;
+
+    row.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Implement layout system
+
+      const result = layoutManager.applyLayout(name);
+      if (!result) return;
+      repaintWindowMenu();
+
+      if (typeof updateStatus !== "function") return;
+      if (result.savedFromCurrent) {
+        // First use of the Custom row with nothing saved: it defines the
+        // layout rather than applying an empty one.
+        updateStatus("Custom layout saved from the current arrangement");
+        return;
+      }
+      const changes = describeLayoutChange(result);
+      updateStatus(changes ? `${label} layout — ${changes}` : `${label} layout`);
+    });
+  }
+
+  // Save Current as Custom — without it the Custom row could be applied but
+  // never updated, which is a layout you are stuck with rather than yours.
+  const saveCustomLayoutBtn = document.getElementById("btn-layout-save-custom");
+  if (saveCustomLayoutBtn) {
+    saveCustomLayoutBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const saved = layoutManager.saveCustomLayout();
+      repaintWindowMenu();
       if (typeof updateStatus === "function") {
-        updateStatus("Default Layout: Feature coming soon");
+        const count = Object.keys(saved).length;
+        updateStatus(
+          count
+            ? `Saved ${count} open panel${count === 1 ? "" : "s"} as the Custom layout`
+            : "Saved an empty workspace as the Custom layout",
+        );
       }
     });
   }
 
-  // Layout Custom
-  const layoutCustomBtn = document.getElementById("btn-layout-custom");
-  if (layoutCustomBtn) {
-    layoutCustomBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // TODO: Implement custom layout
-      if (typeof updateStatus === "function") {
-        updateStatus("Custom Layout: Feature coming soon");
-      }
-    });
-  }
-
-  // Layout Minimal
-  const layoutMinimalBtn = document.getElementById("btn-layout-minimal");
-  if (layoutMinimalBtn) {
-    layoutMinimalBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // TODO: Implement minimal layout
-      if (typeof updateStatus === "function") {
-        updateStatus("Minimal Layout: Feature coming soon");
-      }
-    });
-  }
-
-  // Floating Windows
+  // Floating Windows — clear the workspace to the graph and put back exactly
+  // what was there, tool windows included.
   const floatingWindowsBtn = document.getElementById("btn-floating-windows");
   if (floatingWindowsBtn) {
     floatingWindowsBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Implement floating windows manager
+
+      const { visible, count } = layoutManager.toggleFloatingWindows();
+      repaintWindowMenu();
+
       if (typeof updateStatus === "function") {
-        updateStatus("Floating Windows: Feature coming soon");
+        if (!count) {
+          updateStatus("No floating windows to show");
+        } else {
+          updateStatus(
+            visible
+              ? `Floating windows shown (${count})`
+              : `Floating windows hidden (${count})`,
+          );
+        }
       }
     });
   }
 
-  // Reset Layout
+  // Reset Layout — the way back from a panel dragged off screen or sized into
+  // uselessness: default arrangement, and every window at its default place.
   const resetLayoutBtn = document.getElementById("btn-reset-layout");
   if (resetLayoutBtn) {
     resetLayoutBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Reset all panel positions
+      layoutManager.resetLayout();
+      repaintWindowMenu();
       if (typeof updateStatus === "function") {
-        updateStatus("Layout reset: Feature coming soon");
+        updateStatus("Layout reset — panels back to their default positions and sizes");
       }
     });
   }
+
+  // Repaint as the menu opens (the click on its title) and again as the
+  // pointer reaches the rows, so the tick is never a frame behind the panels.
+  document.getElementById("menu-window")?.addEventListener("click", paintWindowMenu);
+  document.getElementById("dropdown-window")?.addEventListener("pointerenter", paintWindowMenu);
+  paintWindowMenu();
 
   // ========== HELP MENU ==========
   

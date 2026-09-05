@@ -18,6 +18,9 @@ const BORDER = 1;
 const MIN_PANEL_WIDTH = 200;
 const MIN_PANEL_HEIGHT = 150;
 const PANEL_SIZE_STORAGE_KEY = "rhizo.previewPanelSize";
+// Where the panel opens before anyone has dragged it: clear of the top menu
+// bar, in the top-left corner. Window → Reset Layout puts it back here.
+const DEFAULT_POSITION = { x: 20, y: 60 };
 
 export class FloatingGPUPreview {
   constructor(gpuCanvas) {
@@ -30,7 +33,7 @@ export class FloatingGPUPreview {
     this.isDocked = false;
     this.isResizing = false;
     this._cleanupResizable = null;
-    this.position = { x: 20, y: 60 };
+    this.position = { ...DEFAULT_POSITION };
     // The panel is sized freely by the user (drag its corner); the render is
     // fitted inside whatever size it has. Sizes persist per docking mode.
     this.panelSizes = this._loadPanelSizes();
@@ -768,6 +771,26 @@ async show() {
 
   toggle() {
     this.isVisible ? this.hide() : this.show();
+  }
+
+  /**
+   * Forget where the panel was dragged to and how big it was made: back to the
+   * default corner and the size the render resolution seeds. Window → Reset
+   * Layout.
+   *
+   * Position and size are only read while the container is built, so an open
+   * panel is rebuilt to pick them up — the same hide/show dance as
+   * toggleDocked(), waiting out hide()'s 200ms teardown.
+   */
+  resetGeometry() {
+    this.panelSizes = { floating: null, docked: null };
+    this._savePanelSizes();
+    this.position = { ...DEFAULT_POSITION };
+
+    if (this.isVisible) {
+      this.hide();
+      setTimeout(() => this.show(), 250);
+    }
   }
 
   toggleDocked() {
