@@ -313,10 +313,16 @@ export class ShaderPreviewManager {
       while (this._thumbQueue.size > 0) {
         const [id, item] = this._thumbQueue.entries().next().value;
         this._thumbQueue.delete(id);
-        // Node was deleted (or the graph replaced) while queued - rendering
-        // its preview would be wasted GPU time that delays live thumbnails
-        const stillInGraph = this.editor?.graph?.nodes?.some?.((n) => n && n.id === id);
-        if (!stillInGraph) {
+        const ed = this.editor || window.editor;
+        // Resolve the node from the graph at DRAIN time rather than trusting the object captured
+        // when the item was queued. Loading a project replaces every node object with a fresh one
+        // carrying the same id, so an item queued before the load (the render loop queues compute
+        // previews continuously) would otherwise render into an orphan: the thumbnail landed on a
+        // node no longer in the graph, and the node on screen stayed blank until its parameters
+        // were touched. A node that is simply gone is skipped, as before - rendering its preview
+        // would be wasted GPU time that delays the live thumbnails.
+        const node = ed?.graph?.nodes?.find?.((n) => n && n.id === id);
+        if (!node) {
           continue;
         }
         // Preview was turned off (eye button) AFTER this item was enqueued. generateNodePreview
@@ -324,12 +330,8 @@ export class ShaderPreviewManager {
         // land in between. Skip so we don't spend GPU time (or compile a fragment shader for the
         // node's subgraph) on a preview that will never show, and — crucially — don't rewrite the
         // thumbnail we just cleared, which is what made these nodes need a second hide click.
-        const ed = this.editor || window.editor;
-        if (ed?.isNodePreviewEnabled) {
-          const qnode = item.node || this.editor?.graph?.nodes?.find((n) => n && n.id === id);
-          if (qnode && !ed.isNodePreviewEnabled(qnode)) {
-            continue;
-          }
+        if (ed?.isNodePreviewEnabled && !ed.isNodePreviewEnabled(node)) {
+          continue;
         }
         try {
           if (item.type === 'external') {
@@ -338,15 +340,15 @@ export class ShaderPreviewManager {
             // (e.g. resolution change) since this item was queued. No
             // fallback: the previous thumbnail simply stays.
             const texture = typeof item.texture === 'function' ? item.texture() : item.texture;
-            if (texture) await this._textureToThumbnail(texture, item.node);
+            if (texture) await this._textureToThumbnail(texture, node);
           } else if (item.type === 'compute') {
-            await this._doComputePreview(item.node);
+            await this._doComputePreview(node);
           } else {
-            await this._doFragmentPreview(item.node);
+            await this._doFragmentPreview(node);
           }
         } catch {
           if (item.type !== 'external') {
-            this.fallbackToLegacyPreview(item.node);
+            this.fallbackToLegacyPreview(node);
           }
         }
       }
