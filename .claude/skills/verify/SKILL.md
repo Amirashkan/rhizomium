@@ -40,6 +40,18 @@ await window.rebuild();                          // updateShaderFromGraph
 (`window.editor.createNode` returns null headless — `window.NodeDefs` isn't
 populated; import `makeNode` directly instead.)
 
+**Give every node its own coordinates.** A card is 180 wide and, with its
+preview band open, around 250 tall, so a second `makeNode(kind, 100, 100)`
+lands squarely on the first and the screenshot you take to prove the change
+works shows one node with the rest buried under it. Step along the signal —
+270 per column, 290 per row — or ask `freeSpotNear` for the next clear spot:
+
+```js
+const { freeSpotNear } = await import('/src/ai/patchLayout.js');
+const at = freeSpotNear(100, 100, { kind }, window.editor.graph.nodes);
+const n = makeNode(kind, at.x, at.y);
+```
+
 ## Environment gotchas (this container, SwiftShader WebGPU)
 
 - **Canvas presentation crashes the device.** Any render pass that targets

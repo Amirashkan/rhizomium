@@ -13,6 +13,7 @@
 import { makeNode } from '../data/NodeDefs.js';
 import { setInputCount } from '../data/nodeInputs.js';
 import { MAX_PARAM_CHARS } from './patchContext.js';
+import { freeSpotNear, spaceOutPatch, nodeHeight, NODE_W } from './patchLayout.js';
 
 /** Canvas coordinates of the middle of the view, for placing something new. */
 export function viewportCentre() {
@@ -39,6 +40,9 @@ export function insertGeneratedNode(generated) {
   const graph = window.graph || window.editor?.graph;
   if (!graph) throw new Error('The editor is not ready yet.');
 
+  // The middle of the view is where the artist is looking, but it is also
+  // where the last generated node went: three nodes in a row all land on the
+  // same point unless the ones already there are taken into account.
   const centre = viewportCentre();
   const node = makeNode('CustomGLSL', Math.round(centre.x), Math.round(centre.y));
 
@@ -62,6 +66,12 @@ export function insertGeneratedNode(generated) {
 
   // Name it for what it does, so the canvas reads without opening the code.
   if (generated.name) node.name = generated.name;
+
+  // Placed last, once the pin count is known: that is what the node's height —
+  // and so the space it needs — is measured from.
+  const spot = freeSpotNear(centre.x, centre.y, node, graph.nodes || []);
+  node.x = spot.x;
+  node.y = spot.y;
 
   graph.nodes.push(node);
   window.undoManager?.recordNodeCreation?.(node);
@@ -139,10 +149,16 @@ export async function replaceGraphWithPatch(
     console.warn('Could not back up before applying the AI patch:', error);
   }
 
+  // Normally a no-op: the API route spaces a patch out before handing it over.
+  // It runs again here because this is the last thing between a patch and the
+  // canvas, and a patch that reached the editor another way — a replayed
+  // answer, a fixture, a future caller — has no reason to arrive stacked.
+  const laidOut = spaceOutPatch(patch);
+
   const projectData = {
     app: 'Rhizomium-Web',
     format: 'rhizomium-project',
-    nodes: patch.nodes.map((node) => ({
+    nodes: laidOut.nodes.map((node) => ({
       id: String(node.id),
       kind: node.kind,
       position: { x: node.x ?? 0, y: node.y ?? 0 },
@@ -156,12 +172,41 @@ export async function replaceGraphWithPatch(
       // does not show.
       ...(Number.isFinite(node.inputCount) ? { inputCount: node.inputCount } : {}),
     })),
-    connections: patch.connections || [],
+    connections: laidOut.connections || [],
     ...(title ? { metadata: { name: title } } : {}),
   };
 
   await manager.importProject(projectData, { clearExisting: true, restoreViewport: false });
+  frameNodes(laidOut.nodes);
   window.editor?.markDirty?.('ai-patch-applied');
+}
+
+/**
+ * Move the view so the whole patch is on screen.
+ *
+ * A patch laid out with room between its nodes is wider than the view it lands
+ * in — the alternative to that width is nodes on top of each other, so the
+ * view moves instead of the nodes. Best effort: an editor without a viewport
+ * (headless, mid-boot) just keeps the view it had.
+ */
+function frameNodes(nodes) {
+  const viewport = window.editor?.viewport;
+  if (!viewport?.fitToContent || !nodes?.length) return;
+
+  const xs = nodes.map((node) => Number(node.x) || 0);
+  const ys = nodes.map((node) => Number(node.y) || 0);
+  const bottoms = nodes.map((node) => (Number(node.y) || 0) + nodeHeight(node));
+
+  try {
+    viewport.fitToContent({
+      minX: Math.min(...xs),
+      minY: Math.min(...ys),
+      maxX: Math.max(...xs) + NODE_W,
+      maxY: Math.max(...bottoms),
+    });
+  } catch (error) {
+    console.warn('Could not frame the patch that was just applied:', error);
+  }
 }
 
 /**
