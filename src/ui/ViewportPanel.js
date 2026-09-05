@@ -1,6 +1,7 @@
 // src/ui/ViewportPanel.js
 
 import { clampPanelPosition, keepPanelInBounds } from './utils/windowBounds.js';
+import { makeResizable } from './utils/resizable.js';
 
 /**
  * ViewportPanel - Manages 3D viewport display and controls
@@ -488,61 +489,45 @@ export class ViewportPanel {
   }
 
   /**
-   * Make panel resizable
+   * Make panel resizable from every edge and corner.
+   *
+   * The panel sits at `right: 16px` until it is dragged or maximized, so the
+   * anchor is read from the element each time: keeping it pinned to the right
+   * edge is what makes a width change grow the window leftwards, the way a
+   * panel parked in that corner should behave.
    */
   makeResizable() {
-    const resizer = document.createElement('div');
-    resizer.style.cssText = `
-      position: absolute;
-      bottom: 0;
-      right: 0;
-      width: 16px;
-      height: 16px;
-      cursor: nwse-resize;
-      background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.1) 50%);
-      z-index: 10;
-    `;
+    const usesLeft = () => {
+      const left = this.panelElement.style.left;
+      return !!left && left !== 'auto';
+    };
 
-    let isResizing = false;
-    let startX, startY, startWidth, startHeight;
-
-    resizer.addEventListener('mousedown', (e) => {
-      isResizing = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      startWidth = this.panelElement.offsetWidth;
-      startHeight = this.panelElement.offsetHeight;
-      e.preventDefault();
+    this._cleanupResizable = makeResizable(this.panelElement, {
+      minWidth: 320,
+      minHeight: 260,
+      anchor: () => ({ x: usesLeft() ? 'left' : 'right', y: 'top' }),
+      onResize: () => this._resizeCanvasToContainer(),
     });
+  }
 
-    document.addEventListener('mousemove', (e) => {
-      if (!isResizing) return;
-      const width = Math.max(320, startWidth + (e.clientX - startX));
-      const height = Math.max(260, startHeight + (e.clientY - startY));
-      this.panelElement.style.width = width + 'px';
-      this.panelElement.style.height = height + 'px';
+  /**
+   * Match the 3D canvas to the space the panel currently leaves it.
+   *
+   * Called on every step of a resize drag, so it does its own measuring rather
+   * than waiting a tick the way _syncCanvasSize does — a canvas that lags the
+   * window by a frame is visible as the panel is pulled about.
+   * @private
+   */
+  _resizeCanvasToContainer() {
+    if (!this.viewport3D?.canvas || !this.canvasContainer) return;
 
-      // Resize viewport3D canvas if it exists
-      if (this.viewport3D && this.viewport3D.canvas) {
-        // Get the actual container size (accounting for header and controls)
-        const containerHeight = this.canvasContainer.clientHeight;
-        const containerWidth = this.canvasContainer.clientWidth;
+    const width = this.canvasContainer.clientWidth;
+    const height = this.canvasContainer.clientHeight;
+    if (width <= 0 || height <= 0) return;
 
-        this.viewport3D.canvas.width = containerWidth;
-        this.viewport3D.canvas.height = containerHeight;
-
-        // Update viewport3D dimensions
-        if (this.viewport3D.handleResize) {
-          this.viewport3D.handleResize(containerWidth, containerHeight);
-        }
-      }
-    });
-
-    document.addEventListener('mouseup', () => {
-      isResizing = false;
-    });
-
-    this.panelElement.appendChild(resizer);
+    this.viewport3D.canvas.width = width;
+    this.viewport3D.canvas.height = height;
+    this.viewport3D.handleResize?.(width, height);
   }
 
   /**
@@ -820,6 +805,10 @@ export class ViewportPanel {
    * Cleanup
    */
   dispose() {
+    if (this._cleanupResizable) {
+      this._cleanupResizable();
+      this._cleanupResizable = null;
+    }
     if (this.panelElement) {
       this.panelElement.remove();
     }

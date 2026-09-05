@@ -105,9 +105,10 @@ function isPinnedToPixels(el) {
  *
  * A scale doesn't (the panels open at `scale(0.95)`), a translate does — and
  * the settings windows centre themselves with one, which is exactly the case
- * that must not have viewport pixels written over it.
+ * that must not have viewport pixels written over it. Resizing has the same
+ * question to answer (see resizable.js), so this is exported.
  */
-function hasTranslation(transform) {
+export function hasTranslation(transform) {
   if (!transform || transform === 'none') return false;
 
   // Browsers resolve to matrix(a, b, c, d, tx, ty) or matrix3d(...12, tx, ty, tz, 1).

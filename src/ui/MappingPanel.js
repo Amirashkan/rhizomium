@@ -28,6 +28,7 @@ import {
 import { MappingCompositor, surfaceMatrices } from '../mapping/MappingCompositor.js';
 import { applyMat3 } from '../mapping/homography.js';
 import { makeDraggable } from './utils/draggable.js';
+import { makeResizable } from './utils/resizable.js';
 import { getOutputAspect } from './OutputFormat.js';
 import { registerNodeDropZone } from './NodeReferenceDrop.js';
 import {
@@ -261,6 +262,9 @@ export class MappingPanel {
     this.hintEl = panel.querySelector('[data-role="hint"]');
 
     this._cleanupDraggable = makeDraggable(panel, panel.querySelector('.rz-map-header'));
+    // The stage grows with the window, so a warp is adjusted at whatever size
+    // the corners are actually visible at.
+    this._cleanupResizable = makeResizable(panel, { minWidth: 520, minHeight: 360 });
 
     panel.addEventListener('click', (e) => this._onPanelClick(e));
     panel.addEventListener('input', (e) => this._onPanelInput(e));
@@ -2195,6 +2199,7 @@ export class MappingPanel {
     this._unregisterDrop();
     if (this._unsubscribe) this._unsubscribe();
     if (this._cleanupDraggable) this._cleanupDraggable();
+    if (this._cleanupResizable) this._cleanupResizable();
     if (this.compositor) this.compositor.dispose();
     this.compositor = null;
     if (this.panel && this.panel.parentNode) this.panel.parentNode.removeChild(this.panel);

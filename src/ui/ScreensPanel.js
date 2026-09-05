@@ -18,6 +18,7 @@
 // module stays safe on the web builds, where there is no rig to lay out.
 
 import { makeDraggable } from './utils/draggable.js';
+import { makeResizable } from './utils/resizable.js';
 import {
   MAX_SCREENS,
   DISPLAY_AUTO,
@@ -124,6 +125,8 @@ export class ScreensPanel {
     this.overlapOutEl = panel.querySelector('[data-role="overlap-out"]');
 
     this._cleanupDraggable = makeDraggable(panel, panel.querySelector('.rz-scr-header'));
+    // A rig of many screens is a long list under a small map; both want room.
+    this._cleanupResizable = makeResizable(panel, { minWidth: 460, minHeight: 320 });
 
     panel.addEventListener('click', (e) => this._onClick(e));
     panel.addEventListener('change', (e) => this._onChange(e));
@@ -155,6 +158,7 @@ export class ScreensPanel {
   destroy() {
     try { this._unsubscribe?.(); } catch { /* ignore */ }
     try { this._cleanupDraggable?.(); } catch { /* ignore */ }
+    try { this._cleanupResizable?.(); } catch { /* ignore */ }
     try { this.panel?.remove(); } catch { /* ignore */ }
   }
 
