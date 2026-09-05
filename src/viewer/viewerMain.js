@@ -23,11 +23,6 @@ import { resolveViewerPage } from './ViewerPage.js';
 import { FEATURES } from '../ai/tiers.js';
 import { GALLERY_ORIGIN } from '../ai/entitlements.js';
 
-// Web-deployment performance metrics; a no-op anywhere without a Vercel edge.
-import { initSpeedInsights } from '../utils/speedInsights.js';
-
-initSpeedInsights();
-
 const dom = {};
 let runtime = null;
 let controlsUi = null;
