@@ -25,6 +25,7 @@
  * pixels, the same coordinates dragging leaves behind.
  */
 import { clampPanelPosition, hasTranslation, topChromeBottom } from './windowBounds.js';
+import { rememberDefaultGeometry } from './panelGeometry.js';
 
 /** Every direction, in the order the handles are stacked (corners last). */
 const ALL_HANDLES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
@@ -213,6 +214,10 @@ export function makeResizable(panel, options = {}) {
   } = options;
 
   ensureStyles();
+
+  // Before the first resize, so Window → Reset Layout can undo every resize
+  // that follows (see panelGeometry.js).
+  rememberDefaultGeometry(panel);
 
   const resolveAnchor = () => {
     const value = typeof anchor === 'function' ? anchor() : anchor;

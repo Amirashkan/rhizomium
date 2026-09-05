@@ -265,6 +265,12 @@ export const SHORTCUT_SECTIONS = [
       { id: "btn-layout-default", label: "Layout: Default", keys: "Mod+Alt+1" },
       { id: "btn-layout-custom", label: "Layout: Custom", keys: "Mod+Alt+2" },
       { id: "btn-layout-minimal", label: "Layout: Minimal", keys: "Mod+Alt+3" },
+      {
+        id: "btn-layout-save-custom",
+        label: "Save Current as Custom",
+        keys: "Mod+Alt+4",
+        note: "Writes the Custom layout from the panels open right now",
+      },
       { id: "btn-floating-windows", label: "Floating Windows", keys: "Mod+Alt+F" },
       { id: "btn-reset-layout", label: "Reset Layout", keys: "Mod+Alt+0" },
     ],
