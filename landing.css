@@ -402,11 +402,11 @@ img { max-width: 100%; }
 
 /* --- Image slots --------------------------------------------------------
 
-   No artwork has been supplied for the showreel, the four control cards or
-   the setup strip yet. Rather than ship broken <img> tags, each slot draws
-   the plate hatch from the design and names what belongs there, so an empty
-   slot is legible on the page and obvious in review. Replace a slot with an
-   <img> when the asset exists. */
+   No artwork has been supplied for the showreel or the setup strip yet.
+   Rather than ship broken <img> tags, each slot draws the plate hatch from
+   the design and names what belongs there, so an empty slot is legible on
+   the page and obvious in review. Replace a slot with an <img> when the
+   asset exists — the four control cards already carry theirs. */
 
 .slot {
   position: relative;
@@ -514,9 +514,21 @@ img { max-width: 100%; }
   background: linear-gradient(180deg, rgba(163, 83, 46, 0.05), transparent);
 }
 
+/* The panel shots run from 16:10 to 16:9, so `contain` rather than `cover`:
+   cropping a shot to the plate takes the left-hand labels off the widest of
+   them. The shots carry their own near-black surround, so the plate behind
+   the two thin bands reads as part of the panel rather than as a letterbox. */
 .card-media {
   aspect-ratio: 16 / 10;
   border-bottom: 1px solid rgba(163, 83, 46, 0.2);
+  background: var(--panel);
+  overflow: hidden;
+}
+.card-media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .card-body { padding: 22px 24px 26px; }
