@@ -207,7 +207,9 @@ section of `api/_lib/grant.js`. It is off unless an operator sets it, and
 refused on production deployments. This is the supported local path; you do not
 need an account to develop here.
 
-Full detail: `docs/internal/AI_TIER_INTEGRATION.md`.
+Full detail: `docs/internal/AI_TIER_INTEGRATION.md`. What the panel's Scope
+control does — and the one thing it still does not, generative editing of a
+selection — is `docs/internal/AI_SELECTION_GENERATION_PLAN.md`.
 
 ## Adding a node
 

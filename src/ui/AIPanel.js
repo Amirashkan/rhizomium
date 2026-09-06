@@ -786,6 +786,13 @@ export class AIPanel {
         : 'Rewrites the whole canvas';
     }
 
+    // KNOWN LIMITATION: the two generators take a prompt and no patch, so there
+    // is nothing for a scope to narrow — they write over the canvas whichever
+    // way the switch is set. Saying so is honest but it is not the feature an
+    // artist who picks "Selection" is asking for, which is "change these nodes
+    // so that X". That needs a feature of its own; the splice and the boundary
+    // this file already relies on are most of what it would be built from.
+    // Designed but not built: docs/internal/AI_SELECTION_GENERATION_PLAN.md.
     if (feature === 'ai.patch_generator') return 'Ignores the scope: replaces the whole canvas';
     if (feature === 'ai.node_generator') return 'Ignores the scope: adds one new node';
 
