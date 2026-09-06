@@ -123,20 +123,37 @@
         <!-- The reel again, as the hero's backdrop: muted, looping and
              without controls, which is also the only way a browser lets it
              autoplay. `reel-video` is what landing.js looks for to hold
-             autoplay back under reduced motion, where the poster stays. -->
+             autoplay back under reduced motion, where the poster stays.
+
+             This is its own cut, not the file the showreel section plays: an
+             eight-second stretch of the graph being built, at 720p. The reel
+             proper is captioned throughout, and a caption set behind this
+             headline is a second headline arguing with the first — this
+             passage is the longest one with none. Being dimmed, cropped by
+             the viewport and sat behind type, it has no use for the detail or
+             the length of the full file either, and it is the one video on
+             the page that loads before anything has been scrolled to.
+
+             It cuts rather than dissolves on the loop, which at this opacity
+             and this far behind the type reads as the footage moving on.
+
+             The file is named in `data-reel-src` rather than a `source`
+             element so that landing.js, not the markup, decides whether it
+             is worth fetching at all; `data-reel-media` is the width below
+             which the CSS hides this reel and nothing should be downloaded
+             for it. -->
         <video
           class="hero-video reel-video"
-          poster="/showreel-poster.webp"
+          poster="/showreel-hero-poster.webp"
+          data-reel-src="/showreel-hero.mp4"
+          data-reel-media="(min-width: 785px)"
           autoplay
           muted
           loop
           playsinline
-          preload="metadata"
           aria-hidden="true"
           tabindex="-1"
-        >
-          <source src="/showreel.mp4" type="video/mp4" />
-        </video>
+        ></video>
       </div>
       <img class="hero-ghost" src="assets/logo.png" alt="" aria-hidden="true" />
       <div class="hero-scrim" aria-hidden="true"></div>
@@ -227,10 +244,18 @@
           for anyone who asked for less motion (landing.js holds autoplay back
           there) or if the file is missing, so the section is never a black box.
 
-          Both files go in public/, which Vite copies to the site root — drop
-          them in and nothing here needs to change:
-            public/showreel.mp4          H.264 + no audio track, 16:9
-            public/showreel-poster.webp  a frame from it, same aspect
+          It is also all that loads until the section is reached: the file is
+          named in `data-reel-src` rather than a `source` element, and
+          landing.js attaches it on the way down. A `source` here would have
+          the browser fetch every megabyte of it while the reader is still
+          looking at the hero.
+
+          The files go in public/, which Vite copies to the site root — recut
+          them in place and nothing here needs to change:
+            public/showreel.mp4               1080p, H.264, no audio, 16:9
+            public/showreel-poster.webp       a frame from it, same aspect
+            public/showreel-hero.mp4          the hero's own shorter 720p cut
+            public/showreel-hero-poster.webp  its first frame
         -->
         <video
           class="reel-video"
@@ -239,14 +264,12 @@
           muted
           loop
           playsinline
-          preload="metadata"
-          aria-label="Showreel: fields growing, feeding back and reacting in real time"
-        >
-          <source src="/showreel.mp4" type="video/mp4" />
-        </video>
+          data-reel-src="/showreel.mp4"
+          aria-label="Screen recording of the editor: nodes wired into a graph, parameters driven live, and the preview rendering as each change is made"
+        ></video>
         <p class="reel-stamp mono">field_reel_2026 · 00:46</p>
       </div>
-      <p class="section-note">A single continuous take of fields growing, feeding back and reacting in real time. Everything you see is composed from nodes and driven live — no pre-rendered frames.</p>
+      <p class="section-note">A single continuous take of the editor at work — nodes pulled from the search palette and wired into a graph, parameters driven live from expressions and a MIDI controller, and every change landing in the preview as it is made. Nothing here is pre-rendered: the preview is the piece, running.</p>
     </section>
 
     <!-- CONTROLS -->

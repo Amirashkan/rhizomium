@@ -1,10 +1,9 @@
 // Landing-page behaviour: the hero flow field, the build readout, the
-// showreel's reduced-motion opt-out, and the sign-up form.
+// showreel, and the sign-up form.
 //
 // Everything here is progressive enhancement. With this module blocked or
 // broken the page still renders, the copy still reads, and every link still
-// resolves — the canvas just stays empty and the showreel plays as the markup
-// asks it to.
+// resolves — the canvas stays empty and the reels hold on their posters.
 
 import { APP_VERSION } from "../utils/appVersion.js";
 
@@ -218,24 +217,78 @@ function initSignup() {
 }
 
 /* --- Showreel -----------------------------------------------------------
-   The reel autoplays from markup, which is the only way it starts at all if
-   this file fails to load. All that is left to do here is take it back for
-   someone who asked for less motion: pausing is not enough on its own,
-   because `loop` and `autoplay` would start it again on the next load, so
-   the attribute goes too and the poster is what stays on screen. */
+   The hero backdrop and the showreel section play the same take, and between
+   them they are nearly all of this page's weight. Neither carries its source
+   in the markup, because a browser hands a muted autoplaying video the whole
+   file whether or not it is anywhere near the screen — left to the markup,
+   both reels download in full before the first screenful has settled, the
+   hero's copy included on a phone where CSS has hidden it outright.
 
-function settleShowreel() {
-  if (!prefersReducedMotion) return;
+   So the source is attached here, and only once the reel is actually going to
+   be watched: the hero once the viewport is wide enough to show it, the
+   section once it has been scrolled to. `data-reel-media` mirrors the CSS
+   that hides the hero reel on narrow screens — the two have to agree, or the
+   page pays for a video nobody sees.
+
+   Nothing is attached at all for someone who asked for less motion. There is
+   then no source to play, which settles the reels more firmly than pausing
+   them would: `autoplay` and `loop` have nothing to act on. What stays on
+   screen is the poster from the markup, which is also what a visitor without
+   this module gets. */
+
+function attachReel(video) {
+  if (video.dataset.reelAttached) return;
+  video.dataset.reelAttached = "1";
+
+  const source = document.createElement("source");
+  source.src = video.dataset.reelSrc;
+  source.type = "video/mp4";
+  video.append(source);
+  video.load();
+
+  // `autoplay` covers this on its own, but only for a video that was in the
+  // document from the start; calling it directly is what starts one attached
+  // this late. A browser that refuses leaves the poster up, which is fine.
+  video.play?.().catch(() => {});
+}
+
+function startReels() {
+  if (prefersReducedMotion) return;
+
   for (const video of document.querySelectorAll(".reel-video")) {
-    video.removeAttribute("autoplay");
-    video.removeAttribute("loop");
-    video.pause();
+    if (!video.dataset.reelSrc) continue;
+
+    const query = video.dataset.reelMedia;
+    if (query) {
+      const media = window.matchMedia(query);
+      if (media.matches) attachReel(video);
+      // A tablet turned on its side crosses this threshold mid-visit.
+      else media.addEventListener?.("change", function once(event) {
+        if (!event.matches) return;
+        media.removeEventListener("change", once);
+        attachReel(video);
+      });
+      continue;
+    }
+
+    if (!("IntersectionObserver" in window)) {
+      attachReel(video);
+      continue;
+    }
+
+    // A little ahead of the section, so it is playing by the time it is read.
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      attachReel(video);
+    }, { rootMargin: "300px" });
+    observer.observe(video);
   }
 }
 
 /* --- Boot --------------------------------------------------------------- */
 
-settleShowreel();
+startReels();
 initSignup();
 
 const sample = initTelemetry();
