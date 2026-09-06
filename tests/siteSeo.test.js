@@ -96,6 +96,38 @@ describe('indexed pages describe themselves', () => {
   }
 });
 
+// Every page links the same three, by absolute path. public/ is copied to the
+// site root by Vite, so these are root URLs in production.
+describe('every page carries an icon that exists', () => {
+  const ICONS = ['/favicon.ico', '/icon.png', '/apple-touch-icon.png'];
+
+  it.each([...INDEXED.map((p) => p.file), ...NOINDEX])('%s links all three', (file) => {
+    const html = read(file);
+    for (const icon of ICONS) expect(html).toContain(`href="${icon}"`);
+  });
+
+  it.each(ICONS)('%s is in public/, which is copied to the site root', (icon) => {
+    // The alternative — pointing at an image Vite bundles — gives a filename
+    // with a content hash in it that changes every build, and a favicon URL
+    // that a crawler cached yesterday stops resolving.
+    expect(existsSync(resolve(root, 'public', icon.replace(/^\//, '')))).toBe(true);
+  });
+
+  it('the .ico is a real multi-size icon, not a placeholder', () => {
+    // It shipped as a 1x1 transparent pixel for a while, which renders as a
+    // blank square next to a search result and in every browser tab.
+    const ico = readFileSync(resolve(root, 'public/favicon.ico'));
+    expect(ico.readUInt16LE(0)).toBe(0);       // reserved
+    expect(ico.readUInt16LE(2)).toBe(1);       // type: icon
+    const count = ico.readUInt16LE(4);
+    expect(count).toBeGreaterThanOrEqual(3);
+    // Entry widths: 0 encodes 256. 16px is what a tab and a result listing use.
+    const widths = Array.from({ length: count }, (_, i) => ico[6 + i * 16] || 256);
+    expect(widths).toContain(16);
+    expect(Math.max(...widths)).toBeGreaterThanOrEqual(32);
+  });
+});
+
 describe('pages that are nobody‘s destination stay out of the index', () => {
   for (const file of NOINDEX) {
     it(`${file} is noindex, and still followed`, () => {

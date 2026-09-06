@@ -53,6 +53,12 @@
     <meta name="twitter:image" content="https://studio.tenderworld.org/docs/images/editor-overview.webp" />
     <!-- tokens.css declares the design variables every other stylesheet reads,
          so it has to come first. -->
+    <!-- Icons live in public/, which Vite copies to the site root verbatim, so
+         these paths survive a build. /favicon.ico is the one every browser
+         requests without being asked and the one Google puts beside a result. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/icon.png" sizes="512x512" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="../src/styles/tokens.css" />
     <link rel="stylesheet" href="./style.css" />
     <link rel="stylesheet" href="../src/styles/menu.css" />

@@ -22,7 +22,12 @@
          error state are still crawled. -->
     <meta name="robots" content="noindex, follow" />
     <link rel="canonical" href="https://studio.tenderworld.org/viewer" />
-    <link rel="icon" href="../favicon.ico" />
+    <!-- Icons live in public/, which Vite copies to the site root verbatim, so
+         these paths survive a build. /favicon.ico is the one every browser
+         requests without being asked and the one Google puts beside a result. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/icon.png" sizes="512x512" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="./viewer.css" />
   </head>
   <body data-state="checking">

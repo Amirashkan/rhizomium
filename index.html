@@ -5,7 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rhizomium — Compose. Evolve. Perform.</title>
   <meta name="description" content="Rhizomium is a modular GPU node environment for real-time generative visuals and evolving fields — synthesis, structure and growth in one canvas." />
-  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <!-- Icons live in public/, which Vite copies to the site root verbatim, so
+       these paths survive a build. /favicon.ico is the one every browser
+       requests without being asked and the one Google puts beside a result. -->
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" href="/icon.png" sizes="512x512" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="landing.css" />
 
   <!-- One canonical address for this page. The site answers to `/` and, via

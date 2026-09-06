@@ -9,7 +9,12 @@
   <meta name="theme-color" content="#d67f4f">
   <meta name="author" content="Rhizomium">
   <link rel="canonical" href="https://studio.tenderworld.org/docs">
-  <link rel="icon" href="/favicon.ico">
+  <!-- Icons live in public/, which Vite copies to the site root verbatim, so
+       these paths survive a build. /favicon.ico is the one every browser
+       requests without being asked and the one Google puts beside a result. -->
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" href="/icon.png" sizes="512x512" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
   <!-- Social / link previews -->
   <meta property="og:type" content="website">
