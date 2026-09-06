@@ -1,33 +1,16 @@
-// Landing-page behaviour: the hero flow field, the WebGPU compatibility gate
-// on "Launch Studio", the Tauri link fixup, and the sign-up form.
+// Landing-page behaviour: the hero flow field, the build readout, the
+// showreel's reduced-motion opt-out, and the sign-up form.
 //
 // Everything here is progressive enhancement. With this module blocked or
 // broken the page still renders, the copy still reads, and every link still
-// resolves — the canvas just stays empty and the studio button stays enabled.
+// resolves — the canvas just stays empty and the showreel plays as the markup
+// asks it to.
 
-import { DeviceDetector } from "../utils/DeviceDetector.js";
 import { APP_VERSION } from "../utils/appVersion.js";
 
 const prefersReducedMotion = window.matchMedia?.(
   "(prefers-reduced-motion: reduce)",
 ).matches;
-
-/* --- Studio link --------------------------------------------------------
-   On the web "/studio" is a Vercel rewrite to /editor. Tauri (and any plain
-   static host) has no such rewrite, so there it must point at the real
-   editor file or the button just reloads this page. */
-
-function resolveStudioLinks() {
-  const isTauri =
-    "__TAURI_INTERNALS__" in window ||
-    "__TAURI__" in window ||
-    location.protocol === "tauri:" ||
-    location.hostname === "tauri.localhost";
-  if (!isTauri) return;
-  for (const link of document.querySelectorAll("[data-studio-link]")) {
-    link.setAttribute("href", "editor/index.html");
-  }
-}
 
 /* --- Hero flow field ----------------------------------------------------
    A 2D advection field: particles walk a smooth noise-ish angle function and
@@ -198,125 +181,6 @@ function initTelemetry() {
   };
 }
 
-/* --- WebGPU compatibility gate ------------------------------------------ */
-
-const COMPAT_COPY = {
-  mobile: {
-    title: "Mobile Device Detected",
-    fixes: [
-      "Use a desktop or laptop computer",
-      "Chrome 113+, Edge 113+, or Opera 99+",
-      "Make sure WebGPU is enabled in your browser",
-    ],
-  },
-  webgpu: {
-    title: "WebGPU Not Available",
-    fixes: [
-      "Chrome / Edge: update to version 113 or later",
-      "Chrome: enable “Unsafe WebGPU” at chrome://flags",
-      "Opera: update to version 99 or later",
-    ],
-  },
-  browser: {
-    title: "Unsupported Browser",
-    fixes: [
-      "Chrome 113+ (recommended)",
-      "Edge 113+ (recommended)",
-      "Opera 99+",
-      "Firefox and Safari have limited WebGPU support",
-    ],
-  },
-};
-
-function buildCompatPopup(popup, reason, details) {
-  const copy = COMPAT_COPY[reason] ?? {
-    title: "Device Not Supported",
-    fixes: ["Use a desktop browser with WebGPU support"],
-  };
-
-  popup.replaceChildren();
-
-  const title = document.createElement("p");
-  title.className = "compat-title";
-  title.textContent = copy.title;
-
-  const summary = document.createElement("p");
-  summary.textContent = "The studio needs a desktop browser with WebGPU support.";
-
-  // Built as text nodes rather than innerHTML: every value below comes out of
-  // the user-agent string, which is attacker-controlled in principle.
-  const table = document.createElement("div");
-  table.className = "compat-details";
-  const rows = [
-    ["Browser", [details.browser, details.browserVersion].filter(Boolean).join(" ")],
-    ["Device", details.deviceType],
-    ["WebGPU", details.webGPU ? "available" : "not available"],
-  ];
-  for (const [label, value] of rows) {
-    if (!value) continue;
-    const row = document.createElement("div");
-    const key = document.createElement("strong");
-    key.textContent = `${label}: `;
-    row.append(key, document.createTextNode(String(value)));
-    table.append(row);
-  }
-
-  const fixes = document.createElement("div");
-  fixes.className = "compat-fixes";
-  const heading = document.createElement("h4");
-  heading.textContent = "What works:";
-  const list = document.createElement("ul");
-  for (const fix of copy.fixes) {
-    const item = document.createElement("li");
-    item.textContent = fix;
-    list.append(item);
-  }
-  fixes.append(heading, list);
-
-  popup.append(title, summary, table, fixes);
-}
-
-async function initCompatibilityGate() {
-  const btn = document.getElementById("launch-studio-btn");
-  const popup = document.getElementById("compatibility-popup");
-  if (!btn || !popup) return;
-
-  const support = await DeviceDetector.checkSupport();
-  if (support.supported) return;
-
-  const wrapper = btn.parentElement;
-  btn.classList.add("is-disabled");
-  btn.setAttribute("aria-disabled", "true");
-  btn.removeAttribute("href");
-  btn.setAttribute("role", "button");
-  btn.setAttribute("tabindex", "0");
-
-  buildCompatPopup(popup, support.reason, support.details ?? {});
-
-  const open = () => popup.classList.add("is-open");
-  const close = () => popup.classList.remove("is-open");
-
-  wrapper.addEventListener("mouseenter", open);
-  wrapper.addEventListener("mouseleave", close);
-  // Keyboard and touch users never get a hover, so the button itself toggles.
-  btn.addEventListener("focus", open);
-  btn.addEventListener("blur", close);
-  btn.addEventListener("click", (event) => {
-    event.preventDefault();
-    popup.classList.toggle("is-open");
-  });
-  btn.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      popup.classList.toggle("is-open");
-    }
-    if (event.key === "Escape") close();
-  });
-  document.addEventListener("pointerdown", (event) => {
-    if (!wrapper.contains(event.target)) close();
-  });
-}
-
 /* --- Sign-up ------------------------------------------------------------
    Accounts live in the gallery (art.tenderworld.org), not here, so the form
    does not collect an address — it hands one over. The markup is a plain GET
@@ -353,17 +217,27 @@ function initSignup() {
   });
 }
 
+/* --- Showreel -----------------------------------------------------------
+   The reel autoplays from markup, which is the only way it starts at all if
+   this file fails to load. All that is left to do here is take it back for
+   someone who asked for less motion: pausing is not enough on its own,
+   because `loop` and `autoplay` would start it again on the next load, so
+   the attribute goes too and the poster is what stays on screen. */
+
+function settleShowreel() {
+  if (!prefersReducedMotion) return;
+  for (const video of document.querySelectorAll(".reel-video")) {
+    video.removeAttribute("autoplay");
+    video.removeAttribute("loop");
+    video.pause();
+  }
+}
+
 /* --- Boot --------------------------------------------------------------- */
 
-resolveStudioLinks();
+settleShowreel();
 initSignup();
 
 const sample = initTelemetry();
 const field = document.querySelector("[data-field]");
 if (field) startField(field, sample);
-
-initCompatibilityGate().catch((error) => {
-  // A failed probe must not take the button down with it — leaving it enabled
-  // lets the editor itself report the real problem.
-  console.error("Compatibility check failed:", error);
-});

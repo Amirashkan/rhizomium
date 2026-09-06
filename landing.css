@@ -400,39 +400,6 @@ img { max-width: 100%; }
   color: var(--fg-soft);
 }
 
-/* --- Image slots --------------------------------------------------------
-
-   No artwork has been supplied for the showreel or the setup strip yet.
-   Rather than ship broken <img> tags, each slot draws the plate hatch from
-   the design and names what belongs there, so an empty slot is legible on
-   the page and obvious in review. Replace a slot with an <img> when the
-   asset exists — the four control cards already carry theirs. */
-
-.slot {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  background:
-    repeating-linear-gradient(45deg, rgba(163, 83, 46, 0.16) 0 1px, transparent 1px 9px),
-    var(--panel);
-}
-
-.slot::after {
-  content: attr(data-label);
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: lowercase;
-  color: rgba(236, 229, 219, 0.38);
-}
-
 /* --- Showreel ----------------------------------------------------------- */
 
 .reel {
@@ -443,25 +410,14 @@ img { max-width: 100%; }
   background: var(--panel);
 }
 
-/* The play badge owns the middle of the reel, so its slot label sits above. */
-.reel .slot::after { align-items: flex-start; padding-top: 26px; }
-
-.reel-play {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-.reel-play svg {
-  width: 78px;
-  height: 78px;
-  padding: 26px;
-  border-radius: 50%;
-  background: rgba(163, 83, 46, 0.9);
-  color: var(--bg);
-  box-shadow: 0 8px 40px rgba(14, 12, 10, 0.6);
+/* Fills the 16/9 frame whatever the file's own aspect turns out to be, so a
+   re-cut reel cannot letterbox the section. The background shows through
+   while the poster loads, and is what a missing file leaves behind. */
+.reel-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .reel-stamp {
@@ -556,20 +512,6 @@ img { max-width: 100%; }
   color: rgba(236, 229, 219, 0.6);
 }
 
-.strip { position: relative; border: 1px solid var(--rust-line); }
-.strip-media { aspect-ratio: 21 / 9; }
-.strip-stamp {
-  position: absolute;
-  left: 18px;
-  bottom: 16px;
-  margin: 0;
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  color: rgba(236, 229, 219, 0.75);
-  background: rgba(14, 12, 10, 0.55);
-  padding: 5px 10px;
-  backdrop-filter: blur(4px);
-}
 
 /* --- Pricing ------------------------------------------------------------ */
 
@@ -825,73 +767,6 @@ img { max-width: 100%; }
 .footer-links a:hover { color: var(--fg); }
 .footer-links svg { width: 14px; height: 14px; }
 
-/* --- WebGPU compatibility popup ----------------------------------------
-
-   The Launch Studio button is disabled when the device cannot run the
-   editor; this explains why, and how to fix it. */
-
-.btn-wrapper { position: relative; display: inline-flex; }
-
-.btn.is-disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.compat-popup {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: 10px;
-  width: max-content;
-  min-width: 300px;
-  max-width: min(400px, calc(100vw - 40px));
-  background: rgba(20, 16, 8, 0.98);
-  border: 1px solid rgba(163, 83, 46, 0.5);
-  padding: 16px 20px;
-  color: var(--fg);
-  font-size: 14px;
-  line-height: 1.6;
-  text-align: left;
-  white-space: normal;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-  z-index: 50;
-}
-.compat-popup.is-open { opacity: 1; pointer-events: auto; }
-
-.compat-popup::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 6px solid transparent;
-  border-top-color: rgba(163, 83, 46, 0.5);
-}
-
-.compat-title {
-  margin: 0 0 8px;
-  font-weight: 600;
-  font-size: 16px;
-  color: var(--rust-hi);
-}
-.compat-popup p { margin: 0; }
-.compat-details {
-  margin: 12px 0;
-  padding: 12px;
-  background: rgba(0, 0, 0, 0.3);
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-.compat-details strong { color: var(--rust-hi); font-weight: 500; }
-.compat-fixes { margin-top: 12px; font-size: 13px; }
-.compat-fixes h4 { margin: 0 0 8px; font-size: 14px; color: var(--rust-hi); }
-.compat-fixes ul { margin: 0; padding-left: 20px; }
-.compat-fixes li { margin: 4px 0; }
-
 /* --- Responsive ---------------------------------------------------------
 
    The design is drawn at desktop width. Below it the multi-column grids
@@ -920,7 +795,6 @@ img { max-width: 100%; }
   .about-aside { max-width: none; }
   .spec-body { grid-template-columns: 1fr; gap: 12px; }
   .join { padding: 32px 24px; }
-  .strip-media { aspect-ratio: 16 / 9; }
 }
 
 @media (max-width: 560px) {
@@ -932,25 +806,7 @@ img { max-width: 100%; }
   .hero-title { letter-spacing: -0.03em; }
   .hero-line { gap: 12px; }
   .hero-actions { gap: 10px; }
-  .hero-actions .btn-wrapper,
   .hero-actions .btn { width: 100%; }
-  .reel-play svg { width: 56px; height: 56px; padding: 18px; }
-
-  /* Too wide to hang off the button here, so it docks to the bottom of the
-     viewport. `width: auto` matters: the base rule's `max-content` would
-     otherwise beat left/right and push the page sideways. */
-  .compat-popup {
-    position: fixed;
-    left: 20px;
-    right: 20px;
-    bottom: 20px;
-    top: auto;
-    transform: none;
-    width: auto;
-    min-width: 0;
-    max-width: none;
-  }
-  .compat-popup::after { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
