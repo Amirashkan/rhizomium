@@ -24,7 +24,33 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://art.tenderworld.org https://studio.tenderworld.org ws://localhost:8765 http://localhost:8765 ws://127.0.0.1:8766 ws://localhost:8767 ws://127.0.0.1:8767 ws://localhost:8768 ws://127.0.0.1:8768; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
     />
-    <title>GLSL Node Editor</title>
+    <title>Rhizomium Studio - WebGPU node editor for real-time generative visuals</title>
+    <!-- The studio is a single-page app: everything below <body> is an empty
+         shell until main.js boots, so what a crawler reads of this page is
+         this block. sitemap.xml lists /studio, so it needs to describe itself
+         rather than arrive as an untitled blank. -->
+    <meta
+      name="description"
+      content="Rhizomium Studio runs in the browser: build GPU shaders by connecting nodes, preview them live on WebGPU, and drive parameters from expressions, audio, MIDI or a keyframe timeline."
+    />
+    <meta name="author" content="Rhizomium" />
+    <!-- Served at /studio; /editor and /editor/index.html both reach the same
+         shell (see the rewrite and redirect in vercel.json). -->
+    <link rel="canonical" href="https://studio.tenderworld.org/studio" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Rhizomium" />
+    <meta property="og:title" content="Rhizomium Studio - WebGPU node editor" />
+    <meta
+      property="og:description"
+      content="Build GPU shaders by connecting nodes in the browser. Live WebGPU preview, parameter expressions, and audio, MIDI and timeline control."
+    />
+    <meta property="og:url" content="https://studio.tenderworld.org/studio" />
+    <meta property="og:image" content="https://studio.tenderworld.org/docs/images/editor-overview.webp" />
+    <meta property="og:image:alt" content="The Rhizomium node editor, showing the menu bar, node canvas and live preview" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Rhizomium Studio - WebGPU node editor" />
+    <meta name="twitter:description" content="Build GPU shaders by connecting nodes in the browser, with a live WebGPU preview." />
+    <meta name="twitter:image" content="https://studio.tenderworld.org/docs/images/editor-overview.webp" />
     <!-- tokens.css declares the design variables every other stylesheet reads,
          so it has to come first. -->
     <link rel="stylesheet" href="../src/styles/tokens.css" />

@@ -7,6 +7,74 @@
   <meta name="description" content="Rhizomium is a modular GPU node environment for real-time generative visuals and evolving fields — synthesis, structure and growth in one canvas." />
   <link rel="icon" type="image/png" href="assets/logo.png" />
   <link rel="stylesheet" href="landing.css" />
+
+  <!-- One canonical address for this page. The site answers to `/` and, via
+       vercel.json's cleanUrls, to `/index.html` as well; the deploy previews
+       answer on their own hostnames. Naming the production URL here keeps all
+       of those from being indexed as separate copies of the same page. -->
+  <link rel="canonical" href="https://studio.tenderworld.org/" />
+  <meta name="theme-color" content="#0e0c0a" />
+  <meta name="author" content="Rhizomium" />
+
+  <!-- Social / link previews. The image is served from docs/images, which
+       vite.config.js copies into dist verbatim: an unhashed path that stays
+       valid across builds, which a card scraper needs and a bundled asset
+       (rewritten to a content hash every build) does not give us. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Rhizomium" />
+  <meta property="og:title" content="Rhizomium - Compose. Evolve. Perform." />
+  <meta property="og:description" content="A modular GPU node environment for real-time generative visuals. Compose WebGPU shaders by connecting nodes in the browser, and drive them live from audio, MIDI or OSC." />
+  <meta property="og:url" content="https://studio.tenderworld.org/" />
+  <meta property="og:image" content="https://studio.tenderworld.org/docs/images/editor-overview.webp" />
+  <meta property="og:image:alt" content="The Rhizomium node editor, showing the menu bar, node canvas and live preview" />
+  <meta property="og:locale" content="en" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Rhizomium - Compose. Evolve. Perform." />
+  <meta name="twitter:description" content="Compose WebGPU shaders by connecting nodes in the browser. Real-time generative visuals, driven live from audio, MIDI or OSC." />
+  <meta name="twitter:image" content="https://studio.tenderworld.org/docs/images/editor-overview.webp" />
+
+  <!-- Structured data. The prose on this page is in the markup already, so
+       this is not a substitute for it: it names the things a crawler cannot
+       infer from the copy - that the site and the application are the same
+       thing, where the studio and the documentation live, and that it runs in
+       a browser. Keep the URLs in step with sitemap.xml (scripts/docs-meta.mjs). -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://studio.tenderworld.org/#website",
+        "name": "Rhizomium",
+        "url": "https://studio.tenderworld.org/",
+        "inLanguage": "en",
+        "description": "A modular GPU node environment for real-time generative visuals, built on WebGPU and WGSL."
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://studio.tenderworld.org/#app",
+        "name": "Rhizomium",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Web browser with WebGPU (Chrome 113+, Edge 113+, Opera)",
+        "url": "https://studio.tenderworld.org/studio",
+        "isPartOf": { "@id": "https://studio.tenderworld.org/#website" },
+        "description": "Compose GPU shaders visually by connecting nodes. Real-time WebGPU preview, parameter expressions, keyframe animation, and live control from audio, MIDI and OSC.",
+        "featureList": [
+          "Real-time WebGPU rendering and GPU compute nodes",
+          "Modular node graph with live rewiring",
+          "Parameter expressions driven by time, audio and mouse",
+          "Keyframe timeline animation",
+          "MIDI controller mapping and OSC messaging",
+          "Audio-reactive fields",
+          "Multi-screen and external viewer output"
+        ],
+        "softwareHelp": { "@type": "CreativeWork", "url": "https://studio.tenderworld.org/docs" },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "sameAs": "https://github.com/Amirashkan/glsl-node-editor"
+      }
+    ]
+  }
+  </script>
 </head>
 
 <body>

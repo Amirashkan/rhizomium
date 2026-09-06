@@ -146,12 +146,33 @@ describe('no page runs inline script', () => {
     expect(directive(policy(), 'script-src')).toEqual(["'self'"]);
   });
 
+  // `<script type="application/ld+json">` is the one <script> that is not
+  // script. The type is not a JavaScript MIME type, so the browser never
+  // prepares the element for execution — script-src is never consulted for it
+  // and nothing inside it can run, whatever it contains. It is how structured
+  // data is published (see the landing and documentation pages), and there is
+  // no out-of-band alternative search engines read. The block still has to be
+  // inert data, which the JSON parse below is what proves.
+  const DATA_BLOCK = /\btype=["']application\/ld\+json["']/;
+
   it.each(PAGES)('%s has no inline <script> block', (page) => {
     const html = readFileSync(join(repoRoot, page), 'utf8');
     const inline = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)]
-      .filter(([, attrs, body]) => !/\bsrc=/.test(attrs) && body.trim())
+      .filter(([, attrs, body]) =>
+        !/\bsrc=/.test(attrs) && !DATA_BLOCK.test(attrs) && body.trim())
       .map(([, , body]) => body.trim().slice(0, 80));
     expect(inline).toEqual([]);
+  });
+
+  it.each(PAGES)('%s carries only parseable JSON in its data blocks', (page) => {
+    const html = readFileSync(join(repoRoot, page), 'utf8');
+    for (const [, attrs, body] of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
+      if (!DATA_BLOCK.test(attrs)) continue;
+      // A parse failure is the interesting case: it means the block is not the
+      // inert data the exemption above assumes, and it also means the
+      // structured data is being thrown away by every crawler that reads it.
+      expect(() => JSON.parse(body)).not.toThrow();
+    }
   });
 
   it.each(PAGES)('%s has no inline event-handler attribute', (page) => {

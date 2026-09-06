@@ -5,6 +5,11 @@
 //   /sitemap.xml     crawlable URLs
 //   /robots.txt      crawl policy pointing at the sitemap
 //
+// and rewrites one file it copied:
+//
+//   /docs/index.html  the docsify shell, with a static index spliced into the
+//                     #app placeholder docsify overwrites when it boots
+//
 // The docs render client-side through docsify, so a crawler that does not run
 // JavaScript sees almost nothing. These files give both search engines and
 // chat assistants the actual prose at stable, no-JavaScript URLs.
@@ -57,9 +62,56 @@ function summarize(md) {
   return '';
 }
 
+// Text going into generated HTML. Page titles and summaries come from the
+// markdown, which is free to contain & or <.
+function esc(text) {
+  return String(text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// The static documentation index spliced into the docsify shell.
+//
+// docsify renders client-side: the shell it ships is a single element reading
+// "Loading...", which is all a crawler that does not execute JavaScript ever
+// sees of /docs - the busiest page on the site. This builds the same index the
+// sidebar shows, as ordinary markup, and links each entry to the markdown file
+// behind it, which is a real no-JavaScript URL and is what sitemap.xml lists.
+// docsify replaces the whole block on boot, so a reader with JavaScript sees
+// exactly what they saw before.
+export function renderDocsFallback(pages, sections) {
+  let html = '<article class="markdown-section">\n';
+  html += '<h1>Rhizomium Documentation</h1>\n';
+  html += '<p>Rhizomium is a modular GPU node environment for real-time generative ' +
+          'visuals, built on WebGPU and WGSL. Shaders are composed visually by ' +
+          'connecting nodes; parameters can be driven by expressions, audio, MIDI or ' +
+          'a keyframe timeline. It runs in the browser (Chrome or Edge 113+) with no ' +
+          'installation, and as a desktop app.</p>\n';
+  html += `<p>The editor is at <a href="${SITE}/studio">${SITE}/studio</a>. ` +
+          'This index is the plain-text version of the documentation; the pages below ' +
+          'are the markdown sources, which read without JavaScript.</p>\n';
+  for (const [section, list] of sections) {
+    html += `<h2>${esc(section || 'Documentation')}</h2>\n<ul>\n`;
+    for (const p of list) {
+      const desc = pages.get(p.file);
+      html += `<li><a href="/docs/${esc(p.file)}">${esc(p.title)}</a>` +
+              `${desc ? `: ${esc(desc)}` : ''}</li>\n`;
+    }
+    html += '</ul>\n';
+  }
+  html += '</article>';
+  return html;
+}
+
 export function generate(docsDir, outDir) {
   const pages = readSidebar(docsDir).filter((p) => existsSync(join(docsDir, p.file)));
   mkdirSync(outDir, { recursive: true });
+
+  // Summaries are read once and shared by llms.txt and the static docs index,
+  // so the two cannot describe the same page differently.
+  const summaries = new Map(
+    pages.map((p) => [p.file, summarize(readFileSync(join(docsDir, p.file), 'utf8'))]),
+  );
 
   // --- llms.txt -----------------------------------------------------------
   const bySection = new Map();
@@ -77,8 +129,7 @@ export function generate(docsDir, outDir) {
   for (const [section, list] of bySection) {
     llms += `## ${section || 'Documentation'}\n\n`;
     for (const p of list) {
-      const md = readFileSync(join(docsDir, p.file), 'utf8');
-      const desc = summarize(md);
+      const desc = summaries.get(p.file);
       llms += `- [${p.title}](${SITE}/docs/${p.file})${desc ? `: ${desc}` : ''}\n`;
     }
     llms += '\n';
@@ -114,6 +165,26 @@ export function generate(docsDir, outDir) {
     `\n</urlset>\n`;
   writeFileSync(join(outDir, 'sitemap.xml'), sitemap);
 
+  // --- dist/docs/index.html ----------------------------------------------
+  // The shell was copied verbatim a moment ago (vite.config.js); replace the
+  // placeholder docsify overwrites with the real index. Rewriting the copy
+  // rather than the source keeps the repository's docs/ directory hand-edited
+  // and the generated markup out of diffs. A shell without the markers is left
+  // alone - the site still works, it just falls back to the spinner.
+  const shell = join(outDir, 'docs', 'index.html');
+  let fallbackWritten = false;
+  if (existsSync(shell)) {
+    const html = readFileSync(shell, 'utf8');
+    const marked = html.replace(
+      /<!--docs-fallback-->[\s\S]*?<!--\/docs-fallback-->/,
+      () => `<!--docs-fallback-->\n${renderDocsFallback(summaries, bySection)}\n<!--/docs-fallback-->`,
+    );
+    if (marked !== html) {
+      writeFileSync(shell, marked);
+      fallbackWritten = true;
+    }
+  }
+
   // --- robots.txt ---------------------------------------------------------
   writeFileSync(join(outDir, 'robots.txt'),
     `User-agent: *\nAllow: /\n\n` +
@@ -121,5 +192,5 @@ export function generate(docsDir, outDir) {
     `# ${SITE}/llms.txt\n# ${SITE}/llms-full.txt\n\n` +
     `Sitemap: ${SITE}/sitemap.xml\n`);
 
-  return { pages: pages.length, bytes: full.length };
+  return { pages: pages.length, bytes: full.length, fallbackWritten };
 }

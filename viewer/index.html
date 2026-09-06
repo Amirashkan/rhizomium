@@ -15,6 +15,13 @@
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://art.tenderworld.org; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'"
     />
     <title>Rhizomium viewer</title>
+    <!-- Kept out of the index deliberately. The viewer has no content of its
+         own: it renders whatever patch the link names, so bare /viewer is an
+         empty shell and every real page is somebody else's artwork reached
+         through the gallery, which lists it. `follow` so the links out of an
+         error state are still crawled. -->
+    <meta name="robots" content="noindex, follow" />
+    <link rel="canonical" href="https://studio.tenderworld.org/viewer" />
     <link rel="icon" href="../favicon.ico" />
     <link rel="stylesheet" href="./viewer.css" />
   </head>

@@ -40,9 +40,14 @@ function copyDocs() {
       })
       // The docs render client-side, so a crawler that does not execute
       // JavaScript sees an empty shell. Emit the plain-text corpus and the
-      // sitemap next to it, from the same sources, so they cannot drift.
-      const { pages } = generateDocsMeta(src, resolve(__dirname, 'dist'))
-      this.info?.(`docs: copied site + generated llms.txt, llms-full.txt, sitemap.xml, robots.txt (${pages} pages)`)
+      // sitemap next to it, from the same sources, so they cannot drift, and
+      // let the generator splice a static index into the copy of the shell -
+      // it has to run after cpSync, on the copy, not the source.
+      const { pages, fallbackWritten } = generateDocsMeta(src, resolve(__dirname, 'dist'))
+      this.info?.(
+        `docs: copied site + generated llms.txt, llms-full.txt, sitemap.xml, robots.txt (${pages} pages)` +
+          (fallbackWritten ? ' + static /docs index' : ''),
+      )
     },
   }
 }
