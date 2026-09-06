@@ -5,8 +5,82 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rhizomium — Compose. Evolve. Perform.</title>
   <meta name="description" content="Rhizomium is a modular GPU node environment for real-time generative visuals and evolving fields — synthesis, structure and growth in one canvas." />
-  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <!-- Icons live in public/, which Vite copies to the site root verbatim, so
+       these paths survive a build. /favicon.ico is the one every browser
+       requests without being asked and the one Google puts beside a result. -->
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" href="/icon.png" sizes="512x512" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="landing.css" />
+
+  <!-- One canonical address for this page. The site answers to `/` and, via
+       vercel.json's cleanUrls, to `/index.html` as well; the deploy previews
+       answer on their own hostnames. Naming the production URL here keeps all
+       of those from being indexed as separate copies of the same page. -->
+  <link rel="canonical" href="https://studio.tenderworld.org/" />
+  <meta name="theme-color" content="#0e0c0a" />
+  <meta name="author" content="Rhizomium" />
+
+  <!-- Social / link previews. The image is served from docs/images, which
+       vite.config.js copies into dist verbatim: an unhashed path that stays
+       valid across builds, which a card scraper needs and a bundled asset
+       (rewritten to a content hash every build) does not give us. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Rhizomium" />
+  <meta property="og:title" content="Rhizomium - Compose. Evolve. Perform." />
+  <meta property="og:description" content="A modular GPU node environment for real-time generative visuals. Compose WebGPU shaders by connecting nodes, and drive them live from audio, MIDI or OSC." />
+  <meta property="og:url" content="https://studio.tenderworld.org/" />
+  <meta property="og:image" content="https://studio.tenderworld.org/docs/images/editor-overview.webp" />
+  <meta property="og:image:alt" content="The Rhizomium node editor, showing the menu bar, node canvas and live preview" />
+  <meta property="og:locale" content="en" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Rhizomium - Compose. Evolve. Perform." />
+  <meta name="twitter:description" content="Compose WebGPU shaders by connecting nodes. Real-time generative visuals, driven live from audio, MIDI or OSC." />
+  <meta name="twitter:image" content="https://studio.tenderworld.org/docs/images/editor-overview.webp" />
+
+  <!-- Structured data. The prose on this page is in the markup already, so
+       this is not a substitute for it: it names the things a crawler cannot
+       infer from the copy - that the site and the application are the same
+       thing, where the studio and the documentation live, and that it runs in
+       a browser. Keep the URLs in step with sitemap.xml (scripts/docs-meta.mjs). -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://studio.tenderworld.org/#website",
+        "name": "Rhizomium",
+        "url": "https://studio.tenderworld.org/",
+        "inLanguage": "en",
+        "description": "A modular GPU node environment for real-time generative visuals, built on WebGPU and WGSL."
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://studio.tenderworld.org/#app",
+        "name": "Rhizomium",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Windows 10 or later (64-bit); also runs in a browser with WebGPU (Chrome 113+, Edge 113+)",
+        "url": "https://studio.tenderworld.org/studio",
+        "downloadUrl": "https://github.com/Amirashkan/glsl-node-editor/releases/latest",
+        "isPartOf": { "@id": "https://studio.tenderworld.org/#website" },
+        "description": "Compose GPU shaders visually by connecting nodes. Real-time WebGPU preview, parameter expressions, keyframe animation, and live control from audio, MIDI and OSC.",
+        "featureList": [
+          "Real-time WebGPU rendering and GPU compute nodes",
+          "Modular node graph with live rewiring",
+          "Parameter expressions driven by time, audio and mouse",
+          "Keyframe timeline animation",
+          "MIDI controller mapping and OSC messaging",
+          "Audio-reactive fields",
+          "Multi-screen and external viewer output"
+        ],
+        "softwareHelp": { "@type": "CreativeWork", "url": "https://studio.tenderworld.org/docs" },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "sameAs": "https://github.com/Amirashkan/glsl-node-editor"
+      }
+    ]
+  }
+  </script>
 </head>
 
 <body>
@@ -30,10 +104,8 @@
         <a class="nav-signup" href="#signup">sign up</a>
         <a class="btn btn-outline btn-sm" href="/docs">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>docs</a>
-        <span class="btn-wrapper">
-          <a class="btn btn-solid btn-sm" href="/studio" data-studio-link>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5 19 12 5 20.5z"/></svg>Launch Studio</a>
-        </span>
+        <a class="btn btn-solid btn-sm" href="https://github.com/Amirashkan/glsl-node-editor/releases/latest" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/></svg>Download for Windows</a>
       </div>
     </div>
   </nav>
@@ -64,14 +136,11 @@
         </h1>
         <p class="hero-lede">Real-time generative visuals, composed as living node fields — synthesis, structure, and growth in one canvas.</p>
         <div class="hero-actions mono">
-          <span class="btn-wrapper">
-            <a class="btn btn-solid" href="/studio" id="launch-studio-btn" data-studio-link>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5 19 12 5 20.5z"/></svg>Launch Studio</a>
-            <div id="compatibility-popup" class="compat-popup" role="status"></div>
-          </span>
+          <a class="btn btn-solid" href="https://github.com/Amirashkan/glsl-node-editor/releases/latest" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/></svg>Download for Windows</a>
           <a class="btn btn-outline btn-olive" href="/docs">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>documentation</a>
-          <span class="hero-note mono">Chrome · Edge · Opera · WebGPU required</span>
+          <span class="hero-note mono">Windows 10 and later · 64-bit</span>
         </div>
       </div>
     </header>
@@ -127,10 +196,34 @@
     <section class="section" id="showreel">
       <h2 class="rule mono">/ showreel</h2>
       <div class="reel">
-        <div class="slot" data-label="Showreel poster / video still"></div>
-        <div class="reel-play" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        </div>
+        <!--
+          A moving still, not something to sit and watch: muted, looping and
+          without controls, so it never takes the page's audio or its focus.
+          That is also what lets it autoplay at all — a browser blocks any
+          autoplay that could make noise. `playsinline` stops iOS from
+          throwing it into the fullscreen player.
+
+          The poster carries the frame until the video decodes, and stays put
+          for anyone who asked for less motion (landing.js holds autoplay back
+          there) or if the file is missing, so the section is never a black box.
+
+          Both files go in public/, which Vite copies to the site root — drop
+          them in and nothing here needs to change:
+            public/showreel.mp4          H.264 + no audio track, 16:9
+            public/showreel-poster.webp  a frame from it, same aspect
+        -->
+        <video
+          class="reel-video"
+          poster="/showreel-poster.webp"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          aria-label="Showreel: fields growing, feeding back and reacting in real time"
+        >
+          <source src="/showreel.mp4" type="video/mp4" />
+        </video>
         <p class="reel-stamp mono">field_reel_2026 · 02:14</p>
       </div>
       <p class="section-note">A single continuous take of fields growing, feeding back and reacting in real time. Everything you see is composed from nodes and driven live — no pre-rendered frames.</p>
@@ -181,11 +274,6 @@
           </div>
         </article>
       </div>
-
-      <div class="strip">
-        <div class="strip-media"><div class="slot" data-label="Real-world setup — booth / stage"></div></div>
-        <p class="strip-stamp mono">in the field · controller + analyzer running live</p>
-      </div>
     </section>
 
     <!-- PRICING -->
@@ -200,7 +288,7 @@
           <p class="tier-name mono">Free</p>
           <p class="tier-price"><span class="tier-amount">€0</span><span class="mono">/ forever</span></p>
           <p class="tier-blurb">The whole editor, and the AI that reads a patch without rewriting it.</p>
-          <a class="btn btn-outline btn-block mono" href="/studio" data-studio-link>Launch Studio</a>
+          <a class="btn btn-outline btn-block mono" href="https://github.com/Amirashkan/glsl-node-editor/releases/latest" target="_blank" rel="noopener">Download for Windows</a>
           <ul class="tier-list">
             <li><span class="tier-item"><span class="plus">+</span>RZ Core</span><span class="tier-detail">The full node engine and canvas runtime. Open source, and yours whether you pay or not.</span></li>
             <li><span class="tier-item"><span class="plus">+</span>Patch Review</span><span class="tier-detail">Reads a patch and reports problems, dead nodes and likely mistakes. 2 a day.</span></li>
@@ -257,26 +345,6 @@
           <li>
             <span class="tier-item"><span class="plus">+</span>Server-Side Rendering</span>
             <span class="tier-detail">Not available yet, on any plan. It needs GPUs we do not have, and a GPU costs the same idle as busy — so rather than fold a guess into a subscription, it will be priced on its own once there is a machine behind it.</span>
-          </li>
-        </ul>
-      </div>
-
-      <!-- Things worth signalling and dishonest to list as included. Neither
-           exists in the source today. -->
-      <div class="tier-extra">
-        <p class="tier-extra-title mono">/ planned — not built, not included, not charged for</p>
-        <ul class="tier-extra-list">
-          <li>
-            <span class="tier-item"><span class="plus">+</span>Sellable Item Marketplace</span>
-            <span class="tier-detail">List and sell patches, nodes and presets.</span>
-          </li>
-          <li>
-            <span class="tier-item"><span class="plus">+</span>Collab Space</span>
-            <span class="tier-detail">Real-time multi-artist sessions on one canvas.</span>
-          </li>
-          <li>
-            <span class="tier-item"><span class="plus">+</span>More Storage</span>
-            <span class="tier-detail">Expanded space for specimens and renders.</span>
           </li>
         </ul>
       </div>

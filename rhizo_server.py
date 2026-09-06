@@ -108,6 +108,16 @@ def serve_static(path):
     try:
         return send_from_directory(BASE_DIR, path)
     except NotFound:
+        pass
+
+    # public/ is the site root in a build: Vite copies its contents to the top
+    # of dist/, so /favicon.ico and the other icons are root paths in
+    # production and every page links them that way. This server serves the
+    # project directory as-is, where those files still live one level down, so
+    # fall through to it and keep the same URLs working in development.
+    try:
+        return send_from_directory(os.path.join(BASE_DIR, 'public'), path)
+    except NotFound:
         return jsonify({'error': 'File not found'}), 404
 
 

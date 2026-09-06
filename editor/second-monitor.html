@@ -4,6 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rhizomium — Output</title>
+  <!-- The full-screen output surface the studio opens on a second display.
+       There is nothing on it but the render, and it is useless without the
+       studio window driving it, so keep it out of search results. -->
+  <meta name="robots" content="noindex, follow" />
+  <!-- Icons live in public/, which Vite copies to the site root verbatim, so
+       these paths survive a build. This page goes fullscreen, but it opens in
+       an ordinary tab first. -->
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" href="/icon.png" sizes="512x512" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
     body { cursor: none; }
