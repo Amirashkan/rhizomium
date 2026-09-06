@@ -416,5 +416,5 @@ Potential future enhancements:
 ## See Also
 
 - [COMPUTE_NODES.md](compute-nodes.md) - Overview of compute node system
-- [ComputeNodeExample.js](https://github.com/Amirashkan/glsl-node-editor/blob/main/src/gpu/examples/ComputeNodeExample.js) - Code examples
-- [ComputeShaderManager.js](https://github.com/Amirashkan/glsl-node-editor/blob/main/src/gpu/ComputeShaderManager.js) - Low-level GPU manager
+- [ComputeNodeExample.js](https://github.com/Amirashkan/rhizomium/blob/main/src/gpu/examples/ComputeNodeExample.js) - Code examples
+- [ComputeShaderManager.js](https://github.com/Amirashkan/rhizomium/blob/main/src/gpu/ComputeShaderManager.js) - Low-level GPU manager

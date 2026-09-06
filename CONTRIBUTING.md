@@ -7,8 +7,8 @@ are all welcome.
 ## Setup
 
 ```bash
-git clone https://github.com/Amirashkan/glsl-node-editor
-cd glsl-node-editor
+git clone https://github.com/Amirashkan/rhizomium
+cd rhizomium
 npm install
 npm run dev
 ```

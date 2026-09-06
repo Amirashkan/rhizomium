@@ -6,7 +6,7 @@ Complete guide for deploying the GLSL Node Editor with Dual-Screen support to Ve
 
 ## Quick Deploy
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Amirashkan/glsl-node-editor)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Amirashkan/rhizomium)
 
 Click the button above to deploy instantly to Vercel!
 
@@ -24,8 +24,8 @@ Click the button above to deploy instantly to Vercel!
 
 ```bash
 # Clone the repository
-git clone https://github.com/Amirashkan/glsl-node-editor.git
-cd glsl-node-editor
+git clone https://github.com/Amirashkan/rhizomium.git
+cd rhizomium
 
 # Make sure all files are committed
 git add .
@@ -422,7 +422,7 @@ Now you have full network streaming on Vercel!
 - **Vercel Docs**: https://vercel.com/docs
 - **Partykit**: https://partykit.io
 - **BroadcastChannel API**: https://developer.mozilla.org/en-US/docs/Web/API/BroadcastChannel
-- **Project Repo**: https://github.com/Amirashkan/glsl-node-editor
+- **Project Repo**: https://github.com/Amirashkan/rhizomium
 
 ---
 

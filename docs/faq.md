@@ -321,7 +321,7 @@ Most systems can handle 50-100 nodes comfortably. Complex graphs with many noise
 
 ### I found a bug. How do I report it?
 
-Please create an issue on the [GitHub repository](https://github.com/Amirashkan/glsl-node-editor/issues) with:
+Please create an issue on the [GitHub repository](https://github.com/Amirashkan/rhizomium/issues) with:
 1. Description of the bug
 2. Steps to reproduce
 3. Browser and OS version

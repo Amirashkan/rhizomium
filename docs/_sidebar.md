@@ -49,4 +49,4 @@
 
 ---
 
-* [GitHub](https://github.com/Amirashkan/glsl-node-editor)
+* [GitHub](https://github.com/Amirashkan/rhizomium)

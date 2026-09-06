@@ -56,12 +56,12 @@ No installation required! Access Rhizomium directly:
 
 **Via Git:**
 ```bash
-git clone https://github.com/Amirashkan/glsl-node-editor.git
-cd glsl-node-editor
+git clone https://github.com/Amirashkan/rhizomium.git
+cd rhizomium
 ```
 
 **Via Download:**
-1. Visit the [GitHub repository](https://github.com/Amirashkan/glsl-node-editor)
+1. Visit the [GitHub repository](https://github.com/Amirashkan/rhizomium)
 2. Click "Code" → "Download ZIP"
 3. Extract to your desired location
 4. Open terminal in the extracted folder
@@ -387,7 +387,7 @@ Having trouble with installation?
 - **[Troubleshooting Guide](troubleshooting.md)** - Common issues
 - **[Windows-Specific Fixes](windows-fix.md)** - Windows issues
 - **[FAQ](faq.md)** - Frequently asked questions
-- **GitHub Issues**: [Report a bug](https://github.com/Amirashkan/glsl-node-editor/issues)
+- **GitHub Issues**: [Report a bug](https://github.com/Amirashkan/rhizomium/issues)
 
 ---
 

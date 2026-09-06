@@ -23,7 +23,7 @@ Chrome: chrome://flags - Enable "Unsafe WebGPU"
 #### Error: "Failed to load module" or "404 Not Found"
 ```
 Solution: Make sure you're running the server from the project ROOT
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 python -m http.server 8080
 Then go to: http://localhost:8080/editor/index.html
 ```
@@ -100,14 +100,14 @@ Run through this checklist:
 
 ### Terminal 1 (Audio Server)
 ```bash
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 python -m audio.audio_server --mode mic
 ```
 ✅ Should show: "Audio envelope server running on http://localhost:8765"
 
 ### Terminal 2 (Web Server)
 ```bash
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 python -m http.server 8080
 ```
 ✅ Should show: "Serving HTTP on :: port 8080"
