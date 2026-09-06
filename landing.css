@@ -181,6 +181,19 @@ img { max-width: 100%; }
 .hero-field { position: absolute; inset: 0; z-index: 0; }
 .hero-field canvas { display: block; width: 100%; height: 100%; }
 
+/* The reel as the hero backdrop. It covers the frame at any window shape, and
+   is held back far enough — dimmed, desaturated a touch — that the headline
+   keeps its contrast over the bright parts of the footage; the scrim above
+   does the rest. Laid over the flow-field canvas rather than replacing it, so
+   a missing file or an unsupported codec leaves the canvas in view. */
+.hero-video {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  filter: saturate(0.85) contrast(1.05);
+  pointer-events: none;
+}
+
 .hero-ghost {
   position: absolute;
   z-index: 1;
@@ -782,6 +795,11 @@ img { max-width: 100%; }
   .hero { min-height: auto; padding: 90px 0 70px; }
   .hero-telemetry { display: none; }
   .hero-ghost { right: -30%; opacity: 0.05; }
+  /* A 16/9 reel cropped to a phone's hero is a sliver of the frame — little to
+     see for a multi-megabyte download on the connection least able to afford
+     it. The flow field carries the hero here instead; the reel still has its
+     own section further down, where it gets the full width. */
+  .hero-video { display: none; }
   .hero-scrim { background: linear-gradient(180deg, rgba(14, 12, 10, 0.72), rgba(14, 12, 10, 0.92)); }
 
   .section, #about { padding-top: 60px; padding-bottom: 60px; }
