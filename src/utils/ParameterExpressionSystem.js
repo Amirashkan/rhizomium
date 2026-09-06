@@ -1706,9 +1706,17 @@ setValue(node, paramName, value) {
     const paramType = NodeDefs?.[node.kind]?.params?.find((p) => p.name === paramName)?.type;
     const isBakedControl = paramType === 'select' || paramType === 'bool' || paramType === 'boolean';
 
+    // Code the artist writes IS the shader: a Custom GLSL body and an Expression node's formula
+    // are compiled into the generated WGSL, not delivered as uniforms. Without a rebuild the old
+    // code keeps running - the node's own thumbnail refreshes (it re-renders its subgraph) while
+    // the main output stays on the previous shader until some unrelated edit happens to trigger a
+    // recompile. That is what a snippet inserted from the GLSL Utilities window looked like: the
+    // node updated, the floating preview did not.
+    const isBakedCode = paramType === 'glsl' || paramType === 'expression';
+
     const changesShaderCode =
       this.expressionSystem.isExpression(value) || this.expressionSystem.isExpression(oldValue)
-      || isBakedControl;
+      || isBakedControl || isBakedCode;
 
     if (isComputeNode || changesShaderCode) {
       // Trigger a full shader recompile so the new parameter takes effect.

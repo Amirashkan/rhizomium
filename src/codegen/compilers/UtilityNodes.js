@@ -4,6 +4,7 @@ import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js'
 import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import { getInputCount } from '../../data/nodeInputs.js';
 import { resolveDiscreteParam } from '../../utils/discreteParams.js';
+import { inferBodyType } from './wgslExprType.js';
 
 // The names hand-written (or model-written) node code may use for things that live in the
 // generated shader rather than in the snippet itself. Order does not matter: substitution walks
@@ -788,10 +789,20 @@ export class UtilityNodes {
     // Types are inferred from the ORIGINAL code, before any substitution rewrites the input names
     // the inference patterns look for.
     const inputCodes = [];
+    // What each pin resolved to, keyed by the expression it substitutes as (`node_12`), so the
+    // body's own type can be inferred below. Only a bare identifier is worth recording; anything
+    // else (a constructor, a converted expression) already says its own type.
+    const resolvedTypes = new Map();
     for (let i = 0; i < inputCount; i++) {
       const inputType = declaredTypeFor(i) || inferInputType(i);
       const input = getInput(i, inputType || null, getDefaultForType(inputType));
-      inputCodes.push(typeof input === 'object' && input?.code !== undefined ? input.code : input);
+      const isTypeAware = typeof input === 'object' && input?.code !== undefined;
+      const inputCode = isTypeAware ? input.code : input;
+      inputCodes.push(inputCode);
+      const resolvedType = inputType || (isTypeAware ? input.type : null);
+      if (resolvedType && /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(inputCode).trim())) {
+        resolvedTypes.set(String(inputCode).trim(), resolvedType);
+      }
     }
 
     // Highest index first: the word boundaries already keep `input1` from matching inside
@@ -805,9 +816,10 @@ export class UtilityNodes {
     // (`let uv = ...`) keep their own meaning — see substituteShaderBuiltins.
     code = substituteShaderBuiltins(code, CUSTOM_CODE_BUILTINS);
 
-    // Get output type from parameter
+    // Get output type from parameter. This is only what the node *claims* to produce; the type the
+    // body actually evaluates to is inferred from the code below and wins where it is known.
     const outputType = node.params?.outputType || "f32";
-    const validOutputType = ['f32', 'vec2', 'vec3', 'vec4'].includes(outputType) ? outputType : 'f32';
+    const declaredOutputType = ['f32', 'vec2', 'vec3', 'vec4'].includes(outputType) ? outputType : 'f32';
 
     // Split code into lines, but preserve multi-line expressions
     // First, remove comments
@@ -902,6 +914,23 @@ export class UtilityNodes {
     }
     
     const codeLines = reconstructedLines;
+
+    // The declared output type defaults to "f32" and nothing kept it honest, so a body evaluating
+    // to a vector was registered as a scalar and consumers converted it as one — a UV-driven node
+    // ended up as `finalColor = vec3<f32>(node_7)` with node_7 a vec2, which is not a constructor
+    // WGSL has: the fragment shader failed to compile and the node went black for good. Trust what
+    // the code evaluates to when that can be determined, and the declaration otherwise.
+    const inferredOutputType = inferBodyType(codeLines, new Map([
+      ...resolvedTypes,
+      ['in.uv', 'vec2'],   // `uv`, after built-in substitution
+      ['g.time', 'f32'],
+      ['g.audioEnvelope', 'f32'],
+      ['g.audioEnvelopeBass', 'f32'],
+      ['g.audioEnvelopeMids', 'f32'],
+      ['g.audioEnvelopeHighs', 'f32'],
+      ['g.audioEnvelopeFull', 'f32'],
+    ]));
+    const validOutputType = inferredOutputType || declaredOutputType;
     
     let compiledCode;
     
