@@ -1,10 +1,10 @@
 blank_issues_enabled: true
 contact_links:
   - name: Question or idea
-    url: https://github.com/Amirashkan/glsl-node-editor/discussions
+    url: https://github.com/Amirashkan/rhizomium/discussions
     about: For anything that is not a specific bug or a concrete proposal.
   - name: Security vulnerability
-    url: https://github.com/Amirashkan/glsl-node-editor/security/advisories/new
+    url: https://github.com/Amirashkan/rhizomium/security/advisories/new
     about: Report privately. Please do not open a public issue.
   - name: Documentation
     url: https://studio.tenderworld.org/docs

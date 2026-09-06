@@ -515,7 +515,7 @@ VR/AR is not currently supported. Rhizomium focuses on 2D generative visuals. We
 
 ### I found a bug. How do I report it?
 
-Create an issue on [GitHub](https://github.com/Amirashkan/glsl-node-editor/issues) with:
+Create an issue on [GitHub](https://github.com/Amirashkan/rhizomium/issues) with:
 1. Description of the bug
 2. Steps to reproduce
 3. Browser and OS version

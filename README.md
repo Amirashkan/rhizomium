@@ -18,8 +18,8 @@ Runs in the browser on WebGPU. No installation, no account.
 ## Run it locally
 
 ```bash
-git clone https://github.com/Amirashkan/glsl-node-editor
-cd glsl-node-editor
+git clone https://github.com/Amirashkan/rhizomium
+cd rhizomium
 npm install
 npm run dev
 ```

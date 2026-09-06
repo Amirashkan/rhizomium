@@ -5,7 +5,7 @@
 **Please do not open a public issue.**
 
 Report privately through GitHub's
-[private vulnerability reporting](https://github.com/Amirashkan/glsl-node-editor/security/advisories/new),
+[private vulnerability reporting](https://github.com/Amirashkan/rhizomium/security/advisories/new),
 or email **security@tenderworld.org** — that address is not routed yet, so
 until it is, write to **me@ashkankhodaverdi.com** instead.
 

@@ -46,7 +46,7 @@ Run locally with the Python backend:
 ```bash
 # Clone the repository
 git clone <repo-url>
-cd glsl-node-editor
+cd rhizomium
 
 # Install dependencies
 pip install -r requirements.txt

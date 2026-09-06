@@ -105,7 +105,7 @@ Create and perform with visuals in real-time, perfect for VJ work and live shows
 
 - **[FAQ](faq-web.md)** - Quick answers to common questions
 - **[Node Reference](node-reference.md)** - Complete node documentation
-- **[GitHub Issues](https://github.com/Amirashkan/glsl-node-editor/issues)** - Report bugs or request features
+- **[GitHub Issues](https://github.com/Amirashkan/rhizomium/issues)** - Report bugs or request features
 
 ---
 
@@ -122,7 +122,7 @@ There's no "right" way to create - explore, experiment, and evolve.
 ## Quick Links
 
 - **[Open Rhizomium Studio](https://studio.tenderworld.org/)** - Start creating now
-- **[GitHub Repository](https://github.com/Amirashkan/glsl-node-editor)** - Source code
+- **[GitHub Repository](https://github.com/Amirashkan/rhizomium)** - Source code
 - **[Quick Start Tutorial](quickstart-web.md)** - Your first visual
 
 ---

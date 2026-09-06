@@ -15,7 +15,7 @@ Open a **NEW** Git Bash terminal and run ONE of these options:
 
 #### Option 1: Using Python (Easiest)
 ```bash
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 python -m http.server 8080
 ```
 
@@ -26,7 +26,7 @@ http://localhost:8080/editor/
 
 #### Option 2: Using Node.js
 ```bash
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 npx http-server -p 8080
 ```
 
@@ -127,14 +127,14 @@ The value should now pulse with your audio! 🎵
 
 **Terminal 1:**
 ```bash
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 python -m audio.audio_server --mode mic
 # Keep this running
 ```
 
 **Terminal 2:**
 ```bash
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 python -m http.server 8080
 # Keep this running too
 ```

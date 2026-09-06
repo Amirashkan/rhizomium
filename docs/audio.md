@@ -6,7 +6,7 @@
 
 ```bash
 # Make sure you're in the project root
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 
 # Pull the latest changes
 git pull origin claude/implement-audio-envelope-011CUUbRm6oYS8VPtG7QjFEr
@@ -29,7 +29,7 @@ pip install -r audio/requirements.txt
 
 ```bash
 # Make sure you're in the project root
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 
 # Run with microphone input
 python -m audio.audio_server --mode mic
@@ -46,7 +46,7 @@ ModuleNotFoundError: No module named 'audio'
 ```
 **Solution:** You're running from the wrong directory. Go back to the project root:
 ```bash
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 python -m audio.audio_server --mode mic
 ```
 

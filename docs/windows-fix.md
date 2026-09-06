@@ -7,7 +7,7 @@ The editor uses a symbolic link `editor/src -> ../src` which doesn't work on Win
 Run Git Bash **as Administrator** and do this:
 
 ```bash
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 
 # Remove broken symlink
 rm -f editor/src
@@ -62,7 +62,7 @@ Should list files (not error).
 As a last resort, copy the files:
 
 ```bash
-cd /e/twFFinalPROj/glsl-node-editor
+cd rhizomium
 
 # Remove symlink
 rm -f editor/src

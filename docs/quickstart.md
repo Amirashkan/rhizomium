@@ -147,7 +147,7 @@ This runs the API on port 5000 without serving static files.
 ## Further Reading
 
 - [External Viewer Setup](external-viewer.md) - Detailed viewer setup and architecture
-- [Starting the Editor](https://github.com/Amirashkan/glsl-node-editor/blob/main/START_EDITOR.md) - Editor launch notes
+- [Starting the Editor](https://github.com/Amirashkan/rhizomium/blob/main/START_EDITOR.md) - Editor launch notes
 - [Troubleshooting](troubleshooting.md) - Detailed troubleshooting guide
 
 ## Next Steps
