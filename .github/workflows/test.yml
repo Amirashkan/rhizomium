@@ -137,8 +137,8 @@ jobs:
   # is deliberate rather than overlooked: handle_opened() and its try_state
   # deref in src/lib.rs are behind #[cfg(any(target_os = "macos", target_os =
   # "ios"))], so no Windows compiler ever looks inside them. See
-  # SECURITY_OPEN_ITEMS.md — the macOS file-open path is still uncompiled, and
-  # a cross-target check from this runner cannot cover it (see the note below).
+  # The macOS file-open path is therefore still uncompiled, and a cross-target
+  # check from this runner cannot cover it (see the note below).
   rust-check:
     name: Rust (Tauri)
     runs-on: windows-latest
@@ -189,8 +189,8 @@ jobs:
       # build scripts, and objc2-exception-helper's compiles Objective-C
       # (src/try_catch.m) with cc-rs — the Windows cc rejects `-arch arm64` and
       # `-mmacosx-version-min` outright. Type-checking the cfg(macos) code
-      # needs a real Apple toolchain, so the gap stands as recorded in
-      # SECURITY_OPEN_ITEMS.md until there is a macOS runner.
+      # needs a real Apple toolchain, so the gap stands until there is a
+      # macOS runner.
 
   # src-tauri/Cargo.lock has never been checked against RustSec. Nobody knows
   # what a Tauri dependency tree will report, so this is advisory: it publishes
