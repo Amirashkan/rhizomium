@@ -799,6 +799,33 @@ export function featureConfig(feature) {
 export const IMPLEMENTED_FEATURES = Object.keys(AI_FEATURES);
 
 /**
+ * What changes when the artist tidies a selection rather than a whole patch.
+ *
+ * The system prompt is written for a whole document — remove what reaches no
+ * Output node, return every node that should survive — and both of those read
+ * as instructions to delete most of a selection, because a selection usually
+ * has no Output node in it and the branches it belongs to run off the edge.
+ * This is appended after the patch so it is the last thing read, and it says
+ * the two things that make the difference: the edge is fixed, and the answer
+ * is the selection rather than the document.
+ *
+ * It lives here rather than in the feature's `system` because the system turn
+ * is the cache prefix every call for this feature shares (see prompt_cache_key
+ * in api/ai/run.js); varying it per call would cost the cache for the sake of
+ * a paragraph the user turn can carry.
+ */
+const SELECTION_RULES = `
+
+These nodes are a selection out of a larger patch, and only they are yours to change:
+
+- Return exactly this selection, tidied — not the rest of the patch, which you have not been shown. The nodes you return replace the selected ones; everything else on the canvas stays as it is.
+- Keep the ids you were given. The editor reconnects the selection to the rest of the patch by id and pin number, so a node that comes back under a new id comes back unwired.
+- Any node named in "Wires crossing the edge of the selection" is load-bearing: keep it, keep its id, and keep the pin numbers that wire crosses on. Moving a node's pins renumbers what feeds it.
+- Do not delete a node because nothing in the selection reads it, and do not delete a branch because it reaches no Output node. Both are the normal shape of a selection: what reads it is outside.
+- You may add nodes. A new node needs an id no node in the selection uses; the editor renames it if it clashes with something outside.
+- The nodes with ids outside this selection are context, not content. Never put one in your answer.`;
+
+/**
  * Build the user turn for a feature from the editor's payload.
  *
  * The graph travels as the line format described in PATCH_FORMAT_LEGEND, which
@@ -817,7 +844,9 @@ export function buildUserMessage(feature, input = {}) {
       return `Review this patch.\n\n${patchText()}`;
 
     case 'ai.patch_refactor':
-      return `Tidy this patch without changing what it renders.\n\n${patchText()}`;
+      return input.patch?.scope === 'selection'
+        ? `Tidy the selected part of this patch without changing what it renders.\n\n${patchText()}${SELECTION_RULES}`
+        : `Tidy this patch without changing what it renders.\n\n${patchText()}`;
 
     case 'ai.canvas_assist': {
       const focus = Array.isArray(input.selectedNodeIds) && input.selectedNodeIds.length
@@ -913,6 +942,7 @@ function round2(value) {
 export function describePatch(patch) {
   const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
   const connections = Array.isArray(patch?.connections) ? patch.connections : [];
+  const boundary = Array.isArray(patch?.boundary) ? patch.boundary : [];
 
   if (!nodes.length) return '(The canvas is empty.)';
 
@@ -925,8 +955,21 @@ export function describePatch(patch) {
       const to = `${conn?.to?.nodeId ?? ''}:${conn?.to?.pin ?? 0}`;
       lines.push(`${from} -> ${to}`);
     }
-  } else {
+  } else if (!boundary.length) {
     lines.push('', '(No wires: nothing in this patch is connected to anything else.)');
+  }
+
+  // The edge of a selection. These name nodes that are deliberately not in the
+  // list above — they belong to the rest of the patch — so they are drawn
+  // apart from the wires, with the outside node's kind in brackets, and the
+  // legend says they are not yours to return.
+  if (boundary.length) {
+    lines.push('', 'Wires crossing the edge of the selection:');
+    for (const edge of boundary) {
+      const inside = `${edge?.inside?.nodeId ?? ''}:${edge?.inside?.pin ?? 0}`;
+      const outside = `${edge?.outside?.nodeId ?? ''}:${edge?.outside?.pin ?? 0} [${edge?.outside?.kind ?? 'unknown'}, outside]`;
+      lines.push(edge?.direction === 'in' ? `${outside} -> ${inside}` : `${inside} -> ${outside}`);
+    }
   }
 
   return lines.join('\n');

@@ -224,8 +224,16 @@ export function isDefaultParamValue(kind, name, value) {
  * Connections to pins that do not exist are dropped with a warning rather than
  * refused: a patch that is right apart from one stray wire is still worth
  * handing over, and the warning says what was lost.
+ *
+ * @param {Object} patch - what the model returned.
+ * @param {Object} [options]
+ * @param {boolean} [options.requireOutput=true] - whether an Output node is
+ *   required. True for anything that becomes the whole canvas. False for a
+ *   refactor of a selection, which is spliced back into a patch that already
+ *   has one: a selection of three blur nodes has no Output node in it and
+ *   never should, and refusing it here is a 502 for an answer that is right.
  */
-export function validateGeneratedPatch(patch) {
+export function validateGeneratedPatch(patch, { requireOutput = true } = {}) {
   const warnings = [];
 
   if (!patch || typeof patch !== 'object') {
@@ -276,9 +284,11 @@ export function validateGeneratedPatch(patch) {
     };
   });
 
-  const hasOutput = cleanNodes.some((node) => NodeDefs[node.kind].cat === 'Output');
-  if (!hasOutput) {
-    throw new Error('The model returned a patch with no output node, so it would render nothing.');
+  if (requireOutput) {
+    const hasOutput = cleanNodes.some((node) => NodeDefs[node.kind].cat === 'Output');
+    if (!hasOutput) {
+      throw new Error('The model returned a patch with no output node, so it would render nothing.');
+    }
   }
 
   const byId = new Map(cleanNodes.map((node) => [node.id, node]));

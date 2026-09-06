@@ -287,10 +287,14 @@ token measure these patches are small.
 Two fixes, both in the round trip rather than in the budgets:
 
 - **`keepLongParams()` in `applyResult.js`** — when applying a refactor, any
-  parameter the model was shown only the start of keeps the value the artist
-  already had. Everything else the refactor decided (moves, rewiring,
-  removals, names) still lands. Matched on id *and* kind, so a generated patch
-  reusing an id cannot inherit unrelated code.
+  parameter the model was shown only a stand-in for keeps the value the artist
+  already had. That is `wasSentAsPlaceholder()`: not just a truncated string
+  but a texture's data URL (`"<embedded data>"`), a long array (`"<32 values>"`)
+  and a wide object (`"<12 fields>"`), each of which a model can only echo back
+  as the placeholder it received. Everything else the refactor decided (moves,
+  rewiring, removals, names) still lands. Matched on id *and* kind, so a
+  generated patch reusing an id cannot inherit unrelated code. The selection
+  splice applies the same rule.
 - **`name` in `PATCH_SCHEMA`** — the refactor prompt asks the model to *"give
   nodes names that say what they do"*, and the answer schema had nowhere to put
   one, so `validateGeneratedPatch()` dropped every name in the patch on the way
@@ -544,6 +548,60 @@ the selected nodes and the wires between them (`buildPatchContext(project,
 the node cap gets reviewed at all. **Reuse the last answer** exposes the repeat
 guard that was already there, for an artist who would rather always pay for a
 fresh opinion.
+
+### Scope has to mean something after the answer comes back too
+
+For a long time it did not. `buildPatchContext()` filtered the nodes and
+everything downstream carried on as though a selection were a whole document,
+which broke the scope in four places at once:
+
+- **`patchFacts()`** reported "nothing in this patch is in the Output category,
+  so none of it renders" for any selection without an Output node in it — which
+  is most selections — and listed every pin fed from outside the selection as
+  empty. Both are presented to the model as facts worked out exactly.
+- **The refactor prompt** says to remove what reaches no Output node and to
+  return every node that should survive. Read against a selection, that is an
+  instruction to delete most of it.
+- **`validateGeneratedPatch()`** refused any patch without an Output node. A
+  correct refactor of three maths nodes came back `502` — after the grant had
+  been metered.
+- **`replaceGraphWithPatch()`** imported the answer over the canvas. Six nodes
+  tidied out of a hundred left a canvas with six nodes on it.
+
+Net effect: the two scopes did the same thing to the canvas, and the narrower
+one was the destructive one. What makes the difference now:
+
+- **`boundary` in the patch context** — the wires crossing the edge of the
+  selection travel with it, naming the node beyond the cut and its kind. They
+  are not connections (the node they name is not in `nodes` and must not be
+  returned); they are the fact that those pins are load-bearing.
+  `describePatch()` draws them under their own heading, `patchFacts()` folds
+  them into the reachability walk and the unwired-pin list, and
+  `SELECTION_RULES` in `buildUserMessage()` — appended to the user turn rather
+  than the system prompt, so the cache prefix stays shared — says the edge is
+  fixed and the answer is the selection rather than the document.
+- **`requireOutput: false`** on `validateGeneratedPatch()` for a scoped
+  refactor. It is spliced into a patch that already has an Output node.
+- **`planSelectionSplice()` / `spliceSelectionPatch()` in `applyResult.js`** —
+  the scoped answer replaces the selected nodes and nothing else. Everything
+  outside keeps its saved record verbatim (textures, bindings, node properties
+  the patch context never carried); the crossing wires are reconnected by id
+  and pin; a returned node whose id belongs to something outside the selection
+  is renamed rather than allowed to overwrite it; the artist's own wiring is
+  placed before the model's, so a refactor cannot cut a boundary wire to make
+  room for one of its own. `planSelectionSplice()` is pure, so the confirm
+  dialog states what will actually happen — including the wires a splice cannot
+  keep, which is the only lossy part of it.
+
+The ids spliced into are the ones that were **sent**, carried on the run rather
+than read from `window.graph.selection` at apply time: a refactor takes
+minutes, and artists click elsewhere while it runs.
+
+The generators are the honest exception — `ai.patch_generator` writes a new
+patch over the canvas and `ai.node_generator` adds one node, whichever way the
+switch is set. Their cards say so (`AIPanel.scopeNote()`) instead of showing
+the same "Reads the selection" label as everything else, which is most of why
+the switch looked inert.
 
 ### The unmetered output flags fail *open*, deliberately
 

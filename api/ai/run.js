@@ -347,7 +347,7 @@ export default async function handler(req, res) {
 
   try {
     const result = await callModel(config, userMessage, input);
-    const payload = shapeResult(feature, result);
+    const payload = shapeResult(feature, result, input);
 
     logCall(feature, config, result, Date.now() - started);
 
@@ -586,7 +586,7 @@ function findRefusal(response) {
  * Turn the model's answer into what the editor expects, and refuse anything
  * that would put a broken document on someone's canvas.
  */
-function shapeResult(feature, { input, usage }) {
+function shapeResult(feature, { input, usage }, request = {}) {
   const meta = {
     usage: {
       inputTokens: usage?.input_tokens ?? null,
@@ -597,11 +597,18 @@ function shapeResult(feature, { input, usage }) {
   };
 
   if (feature === 'ai.patch_generator' || feature === 'ai.patch_refactor') {
+    // A refactor of a selection is not a whole document: it is spliced back
+    // into one that already has an Output node, and a selection that contained
+    // one would be the unusual case. Requiring one here answered 502 for
+    // answers that were right — and charged for them.
+    const scoped =
+      feature === 'ai.patch_refactor' && request?.patch?.scope === 'selection';
+
     // Throws when the patch is unusable — caught in handleModelError and
     // answered 502, because a patch that cannot open is a failed call, not a
     // result to hand over.
-    const { patch, warnings } = validateGeneratedPatch(input.patch);
-    return { ...meta, result: { ...input, patch }, warnings };
+    const { patch, warnings } = validateGeneratedPatch(input.patch, { requireOutput: !scoped });
+    return { ...meta, result: { ...input, patch, scope: scoped ? 'selection' : 'patch' }, warnings };
   }
 
   if (feature === 'ai.node_generator') {

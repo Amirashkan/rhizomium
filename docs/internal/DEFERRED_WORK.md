@@ -9,3 +9,4 @@ context. Markers are greppable:
 | # | Location | Marker | One-liner |
 |---|----------|--------|-----------|
 | 1 | `src/codegen/compilers/UtilityNodes.js` (in `compileCustomGLSL`, `<`/`>` counting) | `KNOWN LIMITATION` | Angle brackets counted as generic delimiters collide with `<`/`>` comparison operators → multi-line CustomGLSL comparisons mis-merge. Needs a tokenizer. |
+| 2 | `src/ui/AIPanel.js` (in `scopeNote`) | `KNOWN LIMITATION` | The AI panel's Scope control does nothing for the two generative features — they take a prompt and no patch. "Change the selected nodes so that X" is a feature of its own; the splice and boundary it needs already exist. Design: [`AI_SELECTION_GENERATION_PLAN.md`](AI_SELECTION_GENERATION_PLAN.md). |

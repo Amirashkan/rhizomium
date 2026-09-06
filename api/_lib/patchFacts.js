@@ -37,20 +37,70 @@ export function patchFacts(patch) {
   const connections = Array.isArray(patch?.connections) ? patch.connections : [];
   if (!nodes.length) return '';
 
+  // A selection is a piece of a patch, and every fact below has to be read
+  // that way or it says the opposite of the truth: a branch whose Output node
+  // was not selected is not stranded, and a pin fed from outside the selection
+  // is not empty. The crossing wires are what make the difference, so they are
+  // folded into the traversal rather than described separately.
+  const scoped = patch?.scope === 'selection';
+  const boundary = Array.isArray(patch?.boundary) ? patch.boundary : [];
+  const leaving = new Set(
+    boundary.filter((edge) => edge?.direction === 'out').map((edge) => String(edge?.inside?.nodeId ?? ''))
+  );
+  const fedFromOutside = new Map();
+  for (const edge of boundary) {
+    if (edge?.direction !== 'in') continue;
+    const id = String(edge?.inside?.nodeId ?? '');
+    if (!id) continue;
+    if (!fedFromOutside.has(id)) fedFromOutside.set(id, new Set());
+    fedFromOutside.get(id).add(Number(edge?.inside?.pin ?? 0) || 0);
+  }
+
   const lines = [];
   const outputs = nodes.filter((node) => NodeDefs[node?.kind]?.cat === 'Output');
 
-  if (!outputs.length) {
-    lines.push('- Nothing in this patch is in the Output category, so none of it renders.');
+  if (scoped) {
+    const total = Number(patch?.patchNodeCount);
+    lines.push(
+      `- This is ${nodes.length} nodes selected out of a patch of ` +
+        `${Number.isFinite(total) && total > 0 ? total : 'more'}. The rest of the patch is not shown ` +
+        'to you and is not yours to change.'
+    );
+  }
+
+  // Nodes that feed the unseen rest of the patch are as good as reaching an
+  // output: something downstream renders them, and the model cannot see what.
+  const sinks = [
+    ...outputs.map((node) => String(node?.id ?? '')),
+    ...leaving,
+  ].filter(Boolean);
+
+  if (!sinks.length) {
+    lines.push(
+      scoped
+        ? '- Nothing in this selection is an Output node, and no wire leaves it, so nothing ' +
+            'selected renders on its own.'
+        : '- Nothing in this patch is in the Output category, so none of it renders.'
+    );
   } else {
-    const reaching = reachesOutput(nodes, connections, outputs);
-    lines.push(`- ${reaching.size} of ${nodes.length} nodes reach an Output node.`);
+    const reaching = reachesOutput(nodes, connections, sinks);
+    lines.push(
+      scoped
+        ? `- ${reaching.size} of ${nodes.length} selected nodes reach an Output node or a wire ` +
+            'leaving the selection.'
+        : `- ${reaching.size} of ${nodes.length} nodes reach an Output node.`
+    );
 
     const stranded = nodes
       .map((node) => String(node?.id ?? ''))
       .filter((id) => id && !reaching.has(id));
     if (stranded.length) {
-      lines.push(`- Reach no Output node, so they render nothing: ${list(stranded)}.`);
+      lines.push(
+        scoped
+          ? `- Reach neither an Output node nor a wire out of the selection: ${list(stranded)}. ` +
+              'They may still be read by something outside it, so do not remove them on this alone.'
+          : `- Reach no Output node, so they render nothing: ${list(stranded)}.`
+      );
     }
 
     if (outputs.length > 1) {
@@ -58,7 +108,15 @@ export function patchFacts(patch) {
     }
   }
 
-  const unwired = unwiredInputs(nodes, connections);
+  if (boundary.length) {
+    lines.push(
+      `- ${boundary.length} ${boundary.length === 1 ? 'wire crosses' : 'wires cross'} the edge of the ` +
+        'selection (listed above the facts). Those pins are wired, and the editor reconnects them ' +
+        'by id and pin number after your answer is applied.'
+    );
+  }
+
+  const unwired = unwiredInputs(nodes, connections, fedFromOutside);
   if (unwired.length) {
     lines.push(
       `- Input pins with nothing wired into them: ${list(unwired)}. Many of these are ` +
@@ -91,13 +149,16 @@ export function patchFacts(patch) {
 }
 
 /**
- * Every node with a directed path to an Output node.
+ * Every node with a directed path to one of the sinks.
  *
- * Walked backwards from the outputs over incoming wires, which visits each
+ * A sink is an Output node, or — in a selection — a node whose signal leaves
+ * the selection, since what it feeds is downstream and unseen.
+ *
+ * Walked backwards from the sinks over incoming wires, which visits each
  * wire once: the forward question — "does this node reach an output" — asked of
  * every node separately is the same walk repeated N times.
  */
-function reachesOutput(nodes, connections, outputs) {
+function reachesOutput(nodes, connections, sinkIds) {
   const incoming = new Map();
   for (const conn of connections) {
     const from = String(conn?.from?.nodeId ?? '');
@@ -108,7 +169,7 @@ function reachesOutput(nodes, connections, outputs) {
   }
 
   const reaching = new Set();
-  const queue = outputs.map((node) => String(node?.id ?? '')).filter(Boolean);
+  const queue = [...new Set(sinkIds)];
   for (const id of queue) reaching.add(id);
 
   while (queue.length) {
@@ -130,13 +191,21 @@ function reachesOutput(nodes, connections, outputs) {
  * registry's is the fixed one. Nodes the registry does not know are skipped
  * rather than guessed at.
  */
-function unwiredInputs(nodes, connections) {
+function unwiredInputs(nodes, connections, fedFromOutside = new Map()) {
   const wired = new Map();
   for (const conn of connections) {
     const to = String(conn?.to?.nodeId ?? '');
     if (!to) continue;
     if (!wired.has(to)) wired.set(to, new Set());
     wired.get(to).add(Number(conn?.to?.pin ?? 0));
+  }
+
+  // A pin fed from a node outside the selection is wired; it just happens to
+  // be wired to something the model was not shown. Reporting it as empty is
+  // how a selection review comes back full of faults that are not there.
+  for (const [id, pins] of fedFromOutside) {
+    if (!wired.has(id)) wired.set(id, new Set());
+    for (const pin of pins) wired.get(id).add(pin);
   }
 
   const missing = [];
