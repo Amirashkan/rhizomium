@@ -115,8 +115,28 @@
     <header class="hero" id="top">
       <div class="hero-field">
         <!-- Flow field, painted in landing.js. Purely decorative: the page
-             reads identically with the canvas blank or JS disabled. -->
+             reads identically with the canvas blank or JS disabled. It also
+             sits under the reel below, so it is what shows through if the
+             video is missing or the codec is not supported. -->
         <canvas data-field aria-hidden="true"></canvas>
+
+        <!-- The reel again, as the hero's backdrop: muted, looping and
+             without controls, which is also the only way a browser lets it
+             autoplay. `reel-video` is what landing.js looks for to hold
+             autoplay back under reduced motion, where the poster stays. -->
+        <video
+          class="hero-video reel-video"
+          poster="/showreel-poster.webp"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          aria-hidden="true"
+          tabindex="-1"
+        >
+          <source src="/showreel.mp4" type="video/mp4" />
+        </video>
       </div>
       <img class="hero-ghost" src="assets/logo.png" alt="" aria-hidden="true" />
       <div class="hero-scrim" aria-hidden="true"></div>
@@ -224,7 +244,7 @@
         >
           <source src="/showreel.mp4" type="video/mp4" />
         </video>
-        <p class="reel-stamp mono">field_reel_2026 · 02:14</p>
+        <p class="reel-stamp mono">field_reel_2026 · 00:46</p>
       </div>
       <p class="section-note">A single continuous take of fields growing, feeding back and reacting in real time. Everything you see is composed from nodes and driven live — no pre-rendered frames.</p>
     </section>
