@@ -4,6 +4,14 @@ Consolidated backlog: everything outstanding, gathered from code markers and
 all root/docs design notes. Sources are cited so details stay in one place.
 Last updated: 2026-07-27.
 
+## Beta release checklist (v0.9.0-beta.2)
+
+- [x] AI performer merged to `main` (#1) — `src/performer/`, panel in `src/ui/PerformerPanel.js`
+- [x] Fix desktop right-click: Chromium's context-menu message loop eats the right-button `mouseup` on Windows, so the add-node palette never opened, a right-drag box-select never ended, and the 3D viewport's right-drag zoom never released (`src/core/EventHandler.js`, `src/scene/CameraController.js`)
+- [x] Align versions: `package.json` → `0.9.0-beta.2`, `tauri.conf.json` stays `0.9.0` (Windows MSI bundling rejects pre-release suffixes)
+- [ ] Verify on Windows: right-click opens the palette, right-drag box-select releases, 3D right-drag zoom releases — all three are WebView2-only and cannot be exercised from the test suite or a Linux browser
+- [ ] Mark the drafted GitHub release as a **pre-release** before publishing (`.github/workflows/desktop-release.yml` drafts with `prerelease: false`)
+
 ## Beta release checklist (v0.9.0-beta.1)
 
 - [x] Fix ESLint flat config (`linterOptions.env` → `languageOptions.globals`), add `eslint`/`globals` devDeps and `npm run lint`

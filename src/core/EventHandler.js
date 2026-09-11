@@ -539,11 +539,43 @@ export class EventHandler {
     };
 
     // Suppress the native browser menu anywhere over the editor surface.
+    //
+    // On Windows this listener has a second job, and it is the reason the
+    // desktop app had no right-click at all. Chromium runs the native context
+    // menu in a nested message loop, and that loop consumes the right-button
+    // `mouseup` that opened it before the page is ever told the button came
+    // back up (crbug 40935507, 40425377). Preventing the default here stops the
+    // menu from being drawn, but the mouseup is already gone — so in the
+    // WebView2 build every behaviour the editor hangs off that mouseup simply
+    // never happened: the add-node palette did not open, and a right-drag
+    // box-select never ended. Both work in a browser on Linux, where
+    // `contextmenu` is dispatched on mousedown with the button still held and
+    // the real mouseup still arrives, which is why this only ever showed up in
+    // the packaged app.
+    //
+    // The button state on the event separates the two cases exactly: `buttons`
+    // still carries the right button where the press is ongoing, and is clear
+    // where the mouseup has already been swallowed. In that second case, replay
+    // it — one synthetic event, and every ordinary mouseup handler below runs
+    // as it does everywhere else. `_rightPress` is the interlock: a real mouseup
+    // clears it, so a platform that delivers both cannot fire the menu twice.
     document.addEventListener(
       "contextmenu",
       (e) => {
         if (isInsideCanvas(e)) {
           e.preventDefault();
+        }
+        if (this._rightPress && (e.buttons & 2) === 0) {
+          (e.target ?? this.canvas).dispatchEvent(
+            new MouseEvent("mouseup", {
+              button: 2,
+              buttons: 0,
+              clientX: e.clientX,
+              clientY: e.clientY,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
         }
       },
       true,
@@ -938,8 +970,10 @@ export class EventHandler {
       }
 
       // End box selection. The node/radial menu itself is opened from the document-level
-      // `contextmenu` handler (see _setupMouseEvents), which fires reliably even when another
-      // layer sits above the interaction canvas.
+      // right-button `mouseup` handler (see _setupMouseEvents), which is tracked at the
+      // document rather than here so it still fires when another layer sits above the
+      // interaction canvas — and which the `contextmenu` handler replays on Windows, where
+      // the native menu's message loop eats the real one.
       if (this.selection.getBoxSelect()) {
         this.selection.endBoxSelect();
         this._requestDraw('box-select-end');
