@@ -1,0 +1,521 @@
+/* AI Performer panel.
+ *
+ * Written to sit next to vj-control-panel.css and share its tokens, with one
+ * departure: this panel is read in the dark, at a glance, while doing
+ * something else. So the live readouts (beat dots, the active section, the
+ * panic button) carry more contrast than the editor's usual chrome, and
+ * everything that is merely configuration is quieter than usual to keep them
+ * legible.
+ */
+
+.rz-perf-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 440px;
+  height: 560px;
+  max-height: calc(100vh - 32px);
+  background: linear-gradient(var(--rz-panel-top), var(--rz-panel-bottom));
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-window);
+  box-shadow: var(--rz-shadow-window);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  color: var(--rz-text);
+  /* Alongside the VJ panel, below open menus (1002). */
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* --- header ------------------------------------------------------------ */
+
+.rz-perf-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 244, 230, 0.1);
+  background: rgba(26, 22, 17, 0.3);
+  cursor: grab;
+  user-select: none;
+}
+
+.rz-perf-header:active { cursor: grabbing; }
+
+.rz-perf-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex: 1;
+}
+
+.rz-perf-chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-family: var(--rz-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: rgba(255, 244, 230, 0.08);
+  color: #8b8175;
+}
+
+.rz-perf-chip[data-state="running"] {
+  background: rgba(80, 220, 130, 0.18);
+  color: #9cf0b4;
+}
+
+.rz-perf-chip[data-state="paused"] {
+  background: rgba(255, 200, 107, 0.18);
+  color: #ffc86b;
+}
+
+.rz-perf-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: rgba(255, 244, 230, 0.1);
+  border: none;
+  border-radius: 5px;
+  color: var(--rz-text);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* --- transport --------------------------------------------------------- */
+
+.rz-perf-transport {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 244, 230, 0.08);
+  flex-wrap: wrap;
+}
+
+.rz-perf-btn {
+  padding: 5px 10px;
+  background: rgba(255, 244, 230, 0.07);
+  border: 1px solid rgba(255, 244, 230, 0.1);
+  border-radius: 4px;
+  color: var(--rz-text);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.rz-perf-btn:hover { background: rgba(255, 244, 230, 0.14); }
+.rz-perf-btn:disabled { opacity: 0.45; cursor: default; }
+
+.rz-perf-play {
+  min-width: 40px;
+  background: rgba(80, 220, 130, 0.2);
+  border-color: rgba(80, 220, 130, 0.4);
+  color: #9cf0b4;
+}
+
+/* The one control that has to be findable without looking for it. */
+.rz-perf-panic {
+  margin-left: auto;
+  background: rgba(255, 90, 70, 0.22);
+  border-color: rgba(255, 90, 70, 0.5);
+  color: #ff9a8b;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.rz-perf-panic:hover { background: rgba(255, 90, 70, 0.36); }
+
+.rz-perf-tempo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rz-perf-bpm {
+  width: 62px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 244, 230, 0.08);
+  border-radius: 3px;
+  color: var(--rz-text);
+  font-family: var(--rz-font-mono);
+  font-size: 12px;
+}
+
+.rz-perf-unit {
+  font-size: 10px;
+  color: #8b8175;
+  letter-spacing: 0.05em;
+}
+
+.rz-perf-position {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rz-perf-bar {
+  font-family: var(--rz-font-mono);
+  font-size: 15px;
+  color: var(--rz-text);
+  min-width: 36px;
+  text-align: right;
+}
+
+.rz-perf-beats { display: flex; gap: 4px; }
+
+.rz-perf-beat {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 244, 230, 0.16);
+  transition: background 0.05s linear;
+}
+
+.rz-perf-beat[data-on="true"] { background: #9cf0b4; }
+
+/* --- tabs -------------------------------------------------------------- */
+
+.rz-perf-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(255, 244, 230, 0.08);
+}
+
+.rz-perf-tab {
+  flex: 1;
+  padding: 7px 4px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #8b8175;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.rz-perf-tab[data-active="true"] {
+  color: var(--rz-text);
+  border-bottom-color: #8ecbff;
+}
+
+/* --- body -------------------------------------------------------------- */
+
+.rz-perf-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+}
+
+.rz-perf-pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rz-perf-pane[hidden] { display: none; }
+
+.rz-perf-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6f6559;
+  margin-top: 4px;
+}
+
+.rz-perf-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rz-perf-empty {
+  color: #6f6559;
+  font-style: italic;
+  font-size: 11px;
+}
+
+.rz-perf-scenario-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* --- problems ---------------------------------------------------------- */
+
+.rz-perf-problem {
+  padding: 4px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.rz-perf-problem-error {
+  background: rgba(255, 90, 70, 0.12);
+  color: #ff9a8b;
+}
+
+.rz-perf-problem-warn {
+  background: rgba(255, 200, 107, 0.1);
+  color: #ffc86b;
+}
+
+/* --- sections ---------------------------------------------------------- */
+
+.rz-perf-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rz-perf-section {
+  position: relative;
+  padding: 7px 9px;
+  background: rgba(255, 244, 230, 0.04);
+  border: 1px solid rgba(255, 244, 230, 0.07);
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.rz-perf-section:hover { background: rgba(255, 244, 230, 0.09); }
+
+.rz-perf-section[data-active="true"] {
+  border-color: rgba(142, 203, 255, 0.55);
+  background: rgba(142, 203, 255, 0.1);
+}
+
+.rz-perf-section-name { font-size: 12px; font-weight: 600; }
+
+.rz-perf-section-enter,
+.rz-perf-section-look {
+  font-size: 10px;
+  color: #8b8175;
+  font-family: var(--rz-font-mono);
+}
+
+/* How far through its hold the running section is. */
+.rz-perf-section-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: rgba(255, 244, 230, 0.06);
+}
+
+.rz-perf-section-fill {
+  height: 100%;
+  width: 0;
+  background: #8ecbff;
+  transition: width 0.08s linear;
+}
+
+/* --- cues -------------------------------------------------------------- */
+
+.rz-perf-cues { display: flex; gap: 5px; flex-wrap: wrap; }
+
+.rz-perf-cue {
+  padding: 5px 11px;
+  background: rgba(33, 150, 243, 0.2);
+  border: 1px solid rgba(33, 150, 243, 0.45);
+  border-radius: 3px;
+  color: #8ecbff;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rz-perf-cue:hover { background: rgba(33, 150, 243, 0.35); }
+
+/* --- director ---------------------------------------------------------- */
+
+.rz-perf-director {
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid rgba(217, 166, 255, 0.22);
+  border-radius: 4px;
+  background: rgba(217, 166, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rz-perf-director-label { font-size: 11px; cursor: pointer; }
+
+.rz-perf-director-status {
+  margin-left: auto;
+  font-size: 10px;
+  font-family: var(--rz-font-mono);
+  color: #8b8175;
+}
+
+.rz-perf-director-status[data-error="true"] { color: #ff9a8b; }
+
+.rz-perf-director-note {
+  font-size: 11px;
+  color: #d9a6ff;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.rz-perf-steer,
+.rz-perf-brief-input,
+.rz-perf-editor {
+  width: 100%;
+  padding: 5px 7px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 244, 230, 0.09);
+  border-radius: 3px;
+  color: var(--rz-text);
+  font-family: var(--rz-font-mono);
+  font-size: 11px;
+  box-sizing: border-box;
+}
+
+/* --- signals ----------------------------------------------------------- */
+
+.rz-perf-energy { display: flex; align-items: center; gap: 8px; }
+.rz-perf-energy-slider { flex: 1; }
+
+.rz-perf-meters { display: flex; flex-direction: column; gap: 3px; }
+
+.rz-perf-meter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* A signal nothing has ever sent is a different fact from one reading zero. */
+.rz-perf-meter[data-silent="true"] { opacity: 0.4; }
+
+.rz-perf-meter-name {
+  width: 88px;
+  font-size: 11px;
+  font-family: var(--rz-font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rz-perf-meter-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.rz-perf-meter-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #4a9d6b, #9cf0b4);
+}
+
+.rz-perf-meter-value {
+  width: 34px;
+  text-align: right;
+  font-family: var(--rz-font-mono);
+  font-size: 10px;
+  color: #8b8175;
+}
+
+.rz-perf-help {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+}
+
+.rz-perf-address {
+  display: grid;
+  grid-template-columns: 168px 72px 1fr;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 0;
+}
+
+.rz-perf-address code {
+  font-family: var(--rz-font-mono);
+  color: #8ecbff;
+}
+
+.rz-perf-address-takes { color: #6f6559; font-style: italic; }
+.rz-perf-address-does { color: #8b8175; }
+
+/* --- scenario ---------------------------------------------------------- */
+
+.rz-perf-brief { display: flex; flex-direction: column; gap: 5px; }
+
+.rz-perf-author {
+  align-self: flex-start;
+  background: rgba(217, 166, 255, 0.18);
+  border-color: rgba(217, 166, 255, 0.45);
+  color: #d9a6ff;
+}
+
+.rz-perf-author-status { font-size: 11px; color: #8b8175; line-height: 1.4; }
+.rz-perf-author-status[data-level="error"] { color: #ff9a8b; }
+.rz-perf-author-status[data-level="ok"] { color: #9cf0b4; }
+
+.rz-perf-editor {
+  flex: 1;
+  min-height: 200px;
+  resize: none;
+  line-height: 1.45;
+  white-space: pre;
+  overflow: auto;
+}
+
+.rz-perf-primary {
+  background: rgba(33, 150, 243, 0.22);
+  border-color: rgba(33, 150, 243, 0.45);
+  color: #8ecbff;
+}
+
+.rz-perf-report {
+  font-family: var(--rz-font-mono);
+  font-size: 10px;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  color: #8b8175;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.rz-perf-report[data-level="error"] { color: #ff9a8b; }
+.rz-perf-report[data-level="warn"] { color: #ffc86b; }
+.rz-perf-report[data-level="ok"] { color: #9cf0b4; }
+
+/* --- log --------------------------------------------------------------- */
+
+.rz-perf-log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: var(--rz-font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.rz-perf-log-row { display: flex; gap: 7px; align-items: baseline; }
+
+.rz-perf-log-bar {
+  width: 30px;
+  text-align: right;
+  color: #6f6559;
+  flex-shrink: 0;
+}
+
+.rz-perf-log-message { flex: 1; word-break: break-word; }
+.rz-perf-log-why { color: #6f6559; font-style: italic; }

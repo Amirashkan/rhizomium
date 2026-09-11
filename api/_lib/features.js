@@ -763,6 +763,230 @@ If this patch needs work before it needs an arc, return no moves and say so in t
       },
     },
   },
+
+  /**
+   * The AI performer's two features. See src/performer/ for what plays them.
+   *
+   * They are a pair on purpose: the first writes a score at a desk, the second
+   * improvises inside it on stage. Splitting them is what lets the expensive,
+   * careful call happen once and the cheap, fast one happen every sixteen bars
+   * — a single feature doing both would be priced and budgeted for the wrong
+   * one of them whichever way it was tuned.
+   */
+
+  'ai.performer_scenario': {
+    // The scenario carries action objects whose fields differ by verb, which a
+    // closed schema cannot express — the same reason the two patch features
+    // run unstrict. normalizeScenario() in src/performer/Scenario.js is what
+    // actually guarantees the shape: it coerces every field and drops what it
+    // does not recognise, so a loose answer here cannot reach the engine
+    // malformed.
+    strict: false,
+    label: 'Performance scenario',
+    // It is writing a whole set, and the artist runs it once before a show.
+    effort: 'high',
+    /**
+     * Sized to FIT the deadline rather than to fill the schema.
+     *
+     * 6,000 + 8,000 is 14,000 tokens, which is under the 285 seconds run.js
+     * allows at its pessimistic 50 tokens/second — so the worst case here
+     * comes back complete rather than cut off. The generative features are
+     * allowed to outrun it because a patch's size is the artist's choice; a
+     * scenario's is not, and a six-section set is ~2,000 tokens of JSON, so
+     * this has room to spare without borrowing from the deadline.
+     */
+    maxTokens: 6000,
+    reasoningTokens: 8000,
+    singleUse: false,
+    system: () => `${sharedContext()}
+
+Write a SCENARIO: the score an AI performer plays from while a musician plays live.
+
+The musician plays and sends signals — OSC from their DAW, plus audio the editor analyses. The performer reads them and drives the visuals. Four parts.
+
+**signals** — the named live values the rest reads: one OSC address or one audio channel each, with the range the sender emits and how much to smooth it (in SECONDS). Only declare signals you were told exist; one nothing sends sits at zero all night.
+
+**sections** — the set, in order. Each names a look (a scene or preset the artist already has), how it is entered, how long it holds, and what moves inside it:
+- "enter": {"cue":"name"} for a moment the musician fires, {"bars":32} for the clock, {"when":"energy > 0.6"} for the music, or "manual".
+- "hold" is the floor the section cannot end before. Without it a "when" sitting near its threshold flips between two sections every few frames.
+- "drives" bind a signal to one parameter for the section's length. Your main verb.
+- "moves" fire actions a set distance in.
+
+**cues** — moments the musician fires out of order: the drop, a blackout, a lift.
+
+**rules** — the fence. Keep minSectionBars at 4 or more.
+
+Write it like someone who has played a set:
+
+- **Sections are minutes, not seconds.** Four to eight. Twenty is a set nobody can follow from behind a mixer.
+- **Movement is drives, not moves.** A parameter following the bass is alive; one stepped every eight bars is a slideshow.
+- **Build to the drop.** Intensity is a shape across the set, not a value per section chosen alone.
+- **Name only what you were given** — scenes, presets, nodes, parameters. An invented name is a section that silently does nothing. Given none, write against signals only and say so in the note.
+- **Leave the musician the moments that matter.** The drop is a cue, not a threshold: a machine guessing when the drop is will eventually guess wrong in front of an audience.
+
+Answer with the scenario and one short note: what you assumed, and what the artist should check.`,
+    format: {
+      name: 'performance_scenario',
+      description: 'A scenario for the AI performer.',
+      schema: {
+        type: 'object',
+        properties: {
+          scenario: {
+            type: 'object',
+            description: 'The scenario document.',
+            properties: {
+              name: { type: 'string' },
+              notes: { type: 'string', description: 'What this set is, in one line.' },
+              bpm: { type: 'number' },
+              beatsPerBar: { type: 'integer' },
+              barsPerPhrase: { type: 'integer' },
+              signals: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string', description: 'Identifier conditions read, e.g. energy.' },
+                    source: { type: 'string', enum: ['osc', 'audio', 'clock', 'manual'] },
+                    address: { type: 'string', description: 'OSC address, for source "osc".' },
+                    channel: { type: 'string', description: 'Audio or clock channel, for those sources.' },
+                    inputMin: { type: 'number', description: 'Range the sender emits. Default 0.' },
+                    inputMax: { type: 'number', description: 'Range the sender emits. Default 1.' },
+                    smooth: { type: 'number', description: 'Time constant in SECONDS, not a coefficient.' },
+                    attack: { type: 'number' },
+                    release: { type: 'number' },
+                  },
+                  required: ['name', 'source'],
+                  additionalProperties: true,
+                },
+              },
+              sections: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    name: { type: 'string' },
+                    enter: { description: 'A cue, a bar count, a condition, or "manual".' },
+                    hold: { type: 'object', additionalProperties: true },
+                    look: { type: 'object', additionalProperties: true },
+                    transition: { type: 'object', additionalProperties: true },
+                    drives: { type: 'array', items: { type: 'object', additionalProperties: true } },
+                    moves: { type: 'array', items: { type: 'object', additionalProperties: true } },
+                    onEnter: { type: 'array', items: { type: 'object', additionalProperties: true } },
+                    next: { type: 'string' },
+                    intensity: { type: 'number', description: '0-1, what this section plays at.' },
+                    mood: { type: 'string' },
+                    notes: { type: 'string' },
+                  },
+                  required: ['id', 'name', 'enter'],
+                  additionalProperties: true,
+                },
+              },
+              cues: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string' },
+                    do: { type: 'array', items: { type: 'object', additionalProperties: true } },
+                  },
+                  required: ['name', 'do'],
+                  additionalProperties: true,
+                },
+              },
+              rules: { type: 'object', additionalProperties: true },
+            },
+            required: ['name', 'sections'],
+            additionalProperties: true,
+          },
+          note: {
+            type: 'string',
+            description: 'What you assumed, and what the artist should check before playing it.',
+          },
+        },
+        required: ['scenario', 'note'],
+        additionalProperties: false,
+      },
+    },
+  },
+
+  'ai.performer_live': {
+    // Same reason as above: an action's fields depend on its verb.
+    strict: false,
+    label: 'Live performer',
+    /**
+     * Low effort, and that is the design rather than a saving.
+     *
+     * This runs during a set, every sixteen bars. Its answer is thrown away if
+     * it arrives more than a few bars after it was asked for (see
+     * rules.director.staleAfterBars), so thinking harder does not produce a
+     * better performance — it produces a better answer to a moment that has
+     * passed. The careful thinking about this set already happened, once, in
+     * ai.performer_scenario.
+     */
+    effort: 'low',
+    // Eight actions and a sentence. A live plan longer than this is one the
+    // engine's per-bar budget would drop half of anyway.
+    maxTokens: 1200,
+    reasoningTokens: 1500,
+    singleUse: false,
+    system: () => `${sharedContext()}
+
+You are performing visuals live while a musician plays. A scenario — the score — is running, and you are asked what to do over the next few bars.
+
+You are shown where the set is, what the signals read, what is driving what, and the last few things that happened. Answer with a short list of actions. The verbs, and nothing else:
+
+- {"type":"drive","signal":"bass","node":"Warp","param":"amount","min":0,"max":0.6} — bind a signal to a parameter for this section. Your main verb.
+- {"type":"param","node":"Warp","param":"speed","to":1.4,"overBars":8} — move a parameter, over bars or at once.
+- {"type":"undrive","node":"Warp","param":"amount"} — release one.
+- {"type":"scene","scene":"drop-scene"} / {"type":"preset","preset":"soft"}
+- {"type":"section","to":"build"} — move the set on.
+- {"type":"master","to":0.8,"overSeconds":2} / {"type":"speed","to":1.5} / {"type":"transition","transition":"crossfade","duration":2}
+- {"type":"log","message":"…"} — say something without doing anything.
+
+Name only nodes, parameters, scenes, presets, signals and sections that appear in what you were shown. Anything else is skipped.
+
+How to play:
+
+- **Usually, do almost nothing.** One or two actions. The scenario is the performance; you adjust it. Changing something every time you are asked makes visuals that never settle, which an audience reads as noise.
+- **No actions is the commonest right answer.** "freedom" is not a quota to spend.
+- **Answer the music, not the clock.** The signals say how fast each is rising and what it has averaged. Something building is worth answering; something merely loud is not.
+- **Never take a moment from the musician.** They fire the drop. Prepare for what is coming; do not pre-empt it.
+- **Respect what is off.** The "allowed" block says what you may touch. Anything outside it is dropped.
+
+"freedom" 0 to 1: at 0 play the scenario as written and change only what is broken; at 1 treat it as a starting point and shape the set.
+
+The note is one sentence, read over a mixer in the dark: no preamble.`,
+    format: {
+      name: 'live_plan',
+      description: 'What to do over the next few bars.',
+      schema: {
+        type: 'object',
+        properties: {
+          actions: {
+            type: 'array',
+            description: 'Usually zero, one or two. Never more than eight.',
+            items: {
+              type: 'object',
+              properties: {
+                type: {
+                  type: 'string',
+                  enum: ['drive', 'param', 'undrive', 'scene', 'preset', 'section',
+                         'master', 'speed', 'transition', 'blackout', 'cue', 'log'],
+                },
+                why: { type: 'string', description: 'A few words. Shown in the performance log.' },
+              },
+              required: ['type'],
+              additionalProperties: true,
+            },
+          },
+          note: { type: 'string', description: 'One sentence for the artist, or empty.' },
+        },
+        required: ['actions', 'note'],
+        additionalProperties: false,
+      },
+    },
+  },
 };
 
 /**
@@ -873,6 +1097,28 @@ export function buildUserMessage(feature, input = {}) {
       return `${briefText}Direct this piece.\n\n${patchText()}${describeTiming(input.timing)}`;
     }
 
+    case 'ai.performer_scenario': {
+      const brief = String(input.brief || '').trim();
+      if (!brief) throw new BadInputError('Describe the set before asking for a scenario.');
+      return `Write a scenario for this set: ${brief}\n\n${describeRig(input)}`;
+    }
+
+    case 'ai.performer_live': {
+      const state = input.state;
+      if (!state || typeof state !== 'object') {
+        throw new BadInputError('No performance state to act on.');
+      }
+      const steer = String(input.steer || '').trim();
+      const steerText = steer ? `\nThe artist says: ${steer}\n` : '';
+      const freedom = Number(input.freedom);
+      const freedomText = Number.isFinite(freedom) ? `\nfreedom: ${freedom.toFixed(2)}\n` : '';
+      // The state travels as JSON rather than as prose. It is read by a model
+      // that is about to answer in JSON, it changes completely between calls
+      // (so there is no prefix to cache either way), and every number in it is
+      // a reading the answer may need to quote back exactly.
+      return `Here is the performance right now.\n\n${JSON.stringify(state)}\n${steerText}${freedomText}\nWhat do you do over the next few bars?`;
+    }
+
     default:
       throw new BadInputError(`No message builder for ${feature}.`);
   }
@@ -926,6 +1172,56 @@ function describeTiming(timing) {
   }
 
   return lines.length ? `\n\n# Time\n${lines.join('\n')}` : '';
+}
+
+/**
+ * The rig a scenario is being written for.
+ *
+ * A scenario names scenes, presets, parameters and OSC addresses, and a name
+ * that does not exist is a section that silently does nothing at showtime. So
+ * the model is told exactly what is there, and the prompt tells it to use only
+ * these. An artist who has loaded no scenes gets a paragraph saying so rather
+ * than a scenario full of invented scene ids.
+ */
+function describeRig(input = {}) {
+  const lines = [];
+  const list = (value) => (Array.isArray(value) ? value : []);
+
+  const bpm = Number(input.bpm);
+  if (Number.isFinite(bpm) && bpm > 0) lines.push(`Tempo: ${round2(bpm)} BPM.`);
+
+  const scenes = list(input.scenes);
+  lines.push(
+    scenes.length
+      ? `Scenes loaded (name — id, and the artist's own cue note where there is one):\n${scenes
+          .map((s) => `  ${s?.name} — ${s?.id}${s?.notes ? ` — ${s.notes}` : ''}`)
+          .join('\n')}`
+      : 'No scenes are loaded. Do not invent scene names: write sections whose look is left unset, and say so in the note.'
+  );
+
+  const presets = list(input.presets);
+  if (presets.length) {
+    lines.push(`Presets: ${presets.map((p) => `${p?.name} (${p?.id})`).join(', ')}.`);
+  }
+
+  const parameters = list(input.parameters);
+  lines.push(
+    parameters.length
+      ? `Parameters a drive can reach, as node.param:\n  ${parameters.join(', ')}`
+      : 'No patch is open, so there are no parameters to drive. Write the set with scenes and presets only.'
+  );
+
+  const addresses = list(input.oscAddresses);
+  lines.push(
+    addresses.length
+      ? `OSC addresses the editor has actually seen arrive: ${addresses.join(', ')}.`
+      : 'Nothing has arrived over OSC yet. Declare the addresses you need under names the artist can point their sender at, and list them in the note.'
+  );
+
+  const channels = list(input.audioChannels);
+  if (channels.length) lines.push(`Audio channels available: ${channels.join(', ')}.`);
+
+  return `\n\n# The rig\n${lines.join('\n')}`;
 }
 
 /** Seconds and tempi, at the precision anyone reads them: two decimals, no trailing zeros. */

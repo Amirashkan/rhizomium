@@ -54,6 +54,12 @@ import { findProjectionMapNode, syncMappingToNode } from './src/mapping/projecti
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
+import { PRIORITY } from './src/core/UnifiedRAFManager.js';
+import { PerformerEngine } from './src/performer/PerformerEngine.js';
+import { PerformerDirector } from './src/performer/PerformerDirector.js';
+import { getPerformerPanel } from './src/ui/PerformerPanel.js';
+import * as audioAnalysisTaps from './src/audio/audioAnalysisTaps.js';
+import { replaceGraphWithPatch } from './src/ai/applyResult.js';
 import { ensureIconSprite } from './src/ui/iconSprite.js';
 import { ComputeShaderTest } from './src/test/ComputeShaderTest.js';
 import { ComputeExecutor } from './src/gpu/ComputeExecutor.js';
@@ -208,6 +214,34 @@ let renderLoopController = null;
 let timelineManager = null;
 let timelinePanel = null;
 let vjControlPanel = null;
+let performerPanel = null;
+let performerEngine = null;
+
+/**
+ * Give the performer its slot in the shared RAF.
+ *
+ * One handler on the render loop's manager rather than a loop of its own
+ * (ARCHITECTURE.md §4), at LOW priority: the performer decides what the NEXT
+ * frame should show, so running a frame late is invisible, whereas taking time
+ * from the render path is not. The `condition` keeps it out of the loop
+ * entirely while nothing is being performed.
+ *
+ * Called again every time the render loop is rebuilt, because each one brings
+ * a new manager with no handlers on it. registerHandler() is keyed by name, so
+ * calling it twice on the same manager replaces rather than doubles.
+ */
+function registerPerformerFrameHandler() {
+  const manager = window.renderLoop?.rafManager;
+  if (!manager || !performerEngine) return false;
+
+  manager.registerHandler(
+    'ai-performer',
+    (frameInfo) => performerEngine.tick(frameInfo?.timestamp),
+    PRIORITY.LOW,
+    { condition: () => performerEngine.state === 'running' }
+  );
+  return true;
+}
 let computeShaderTest = null;
 let computeExecutor = null;
 let computeProfiler = null;
@@ -583,6 +617,52 @@ async function initialize() {
       editor.oscSettingsPanel = oscSettingsPanel;
     } catch (error) {
       console.error("ERROR creating OSC system:", error);
+      console.error("Error stack:", error.stack);
+    }
+
+    // The AI performer. Built last of the live-control systems because it
+    // drives all of them: OSC in, the VJ panel's scenes and presets out, and
+    // the editor's own parameter path in between.
+    //
+    // Nothing here starts: the engine is stopped, the director is off, and the
+    // panel is hidden until the artist opens it. Constructing it costs a few
+    // objects and no timers, which is why it is unconditional rather than
+    // behind the panel's first open — main.js is also where window.performer
+    // comes from, and a scenario loaded from a script should not need the
+    // panel to have been opened first.
+    try {
+      const performerDirector = new PerformerDirector({
+        log: (level, message) => performerEngine?.write(level, message),
+      });
+
+      performerEngine = new PerformerEngine({
+        editor,
+        osc: window.oscManager || null,
+        audio: audioAnalysisTaps,
+        vjPanel: vjControlPanel,
+        director: performerDirector,
+        replaceGraph: replaceGraphWithPatch,
+      });
+
+      window.performer = performerEngine;
+      window.performerDirector = performerDirector;
+      editor.performer = performerEngine;
+
+      // The frame handler is registered by the render loop's own setup, not
+      // here: window.renderLoop does not exist yet at this point in boot, and
+      // it is REBUILT whenever the preview config changes — each RenderLoop
+      // owns a fresh UnifiedRAFManager, so a handler registered once would be
+      // dropped the first time the artist changed the frame rate.
+      registerPerformerFrameHandler();
+
+      performerPanel = getPerformerPanel(performerEngine, {
+        oscManager: window.oscManager || null,
+        vjPanel: vjControlPanel,
+        eventSystem: editor.eventSystem,
+      });
+      window.performerPanel = performerPanel;
+    } catch (error) {
+      console.error("ERROR creating AI performer:", error);
       console.error("Error stack:", error.stack);
     }
 
@@ -1535,6 +1615,23 @@ function setupUIEventHandlers() {
     });
   } else {
     console.error('[main.js] Timeline button NOT found in DOM!');
+  }
+
+  // AI Performer panel
+  const performerButton = document.getElementById("btn-toggle-performer");
+  if (performerButton) {
+    performerButton.addEventListener("click", () => {
+      try {
+        if (performerPanel && typeof performerPanel.toggle === 'function') {
+          performerPanel.toggle();
+          updateStatus(performerPanel.visible ? "AI Performer opened" : "AI Performer closed");
+        } else {
+          updateStatus("AI Performer failed to load", "error");
+        }
+      } catch (error) {
+        updateStatus("Error toggling AI Performer: " + error.message, "error");
+      }
+    });
   }
 
   // VJ Control Panel
@@ -4174,6 +4271,9 @@ function initializeRenderLoopFromSettings() {
 
   window.renderLoop = renderLoopController;
   window.render = () => renderLoopController?.renderNow({ advance: false });
+
+  // A rebuilt loop brings an empty handler table with it.
+  registerPerformerFrameHandler();
 
   renderLoopController.start();
   renderLoopController.renderNow({ advance: false });

@@ -72,6 +72,7 @@
     <link rel="stylesheet" href="../src/styles/shader-compiler.css" />
     <link rel="stylesheet" href="../src/styles/glsl-utilities.css" />
     <link rel="stylesheet" href="../src/vj/vj-control-panel.css" />
+    <link rel="stylesheet" href="../src/performer/performer-panel.css" />
     <style>
       /* Undo/Redo — ordinary dropdown rows, so they inherit .menu-dropdown
          button and only need their disabled state spelled out. */
@@ -377,6 +378,7 @@
           <button id="btn-toggle-console">Console</button>
           <button id="btn-toggle-timeline">Timeline</button>
           <button id="btn-toggle-vj">VJ Control</button>
+          <button id="btn-toggle-performer">AI Performer</button>
           <!-- Starts hidden, and showing it switches on per-frame GPU timing
                (see main.js, where the render loop syncs the profiler's enabled
                flag to this panel's visibility). Without this entry Ctrl+Alt+P

@@ -184,9 +184,92 @@ export function sampleInputs(feature) {
         max: { patch: largestPatch(), brief: LONG_PROMPT, timing: busiestTiming() },
       };
 
+    case 'ai.performer_scenario':
+      return {
+        min: { brief: 'a short ambient set' },
+        // The rig is what makes this call large: every scene, preset and
+        // parameter the artist has is named so the model cannot invent one.
+        max: { brief: LONG_PROMPT, ...busiestRig() },
+      };
+
+    case 'ai.performer_live':
+      return {
+        min: { state: smallestPerformanceState(), steer: '', freedom: 0 },
+        max: { state: busiestPerformanceState(), steer: LONG_PROMPT, freedom: 1 },
+      };
+
     default:
       return { min: {}, max: {} };
   }
+}
+
+/** The most rig the panel will ever send: its lists are capped at these sizes. */
+function busiestRig() {
+  return {
+    bpm: 128,
+    scenes: Array.from({ length: 40 }, (_, i) => ({
+      id: `scene_${i}`, name: `Scene ${i}`, notes: 'what this one is for, in a line',
+    })),
+    presets: Array.from({ length: 40 }, (_, i) => ({ id: `preset_${i}`, name: `Preset ${i}` })),
+    parameters: Array.from({ length: 60 }, (_, i) => `node_${i}.amount`),
+    oscAddresses: Array.from({ length: 40 }, (_, i) => `/live/channel${i}`),
+    audioChannels: ['level', 'low', 'mid', 'high', 'kick', 'snare', 'hat'],
+  };
+}
+
+/**
+ * The live call's state, at both ends.
+ *
+ * This is the one feature whose prompt is JSON rather than prose, and its size
+ * is set by the scenario rather than by the patch: the sections list travels in
+ * full on every ask so the model can name one.
+ */
+function smallestPerformanceState() {
+  return {
+    scenario: { name: 'set', notes: '', sections: [{ id: 'a', name: 'A' }], cues: [], allowed: {} },
+    now: { bar: 0, bpm: 120, sectionId: 'a' },
+    signals: {},
+    driving: [],
+    recent: [],
+  };
+}
+
+function busiestPerformanceState() {
+  return {
+    scenario: {
+      name: 'A long set with a long name',
+      notes: LONG_PROMPT,
+      sections: Array.from({ length: 128 }, (_, i) => ({
+        id: `section_${i}`,
+        name: `Section ${i}`,
+        intensity: 0.5,
+        mood: 'dark, wide, barely moving',
+        notes: 'what this section is for',
+        look: `scene_${i}`,
+      })),
+      cues: Array.from({ length: 64 }, (_, i) => `cue_${i}`),
+      allowed: {
+        sceneChanges: true, presets: true, parameterMoves: true,
+        graphEdits: true, sectionChanges: true,
+      },
+    },
+    now: {
+      state: 'running', sectionId: 'section_9', sectionName: 'Section 9',
+      sectionBars: 12.5, bar: 96, phrase: 12, bpm: 128, beatsPerBar: 4,
+      energy: 0.8, intensity: 0.9,
+    },
+    signals: Object.fromEntries(
+      Array.from({ length: 64 }, (_, i) => [
+        `signal_${i}`, { value: 0.5, rise: 0.1, peak: 0.9, average: 0.4 },
+      ])
+    ),
+    driving: Array.from({ length: 32 }, (_, i) => ({
+      signal: `signal_${i}`, node: `node_${i}`, param: 'amount', min: 0, max: 1,
+    })),
+    recent: Array.from({ length: 12 }, (_, i) => ({
+      at: 90 + i, level: 'action', message: 'Warp.amount → 0.62 over 8 bars',
+    })),
+  };
 }
 
 /**
