@@ -895,6 +895,40 @@ export class PerformerEngine {
     }
   }
 
+  // --- tempo ---------------------------------------------------------------
+  //
+  // Every way the tempo can be set goes through these four, rather than each
+  // caller reaching into the clock. Today they forward and little else. The
+  // reason they exist is the next source of tempo: an Ableton Link session or
+  // a MIDI clock is another authority on the same number, and it wants one
+  // door to come in by — not a fifth caller poking clock.setBPM() while the
+  // panel, OSC and a tap all do the same.
+
+  /** @param {string} source who said so: 'panel', 'osc', 'link'. */
+  setBPM(bpm, source = 'panel') {
+    const ok = this.clock.setBPM(bpm);
+    if (ok) this.emit();
+    void source;
+    return ok;
+  }
+
+  tapTempo(source = 'panel') {
+    const bpm = this.clock.tap();
+    if (bpm) this.emit();
+    void source;
+    return bpm;
+  }
+
+  syncBar(source = 'osc') {
+    this.clock.syncToBar();
+    void source;
+  }
+
+  syncBeat(source = 'osc') {
+    this.clock.syncToBeat();
+    void source;
+  }
+
   /** Seconds on the same clock the audio analysis stamps its onsets with. */
   nowSeconds() {
     return typeof performance !== 'undefined' ? performance.now() / 1000 : Date.now() / 1000;

@@ -22,6 +22,12 @@ function makeRig() {
     // The engine owns the switch, not the director: turning the director on
     // also turns on the listening the director reads from.
     setDirectorEnabled(v) { return this.director.setEnabled(v); },
+    // Tempo goes through the engine, not straight at the clock: one door for
+    // the panel, OSC, a tap, and whatever sets it next.
+    setBPM(v) { return this.clock.setBPM(v); },
+    tapTempo() { this.clock.tap(); return this.clock.bpm; },
+    syncBar() { this.clock.syncToBar(); },
+    syncBeat() { this.clock.syncToBeat(); },
     start() { this.started++; },
     stop() { this.stopped++; },
     pause() { this.paused++; },

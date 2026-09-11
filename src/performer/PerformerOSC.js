@@ -192,22 +192,22 @@ export class PerformerOSC {
 
       case '/bpm': {
         const bpm = numberArg(args, 0);
-        return engine.clock.setBPM(bpm) ? `bpm ${bpm}` : null;
+        return engine.setBPM(bpm, 'osc') ? `bpm ${bpm}` : null;
       }
 
       case '/tap':
         if (!this.edge(address, args)) return null;
-        engine.clock.tap();
+        engine.tapTempo('osc');
         return `tap ${engine.clock.bpm}`;
 
       case '/bar':
         if (!this.edge(address, args)) return null;
-        engine.clock.syncToBar();
+        engine.syncBar('osc');
         return 'bar sync';
 
       case '/beat':
         if (!this.edge(address, args)) return null;
-        engine.clock.syncToBeat();
+        engine.syncBeat('osc');
         return 'beat sync';
 
       case '/energy':
