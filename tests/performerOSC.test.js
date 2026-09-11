@@ -19,6 +19,9 @@ function makeRig() {
     },
     signals: { pushed: [], energy: 0, push(n, v) { this.pushed.push([n, v]); }, setEnergy(v) { this.energy = v; } },
     director: { enabled: false, steer: '', setEnabled(v) { this.enabled = v; }, setSteer(v) { this.steer = v; } },
+    // The engine owns the switch, not the director: turning the director on
+    // also turns on the listening the director reads from.
+    setDirectorEnabled(v) { return this.director.setEnabled(v); },
     start() { this.started++; },
     stop() { this.stopped++; },
     pause() { this.paused++; },

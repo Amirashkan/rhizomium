@@ -60,16 +60,25 @@ describe('PerformerDirector', () => {
     director.offer(state({ now: { bar: 0, bpm: 120 } }));
     expect(run).toHaveBeenCalledTimes(1);
 
+    clock.now += 4_000;
     director.offer(state({ now: { bar: 4, bpm: 120 } }));
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it('asks again once the cadence has passed', async () => {
+  // The cadence is in seconds, not bars: moving the bar counter changes
+  // nothing, because on music with no pulse the bar counter is a metronome
+  // nobody is playing to. See DirectorCadence.
+  it('asks again once the cadence has passed, measured in time', async () => {
     director.setEnabled(true);
     director.offer(state());
     await Promise.resolve();
     director.take();
 
+    clock.now += 5_000;
+    director.offer(state({ now: { bar: 20, bpm: 120 } }));
+    expect(run).toHaveBeenCalledTimes(1);
+
+    clock.now += 60_000;
     director.offer(state({ now: { bar: 20, bpm: 120 } }));
     expect(run).toHaveBeenCalledTimes(2);
   });

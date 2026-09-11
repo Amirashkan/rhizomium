@@ -242,7 +242,7 @@ export class PerformerPanel {
     this.directorToggle.type = 'checkbox';
     this.directorToggle.id = 'rz-perf-director-toggle';
     this.directorToggle.addEventListener('change', () => {
-      this.engine.director?.setEnabled(this.directorToggle.checked);
+      this.engine.setDirectorEnabled(this.directorToggle.checked);
       this.paintStructure();
     });
     row.appendChild(this.directorToggle);

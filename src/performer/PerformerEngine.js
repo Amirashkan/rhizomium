@@ -41,6 +41,11 @@ import { SignalBus } from './SignalBus.js';
 import { ActionExecutor } from './ActionExecutor.js';
 import { emptyScenario, normalizeScenario, validateScenario } from './Scenario.js';
 import { describeAction } from './actions.js';
+import {
+  describeMusic,
+  getMusicalListener,
+  setMusicalListeningWanted,
+} from '../audio/musicalListening.js';
 
 /** How many log lines are kept. Enough to read back a set, bounded for a long one. */
 const MAX_LOG = 400;
@@ -107,6 +112,9 @@ export class PerformerEngine {
      * has enough pending actions for that to matter.
      */
     this.queue = [];
+
+    /** Whether the analysis is being asked to keep a listening memory for us. */
+    this._listening = false;
 
     /** Cues fired since the last tick, oldest first. */
     this._pendingCues = [];
@@ -720,13 +728,27 @@ export class PerformerEngine {
   applyPlan(plan) {
     const rules = this.scenario.rules.director;
 
-    const agedBars = (this.clock.beats - (plan.askedAtBeats ?? this.clock.beats))
-      / this.clock.beatsPerBar;
-    if (agedBars > rules.staleAfterBars) {
-      this.write('warn', `Director plan arrived ${agedBars.toFixed(1)} bars late — dropped`, {
-        note: plan.note,
-      });
-      return;
+    // Lateness in bars means nothing unless the bars do. On a set with no
+    // pulse the clock is a metronome nobody is playing to, so the plan is aged
+    // in seconds instead — the same question, asked of a clock that is real.
+    const metered = this.listening()?.pulse?.state === 'metered';
+    if (metered) {
+      const agedBars = (this.clock.beats - (plan.askedAtBeats ?? this.clock.beats))
+        / this.clock.beatsPerBar;
+      if (agedBars > rules.staleAfterBars) {
+        this.write('warn', `Director plan arrived ${agedBars.toFixed(1)} bars late — dropped`, {
+          note: plan.note,
+        });
+        return;
+      }
+    } else {
+      const agedSeconds = this.nowSeconds() - (plan.askedAtSeconds ?? this.nowSeconds());
+      if (agedSeconds > rules.staleAfterSeconds) {
+        this.write('warn', `Director plan arrived ${agedSeconds.toFixed(1)}s late — dropped`, {
+          note: plan.note,
+        });
+        return;
+      }
     }
 
     if (plan.note) this.write('director', plan.note);
@@ -796,6 +818,10 @@ export class PerformerEngine {
         intensity: round(this.signals.intensity),
       },
       signals: this.signals.snapshot(),
+      // What the room has been doing, as opposed to what it is doing this
+      // frame. Cached inside the listener, so building this every frame costs
+      // a property read.
+      listening: this.listening(),
       driving: this.executor.status().drives,
       recent: this.log.slice(-12).map((entry) => ({
         at: entry.bar,
@@ -803,7 +829,39 @@ export class PerformerEngine {
         message: entry.message,
       })),
       askedAtBeats: this.clock.beats,
+      askedAtSeconds: this.nowSeconds(),
     };
+  }
+
+  /** Seconds on the same clock the audio analysis stamps its onsets with. */
+  nowSeconds() {
+    return typeof performance !== 'undefined' ? performance.now() / 1000 : Date.now() / 1000;
+  }
+
+  /** What the music has been doing, or null when nothing is listening. */
+  listening() {
+    if (!this._listening) return null;
+    try {
+      return describeMusic(this.nowSeconds());
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Turn the live director on or off.
+   *
+   * The one place that does it, because two things have to move together: the
+   * director, and the analysis work that feeds it. A director listening to a
+   * listener nobody switched on is the failure that looks like a model with
+   * nothing to say.
+   */
+  setDirectorEnabled(on) {
+    const wanted = Boolean(on);
+    this._listening = wanted;
+    setMusicalListeningWanted(wanted);
+    if (wanted) this.director?.setListener?.(getMusicalListener());
+    return this.director?.setEnabled?.(wanted) ?? wanted;
   }
 
   // --- conditions --------------------------------------------------------
@@ -891,6 +949,7 @@ export class PerformerEngine {
 
   destroy() {
     this.stop();
+    this.setDirectorEnabled(false);
     this._listeners.clear();
   }
 }

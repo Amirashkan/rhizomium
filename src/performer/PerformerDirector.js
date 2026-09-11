@@ -32,6 +32,7 @@
  */
 
 import { runFeature, AIRequestError, GrantError } from '../ai/aiClient.js';
+import { DirectorCadence } from './DirectorCadence.js';
 import { normalizeScenario } from './Scenario.js';
 import { normalizeAction } from './actions.js';
 
@@ -79,8 +80,18 @@ export class PerformerDirector {
     /** Bumped on discard(); an answer tagged with an old token is thrown away. */
     this._token = 0;
 
-    /** Clock position of the last request, so the cadence is musical. */
-    this._lastAskedBar = -Infinity;
+    /**
+     * When to ask. Not a bar count: see DirectorCadence for why a bar count is
+     * the wrong unit on music that does not have bars.
+     */
+    this.cadence = options.cadence || new DirectorCadence({ now: () => this.now() / 1000 });
+
+    /**
+     * The listening memory, if the host wired one in. Optional on purpose — the
+     * director still works without it, it is just asking on a timer and telling
+     * the model less.
+     */
+    this.listener = options.listener || null;
     /** Wall clock, for the backoff. */
     this._nextAllowedAt = 0;
     this._failures = 0;
@@ -95,9 +106,18 @@ export class PerformerDirector {
 
   /** Turn the live director on or off mid-set. */
   setEnabled(on) {
+    const was = this.enabled;
     this.enabled = Boolean(on);
     if (!this.enabled) this.discard('director switched off');
+    // Switched on mid-set: start the cadence from here, so the warm-up applies
+    // and the first question is asked about music it has actually heard.
+    if (this.enabled && !was) this.cadence.reset();
     return this.enabled;
+  }
+
+  /** Hand the director the listening memory. The engine does this when it is on. */
+  setListener(listener) {
+    this.listener = listener || null;
   }
 
   /** A line of direction from the artist, carried into the next ask. */
@@ -126,10 +146,29 @@ export class PerformerDirector {
     if (this._inFlight || this._ready) return;
     if (this.now() < this._nextAllowedAt) return;
 
-    const everyBars = state.scenario.rules.director.everyBars;
-    if (state.now.bar - this._lastAskedBar < everyBars) return;
+    const listening = this.listening(state);
+    const due = this.cadence.shouldAsk(listening, state);
+    if (!due) return;
 
-    this.ask(state);
+    this.ask(state, due.reason, listening);
+  }
+
+  /**
+   * What the music has been doing, or null if nothing is listening.
+   *
+   * Read here rather than in the engine because it is only ever wanted at the
+   * moment a question is being considered — it caches, but the engine offers
+   * this director a state every single frame.
+   */
+  listening(state) {
+    if (state?.listening) return state.listening;
+    if (!this.listener) return null;
+    try {
+      return this.listener.describe(this.now() / 1000);
+    } catch {
+      // A listener that throws must not take the set down with it.
+      return null;
+    }
   }
 
   /**
@@ -140,20 +179,27 @@ export class PerformerDirector {
   onSectionChange(state) {
     if (!this.enabled) return;
     if (this._inFlight || this.now() < this._nextAllowedAt) return;
-    this.ask(state);
+    this.ask(state, 'section');
   }
 
   /** Start a call. Never awaited by the caller. */
-  ask(state) {
-    this._lastAskedBar = state.now.bar;
+  ask(state, reason = 'interval', listening = undefined) {
+    const heard = listening === undefined ? this.listening(state) : listening;
+    this.cadence.noteAsked(reason);
     this._inFlightAt = this.now();
     this.calls++;
 
+    // From here on, "since" means since this question — which is the only
+    // reference point that makes the next answer about the right stretch of
+    // music.
+    try { this.listener?.mark?.(this.now() / 1000); } catch { /* never break the set */ }
+
     const token = this._token;
     const askedAtBeats = state.askedAtBeats;
+    const askedAtSeconds = state.askedAtSeconds;
 
     const request = this.run(LIVE_FEATURE, {
-      state: compactState(state),
+      state: compactState(state, heard),
       steer: this.steer,
       freedom: state.scenario.rules.director.freedom,
     })
@@ -165,7 +211,7 @@ export class PerformerDirector {
         this._failures = 0;
         this.lastError = null;
 
-        const plan = shapePlan(result, askedAtBeats);
+        const plan = shapePlan(result, askedAtBeats, askedAtSeconds);
         if (!plan) return;
 
         this.lastNote = plan.note || '';
@@ -275,6 +321,7 @@ export class PerformerDirector {
       lastError: this.lastError,
       lastNote: this.lastNote,
       steer: this.steer,
+      cadence: this.cadence.status(),
       nextAllowedInMs: Math.max(0, this._nextAllowedAt - this.now()),
     };
   }
@@ -288,7 +335,7 @@ export class PerformerDirector {
  * rather than in the engine keeps describeState() honest as a debugging view
  * while still sending a prompt that fits.
  */
-function compactState(state) {
+function compactState(state, listening) {
   const signals = {};
   for (const [name, signal] of Object.entries(state.signals || {})) {
     // A signal nothing has ever sent is noise in the prompt, and worse, it
@@ -317,6 +364,9 @@ function compactState(state) {
       },
     },
     now: state.now,
+    // What the music has been DOING, which is the half of the picture the
+    // signal values cannot carry: they are all "right now" by construction.
+    listening: listening || null,
     signals,
     driving: state.driving,
     recent: state.recent,
@@ -330,7 +380,7 @@ function compactState(state) {
  * same rule normalizeAction() applies to a hand-written scenario, for the same
  * reason: most of a good answer is still worth playing.
  */
-function shapePlan(result, askedAtBeats) {
+function shapePlan(result, askedAtBeats, askedAtSeconds) {
   if (!result || typeof result !== 'object') return null;
 
   const actions = (Array.isArray(result.actions) ? result.actions : [])
@@ -341,7 +391,7 @@ function shapePlan(result, askedAtBeats) {
   const note = String(result.note || '').slice(0, 300);
   if (!actions.length && !note) return null;
 
-  return { actions, note, askedAtBeats };
+  return { actions, note, askedAtBeats, askedAtSeconds };
 }
 
 export default PerformerDirector;

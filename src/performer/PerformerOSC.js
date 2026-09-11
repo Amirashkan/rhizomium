@@ -220,7 +220,7 @@ export class PerformerOSC {
 
       case '/director': {
         const on = triggerValue(args);
-        engine.director?.setEnabled?.(Boolean(on));
+        engine.setDirectorEnabled?.(Boolean(on));
         return `director ${on ? 'on' : 'off'}`;
       }
 
