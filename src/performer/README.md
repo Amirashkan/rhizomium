@@ -35,14 +35,47 @@ the standing drives, fires the moves that are due, decides whether the section
 is over, and releases whatever the quantiser was holding for this bar line.
 Everything it does is decided by the scenario you wrote.
 
-**The slow half** — `PerformerDirector` — is asked every sixteen bars (and
-whenever a section changes) what to do over the next stretch. It answers with a
-handful of actions. Its answer carries the clock position it was *asked* at,
-and the engine throws away a plan that arrives more than a few bars late:
-an answer to a moment that has passed is worse than no answer.
+**The slow half** — `PerformerDirector` — is asked what to do over the next
+stretch, and answers with a handful of actions. Its answer carries the moment
+it was *asked* at, and the engine throws away a plan that arrives too late: an
+answer to a moment that has passed is worse than no answer.
+
+*When* it is asked is `DirectorCadence`'s decision, and it is not a bar count.
+A floor bounds what a set can cost; novelty — a texture change, a drop — beats
+the floor's timer; failing both, an interval in seconds. Nothing changing for a
+long time stretches that interval, because asking a model to look at a drone
+every thirty seconds bills you to be told it is still a drone.
 
 Turn the director off and the set still runs, exactly as written. That is the
 intended way to play it the first few times.
+
+## Music with no pulse
+
+Most performer software assumes a beat. This one does not, because most of the
+sets it was built for do not have one.
+
+`MusicalListener` (`src/audio/`) keeps a rolling memory of what the music has
+been *doing* — building or receding, how busy it is, how bright, and above all
+how long the current texture has held — and that is what the director is shown.
+A filter sweep under a constant level moves no meter at all but changes the
+shape of the spectrum, so that is what gets measured.
+
+Tempo is one field in that description rather than the ground under it. When a
+steady beat is really heard, `pulse` reports it. When it is not, `pulse` reports
+`free` and **no number**, which is the honest answer for drone, ambient and
+free improvised material — a detector asked to find a tempo in it will always
+find something, and that something means nothing.
+
+So a scenario for unmetered music is written in seconds rather than bars:
+`{ "seconds": 90 }` for enters and holds, `overSeconds` on moves,
+`"quantize": "onset"` to land a change on the next thing the musician actually
+plays, and `rules.director.everySeconds` for the cadence. `everyBars` still
+works where there are bars — it is converted using the tempo that was *heard*,
+not the one in the BPM box, and falls back to seconds when there is no pulse to
+convert against.
+
+The panel's listening readout tells you which of these you are in, and
+separates "hearing nothing" (a routing problem) from "hearing quiet music".
 
 ## Start here
 
@@ -78,8 +111,8 @@ full shape and `EXAMPLE_SCENARIO` at the bottom of it is a working set.
   "sections": [{
     "id": "build",
     "name": "Build",
-    "enter": { "when": "energy > 0.45" },   // or { "cue": "drop" } | { "bars": 32 } | "manual"
-    "hold":  { "bars": 8 },                 // the floor: nothing ends it sooner
+    "enter": { "when": "energy > 0.45" },   // or { "cue": "drop" } | { "bars": 32 } | { "seconds": 90 } | "manual"
+    "hold":  { "bars": 8 },                 // or { "seconds": 30 } — the floor: nothing ends it sooner
     "look":  { "scene": "build-scene" },    // or { "preset": … } | { "patch": … }
     "transition": { "type": "crossfade", "duration": 1, "quantize": "phrase" },
 
@@ -101,6 +134,7 @@ full shape and `EXAMPLE_SCENARIO` at the bottom of it is a working set.
   // The fence.
   "rules": { "minSectionBars": 4, "allowGraphEdits": false,
              "director": { "enabled": true, "everyBars": 16, "freedom": 0.4 } }
+             //             ...or "everySeconds": 45, on music with no bars
 }
 ```
 
@@ -238,10 +272,13 @@ lit-up button and a 401):
 - **`ai.performer_scenario`** writes a scenario from a brief. Slow, run once at
   a desk. It is told what scenes, presets, parameters and OSC addresses you
   actually have, and told not to invent any others.
-- **`ai.performer_live`** improvises inside one, a few bars at a time. Its
-  quota is **per hour**, not per day: it is the one feature whose spend tracks
-  how long you perform for rather than how many times you press a button. At
-  the default cadence that is something over two hours of set.
+- **`ai.performer_live`** improvises inside one while you play. Its quota is
+  **per hour**, not per day: it is the one feature whose spend tracks how long
+  you perform for rather than how many times you press a button. Each call
+  carries the minutes of set since the last one, so a cadence that reacts to
+  the music does not make the bill unpredictable. (The gallery's grant issuer
+  has to charge those minutes before the allowance itself reads in minutes —
+  see `src/ai/tiers.js`.)
 
 Developing without a gallery: set `AI_DEBUG_MODE` and use the unsigned
 `debug:<feature>` token — `src/ai/debugMode.js`. Everything except the two

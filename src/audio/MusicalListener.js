@@ -270,12 +270,24 @@ export class MusicalListener {
   /**
    * The description. Cached between recomputes — the panel asks at frame rate
    * and nothing in here can change faster than a quarter of a second.
+   *
+   * `time` is optional and is normally left off. Everything here is stamped
+   * with the clock the ANALYSIS runs on, and a caller on a different clock —
+   * a render frame, a test driving the analysis by hand — would otherwise ask
+   * "how long has this held?" in one epoch about observations made in another,
+   * and get an answer that is not wrong so much as meaningless. The audio's own
+   * timeline is the only one every number in here shares, so that is the one it
+   * answers on unless a caller insists otherwise.
    */
   describe(time) {
     // Nothing observed is not the same as silence observed, and the difference
     // matters: one is a room with nothing in it, the other is a dead input.
     if (this._lastObserved === null) return this._emptyDescription();
-    const now = Number.isFinite(time) ? time : this._lastObserved;
+    // Only honour a caller's clock if it is plausibly the same one: ahead of
+    // the last observation, and not by more than a moment.
+    const now = Number.isFinite(time) && time >= this._lastObserved && time - this._lastObserved < 1
+      ? time
+      : this._lastObserved;
     if (this._cached && this._cachedAt !== null && now - this._cachedAt < this.describeInterval) {
       return this._cached;
     }
@@ -296,9 +308,9 @@ export class MusicalListener {
    * marking would each erase the other's reference point.
    */
   mark(time) {
-    const now = Number.isFinite(time) ? time : this._lastObserved;
-    if (now === null) return;
-    const d = this.describe(now);
+    if (this._lastObserved === null) return;
+    const d = this.describe(time);
+    const now = d.at;
     this._mark = {
       at: now,
       // The ABSOLUTE level, not `intensity`. Intensity is measured against a
@@ -616,6 +628,8 @@ export class MusicalListener {
       }));
 
     const description = {
+      /** The moment on the audio clock this describes. */
+      at: now,
       listeningSeconds: this._started === null ? 0 : Math.round(now - this._started),
       dynamics,
       intensity: Math.round(clamp01(shortLevel / ceiling) * 100) / 100,
@@ -674,6 +688,7 @@ export class MusicalListener {
 
   _emptyDescription() {
     return {
+      at: 0,
       listeningSeconds: 0,
       dynamics: 'silent',
       intensity: 0,

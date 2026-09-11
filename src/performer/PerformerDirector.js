@@ -207,7 +207,7 @@ export class PerformerDirector {
     if (state?.listening) return state.listening;
     if (!this.listener) return null;
     try {
-      return this.listener.describe(this.now() / 1000);
+      return this.listener.describe();
     } catch {
       // A listener that throws must not take the set down with it.
       return null;
@@ -235,7 +235,7 @@ export class PerformerDirector {
     // From here on, "since" means since this question — which is the only
     // reference point that makes the next answer about the right stretch of
     // music.
-    try { this.listener?.mark?.(this.now() / 1000); } catch { /* never break the set */ }
+    try { this.listener?.mark?.(); } catch { /* never break the set */ }
 
     const token = this._token;
     const askedAtBeats = state.askedAtBeats;

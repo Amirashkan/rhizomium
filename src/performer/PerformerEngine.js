@@ -938,7 +938,9 @@ export class PerformerEngine {
   listening() {
     if (!this._listening) return null;
     try {
-      return describeMusic(this.nowSeconds());
+      // No time argument: the listener answers on the audio's own clock, which
+      // is the only one its observations were stamped with.
+      return describeMusic();
     } catch {
       return null;
     }
