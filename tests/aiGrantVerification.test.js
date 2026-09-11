@@ -143,6 +143,8 @@ describe('feature configuration', () => {
       'ai.patch_generator',
       'ai.node_generator',
       'ai.creative_director',
+      'ai.performer_scenario',
+      'ai.performer_live',
     ]);
   });
 
@@ -158,12 +160,25 @@ describe('feature configuration', () => {
   });
 
   it('gives every feature a closed schema unless it carries free-form params', () => {
+    // The features whose answers carry objects whose keys are not knowable
+    // from a schema: a node's parameters differ by kind, and a performer
+    // action's fields differ by verb. Strict Structured Outputs forbids the
+    // open `additionalProperties` map both need, so each of these is
+    // guaranteed by a validator on the way in instead —
+    // validateGeneratedPatch() for the patches, normalizeScenario() and
+    // normalizeAction() for the performer.
+    const UNSTRICT = new Set([
+      'ai.patch_refactor',
+      'ai.patch_generator',
+      'ai.performer_scenario',
+      'ai.performer_live',
+    ]);
+
     for (const key of IMPLEMENTED_FEATURES) {
       const config = featureConfig(key);
+      // The ROOT stays closed even for those four: what varies is inside it.
       expect(config.format.schema.additionalProperties).toBe(false);
-      // Only the two patch-bearing features opt out of strict mode.
-      const expectStrict = key !== 'ai.patch_refactor' && key !== 'ai.patch_generator';
-      expect(config.strict).toBe(expectStrict);
+      expect(config.strict).toBe(!UNSTRICT.has(key));
     }
   });
 

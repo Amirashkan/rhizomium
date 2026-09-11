@@ -217,6 +217,27 @@ export const FEATURES = {
     description: 'Long-running direction over a whole piece: sequencing, variation, critique across sessions.',
     metered: true,
   },
+  'ai.performer_scenario': {
+    // With the generative features, because it writes a document the artist
+    // then performs from rather than commenting on one they made.
+    tier: 'cloude',
+    surface: 'editor',
+    label: 'Performance scenario',
+    description: 'Writes a scenario for the AI performer from a brief: sections, cues, and the signals that drive them.',
+    metered: true,
+  },
+  'ai.performer_live': {
+    // The one feature metered against a clock rather than an action: a set
+    // asks every sixteen bars for as long as it runs, so its quota is a
+    // number of CALLS and an artist reads it as "about this many hours of
+    // set". Priced at the top tier because it is the only feature that bills
+    // continuously while the artist is doing something else.
+    tier: 'cloude_plus',
+    surface: 'editor',
+    label: 'Live performer',
+    description: 'Improvises visuals inside a running scenario while you play, a few bars at a time.',
+    metered: true,
+  },
 };
 
 export const FEATURE_KEYS = Object.keys(FEATURES);
@@ -253,6 +274,7 @@ export const QUOTAS = {
     'ai.canvas_assist': { limit: 50, windowSeconds: DAY },
     'ai.patch_generator': { limit: 1, windowSeconds: DAY },
     'ai.node_generator': { limit: 2, windowSeconds: DAY },
+    'ai.performer_scenario': { limit: 2, windowSeconds: DAY },
   },
   cloude_plus: {
     'ai.patch_review': { limit: 12, windowSeconds: DAY },
@@ -261,6 +283,14 @@ export const QUOTAS = {
     'ai.patch_generator': { limit: 3, windowSeconds: DAY },
     'ai.node_generator': { limit: 5, windowSeconds: DAY },
     'ai.creative_director': { limit: 1, windowSeconds: DAY },
+    'ai.performer_scenario': { limit: 5, windowSeconds: DAY },
+    // Per hour, not per day: this is the one feature whose spend tracks how
+    // long the artist performs for rather than how many times they press a
+    // button. At the default cadence of one ask every sixteen bars, 40 covers
+    // something over two hours of set at 128 BPM — and a scenario that asks
+    // more often is a scenario that runs out sooner, which is the honest way
+    // round.
+    'ai.performer_live': { limit: 40, windowSeconds: HOUR },
   },
 };
 

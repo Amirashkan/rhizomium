@@ -34,6 +34,7 @@ export const MENU_TOGGLE_ROWS = [
   { id: 'btn-toggle-console', key: 'console', on: 'Hide Console', off: 'Show Console' },
   { id: 'btn-toggle-timeline', key: 'timeline', on: 'Timeline ✓', off: 'Timeline' },
   { id: 'btn-toggle-vj', key: 'vj', on: 'VJ Control ✓', off: 'VJ Control' },
+  { id: 'btn-toggle-performer', key: 'performer', on: 'AI Performer ✓', off: 'AI Performer' },
   { id: 'btn-toggle-profiler', key: 'profiler', on: 'Compute Profiler ✓', off: 'Compute Profiler' },
   // Tools
   { id: 'btn-mapping-tool', key: 'mapping', on: 'Projection Mapping ✓', off: 'Projection Mapping…' },
