@@ -12,6 +12,11 @@ import {
   getAudioTapValues,
   setAudioTapValues,
 } from '../audio/audioAnalysisTaps.js';
+import {
+  getMusicalListener,
+  musicalListeningWanted,
+  resetMusicalListening,
+} from '../audio/musicalListening.js';
 import { numericParamValue } from './numericParam.js';
 
 /**
@@ -162,8 +167,12 @@ export class AudioAnalysisProcessor {
     const setup = all.find((n) => n?.kind === 'Audio') || null;
     // The panel keeps the analysis running while it is on screen so its meters move before anything
     // has been added — otherwise a threshold would have to be set against a dead readout.
-    if (nodes.length === 0 && !setup && !audioTapsWanted()) {
+    // The performer's director keeps it running too: it is listening to the room
+    // rather than reading a node, and a patch with no Audio node in it is the
+    // normal case for a set driven entirely by a scenario.
+    if (nodes.length === 0 && !setup && !audioTapsWanted() && !musicalListeningWanted()) {
       this._tapState = null;
+      resetMusicalListening();
       // Without this the engine's own steps would keep deciding triggers for a patch that has
       // stopped asking for them.
       this._settings = null;
@@ -245,6 +254,12 @@ export class AudioAnalysisProcessor {
     }
     taps.trigCount = trigCount;
     setAudioTapValues(taps);
+
+    // Fed here rather than polled from the render frame, and for the same
+    // reason the trigger counts exist: this runs on the analysis clock, which
+    // is finer than the frame, so an onset that landed between two frames is
+    // still an onset with a real time on it.
+    if (musicalListeningWanted()) getMusicalListener().observe(clock, taps);
   }
 
   /**
