@@ -159,6 +159,7 @@ export const SHORTCUT_SECTIONS = [
       { id: "btn-toggle-console", label: "Console (Generated WGSL)", keys: "Mod+`" },
       { id: "btn-toggle-timeline", label: "Timeline", keys: "Mod+Alt+T" },
       { id: "btn-toggle-vj", label: "VJ Control", keys: "Mod+Shift+V" },
+      { id: "btn-toggle-performer", label: "AI Performer", keys: "Mod+Alt+R" },
       {
         id: "btn-toggle-profiler",
         label: "Compute Profiler",

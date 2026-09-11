@@ -227,6 +227,13 @@ export const PANEL_REGISTRY = [
     get: () => window.vjControlPanel || null,
   },
   {
+    key: 'performer',
+    label: 'AI Performer',
+    kind: 'workspace',
+    selector: '#performer-panel',
+    get: () => window.performerPanel || null,
+  },
+  {
     key: 'viewport3d',
     label: '3D Viewport',
     kind: 'workspace',
