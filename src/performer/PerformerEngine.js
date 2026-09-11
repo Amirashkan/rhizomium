@@ -59,6 +59,18 @@ const MAX_LOG = 400;
  */
 const MAX_QUANTIZE_WAIT_BARS = 8;
 
+/**
+ * The longest an onset-quantised change will wait for a hit.
+ *
+ * 'onset' is the grid for material with no pulse, which is also material that
+ * can go a long time without anything percussive in it at all. Without a
+ * deadline a change queued during a drone would simply never land, and the
+ * performer would look like it had stopped. Longer than the bar fallback above
+ * because the whole point is to catch the next real event, and shorter than an
+ * audience's patience.
+ */
+const ONSET_QUANTIZE_TIMEOUT_SECONDS = 12;
+
 /** Engine states, for the panel's transport. */
 export const STATE = Object.freeze({
   STOPPED: 'stopped',
@@ -518,6 +530,21 @@ export class PerformerEngine {
     // most obvious way for visuals to read as "not with the music", so the
     // section's own transition grid decides when the change actually happens.
     const grid = section.transition.quantize;
+
+    // Waiting for a hit rather than for a beat line. The bar fallback below is
+    // about a grid whose boundary is too far off; this one has no boundary to
+    // measure, so it carries its own deadline instead.
+    if (grid === 'onset') {
+      this.queue.push({
+        action: { type: 'section', to: section.id, why: jump.source },
+        atOnset: this.onsetCount(),
+        bySeconds: this.clock.seconds + ONSET_QUANTIZE_TIMEOUT_SECONDS,
+        source: jump.source,
+      });
+      this._pendingJump = null;
+      return;
+    }
+
     const wait = this.clock.secondsUntil(grid);
 
     // A boundary this far off means the grid is wrong for this moment, not
@@ -627,6 +654,15 @@ export class PerformerEngine {
     if (!action) return;
 
     const grid = action.quantize;
+    if (grid === 'onset') {
+      this.queue.push({
+        action,
+        atOnset: this.onsetCount(),
+        bySeconds: this.clock.seconds + ONSET_QUANTIZE_TIMEOUT_SECONDS,
+        source,
+      });
+      return;
+    }
     if (grid && grid !== 'off') {
       const wait = this.clock.secondsUntil(grid);
       if (wait > 0) {
@@ -684,11 +720,22 @@ export class PerformerEngine {
     if (!this.queue.length) return;
 
     const beats = this.clock.beats;
+    const seconds = this.clock.seconds;
+    const onsets = this.onsetCount();
     const due = [];
     const waiting = [];
 
     for (const entry of this.queue) {
-      (beats >= entry.atBeats ? due : waiting).push(entry);
+      let ready;
+      if (entry.atOnset !== undefined) {
+        // The next thing the musician actually plays — or the deadline, because
+        // a change held for a hit that never comes is a change that never
+        // happened, and on quiet material that is most of them.
+        ready = onsets > entry.atOnset || seconds >= entry.bySeconds;
+      } else {
+        ready = beats >= entry.atBeats;
+      }
+      (ready ? due : waiting).push(entry);
     }
     this.queue = waiting;
 
@@ -831,6 +878,21 @@ export class PerformerEngine {
       askedAtBeats: this.clock.beats,
       askedAtSeconds: this.nowSeconds(),
     };
+  }
+
+  /**
+   * Every onset heard so far, monotonic, or 0 when nothing is listening.
+   *
+   * Zero rather than null so a scenario that asks for onset quantisation with
+   * the listener off degrades to the deadline — late, but it still lands.
+   */
+  onsetCount() {
+    if (!this._listening) return 0;
+    try {
+      return getMusicalListener().onsetCount;
+    } catch {
+      return 0;
+    }
   }
 
   /** Seconds on the same clock the audio analysis stamps its onsets with. */

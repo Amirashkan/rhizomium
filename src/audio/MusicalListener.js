@@ -203,6 +203,7 @@ export class MusicalListener {
 
     /** Onsets in the pulse window: { t, w }. */
     this._onsets = [];
+    this._onsetCount = 0;
     this._trigSeen = {};
     this._lastOnsetAt = null;
     this._onsetsFlowing = false;
@@ -316,6 +317,17 @@ export class MusicalListener {
     this._cachedAt = null;
   }
 
+  /**
+   * Every onset heard since this listener started, monotonic.
+   *
+   * The counter rather than the event, for the reason the analysis publishes
+   * trigger COUNTS: an onset is an instant, and anything sampling at frame rate
+   * would miss most of them. A reader compares it with the one it last saw.
+   */
+  get onsetCount() {
+    return this._onsetCount;
+  }
+
   /** Whether anything has been heard at all — a dead input is not a quiet room. */
   get hearing() {
     return this._lastObserved !== null && this._long.level.weight > 1e-3;
@@ -339,6 +351,7 @@ export class MusicalListener {
       if (fired <= 0) continue;
       const weight = ONSET_WEIGHTS[name] * Math.max(0.15, clamp01(finite(taps[`${name}Meter`])) || 1);
       for (let i = 0; i < fired; i++) this._onsets.push({ t: time, w: weight });
+      this._onsetCount += fired;
       this._lastOnsetAt = time;
     }
     if (this._onsets.length > PULSE_MAX_ONSETS) {

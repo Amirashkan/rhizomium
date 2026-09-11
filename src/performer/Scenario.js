@@ -43,7 +43,15 @@ export const CURVES = Object.freeze(['linear', 'exponential', 'logarithmic']);
 export const TRANSITION_TYPES = Object.freeze(['crossfade', 'cut', 'fade_black', 'fade_white']);
 
 /** What an action can be quantised to. */
-export const QUANTIZE_GRID = Object.freeze(['off', 'beat', 'half', 'bar', 'phrase']);
+/**
+ * When a change is allowed to land.
+ *
+ * 'off' fires on the spot. The four musical grids need a pulse to mean
+ * anything, so on unmetered material they land somewhere arbitrary — 'onset'
+ * is the one that does not: it waits for the next thing the musician actually
+ * plays, which is the only boundary free material has.
+ */
+export const QUANTIZE_GRID = Object.freeze(['off', 'onset', 'beat', 'half', 'bar', 'phrase']);
 
 /**
  * Ceilings, so one bad scenario cannot make the engine the slow part of a

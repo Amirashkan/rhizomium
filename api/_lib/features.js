@@ -816,7 +816,7 @@ The musician plays and sends signals — OSC from their DAW, plus audio the edit
 
 **rules** — the fence. Keep minSectionBars at 4 or more.
 
-**Does this set have a pulse?** Metered music — a kick on the beat — is written in bars. Ambient, drone, noise and free improvised music has no tempo to count against, so a bar number is a guess: write those entirely in seconds ({"seconds":N} for holds and enters, "overSeconds" on moves, "quantize":"free" or "onset", rules.director.everySeconds, minSectionBars 0). Say which you chose in the note.
+**Does this set have a pulse?** Metered music — a kick on the beat — is written in bars. Ambient, drone, noise and free improvised music has no tempo to count against, so a bar number is a guess: write those entirely in seconds ({"seconds":N} for holds and enters, "overSeconds" on moves, "quantize":"onset" or "off", rules.director.everySeconds, minSectionBars 0). Say which you chose in the note.
 
 Write it like someone who has played a set:
 
@@ -954,7 +954,7 @@ Name only nodes, parameters, scenes, presets, signals and sections that appear i
 
 The signals are readings of this instant; "listening" is what the music has been DOING over the last seconds and minutes. Its most useful number is "texture.heldSeconds": two minutes unchanged and four seconds after a change want opposite things from you. "events" (texture-change, drop, swell, silence, onset-stop) say what happened and how long ago, and "since" says what has changed since you were last asked.
 
-"pulse.state" is "metered" only when a steady beat was really heard, and then "pulse.bpm" is real. When it is "free" there is no beat and no bars: do not reason in bars or phrases and do not use "overBars", because the bar counter is running off a default tempo nobody is playing to. Use "overSeconds" and time against the music itself — hold until the texture changes, move while it is building, settle once it has held. Free is the normal case for ambient, drone and improvised sets, not a degraded one.
+"pulse.state" is "metered" only when a steady beat was really heard, and then "pulse.bpm" is real. When it is "free" there is no beat and no bars: do not reason in bars or phrases and do not use "overBars", because the bar counter is running off a default tempo nobody is playing to. Use "overSeconds", and "quantize":"onset" to land a change on the next thing the musician plays rather than on a bar line that is not there. Free is the normal case for ambient, drone and improvised sets, not a degraded one.
 
 How to play:
 
