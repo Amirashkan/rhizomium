@@ -172,10 +172,22 @@ export class CameraController {
 
     /**
      * Handle context menu (prevent on right-click)
+     *
+     * The right button zooms, and the zoom is released by the document mouseup
+     * bound in handleMouseDown. On Windows that mouseup is never delivered:
+     * Chromium runs the native context menu in a nested message loop that
+     * consumes it (crbug 40935507), so in the desktop build a right-drag here
+     * left isZooming set and the camera went on zooming with every later mouse
+     * move. `buttons` says which platform we are on — still held means the real
+     * mouseup is coming, already released means it has been eaten and this is
+     * the last word we get about the gesture.
      */
     handleContextMenu(event) {
         if (!this.enabled) return;
         event.preventDefault();
+        if (this.isZooming && (event.buttons & 2) === 0) {
+            this.handleMouseUp(event);
+        }
     }
 
     /**
