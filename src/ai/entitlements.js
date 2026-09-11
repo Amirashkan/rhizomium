@@ -306,11 +306,31 @@ export class EntitlementsClient {
    * quota and expires five minutes out. Resolves with the grant payload, or
    * throws a GrantError carrying the gallery's reason.
    */
-  async requestGrant(feature) {
+  /**
+   * @param {string} feature
+   * @param {object} [options]
+   * @param {number} [options.units] how much of the allowance this call spends.
+   *
+   * Units exist for one feature. Every other AI action is a button an artist
+   * pressed, and one press costs one action. The live performer is not: it
+   * runs for as long as a set does, at a cadence that now varies with the
+   * music, so counting its CALLS measures how interesting the music was rather
+   * than how long the artist performed. Minutes of performance is the number
+   * an artist can actually reason about before they start.
+   *
+   * A gallery that does not know about units ignores the field and charges one
+   * per call exactly as before, which is why this is safe to send today.
+   */
+  async requestGrant(feature, options = {}) {
     // The whole point of the mode: no quota spent, no tier refused, no round
     // trip to a gallery that may not be running. The token this returns is
     // only worth anything against a backend with AI_DEBUG_MODE set.
     if (isAIDebugMode()) return debugGrant(feature);
+
+    const units = Number(options.units);
+    const request = Number.isFinite(units) && units > 1
+      ? { feature, units: Math.min(Math.round(units), 60) }
+      : { feature };
 
     let res;
     try {
@@ -322,7 +342,7 @@ export class EntitlementsClient {
           Accept: 'application/json',
           ...desktopAuthHeaders(),
         },
-        body: JSON.stringify({ feature }),
+        body: JSON.stringify(request),
       });
     } catch {
       throw new GrantError(

@@ -248,4 +248,58 @@ describe('PerformerDirector', () => {
       expect(input.bpm).toBe(128);
     });
   });
+
+  // The one feature billed against a clock rather than a button. What it
+  // charges has to track how long the artist performed, not how eventful the
+  // music happened to be — those came apart the moment the cadence started
+  // reacting to the music.
+  describe('what a set costs', () => {
+    it('charges one minute for the first call of a session', async () => {
+      director.setEnabled(true);
+      director.offer(state());
+      expect(run.mock.calls[0][2]).toEqual({ units: 1 });
+      expect(director.minutesSpent).toBe(1);
+    });
+
+    it('charges the minutes since the last call, not one per call', async () => {
+      director.setEnabled(true);
+      director.offer(state());
+      await Promise.resolve();
+      director.take();
+
+      // Three minutes of set went by before the next question.
+      clock.now += 3 * 60_000;
+      director.offer(state());
+
+      expect(run.mock.calls[1][2]).toEqual({ units: 3 });
+      expect(director.minutesSpent).toBe(4);
+    });
+
+    it('never charges for a gap nobody performed', async () => {
+      director.setEnabled(true);
+      director.offer(state());
+      await Promise.resolve();
+      director.take();
+
+      // The laptop slept between soundcheck and doors.
+      clock.now += 4 * 60 * 60_000;
+      director.offer(state());
+
+      expect(run.mock.calls[1][2].units).toBeLessThanOrEqual(5);
+    });
+
+    it('does not charge for the time it was switched off', async () => {
+      director.setEnabled(true);
+      director.offer(state());
+      await Promise.resolve();
+      director.take();
+
+      director.setEnabled(false);
+      clock.now += 30 * 60_000;
+      director.setEnabled(true);
+      director.offer(state());
+
+      expect(run.mock.calls[1][2]).toEqual({ units: 1 });
+    });
+  });
 });

@@ -488,7 +488,7 @@ export class PerformerPanel {
       : director.thinking
         ? 'thinking…'
         : director.enabled
-          ? `${director.calls} call${director.calls === 1 ? '' : 's'}${why}${next}`
+          ? `${director.minutesSpent || 0} min${why}${next}`
           : 'off';
     this.directorStatus.dataset.error = director.lastError ? 'true' : 'false';
     this.directorNote.textContent = director.lastNote || '';

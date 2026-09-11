@@ -241,6 +241,38 @@ describe('EntitlementsClient', () => {
     expect(client.featureState('ai.patch_generator').remaining).toBe(87);
   });
 
+  // The live performer spends minutes of set, not button presses. A gallery
+  // that has not learned about units ignores the field and charges one per
+  // call, which is what makes sending it safe before the server side lands.
+  it('carries units for a feature metered against a clock', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(LIVE_ENTITLEMENTS))
+      .mockResolvedValueOnce(
+        jsonResponse({ granted: true, grant: 'body.sig', feature: 'ai.patch_generator', used: 13, limit: 100 })
+      );
+
+    await client.load();
+    await client.requestGrant('ai.patch_generator', { units: 4 });
+
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      feature: 'ai.patch_generator',
+      units: 4,
+    });
+  });
+
+  it('leaves units off a call that spends the usual single action', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(LIVE_ENTITLEMENTS))
+      .mockResolvedValueOnce(
+        jsonResponse({ granted: true, grant: 'body.sig', feature: 'ai.patch_generator', used: 13, limit: 100 })
+      );
+
+    await client.load();
+    await client.requestGrant('ai.patch_generator', { units: 1 });
+
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ feature: 'ai.patch_generator' });
+  });
+
   it('reports a 402 as an upsell, not an error', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(LIVE_ENTITLEMENTS))

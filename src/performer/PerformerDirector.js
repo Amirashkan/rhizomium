@@ -56,6 +56,17 @@ const BACKOFF_MAX_MS = 5 * 60_000;
 /** Most actions a single live plan may carry. Past this it is not a plan. */
 const MAX_PLAN_ACTIONS = 8;
 
+/**
+ * The most minutes one call may charge for.
+ *
+ * The gap between two questions is normally under a minute and at worst the
+ * boredom cap, so this is not a limit the cadence can reach on its own. It is
+ * there for the gap it cannot see: a set paused for an encore, a laptop asleep
+ * between soundcheck and doors. Charging for that is charging for time nobody
+ * performed.
+ */
+const MAX_UNITS_PER_CALL = 5;
+
 export class PerformerDirector {
   /**
    * @param {object} [options]
@@ -100,8 +111,21 @@ export class PerformerDirector {
     this.lastNote = '';
     this.calls = 0;
 
+    /**
+     * Wall-clock of the previous live call, so each one can spend the minutes
+     * of performance since the last rather than a flat one-per-call.
+     *
+     * Null until the first call of a session: that one spends a single minute
+     * whatever the cadence works out to, because there is no stretch of set
+     * before it to charge for.
+     */
+    this._lastCallAt = null;
+
     /** Free text from the artist: "keep it dark", "more strobe". Sent with every ask. */
     this.steer = '';
+
+    /** Minutes of performance charged for so far, for the panel's readout. */
+    this.minutesSpent = 0;
   }
 
   /** Turn the live director on or off mid-set. */
@@ -111,8 +135,27 @@ export class PerformerDirector {
     if (!this.enabled) this.discard('director switched off');
     // Switched on mid-set: start the cadence from here, so the warm-up applies
     // and the first question is asked about music it has actually heard.
-    if (this.enabled && !was) this.cadence.reset();
+    if (this.enabled && !was) {
+      this.cadence.reset();
+      // Switched off and on again: the time in between was not performed, and
+      // the next call must not charge for it.
+      this._lastCallAt = null;
+    }
     return this.enabled;
+  }
+
+  /**
+   * Minutes of performance this call is charged for.
+   *
+   * The stretch of set since the last question, rounded up, because part of a
+   * minute of someone's show is still their show. Capped so a set left running
+   * overnight — or a director switched on, forgotten, and come back to — cannot
+   * present the artist with a bill for the gap.
+   */
+  _unitsToSpend() {
+    if (this._lastCallAt === null) return 1;
+    const minutes = (this.now() - this._lastCallAt) / 60_000;
+    return Math.max(1, Math.min(MAX_UNITS_PER_CALL, Math.ceil(minutes)));
   }
 
   /** Hand the director the listening memory. The engine does this when it is on. */
@@ -198,11 +241,15 @@ export class PerformerDirector {
     const askedAtBeats = state.askedAtBeats;
     const askedAtSeconds = state.askedAtSeconds;
 
+    const units = this._unitsToSpend();
+    this._lastCallAt = this._inFlightAt;
+    this.minutesSpent += units;
+
     const request = this.run(LIVE_FEATURE, {
       state: compactState(state, heard),
       steer: this.steer,
       freedom: state.scenario.rules.director.freedom,
-    })
+    }, { units })
       .then(({ result }) => {
         // A discard while this was in the air means the musician has since made
         // a decision. Answering it now would be overriding them.
@@ -317,6 +364,7 @@ export class PerformerDirector {
       thinking: Boolean(this._inFlight),
       ready: Boolean(this._ready),
       calls: this.calls,
+      minutesSpent: this.minutesSpent,
       failures: this._failures,
       lastError: this.lastError,
       lastNote: this.lastNote,
