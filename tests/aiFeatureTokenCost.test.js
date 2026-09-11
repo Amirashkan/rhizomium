@@ -106,15 +106,22 @@ describe('the token cost of every AI feature', () => {
     // caching worth having. If these ever diverge by much, one feature has
     // grown its own preamble.
     //
-    // The spread is ~310 tokens today, and two features own it: the patch
-    // generator's task text says which capability to reach for, and the
-    // director's says what makes an arc worth applying. Both are the one thing
-    // that genuinely belongs to that feature rather than to every feature —
-    // the arc rules would cost five other features tokens they cannot use.
-    // Anything beyond this is a preamble to move into sharedContext().
+    // The spread is ~700 tokens today and the two performer features own it.
+    // The live performer's share is the larger and the newer: it is told what
+    // the "listening" block means and, more to the point, that a "free" pulse
+    // means there are no bars to plan in. That paragraph is the difference
+    // between a model that co-performs and one that confidently times a move
+    // over sixteen bars of a drone — and it is useless to the six features
+    // that never see a performance, which is exactly why it lives here rather
+    // than in sharedContext().
+    //
+    // The bound was 400 before that landed. Raising it is a decision, not a
+    // formality: every token here is paid on each of a live director's calls,
+    // and a set asks a lot of them. Anything that grows this further wants to
+    // justify itself the same way or move into sharedContext().
     const system = ranges.map((range) => range.input.system);
     const spread = Math.max(...system) - Math.min(...system);
-    expect(spread).toBeLessThan(400);
+    expect(spread).toBeLessThan(750);
   });
 
   it('keeps the shared prompt under 9,000 tokens', () => {

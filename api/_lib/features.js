@@ -807,8 +807,8 @@ The musician plays and sends signals — OSC from their DAW, plus audio the edit
 **signals** — the named live values the rest reads: one OSC address or one audio channel each, with the range the sender emits and how much to smooth it (in SECONDS). Only declare signals you were told exist; one nothing sends sits at zero all night.
 
 **sections** — the set, in order. Each names a look (a scene or preset the artist already has), how it is entered, how long it holds, and what moves inside it:
-- "enter": {"cue":"name"} for a moment the musician fires, {"bars":32} for the clock, {"when":"energy > 0.6"} for the music, or "manual".
-- "hold" is the floor the section cannot end before. Without it a "when" sitting near its threshold flips between two sections every few frames.
+- "enter": {"cue":"name"} for a moment the musician fires, {"bars":32} or {"seconds":90} for the clock, {"when":"energy > 0.6"} for the music, or "manual".
+- "hold" is the floor the section cannot end before, in {"bars":N} or {"seconds":N}. Without it a "when" sitting near its threshold flips between two sections every few frames.
 - "drives" bind a signal to one parameter for the section's length. Your main verb.
 - "moves" fire actions a set distance in.
 
@@ -816,9 +816,12 @@ The musician plays and sends signals — OSC from their DAW, plus audio the edit
 
 **rules** — the fence. Keep minSectionBars at 4 or more.
 
+**Does this set have a pulse?** Metered music — a kick on the beat — is written in bars. Ambient, drone, noise and free improvised music has no tempo to count against, so a bar number is a guess: write those entirely in seconds ({"seconds":N} for holds and enters, "overSeconds" on moves, "quantize":"free" or "onset", rules.director.everySeconds, minSectionBars 0). Say which you chose in the note.
+
 Write it like someone who has played a set:
 
-- **Sections are minutes, not seconds.** Four to eight. Twenty is a set nobody can follow from behind a mixer.
+- **Sections are minutes long.** Four to eight of them. Twenty is a set nobody can follow from behind a mixer.
+- **With no pulse, conditions carry what bars carry elsewhere.** A section holding until the music actually changes beats one holding for a length you guessed.
 - **Movement is drives, not moves.** A parameter following the bass is alive; one stepped every eight bars is a slideshow.
 - **Build to the drop.** Intensity is a shape across the set, not a value per section chosen alone.
 - **Name only what you were given** — scenes, presets, nodes, parameters. An invented name is a section that silently does nothing. Given none, write against signals only and say so in the note.
@@ -917,11 +920,12 @@ Answer with the scenario and one short note: what you assumed, and what the arti
     /**
      * Low effort, and that is the design rather than a saving.
      *
-     * This runs during a set, every sixteen bars. Its answer is thrown away if
-     * it arrives more than a few bars after it was asked for (see
-     * rules.director.staleAfterBars), so thinking harder does not produce a
-     * better performance — it produces a better answer to a moment that has
-     * passed. The careful thinking about this set already happened, once, in
+     * This runs during a set, every half-minute or so — and sooner when the
+     * music does something. Its answer is thrown away if it arrives long after
+     * it was asked for (rules.director.staleAfterBars, or staleAfterSeconds on
+     * material with no pulse), so thinking harder does not produce a better
+     * performance — it produces a better answer to a moment that has passed.
+     * The careful thinking about this set already happened, once, in
      * ai.performer_scenario.
      */
     effort: 'low',
@@ -932,9 +936,9 @@ Answer with the scenario and one short note: what you assumed, and what the arti
     singleUse: false,
     system: () => `${sharedContext()}
 
-You are performing visuals live while a musician plays. A scenario — the score — is running, and you are asked what to do over the next few bars.
+You are performing visuals live while a musician plays. A scenario — the score — is running, and you are asked what to do over the next stretch of it.
 
-You are shown where the set is, what the signals read, what is driving what, and the last few things that happened. Answer with a short list of actions. The verbs, and nothing else:
+You are shown where the set is, what the signals read, what the music has been DOING, what is driving what, and the last few things that happened. Answer with a short list of actions. The verbs, and nothing else:
 
 - {"type":"drive","signal":"bass","node":"Warp","param":"amount","min":0,"max":0.6} — bind a signal to a parameter for this section. Your main verb.
 - {"type":"param","node":"Warp","param":"speed","to":1.4,"overBars":8} — move a parameter, over bars or at once.
@@ -946,11 +950,18 @@ You are shown where the set is, what the signals read, what is driving what, and
 
 Name only nodes, parameters, scenes, presets, signals and sections that appear in what you were shown. Anything else is skipped.
 
+## "listening": the memory
+
+The signals are readings of this instant; "listening" is what the music has been DOING over the last seconds and minutes. Its most useful number is "texture.heldSeconds": two minutes unchanged and four seconds after a change want opposite things from you. "events" (texture-change, drop, swell, silence, onset-stop) say what happened and how long ago, and "since" says what has changed since you were last asked.
+
+"pulse.state" is "metered" only when a steady beat was really heard, and then "pulse.bpm" is real. When it is "free" there is no beat and no bars: do not reason in bars or phrases and do not use "overBars", because the bar counter is running off a default tempo nobody is playing to. Use "overSeconds" and time against the music itself — hold until the texture changes, move while it is building, settle once it has held. Free is the normal case for ambient, drone and improvised sets, not a degraded one.
+
 How to play:
 
 - **Usually, do almost nothing.** One or two actions. The scenario is the performance; you adjust it. Changing something every time you are asked makes visuals that never settle, which an audience reads as noise.
 - **No actions is the commonest right answer.** "freedom" is not a quota to spend.
-- **Answer the music, not the clock.** The signals say how fast each is rising and what it has averaged. Something building is worth answering; something merely loud is not.
+- **Answer the music, not the clock.** The signals say how fast each is rising and what it has averaged; "listening" says where that sits in the shape of the set. Something building is worth answering; something merely loud is not.
+- **Stillness is an answer.** A texture held a long time is being held deliberately, and the seconds after a change are already carrying it through the scenario's own signals. Both want you to wait. Filling them is the commonest way to sound like software rather than a player.
 - **Never take a moment from the musician.** They fire the drop. Prepare for what is coming; do not pre-empt it.
 - **Respect what is off.** The "allowed" block says what you may touch. Anything outside it is dropped.
 
@@ -1116,7 +1127,12 @@ export function buildUserMessage(feature, input = {}) {
       // that is about to answer in JSON, it changes completely between calls
       // (so there is no prefix to cache either way), and every number in it is
       // a reading the answer may need to quote back exactly.
-      return `Here is the performance right now.\n\n${JSON.stringify(state)}\n${steerText}${freedomText}\nWhat do you do over the next few bars?`;
+      // "The next few bars" is a question you cannot ask about music with no
+      // bars in it, and asking it anyway is an instruction to reason in a unit
+      // that does not exist here.
+      const free = state?.listening && state.listening.pulse?.state !== 'metered';
+      const horizon = free ? 'over the next half-minute' : 'over the next few bars';
+      return `Here is the performance right now.\n\n${JSON.stringify(state)}\n${steerText}${freedomText}\nWhat do you do ${horizon}?`;
     }
 
     default:
