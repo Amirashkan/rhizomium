@@ -207,6 +207,17 @@ export class DirectorCadence {
     this._tokens = Math.max(0, this._tokens - 1);
   }
 
+  /**
+   * Give back a question that was never asked.
+   *
+   * The budget exists to bound spend, so a call the gallery refused before it
+   * cost anything must not come out of it. Capped at the burst like every
+   * other refill, so a run of refusals cannot bank credit.
+   */
+  refund() {
+    this._tokens = Math.min(this.burst, this._tokens + 1);
+  }
+
   status() {
     const now = this.now();
     return {

@@ -126,6 +126,9 @@ export class PerformerDirector {
 
     /** Minutes of performance charged for so far, for the panel's readout. */
     this.minutesSpent = 0;
+
+    /** Units a call in flight will cost, counted once it is known to be spent. */
+    this._pendingUnits = 0;
   }
 
   /** Turn the live director on or off mid-set. */
@@ -241,9 +244,11 @@ export class PerformerDirector {
     const askedAtBeats = state.askedAtBeats;
     const askedAtSeconds = state.askedAtSeconds;
 
+    // Counted only once the allowance has actually been spent — see
+    // _noteFailure(). A grant the gallery refuses costs the artist nothing, and
+    // a readout that says otherwise is worse than no readout.
     const units = this._unitsToSpend();
-    this._lastCallAt = this._inFlightAt;
-    this.minutesSpent += units;
+    this._pendingUnits = units;
 
     const request = this.run(LIVE_FEATURE, {
       state: compactState(state, heard),
@@ -257,6 +262,7 @@ export class PerformerDirector {
         this._inFlight = null;
         this._failures = 0;
         this.lastError = null;
+        this._spend(units);
 
         const plan = shapePlan(result, askedAtBeats, askedAtSeconds);
         if (!plan) return;
@@ -300,6 +306,19 @@ export class PerformerDirector {
     if (why) this.log('info', `Director: ${why}`);
   }
 
+  /**
+   * The allowance this call actually cost.
+   *
+   * The grant is issued before the model runs, so a backend failure still
+   * costs the artist (see AIRequestError.quotaSpent) — but a grant the gallery
+   * REFUSED costs nothing, and that is the one case that must not be counted.
+   */
+  _spend(units) {
+    this.minutesSpent += units;
+    this._lastCallAt = this._inFlightAt;
+    this._pendingUnits = 0;
+  }
+
   _noteFailure(error) {
     this._failures++;
     this._nextAllowedAt = this.now()
@@ -308,11 +327,21 @@ export class PerformerDirector {
     if (error instanceof GrantError) {
       // Out of quota or the wrong tier is not a transient fault: say it once
       // and stop asking rather than burning the rest of the set on refusals.
+      //
+      // Nothing was spent: the gallery refused before a grant was issued. So
+      // the minutes are not counted, and the cadence gets its budget back —
+      // otherwise an artist who fixes their subscription mid-set would find
+      // the director rationing itself against calls that never happened.
+      this._pendingUnits = 0;
+      this.cadence.refund();
       this.lastError = error.message;
       this.enabled = false;
       this.log('error', `Director stopped: ${error.message}`);
       return;
     }
+
+    // Anything else got past the gallery, so the allowance went with it.
+    if (this._pendingUnits) this._spend(this._pendingUnits);
 
     this.lastError = error instanceof AIRequestError || error instanceof Error
       ? error.message

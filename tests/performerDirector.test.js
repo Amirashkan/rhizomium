@@ -254,10 +254,52 @@ describe('PerformerDirector', () => {
   // music happened to be — those came apart the moment the cadence started
   // reacting to the music.
   describe('what a set costs', () => {
+    it('charges nothing for a grant the gallery refused', async () => {
+      // A 403 means no grant was issued, so nothing was spent — and a readout
+      // that claims otherwise is worse than no readout.
+      run.mockReturnValue(Promise.reject(new GrantError('no tier', { code: 'tier' })));
+      director.setEnabled(true);
+      director.offer(state());
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(director.minutesSpent).toBe(0);
+      expect(director.enabled).toBe(false);
+    });
+
+    it('gives the cadence its budget back when nothing was spent', async () => {
+      run.mockReturnValue(Promise.reject(new GrantError('no tier', { code: 'tier' })));
+      director.setEnabled(true);
+      const before = director.cadence.status().budgetLeft;
+      director.offer(state());
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(director.cadence.status().budgetLeft).toBe(before);
+    });
+
+    it('still charges when the call got past the gallery and then failed', async () => {
+      // The grant is issued before the model runs, so a backend failure costs
+      // the artist an action whether or not an answer came back.
+      run.mockReturnValue(Promise.reject(new Error('backend exploded')));
+      director.setEnabled(true);
+      director.offer(state());
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(director.minutesSpent).toBe(1);
+    });
+
     it('charges one minute for the first call of a session', async () => {
       director.setEnabled(true);
       director.offer(state());
       expect(run.mock.calls[0][2]).toEqual({ units: 1 });
+
+      // Counted when the call comes back, not when it is sent: until then
+      // nobody knows whether the gallery let it through.
+      expect(director.minutesSpent).toBe(0);
+      await Promise.resolve();
+      await Promise.resolve();
       expect(director.minutesSpent).toBe(1);
     });
 
@@ -270,6 +312,8 @@ describe('PerformerDirector', () => {
       // Three minutes of set went by before the next question.
       clock.now += 3 * 60_000;
       director.offer(state());
+      await Promise.resolve();
+      await Promise.resolve();
 
       expect(run.mock.calls[1][2]).toEqual({ units: 3 });
       expect(director.minutesSpent).toBe(4);
