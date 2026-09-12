@@ -12,6 +12,8 @@ import {
   MIN_SECONDS,
   DEFAULT_EVERY_SECONDS,
   BOREDOM_CAP_SECONDS,
+  DEFAULT_CALLS_PER_HOUR,
+  BURST,
 } from '../src/performer/DirectorCadence.js';
 
 /** A listening description with only the fields the cadence reads. */
@@ -175,5 +177,106 @@ describe('DirectorCadence', () => {
     cadence.noteAsked('first');
     cadence.reset();
     expect(cadence.shouldAsk(null, state())).toMatchObject({ reason: 'first' });
+  });
+
+  // The bound that actually decides what a set costs. The floor above spaces
+  // two questions; it does nothing about a hundred and eighty of them.
+  describe('the budget', () => {
+    /** Ask as hard as the floor allows for `minutes`, and count what got through. */
+    function hammer(cadence, minutes, s = state()) {
+      const storm = heard({
+        events: [event('texture-change', 1), event('drop', 0.5)],
+        heldSeconds: 2,
+      });
+      let asks = 0;
+      for (let t = 0; t < minutes * 60; t += 5) {
+        clock.now += 5;
+        // Keep the events "since the last ask" at every step.
+        if (cadence.shouldAsk(storm, s)) {
+          cadence.noteAsked('novelty');
+          asks += 1;
+        }
+      }
+      return asks;
+    }
+
+    it('holds an hour of constantly changing music to the allowance', () => {
+      // Without the budget this is 180 calls against an allowance of 40, and
+      // the artist runs dry half an hour into the set.
+      const asks = hammer(cadence, 60);
+      expect(asks).toBeLessThanOrEqual(DEFAULT_CALLS_PER_HOUR + BURST);
+      expect(asks).toBeGreaterThan(DEFAULT_CALLS_PER_HOUR / 2);
+    });
+
+    it('spends a burst when the music suddenly changes, rather than sitting out', () => {
+      // The first minute of a busy passage is exactly when a co-performer
+      // earns its keep; a flat rate limit would make it miss that.
+      const asks = hammer(cadence, 2);
+      expect(asks).toBeGreaterThanOrEqual(BURST);
+    });
+
+    it('refuses rather than asks once the budget is gone, and says so', () => {
+      // Ten minutes of relentless change. The floor alone would allow thirty
+      // questions in that time; the budget covers about twelve, so the rest
+      // was held back — and the panel has to be able to say so.
+      hammer(cadence, 10);
+      const status = cadence.status();
+      expect(status.heldBack).toBeGreaterThan(0);
+      expect(status.budgetLeft).toBeLessThan(BURST);
+    });
+
+    it('says how long until it can afford the next one', () => {
+      // Drained by asking at the floor until it refuses, rather than by
+      // spending a fixed count: the bucket refills while it is being emptied,
+      // so "spent the burst" and "out of budget" are not the same moment.
+      const storm = heard({ events: [event('drop', 1)], heldSeconds: 2 });
+      let refused = false;
+      for (let i = 0; i < 50 && !refused; i++) {
+        clock.now += MIN_SECONDS + 1;
+        if (cadence.shouldAsk(storm, state())) cadence.noteAsked('novelty');
+        else refused = true;
+      }
+
+      expect(refused).toBe(true);
+      const status = cadence.status();
+      expect(status.budgetLeft).toBe(0);
+      expect(status.budgetInSeconds).toBeGreaterThan(0);
+      // At 40 an hour, one question is ninety seconds away at the very most.
+      expect(status.budgetInSeconds).toBeLessThanOrEqual(90);
+    });
+
+    it('comes back once the budget has refilled', () => {
+      hammer(cadence, 2);
+      expect(cadence.shouldAsk(heard({ events: [event('drop', 1)] }), state())).toBeNull();
+
+      // One question's worth of refill at 40/hour is 90 seconds.
+      clock.now += 95;
+      expect(cadence.shouldAsk(heard({ events: [event('drop', 1)] }), state())).toMatchObject({
+        reason: 'novelty',
+      });
+    });
+
+    it('takes a budget from the scenario', () => {
+      const generous = state({ maxPerHour: 200 });
+      const asks = hammer(cadence, 60, generous);
+      expect(asks).toBeGreaterThan(DEFAULT_CALLS_PER_HOUR + BURST);
+      expect(cadence.status().callsPerHour).toBe(200);
+    });
+
+    // A section change asks without consulting the cadence at all, and still
+    // costs the artist a call.
+    it('charges for an ask the cadence never suggested', () => {
+      const before = cadence.status().budgetLeft;
+      cadence.noteAsked('section');
+      expect(cadence.status().budgetLeft).toBe(before - 1);
+    });
+
+    it('starts a new set with a full budget', () => {
+      hammer(cadence, 2);
+      expect(cadence.status().budgetLeft).toBeLessThan(BURST);
+      cadence.reset();
+      expect(cadence.status().budgetLeft).toBe(BURST);
+      expect(cadence.status().heldBack).toBe(0);
+    });
   });
 });

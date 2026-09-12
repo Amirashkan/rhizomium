@@ -11,8 +11,9 @@
  *
  * So the cadence is decided from three things instead, in this order:
  *
- *   a floor      never more often than this, whatever happens. The spend is
- *                bounded here and nowhere else.
+ *   a budget     questions an hour, refilling steadily and spendable in a
+ *                burst. This is what bounds the spend.
+ *   a floor      never more often than this, whatever happens.
  *   novelty      the texture changed, the level dropped, something swelled —
  *                ask now rather than at the next tick of a timer. This is the
  *                whole difference between a co-performer and an alarm clock.
@@ -29,8 +30,36 @@
  * count on music with no bars.
  */
 
-/** Never ask more often than this, for any reason. The hard bound on spend. */
+/** Never ask more often than this, for any reason. */
 export const MIN_SECONDS = 20;
+
+/**
+ * Questions an hour, sustained. THE bound on what a set costs.
+ *
+ * The floor above is not that bound and never was: it spaces two questions,
+ * but music that keeps changing trips the novelty rule over and over, and
+ * twenty seconds apart for an hour is a hundred and eighty calls. The
+ * allowance is forty (src/ai/tiers.js). An artist would have run out half an
+ * hour into the set, in the middle of it, with no warning — and the fixed
+ * cadence this replaced was worse: sixteen bars at 128 BPM is thirty seconds,
+ * a hundred and twenty an hour, against the same forty.
+ *
+ * So the budget is modelled rather than hoped for. It refills steadily and is
+ * spent in bursts, which is the shape the music actually has: a flurry of
+ * questions while something is happening, then quiet while it settles.
+ */
+export const DEFAULT_CALLS_PER_HOUR = 40;
+
+/**
+ * How many questions may be asked back to back before the refill sets the pace.
+ *
+ * This is the whole reason for a bucket rather than a plain rate limit. A drop
+ * lands and the music changes three times in a minute: that is when a
+ * co-performer is worth having, and a flat one-every-ninety-seconds would make
+ * it sit out exactly then. Six is about a minute and a half of continuous
+ * change, paid for by the quiet either side of it.
+ */
+export const BURST = 6;
 
 /** The default cadence when a scenario does not name one. */
 export const DEFAULT_EVERY_SECONDS = 45;
@@ -61,11 +90,19 @@ export class DirectorCadence {
   constructor(options = {}) {
     this.now = options.now || (() => Date.now() / 1000);
     this.minSeconds = options.minSeconds ?? MIN_SECONDS;
+    this.burst = options.burst ?? BURST;
 
     this._startedAt = null;
     this._lastAskedAt = null;
     this._lastReason = null;
     this._interval = DEFAULT_EVERY_SECONDS;
+
+    /** Questions in hand. Starts full: a set opens able to react. */
+    this._tokens = this.burst;
+    this._refilledAt = null;
+    this._callsPerHour = DEFAULT_CALLS_PER_HOUR;
+    /** Asks the budget refused, so the panel can say the allowance ran out. */
+    this.heldBack = 0;
   }
 
   /** Forget the cadence — a new set, or a director just switched on. */
@@ -73,6 +110,9 @@ export class DirectorCadence {
     this._startedAt = null;
     this._lastAskedAt = null;
     this._lastReason = null;
+    this._tokens = this.burst;
+    this._refilledAt = null;
+    this.heldBack = 0;
   }
 
   /**
@@ -88,6 +128,7 @@ export class DirectorCadence {
 
     const interval = this._intervalFor(description, state);
     this._interval = interval;
+    this._refill(now, state);
 
     // Never asked yet: hear a little of the room first, so the first question
     // is not spent on a description that says "nothing heard yet".
@@ -99,23 +140,71 @@ export class DirectorCadence {
     if (this._lastAskedAt === null) {
       const heard = description?.listeningSeconds;
       if (Number.isFinite(heard) && heard < WARMUP_SECONDS) return null;
-      return { reason: 'first', interval };
+      return this._afford({ reason: 'first', interval });
     }
 
     const elapsed = now - this._lastAskedAt;
     if (elapsed < this.minSeconds) return null;
 
-    if (this._novelSince(description, elapsed)) return { reason: 'novelty', interval };
-    if (elapsed >= interval) return { reason: 'interval', interval };
+    if (this._novelSince(description, elapsed)) return this._afford({ reason: 'novelty', interval });
+    if (elapsed >= interval) return this._afford({ reason: 'interval', interval });
     return null;
+  }
+
+  /**
+   * Let an ask through only if the budget covers it.
+   *
+   * Deliberately the last gate rather than the first: everything above decides
+   * whether the music warrants a question, and this decides whether it can be
+   * afforded. Keeping them apart is what makes the readout honest — "the music
+   * did something and I could not afford to look" is a different thing to tell
+   * an artist than "nothing happened", and it is the one that means their
+   * allowance is the problem.
+   */
+  _afford(due) {
+    if (this._tokens < 1) {
+      this.heldBack += 1;
+      return null;
+    }
+    return due;
+  }
+
+  /**
+   * Put back what the last stretch of time earned.
+   *
+   * Fractional on purpose: rounding down to whole tokens on every frame would
+   * refill nothing at all, since the engine offers state sixty times a second
+   * and a second earns about a hundredth of a question.
+   */
+  _refill(now, state) {
+    const perHour = this._budgetFor(state);
+    this._callsPerHour = perHour;
+
+    if (this._refilledAt === null) {
+      this._refilledAt = now;
+      return;
+    }
+    const elapsed = Math.max(0, now - this._refilledAt);
+    this._refilledAt = now;
+    this._tokens = Math.min(this.burst, this._tokens + (elapsed * perHour) / 3600);
+  }
+
+  _budgetFor(state) {
+    const rules = state?.scenario?.rules?.director || {};
+    const asked = Number(rules.maxPerHour);
+    return Number.isFinite(asked) && asked > 0 ? asked : DEFAULT_CALLS_PER_HOUR;
   }
 
   /** The director asked. Called whether the cadence suggested it or not. */
   noteAsked(reason = 'interval') {
     const now = this.now();
     if (this._startedAt === null) this._startedAt = now;
+    if (this._refilledAt === null) this._refilledAt = now;
     this._lastAskedAt = now;
     this._lastReason = reason;
+    // Spent here rather than in shouldAsk(), because a section change asks
+    // without consulting the cadence at all and still costs the artist a call.
+    this._tokens = Math.max(0, this._tokens - 1);
   }
 
   status() {
@@ -128,6 +217,14 @@ export class DirectorCadence {
         this._lastAskedAt === null
           ? 0
           : Math.max(0, Math.round(this._lastAskedAt + this._interval - now)),
+      callsPerHour: this._callsPerHour,
+      budgetLeft: Math.floor(this._tokens),
+      // Seconds until the budget can cover one more, or 0 when it already does.
+      budgetInSeconds:
+        this._tokens >= 1
+          ? 0
+          : Math.ceil(((1 - this._tokens) * 3600) / Math.max(1, this._callsPerHour)),
+      heldBack: this.heldBack,
     };
   }
 

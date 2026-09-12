@@ -478,10 +478,17 @@ export class PerformerPanel {
     // spent. Otherwise a director that is thinking about the music is
     // indistinguishable from one that has quietly stopped.
     const cadence = director.cadence;
-    const next = cadence && Number.isFinite(cadence.nextInSeconds)
-      ? `, next in ${cadence.nextInSeconds}s`
-      : '';
     const why = cadence?.reason ? ` (${cadence.reason})` : '';
+    // What the artist needs to see is which of the two is holding the next
+    // question: the cadence, or the allowance. They mean different things —
+    // one is the music being quiet, the other is the set running out of
+    // budget — and only the second is worth doing anything about mid-set.
+    const waitingOnBudget = cadence && cadence.budgetLeft < 1;
+    const next = !cadence || !Number.isFinite(cadence.nextInSeconds)
+      ? ''
+      : waitingOnBudget
+        ? `, allowance spent — next in ${cadence.budgetInSeconds}s`
+        : `, next in ${cadence.nextInSeconds}s`;
 
     this.directorStatus.textContent = director.lastError
       ? director.lastError

@@ -373,6 +373,10 @@ export function normalizeRules(raw) {
       // everySeconds when there is no pulse to convert against — a bar count is
       // not a cadence on music that has no bars.
       everyBars: clamp(Math.trunc(num(director.everyBars, 16)), 1, 256),
+      // Questions an hour, sustained: what actually bounds the bill. The
+      // cadence above says how eagerly to ask; this says how much there is to
+      // spend. Default 40, matching the allowance in src/ai/tiers.js.
+      maxPerHour: clamp(Math.trunc(num(director.maxPerHour, 40)), 1, 600),
       // The same cadence in seconds, and the one that works on any material.
       // Null rather than a default, so "the scenario did not say" stays
       // distinguishable from "the scenario asked for the default".
