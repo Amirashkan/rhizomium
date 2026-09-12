@@ -257,4 +257,69 @@ describe('PerformerPanel', () => {
     panel.destroy();
     expect(() => engine.write('info', 'after')).not.toThrow();
   });
+
+  // The readout that answers "is this thing hearing me at all?", which is a
+  // question the BPM box cannot answer — it shows whatever was typed into it
+  // whether or not any audio is arriving.
+  describe('the listening readout', () => {
+    it('says so when nothing is listening', () => {
+      const { panel } = build();
+      panel.show();
+      panel.paintListening();
+      expect(panel.listeningReadout.textContent).toBe('not listening');
+      expect(panel.listeningReadout.dataset.state).toBe('off');
+    });
+
+    it('distinguishes hearing silence from not listening', () => {
+      const { engine, panel } = build();
+      panel.show();
+      engine.listening = () => ({ dynamics: 'silent', pulse: { state: 'free', bpm: null }, summary: 'silence' });
+
+      panel.paintListening();
+      expect(panel.listeningReadout.textContent).toBe('silence');
+      expect(panel.listeningReadout.dataset.state).toBe('silent');
+    });
+
+    it('prints a free pulse as FREE rather than as a tempo', () => {
+      const { engine, panel } = build();
+      panel.show();
+      engine.listening = () => ({
+        dynamics: 'building',
+        pulse: { state: 'free', bpm: null },
+        summary: 'building, no rhythm, free pulse',
+      });
+
+      panel.paintListening();
+      expect(panel.listeningReadout.textContent).toBe('building · FREE');
+      expect(panel.listeningReadout.dataset.state).toBe('free');
+    });
+
+    it('prints the tempo when there really is one', () => {
+      const { engine, panel } = build();
+      panel.show();
+      engine.listening = () => ({
+        dynamics: 'holding',
+        pulse: { state: 'metered', bpm: 128 },
+        summary: 'holding, 128 BPM',
+      });
+
+      panel.paintListening();
+      expect(panel.listeningReadout.textContent).toBe('holding · 128');
+      expect(panel.listeningReadout.dataset.state).toBe('metered');
+    });
+  });
+
+  describe('the tempo seam', () => {
+    it('sets the tempo through the engine, not straight at the clock', () => {
+      const { engine, panel } = build();
+      panel.show();
+      const setBPM = vi.spyOn(engine, 'setBPM');
+
+      panel.bpmInput.value = '96';
+      panel.bpmInput.dispatchEvent(new Event('change'));
+
+      expect(setBPM).toHaveBeenCalledWith(96, 'panel');
+      expect(engine.clock.bpm).toBe(96);
+    });
+  });
 });

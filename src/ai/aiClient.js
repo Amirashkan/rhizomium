@@ -75,13 +75,15 @@ export class AIRequestError extends Error {
  *
  * @param {string} feature - a feature key, e.g. 'ai.patch_review'.
  * @param {Object} input - the feature's payload (patch, prompt, description).
+ * @param {Object} [options] - { units } for a feature metered against a clock.
  * @returns {Promise<Object>} the backend's `result`, plus any `warnings`.
  * @throws {GrantError} when the gallery refuses (tier, quota, configuration).
  * @throws {AIRequestError} when the call itself fails.
  */
-export async function runFeature(feature, input = {}) {
+export async function runFeature(feature, input = {}, options = {}) {
   // Step 1. Throws GrantError, which callers show as an upsell or a wait.
-  const grant = await entitlements.requestGrant(feature);
+  // `units` is how much of the allowance to spend; see requestGrant().
+  const grant = await entitlements.requestGrant(feature, options);
 
   // Steps 2 and 3.
   const controller = new AbortController();

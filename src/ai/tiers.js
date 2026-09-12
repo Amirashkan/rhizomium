@@ -286,10 +286,23 @@ export const QUOTAS = {
     'ai.performer_scenario': { limit: 5, windowSeconds: DAY },
     // Per hour, not per day: this is the one feature whose spend tracks how
     // long the artist performs for rather than how many times they press a
-    // button. At the default cadence of one ask every sixteen bars, 40 covers
-    // something over two hours of set at 128 BPM — and a scenario that asks
-    // more often is a scenario that runs out sooner, which is the honest way
-    // round.
+    // button.
+    //
+    // The limit is still counted in CALLS, and that has stopped being a number
+    // an artist can reason about. The cadence used to be fixed — one ask every
+    // sixteen bars, so 40 calls was about two hours at 128 — but it now varies
+    // with the music (see performer/DirectorCadence.js), which means counting
+    // calls measures how eventful the set was rather than how long it ran. Two
+    // artists performing the same hour can spend very different amounts of an
+    // allowance that is supposed to be measured in hours.
+    //
+    // The client already sends what the honest number would be: every live
+    // call carries `units`, the minutes of performance since the last one
+    // (PerformerDirector._unitsToSpend). The gallery's grant issuer has to
+    // charge those units before this line can become a minutes limit — until
+    // it does, the field is ignored and one call costs one action, exactly as
+    // before. Flipping this table first would only make the panel's "N left"
+    // lie about a server still counting something else.
     'ai.performer_live': { limit: 40, windowSeconds: HOUR },
   },
 };

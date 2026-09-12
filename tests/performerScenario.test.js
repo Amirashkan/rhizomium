@@ -194,4 +194,52 @@ describe('validateScenario', () => {
     );
     expect(report.warnings).toEqual([]);
   });
+
+  // A scenario for music with no pulse: every unit it can be written in has to
+  // survive normalisation, or the prompt is promising something the format
+  // will silently drop.
+  describe('unmetered scenarios', () => {
+    it('keeps seconds on enters, holds and moves', () => {
+      const scenario = normalizeScenario({
+        sections: [{
+          id: 'drift',
+          name: 'Drift',
+          enter: { seconds: 90 },
+          hold: { seconds: 120 },
+          moves: [{ at: { seconds: 45 }, do: [{ type: 'master', to: 0.7, overSeconds: 8 }] }],
+        }],
+      });
+
+      const section = scenario.sections[0];
+      expect(section.enter).toEqual({ kind: 'seconds', seconds: 90 });
+      expect(section.hold.seconds).toBe(120);
+      expect(section.hold.bars).toBeNull();
+      expect(section.moves[0].atSeconds).toBe(45);
+      expect(section.moves[0].atBars).toBeNull();
+    });
+
+    it('accepts the onset grid', () => {
+      const scenario = normalizeScenario({
+        sections: [{ id: 'a', name: 'A', transition: { type: 'cut', quantize: 'onset' } }],
+      });
+      expect(scenario.sections[0].transition.quantize).toBe('onset');
+    });
+
+    it('takes a director cadence in seconds', () => {
+      const scenario = normalizeScenario({
+        sections: [{ id: 'a', name: 'A' }],
+        rules: { director: { everySeconds: 30, staleAfterSeconds: 15 } },
+      });
+      expect(scenario.rules.director.everySeconds).toBe(30);
+      expect(scenario.rules.director.staleAfterSeconds).toBe(15);
+    });
+
+    it('leaves everySeconds null when the scenario did not say', () => {
+      // Null rather than a default: the cadence has to be able to tell "the
+      // scenario asked for 45" from "the scenario said nothing".
+      const scenario = normalizeScenario({ sections: [{ id: 'a', name: 'A' }] });
+      expect(scenario.rules.director.everySeconds).toBeNull();
+      expect(scenario.rules.director.everyBars).toBe(16);
+    });
+  });
 });

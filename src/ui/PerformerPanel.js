@@ -173,15 +173,26 @@ export class PerformerPanel {
     this.bpmInput.step = '0.1';
     this.bpmInput.title = 'Tempo';
     this.bpmInput.addEventListener('change', () => {
-      this.engine.clock.setBPM(Number(this.bpmInput.value));
+      this.engine.setBPM(Number(this.bpmInput.value), 'panel');
     });
     tempo.appendChild(this.bpmInput);
     tempo.appendChild(el('span', 'rz-perf-unit', 'BPM'));
     tempo.appendChild(button('TAP', 'Tap the tempo', () => {
-      this.engine.clock.tap();
+      this.engine.tapTempo('panel');
       this.bpmInput.value = String(this.engine.clock.bpm);
     }));
     bar.appendChild(tempo);
+
+    // What the performer is hearing, in three words.
+    //
+    // Mid-set, the question an artist actually has is "is this thing listening
+    // to me at all?", and until now nothing on the panel could answer it: the
+    // BPM box shows what was typed into it whether or not any audio is
+    // arriving. This shows the room.
+    this.listeningReadout = el('div', 'rz-perf-listening');
+    this.listeningReadout.title = 'What the performer hears';
+    this.listeningReadout.textContent = '—';
+    bar.appendChild(this.listeningReadout);
 
     // A bar counter and four beat dots: the readout that says the clock is
     // alive and where the downbeat is.
@@ -242,7 +253,7 @@ export class PerformerPanel {
     this.directorToggle.type = 'checkbox';
     this.directorToggle.id = 'rz-perf-director-toggle';
     this.directorToggle.addEventListener('change', () => {
-      this.engine.director?.setEnabled(this.directorToggle.checked);
+      this.engine.setDirectorEnabled(this.directorToggle.checked);
       this.paintStructure();
     });
     row.appendChild(this.directorToggle);
@@ -462,15 +473,65 @@ export class PerformerPanel {
       this.steerInput.value = director.steer;
     }
 
+    // The cadence is no longer a bar count anyone can read off the transport,
+    // so it has to be shown: how it will next be spent, and why it was last
+    // spent. Otherwise a director that is thinking about the music is
+    // indistinguishable from one that has quietly stopped.
+    const cadence = director.cadence;
+    const why = cadence?.reason ? ` (${cadence.reason})` : '';
+    // What the artist needs to see is which of the two is holding the next
+    // question: the cadence, or the allowance. They mean different things —
+    // one is the music being quiet, the other is the set running out of
+    // budget — and only the second is worth doing anything about mid-set.
+    const waitingOnBudget = cadence && cadence.budgetLeft < 1;
+    const next = !cadence || !Number.isFinite(cadence.nextInSeconds)
+      ? ''
+      : waitingOnBudget
+        ? `, allowance spent — next in ${cadence.budgetInSeconds}s`
+        : `, next in ${cadence.nextInSeconds}s`;
+
     this.directorStatus.textContent = director.lastError
       ? director.lastError
       : director.thinking
         ? 'thinking…'
         : director.enabled
-          ? `${director.calls} call${director.calls === 1 ? '' : 's'}`
+          ? `${director.minutesSpent || 0} min${why}${next}`
           : 'off';
     this.directorStatus.dataset.error = director.lastError ? 'true' : 'false';
     this.directorNote.textContent = director.lastNote || '';
+  }
+
+  /**
+   * What the room sounds like, for the artist rather than for the model.
+   *
+   * Three states worth telling apart, and the middle one is the whole reason
+   * this exists: OFF (nobody is listening), a dash (listening and hearing
+   * nothing, which means a routing problem, not quiet music), and the
+   * description. A free pulse is printed as FREE rather than as a tempo,
+   * because on this material that is the correct answer and not a failure.
+   */
+  paintListening() {
+    if (!this.listeningReadout) return;
+
+    const heard = this.engine.listening?.();
+    if (!heard) {
+      this.listeningReadout.textContent = 'not listening';
+      this.listeningReadout.dataset.state = 'off';
+      this.listeningReadout.title = 'Turn the director on to listen to the room';
+      return;
+    }
+
+    if (heard.dynamics === 'silent') {
+      this.listeningReadout.textContent = 'silence';
+      this.listeningReadout.dataset.state = 'silent';
+      this.listeningReadout.title = 'Listening, but nothing is arriving';
+      return;
+    }
+
+    const pulse = heard.pulse.state === 'metered' ? `${heard.pulse.bpm}` : 'FREE';
+    this.listeningReadout.textContent = `${heard.dynamics} · ${pulse}`;
+    this.listeningReadout.dataset.state = heard.pulse.state === 'metered' ? 'metered' : 'free';
+    this.listeningReadout.title = heard.summary || '';
   }
 
   /** Build a meter row per signal, once per scenario rather than per frame. */
@@ -515,6 +576,7 @@ export class PerformerPanel {
 
     this.barReadout.textContent = String(clock.bar);
     this.paintBeats(clock);
+    this.paintListening();
 
     if (this.activeTab === 'set') {
       const index = this.engine.sectionIndex;
