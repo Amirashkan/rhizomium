@@ -35,7 +35,12 @@ import { openExternal } from '../utils/openExternal.js';
 import { isTauri } from '../utils/isTauri.js';
 import { entitlements, GALLERY_ORIGIN } from '../ai/entitlements.js';
 import { galleryApiUrl } from '../utils/galleryEndpoint.js';
-import { clearDesktopToken, getDesktopToken, setDesktopToken } from '../ai/desktopToken.js';
+import {
+  clearDesktopToken,
+  getDesktopToken,
+  setDesktopToken,
+  usesBearerToken,
+} from '../ai/desktopToken.js';
 import { TIER_LABELS } from '../ai/tiers.js';
 
 /** The gallery's sign-in page. */
@@ -131,10 +136,12 @@ export async function signInToGallery({ onStatus } = {}) {
     return true;
   }
 
-  // On the web the cookie is the credential and opening the sign-in page is
-  // the whole flow. The desktop app cannot use that cookie at all — it is a
-  // different site — so it pairs for a token instead.
-  return isTauri() ? pairDesktop({ onStatus }) : signInWithCookie({ onStatus });
+  // On a deployed web build the cookie is the credential and opening the
+  // sign-in page is the whole flow. The desktop app cannot use that cookie at
+  // all — it is a different site — so it pairs for a token instead, and so
+  // does a `npm run dev` browser, which reaches the gallery through a
+  // server-side proxy no cookie rides along with. See usesBearerToken().
+  return usesBearerToken() ? pairDesktop({ onStatus }) : signInWithCookie({ onStatus });
 }
 
 /** The web flow: sign in on the gallery, and the cookie does the rest. */
@@ -375,7 +382,7 @@ function waitForSession(page) {
  * @returns {Promise<boolean>} true when the editor signed itself out.
  */
 export async function signOut() {
-  if (!isTauri() || !getDesktopToken()) return false;
+  if (!usesBearerToken() || !getDesktopToken()) return false;
 
   clearDesktopToken();
   await entitlements.refresh().catch(() => {});
@@ -487,10 +494,10 @@ export async function showAccountDialog() {
     { label: 'Close', onClick: () => true },
   ];
 
-  // Only the desktop app holds a credential of its own, so it is the only one
-  // with something to sign out of. Offering the button on the web would be
-  // offering to forget a cookie we do not own.
-  if (isTauri() && getDesktopToken()) {
+  // Only a client holding a token of its own has something to sign out of.
+  // Offering the button on a deployed web build would be offering to forget a
+  // cookie we do not own.
+  if (usesBearerToken() && getDesktopToken()) {
     buttons.splice(1, 0, {
       label: 'Sign out',
       onClick: () => {

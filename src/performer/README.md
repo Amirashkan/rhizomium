@@ -280,6 +280,53 @@ lit-up button and a 401):
   has to charge those minutes before the allowance itself reads in minutes —
   see `src/ai/tiers.js`.)
 
-Developing without a gallery: set `AI_DEBUG_MODE` and use the unsigned
-`debug:<feature>` token — `src/ai/debugMode.js`. Everything except the two
-model calls works with no account at all.
+## Running it locally
+
+For a long time this did not work at all, silently, and the reason is worth
+writing down because nothing on screen said it.
+
+`npm run dev` serves the editor from `localhost:5173`, and the gallery is
+reached from there through the server-side `/gallery-api` proxy in
+`vite.config.js`. That hop is what makes the call work — it takes CORS out of
+the picture — and it is also why **no session cookie rides along**: the browser
+has no `art.tenderworld.org` cookie to send from localhost in the first place.
+
+Until recently the bearer token that exists for exactly this problem was gated
+on `isTauri()`, so a dev browser held neither credential. The gallery read
+every dev run as anonymous and priced it at the free tier — whatever the
+artist's real account was. `ai.performer_live` costs more than free, and its
+refusal is **not transient**: `PerformerDirector._noteFailure()` sets
+`enabled = false` and stops asking for the rest of the session. One tier
+lookup at startup, one line in the log, and then silence for the whole set.
+
+So: **pair the dev server, the same way the desktop app does.**
+
+1. Run `npm run dev` and open `http://localhost:5173/editor/index.html`.
+2. **Tools → Account…** → sign in. On `localhost:5173` this now takes the
+   pairing flow rather than the cookie flow (`accountSession.js`,
+   `usesBearerToken()`): a code appears, you approve it on the gallery's
+   `/desktop` page while signed in there, and the editor collects the token.
+3. The dialog should then show your real tier. If it still says Free, the token
+   did not arrive — check the console, which names which credential each
+   gallery call went out with.
+
+The token is stored per origin, so pairing `localhost:5173` is separate from
+pairing an installed desktop app, and signing out of one leaves the other.
+
+### What `AI_DEBUG_MODE` is, and is not
+
+It is a **deployment** variable, not a local one. Setting it in your shell
+achieves nothing, because `vite.config.js` proxies `/api` to
+`https://studio.tenderworld.org`, and `api/_lib/grant.js` ignores
+`AI_DEBUG_MODE` outright on a production deployment unless
+`AI_DEBUG_ALLOW_PRODUCTION` is set too. `?aidebug=1` in the browser lights up
+every button and then earns a 401 — which is exactly what `src/ai/debugMode.js`
+says it does.
+
+To develop against a backend that honours debug grants, run one:
+`vercel dev` with `AI_DEBUG_MODE=1` and `OPENAI_API_KEY` set, then point the
+editor at it with `API_PROXY=http://localhost:3000 npm run dev`. A debug run is
+still a real model call on a real key — it skips the accounting, not the bill.
+
+Everything that is not one of the two model calls — the clock, the listener,
+the cadence, the executor, the panel — runs with no account at all.

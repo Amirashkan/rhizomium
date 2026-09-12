@@ -2,7 +2,33 @@
 
 Consolidated backlog: everything outstanding, gathered from code markers and
 all root/docs design notes. Sources are cited so details stay in one place.
-Last updated: 2026-07-27.
+Last updated: 2026-09-12.
+
+## The coPerformer
+
+- [x] **Why it never performed.** A dev browser held no gallery credential at
+      all: the bearer token was gated on `isTauri()`, and no cookie survives
+      the server-side `/gallery-api` proxy. The gallery therefore read every
+      `npm run dev` session as anonymous and priced it at the free tier —
+      whatever the artist's real account was. `ai.performer_live` needs more,
+      and `PerformerDirector._noteFailure()` treats a tier refusal as
+      permanent: `enabled = false`, one log line, silence for the rest of the
+      set. Fixed by `usesBearerToken()` in `src/ai/desktopToken.js`; the dev
+      server now pairs for a token exactly as the desktop app does. See
+      `src/performer/README.md` § Running it locally.
+- [ ] **Verify a live set end to end** (needs real audio and a real GPU, so it
+      cannot be done from CI or a container): sign in on the dev server, load a
+      patch, play music, and confirm the director's plans actually move
+      parameters rather than only appearing in the panel.
+- [ ] **Rename to coPerformer.** The product surface only — `src/performer/`,
+      `PerformerPanel.js`, `main.js` globals, docs, tests. Leave the wire keys
+      `ai.performer_live` / `ai.performer_scenario` alone unless the gallery's
+      grant issuer is changed in the same release: they are mirrored in
+      `src/ai/tiers.js`, `api/_lib/features.js` and the gallery's `lib/tiers.ts`,
+      and a one-sided rename fails every grant.
+- [ ] **The two repos disagree on the live limit:** editor `40/HOUR`
+      (`src/ai/tiers.js`) vs gallery `120/HOUR` (`lib/tiers.ts`). The gallery
+      wins at runtime; the editor's number is only what the panel would show.
 
 ## Beta release checklist (v0.9.0-beta.2)
 
@@ -127,8 +153,9 @@ Designs written, not implemented:
 
 ## Lint burn-down (post-beta quality)
 
-`npm run lint` is at **0 errors / ~786 warnings**. Bug-catching rules are hard
-errors; legacy noise is warnings until cleaned up:
+`npm run lint` is **clean — 0 errors, 0 warnings** (re-measured 2026-09-12; the
+burn-down below is done). Anything it reports now is newly introduced. The
+rules still to ratchet from `warn` back to `error` in `eslint.config.js`:
 
 - [ ] ~670 unused variables/imports (`no-unused-vars`)
 - [ ] ~120 empty blocks, mostly `catch {}` swallowing GPU errors silently (`no-empty`) — worth at least a debug log in `src/gpu/*`
