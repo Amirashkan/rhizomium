@@ -41,6 +41,11 @@ import { SignalBus } from './SignalBus.js';
 import { ActionExecutor } from './ActionExecutor.js';
 import { emptyScenario, normalizeScenario, validateScenario } from './Scenario.js';
 import { describeAction } from './actions.js';
+import {
+  describeMusic,
+  getMusicalListener,
+  setMusicalListeningWanted,
+} from '../audio/musicalListening.js';
 
 /** How many log lines are kept. Enough to read back a set, bounded for a long one. */
 const MAX_LOG = 400;
@@ -53,6 +58,18 @@ const MAX_LOG = 400;
  * a slightly late cut rather than as the performer having stopped.
  */
 const MAX_QUANTIZE_WAIT_BARS = 8;
+
+/**
+ * The longest an onset-quantised change will wait for a hit.
+ *
+ * 'onset' is the grid for material with no pulse, which is also material that
+ * can go a long time without anything percussive in it at all. Without a
+ * deadline a change queued during a drone would simply never land, and the
+ * performer would look like it had stopped. Longer than the bar fallback above
+ * because the whole point is to catch the next real event, and shorter than an
+ * audience's patience.
+ */
+const ONSET_QUANTIZE_TIMEOUT_SECONDS = 12;
 
 /** Engine states, for the panel's transport. */
 export const STATE = Object.freeze({
@@ -107,6 +124,9 @@ export class PerformerEngine {
      * has enough pending actions for that to matter.
      */
     this.queue = [];
+
+    /** Whether the analysis is being asked to keep a listening memory for us. */
+    this._listening = false;
 
     /** Cues fired since the last tick, oldest first. */
     this._pendingCues = [];
@@ -510,6 +530,21 @@ export class PerformerEngine {
     // most obvious way for visuals to read as "not with the music", so the
     // section's own transition grid decides when the change actually happens.
     const grid = section.transition.quantize;
+
+    // Waiting for a hit rather than for a beat line. The bar fallback below is
+    // about a grid whose boundary is too far off; this one has no boundary to
+    // measure, so it carries its own deadline instead.
+    if (grid === 'onset') {
+      this.queue.push({
+        action: { type: 'section', to: section.id, why: jump.source },
+        atOnset: this.onsetCount(),
+        bySeconds: this.clock.seconds + ONSET_QUANTIZE_TIMEOUT_SECONDS,
+        source: jump.source,
+      });
+      this._pendingJump = null;
+      return;
+    }
+
     const wait = this.clock.secondsUntil(grid);
 
     // A boundary this far off means the grid is wrong for this moment, not
@@ -619,6 +654,15 @@ export class PerformerEngine {
     if (!action) return;
 
     const grid = action.quantize;
+    if (grid === 'onset') {
+      this.queue.push({
+        action,
+        atOnset: this.onsetCount(),
+        bySeconds: this.clock.seconds + ONSET_QUANTIZE_TIMEOUT_SECONDS,
+        source,
+      });
+      return;
+    }
     if (grid && grid !== 'off') {
       const wait = this.clock.secondsUntil(grid);
       if (wait > 0) {
@@ -676,11 +720,22 @@ export class PerformerEngine {
     if (!this.queue.length) return;
 
     const beats = this.clock.beats;
+    const seconds = this.clock.seconds;
+    const onsets = this.onsetCount();
     const due = [];
     const waiting = [];
 
     for (const entry of this.queue) {
-      (beats >= entry.atBeats ? due : waiting).push(entry);
+      let ready;
+      if (entry.atOnset !== undefined) {
+        // The next thing the musician actually plays — or the deadline, because
+        // a change held for a hit that never comes is a change that never
+        // happened, and on quiet material that is most of them.
+        ready = onsets > entry.atOnset || seconds >= entry.bySeconds;
+      } else {
+        ready = beats >= entry.atBeats;
+      }
+      (ready ? due : waiting).push(entry);
     }
     this.queue = waiting;
 
@@ -720,13 +775,27 @@ export class PerformerEngine {
   applyPlan(plan) {
     const rules = this.scenario.rules.director;
 
-    const agedBars = (this.clock.beats - (plan.askedAtBeats ?? this.clock.beats))
-      / this.clock.beatsPerBar;
-    if (agedBars > rules.staleAfterBars) {
-      this.write('warn', `Director plan arrived ${agedBars.toFixed(1)} bars late — dropped`, {
-        note: plan.note,
-      });
-      return;
+    // Lateness in bars means nothing unless the bars do. On a set with no
+    // pulse the clock is a metronome nobody is playing to, so the plan is aged
+    // in seconds instead — the same question, asked of a clock that is real.
+    const metered = this.listening()?.pulse?.state === 'metered';
+    if (metered) {
+      const agedBars = (this.clock.beats - (plan.askedAtBeats ?? this.clock.beats))
+        / this.clock.beatsPerBar;
+      if (agedBars > rules.staleAfterBars) {
+        this.write('warn', `Director plan arrived ${agedBars.toFixed(1)} bars late — dropped`, {
+          note: plan.note,
+        });
+        return;
+      }
+    } else {
+      const agedSeconds = this.nowSeconds() - (plan.askedAtSeconds ?? this.nowSeconds());
+      if (agedSeconds > rules.staleAfterSeconds) {
+        this.write('warn', `Director plan arrived ${agedSeconds.toFixed(1)}s late — dropped`, {
+          note: plan.note,
+        });
+        return;
+      }
     }
 
     if (plan.note) this.write('director', plan.note);
@@ -796,6 +865,10 @@ export class PerformerEngine {
         intensity: round(this.signals.intensity),
       },
       signals: this.signals.snapshot(),
+      // What the room has been doing, as opposed to what it is doing this
+      // frame. Cached inside the listener, so building this every frame costs
+      // a property read.
+      listening: this.listening(),
       driving: this.executor.status().drives,
       recent: this.log.slice(-12).map((entry) => ({
         at: entry.bar,
@@ -803,7 +876,90 @@ export class PerformerEngine {
         message: entry.message,
       })),
       askedAtBeats: this.clock.beats,
+      askedAtSeconds: this.nowSeconds(),
     };
+  }
+
+  /**
+   * Every onset heard so far, monotonic, or 0 when nothing is listening.
+   *
+   * Zero rather than null so a scenario that asks for onset quantisation with
+   * the listener off degrades to the deadline — late, but it still lands.
+   */
+  onsetCount() {
+    if (!this._listening) return 0;
+    try {
+      return getMusicalListener().onsetCount;
+    } catch {
+      return 0;
+    }
+  }
+
+  // --- tempo ---------------------------------------------------------------
+  //
+  // Every way the tempo can be set goes through these four, rather than each
+  // caller reaching into the clock. Today they forward and little else. The
+  // reason they exist is the next source of tempo: an Ableton Link session or
+  // a MIDI clock is another authority on the same number, and it wants one
+  // door to come in by — not a fifth caller poking clock.setBPM() while the
+  // panel, OSC and a tap all do the same.
+
+  /** @param {string} source who said so: 'panel', 'osc', 'link'. */
+  setBPM(bpm, source = 'panel') {
+    const ok = this.clock.setBPM(bpm);
+    if (ok) this.emit();
+    void source;
+    return ok;
+  }
+
+  tapTempo(source = 'panel') {
+    const bpm = this.clock.tap();
+    if (bpm) this.emit();
+    void source;
+    return bpm;
+  }
+
+  syncBar(source = 'osc') {
+    this.clock.syncToBar();
+    void source;
+  }
+
+  syncBeat(source = 'osc') {
+    this.clock.syncToBeat();
+    void source;
+  }
+
+  /** Seconds on the same clock the audio analysis stamps its onsets with. */
+  nowSeconds() {
+    return typeof performance !== 'undefined' ? performance.now() / 1000 : Date.now() / 1000;
+  }
+
+  /** What the music has been doing, or null when nothing is listening. */
+  listening() {
+    if (!this._listening) return null;
+    try {
+      // No time argument: the listener answers on the audio's own clock, which
+      // is the only one its observations were stamped with.
+      return describeMusic();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Turn the live director on or off.
+   *
+   * The one place that does it, because two things have to move together: the
+   * director, and the analysis work that feeds it. A director listening to a
+   * listener nobody switched on is the failure that looks like a model with
+   * nothing to say.
+   */
+  setDirectorEnabled(on) {
+    const wanted = Boolean(on);
+    this._listening = wanted;
+    setMusicalListeningWanted(wanted);
+    if (wanted) this.director?.setListener?.(getMusicalListener());
+    return this.director?.setEnabled?.(wanted) ?? wanted;
   }
 
   // --- conditions --------------------------------------------------------
@@ -891,6 +1047,7 @@ export class PerformerEngine {
 
   destroy() {
     this.stop();
+    this.setDirectorEnabled(false);
     this._listeners.clear();
   }
 }

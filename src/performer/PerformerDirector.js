@@ -32,6 +32,7 @@
  */
 
 import { runFeature, AIRequestError, GrantError } from '../ai/aiClient.js';
+import { DirectorCadence } from './DirectorCadence.js';
 import { normalizeScenario } from './Scenario.js';
 import { normalizeAction } from './actions.js';
 
@@ -54,6 +55,17 @@ const BACKOFF_MAX_MS = 5 * 60_000;
 
 /** Most actions a single live plan may carry. Past this it is not a plan. */
 const MAX_PLAN_ACTIONS = 8;
+
+/**
+ * The most minutes one call may charge for.
+ *
+ * The gap between two questions is normally under a minute and at worst the
+ * boredom cap, so this is not a limit the cadence can reach on its own. It is
+ * there for the gap it cannot see: a set paused for an encore, a laptop asleep
+ * between soundcheck and doors. Charging for that is charging for time nobody
+ * performed.
+ */
+const MAX_UNITS_PER_CALL = 5;
 
 export class PerformerDirector {
   /**
@@ -79,8 +91,18 @@ export class PerformerDirector {
     /** Bumped on discard(); an answer tagged with an old token is thrown away. */
     this._token = 0;
 
-    /** Clock position of the last request, so the cadence is musical. */
-    this._lastAskedBar = -Infinity;
+    /**
+     * When to ask. Not a bar count: see DirectorCadence for why a bar count is
+     * the wrong unit on music that does not have bars.
+     */
+    this.cadence = options.cadence || new DirectorCadence({ now: () => this.now() / 1000 });
+
+    /**
+     * The listening memory, if the host wired one in. Optional on purpose — the
+     * director still works without it, it is just asking on a timer and telling
+     * the model less.
+     */
+    this.listener = options.listener || null;
     /** Wall clock, for the backoff. */
     this._nextAllowedAt = 0;
     this._failures = 0;
@@ -89,15 +111,59 @@ export class PerformerDirector {
     this.lastNote = '';
     this.calls = 0;
 
+    /**
+     * Wall-clock of the previous live call, so each one can spend the minutes
+     * of performance since the last rather than a flat one-per-call.
+     *
+     * Null until the first call of a session: that one spends a single minute
+     * whatever the cadence works out to, because there is no stretch of set
+     * before it to charge for.
+     */
+    this._lastCallAt = null;
+
     /** Free text from the artist: "keep it dark", "more strobe". Sent with every ask. */
     this.steer = '';
+
+    /** Minutes of performance charged for so far, for the panel's readout. */
+    this.minutesSpent = 0;
+
+    /** Units a call in flight will cost, counted once it is known to be spent. */
+    this._pendingUnits = 0;
   }
 
   /** Turn the live director on or off mid-set. */
   setEnabled(on) {
+    const was = this.enabled;
     this.enabled = Boolean(on);
     if (!this.enabled) this.discard('director switched off');
+    // Switched on mid-set: start the cadence from here, so the warm-up applies
+    // and the first question is asked about music it has actually heard.
+    if (this.enabled && !was) {
+      this.cadence.reset();
+      // Switched off and on again: the time in between was not performed, and
+      // the next call must not charge for it.
+      this._lastCallAt = null;
+    }
     return this.enabled;
+  }
+
+  /**
+   * Minutes of performance this call is charged for.
+   *
+   * The stretch of set since the last question, rounded up, because part of a
+   * minute of someone's show is still their show. Capped so a set left running
+   * overnight — or a director switched on, forgotten, and come back to — cannot
+   * present the artist with a bill for the gap.
+   */
+  _unitsToSpend() {
+    if (this._lastCallAt === null) return 1;
+    const minutes = (this.now() - this._lastCallAt) / 60_000;
+    return Math.max(1, Math.min(MAX_UNITS_PER_CALL, Math.ceil(minutes)));
+  }
+
+  /** Hand the director the listening memory. The engine does this when it is on. */
+  setListener(listener) {
+    this.listener = listener || null;
   }
 
   /** A line of direction from the artist, carried into the next ask. */
@@ -126,10 +192,29 @@ export class PerformerDirector {
     if (this._inFlight || this._ready) return;
     if (this.now() < this._nextAllowedAt) return;
 
-    const everyBars = state.scenario.rules.director.everyBars;
-    if (state.now.bar - this._lastAskedBar < everyBars) return;
+    const listening = this.listening(state);
+    const due = this.cadence.shouldAsk(listening, state);
+    if (!due) return;
 
-    this.ask(state);
+    this.ask(state, due.reason, listening);
+  }
+
+  /**
+   * What the music has been doing, or null if nothing is listening.
+   *
+   * Read here rather than in the engine because it is only ever wanted at the
+   * moment a question is being considered — it caches, but the engine offers
+   * this director a state every single frame.
+   */
+  listening(state) {
+    if (state?.listening) return state.listening;
+    if (!this.listener) return null;
+    try {
+      return this.listener.describe();
+    } catch {
+      // A listener that throws must not take the set down with it.
+      return null;
+    }
   }
 
   /**
@@ -140,23 +225,36 @@ export class PerformerDirector {
   onSectionChange(state) {
     if (!this.enabled) return;
     if (this._inFlight || this.now() < this._nextAllowedAt) return;
-    this.ask(state);
+    this.ask(state, 'section');
   }
 
   /** Start a call. Never awaited by the caller. */
-  ask(state) {
-    this._lastAskedBar = state.now.bar;
+  ask(state, reason = 'interval', listening = undefined) {
+    const heard = listening === undefined ? this.listening(state) : listening;
+    this.cadence.noteAsked(reason);
     this._inFlightAt = this.now();
     this.calls++;
 
+    // From here on, "since" means since this question — which is the only
+    // reference point that makes the next answer about the right stretch of
+    // music.
+    try { this.listener?.mark?.(); } catch { /* never break the set */ }
+
     const token = this._token;
     const askedAtBeats = state.askedAtBeats;
+    const askedAtSeconds = state.askedAtSeconds;
+
+    // Counted only once the allowance has actually been spent — see
+    // _noteFailure(). A grant the gallery refuses costs the artist nothing, and
+    // a readout that says otherwise is worse than no readout.
+    const units = this._unitsToSpend();
+    this._pendingUnits = units;
 
     const request = this.run(LIVE_FEATURE, {
-      state: compactState(state),
+      state: compactState(state, heard),
       steer: this.steer,
       freedom: state.scenario.rules.director.freedom,
-    })
+    }, { units })
       .then(({ result }) => {
         // A discard while this was in the air means the musician has since made
         // a decision. Answering it now would be overriding them.
@@ -164,8 +262,9 @@ export class PerformerDirector {
         this._inFlight = null;
         this._failures = 0;
         this.lastError = null;
+        this._spend(units);
 
-        const plan = shapePlan(result, askedAtBeats);
+        const plan = shapePlan(result, askedAtBeats, askedAtSeconds);
         if (!plan) return;
 
         this.lastNote = plan.note || '';
@@ -207,6 +306,19 @@ export class PerformerDirector {
     if (why) this.log('info', `Director: ${why}`);
   }
 
+  /**
+   * The allowance this call actually cost.
+   *
+   * The grant is issued before the model runs, so a backend failure still
+   * costs the artist (see AIRequestError.quotaSpent) — but a grant the gallery
+   * REFUSED costs nothing, and that is the one case that must not be counted.
+   */
+  _spend(units) {
+    this.minutesSpent += units;
+    this._lastCallAt = this._inFlightAt;
+    this._pendingUnits = 0;
+  }
+
   _noteFailure(error) {
     this._failures++;
     this._nextAllowedAt = this.now()
@@ -215,11 +327,21 @@ export class PerformerDirector {
     if (error instanceof GrantError) {
       // Out of quota or the wrong tier is not a transient fault: say it once
       // and stop asking rather than burning the rest of the set on refusals.
+      //
+      // Nothing was spent: the gallery refused before a grant was issued. So
+      // the minutes are not counted, and the cadence gets its budget back —
+      // otherwise an artist who fixes their subscription mid-set would find
+      // the director rationing itself against calls that never happened.
+      this._pendingUnits = 0;
+      this.cadence.refund();
       this.lastError = error.message;
       this.enabled = false;
       this.log('error', `Director stopped: ${error.message}`);
       return;
     }
+
+    // Anything else got past the gallery, so the allowance went with it.
+    if (this._pendingUnits) this._spend(this._pendingUnits);
 
     this.lastError = error instanceof AIRequestError || error instanceof Error
       ? error.message
@@ -271,10 +393,12 @@ export class PerformerDirector {
       thinking: Boolean(this._inFlight),
       ready: Boolean(this._ready),
       calls: this.calls,
+      minutesSpent: this.minutesSpent,
       failures: this._failures,
       lastError: this.lastError,
       lastNote: this.lastNote,
       steer: this.steer,
+      cadence: this.cadence.status(),
       nextAllowedInMs: Math.max(0, this._nextAllowedAt - this.now()),
     };
   }
@@ -288,7 +412,7 @@ export class PerformerDirector {
  * rather than in the engine keeps describeState() honest as a debugging view
  * while still sending a prompt that fits.
  */
-function compactState(state) {
+function compactState(state, listening) {
   const signals = {};
   for (const [name, signal] of Object.entries(state.signals || {})) {
     // A signal nothing has ever sent is noise in the prompt, and worse, it
@@ -317,6 +441,9 @@ function compactState(state) {
       },
     },
     now: state.now,
+    // What the music has been DOING, which is the half of the picture the
+    // signal values cannot carry: they are all "right now" by construction.
+    listening: listening || null,
     signals,
     driving: state.driving,
     recent: state.recent,
@@ -330,7 +457,7 @@ function compactState(state) {
  * same rule normalizeAction() applies to a hand-written scenario, for the same
  * reason: most of a good answer is still worth playing.
  */
-function shapePlan(result, askedAtBeats) {
+function shapePlan(result, askedAtBeats, askedAtSeconds) {
   if (!result || typeof result !== 'object') return null;
 
   const actions = (Array.isArray(result.actions) ? result.actions : [])
@@ -341,7 +468,7 @@ function shapePlan(result, askedAtBeats) {
   const note = String(result.note || '').slice(0, 300);
   if (!actions.length && !note) return null;
 
-  return { actions, note, askedAtBeats };
+  return { actions, note, askedAtBeats, askedAtSeconds };
 }
 
 export default PerformerDirector;

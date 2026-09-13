@@ -43,7 +43,15 @@ export const CURVES = Object.freeze(['linear', 'exponential', 'logarithmic']);
 export const TRANSITION_TYPES = Object.freeze(['crossfade', 'cut', 'fade_black', 'fade_white']);
 
 /** What an action can be quantised to. */
-export const QUANTIZE_GRID = Object.freeze(['off', 'beat', 'half', 'bar', 'phrase']);
+/**
+ * When a change is allowed to land.
+ *
+ * 'off' fires on the spot. The four musical grids need a pulse to mean
+ * anything, so on unmetered material they land somewhere arbitrary — 'onset'
+ * is the one that does not: it waits for the next thing the musician actually
+ * plays, which is the only boundary free material has.
+ */
+export const QUANTIZE_GRID = Object.freeze(['off', 'onset', 'beat', 'half', 'bar', 'phrase']);
 
 /**
  * Ceilings, so one bad scenario cannot make the engine the slow part of a
@@ -359,12 +367,30 @@ export function normalizeRules(raw) {
       enabled: director.enabled !== false,
       // How often the model is asked, in bars. It runs ahead of the music, so
       // this is a planning cadence rather than a reaction time.
+      //
+      // Only meaningful on a set with a pulse. DirectorCadence converts it to
+      // seconds from the tempo it can actually HEAR, and falls back to
+      // everySeconds when there is no pulse to convert against — a bar count is
+      // not a cadence on music that has no bars.
       everyBars: clamp(Math.trunc(num(director.everyBars, 16)), 1, 256),
+      // Questions an hour, sustained: what actually bounds the bill. The
+      // cadence above says how eagerly to ask; this says how much there is to
+      // spend. Default 40, matching the allowance in src/ai/tiers.js.
+      maxPerHour: clamp(Math.trunc(num(director.maxPerHour, 40)), 1, 600),
+      // The same cadence in seconds, and the one that works on any material.
+      // Null rather than a default, so "the scenario did not say" stays
+      // distinguishable from "the scenario asked for the default".
+      everySeconds: director.everySeconds === undefined || director.everySeconds === null
+        ? null
+        : clamp(num(director.everySeconds, 45), 5, 600),
       // 0 = play the scenario as written, 1 = treat it as a starting point.
       freedom: clamp(num(director.freedom, 0.4), 0, 1),
       // A plan that arrives more than this long after it was asked for is
       // answering a moment that has passed. Dropped rather than played.
       staleAfterBars: clamp(num(director.staleAfterBars, 8), 1, 64),
+      // The same in seconds, used when there is no pulse — a bar count cannot
+      // measure lateness on a clock that is not tracking anything.
+      staleAfterSeconds: clamp(num(director.staleAfterSeconds, 20), 2, 300),
       // What the director may do, narrowed from the rules above.
       mayChangeSection: director.mayChangeSection !== false,
       mayEditGraph: Boolean(director.mayEditGraph),

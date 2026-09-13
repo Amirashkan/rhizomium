@@ -556,4 +556,85 @@ describe('PerformerEngine', () => {
       expect(engine.currentSection.id).toBe('z');
     });
   });
+
+  // The grid for music with no grid. A bar line is not there to land on, so
+  // the next thing the musician plays is the only boundary left.
+  describe('onset quantisation', () => {
+    /** An engine whose onset counter we drive by hand. */
+    function makeOnsetEngine() {
+      const rig = makeEngine({
+        sections: [
+          { id: 'a', name: 'A', hold: { seconds: 0 } },
+          { id: 'b', name: 'B', transition: { type: 'cut', quantize: 'onset' } },
+        ],
+      });
+      let onsets = 0;
+      rig.engine._listening = true;
+      rig.engine.onsetCount = () => onsets;
+      rig.hit = () => { onsets += 1; };
+      return rig;
+    }
+
+    it('holds a change until the next hit', () => {
+      const rig = makeOnsetEngine();
+      rig.engine.start();
+      rig.engine.jumpToSection('b', 'test');
+
+      rig.play(2);
+      expect(rig.engine.currentSection.id).toBe('a');
+
+      rig.hit();
+      rig.play(0.1);
+      expect(rig.engine.currentSection.id).toBe('b');
+    });
+
+    it('lands anyway when no hit ever comes', () => {
+      const rig = makeOnsetEngine();
+      rig.engine.start();
+      rig.engine.jumpToSection('b', 'test');
+
+      // Silence. Without the deadline this change would never happen, and the
+      // performer would read as having stopped.
+      rig.play(8);
+      expect(rig.engine.currentSection.id).toBe('a');
+
+      rig.play(6);
+      expect(rig.engine.currentSection.id).toBe('b');
+    });
+
+    it('quantises a dispatched action the same way', () => {
+      const rig = makeOnsetEngine();
+      rig.engine.start();
+      rig.executor.performed.length = 0;
+
+      rig.engine.dispatch({ type: 'master', to: 0.5, quantize: 'onset' }, 'test');
+      rig.play(1);
+      expect(rig.executor.ofType('master')).toHaveLength(0);
+
+      rig.hit();
+      rig.play(0.1);
+      expect(rig.executor.ofType('master')).toHaveLength(1);
+    });
+  });
+
+  describe('listening', () => {
+    it('does not ask the analysis to listen until the director is on', () => {
+      const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] });
+      expect(engine.listening()).toBeNull();
+      expect(engine.onsetCount()).toBe(0);
+    });
+
+    it('turns the listening on and off with the director', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
+      const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] }, { director });
+
+      engine.setDirectorEnabled(true);
+      expect(director.enabled).toBe(true);
+      expect(engine.listening()).not.toBeNull();
+
+      engine.setDirectorEnabled(false);
+      expect(director.enabled).toBe(false);
+      expect(engine.listening()).toBeNull();
+    });
+  });
 });

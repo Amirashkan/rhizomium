@@ -147,6 +147,44 @@
   font-size: 12px;
 }
 
+/*
+ * What the performer hears.
+ *
+ * Colour carries the state, because this is read at a glance in the dark over
+ * a mixer: grey for not listening, amber for listening and hearing nothing —
+ * which is a routing problem rather than quiet music, and the one an artist
+ * needs to catch before the set starts — and lit for hearing something.
+ */
+.rz-perf-listening {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid #3a3631;
+  color: #8b8175;
+  white-space: nowrap;
+}
+
+.rz-perf-listening[data-state="off"] {
+  opacity: 0.5;
+}
+
+.rz-perf-listening[data-state="silent"] {
+  color: #d4a656;
+  border-color: #5a4a2e;
+}
+
+.rz-perf-listening[data-state="free"] {
+  color: #9fc8a8;
+  border-color: #3d5a45;
+}
+
+.rz-perf-listening[data-state="metered"] {
+  color: #a8c4e0;
+  border-color: #3a4d63;
+}
+
 .rz-perf-unit {
   font-size: 10px;
   color: #8b8175;
