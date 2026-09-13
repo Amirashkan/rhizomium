@@ -15,6 +15,13 @@ A welcome dialog greets you on first load:
 Choose **Start New Graph**. (**Open Project File** loads a `.json` you exported
 earlier, and **Manage Backups** opens the autosaves the editor keeps as you work.)
 
+Under **Start From A Patch** are three finished graphs — *Aurora Field*, *Mirror
+Cells* and *Dot Bloom* — each built around a different move: one source feeding
+two places, a generator read through an effect, and two versions of one signal
+composited back together. Opening one replaces whatever is on the canvas, so the
+editor writes a backup first. They are worth opening and taking apart once you
+have built the circle below.
+
 You then land in the editor:
 
 ![The Rhizomium editor after starting a new graph, with its four main areas numbered](images/editor-overview.annotated.webp)
