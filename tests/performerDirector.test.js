@@ -345,5 +345,27 @@ describe('PerformerDirector', () => {
 
       expect(run.mock.calls[1][2]).toEqual({ units: 1 });
     });
+
+    // A call reaped as timed out is still out there, unaborted, and will
+    // eventually settle on its own. If that late settlement were allowed to
+    // spend again, a slow-but-successful call would be billed twice: once for
+    // the timeout, once for the answer that arrives after all.
+    it('does not charge twice when a reaped call answers late', async () => {
+      const pending = deferred();
+      run.mockReturnValue(pending.promise);
+      director.setEnabled(true);
+      director.offer(state());
+
+      clock.now += 20_001; // past LIVE_TIMEOUT_MS
+      director.offer(state()); // reaps the hung call
+      expect(director.minutesSpent).toBe(1);
+
+      // The original request finally comes back, successfully.
+      pending.resolve({ result: { actions: [], note: '' } });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(director.minutesSpent).toBe(1);
+    });
   });
 });

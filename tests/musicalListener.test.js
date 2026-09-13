@@ -178,7 +178,12 @@ describe('MusicalListener', () => {
 
     const d = listener.describe(40);
     expect(d.events.map((e) => e.kind)).toContain('onset-stop');
-    expect(d.density.onsetsPerSecond).toBeLessThan(0.5);
+    // onsetsPerSecond is a plain average over the last 15s, so it still carries
+    // five seconds of a rhythm that only just stopped — the window is not yet
+    // pure silence. It is `trend` that has the earlier 15s to compare against,
+    // and that is where "stopped" actually shows up.
+    expect(d.density.onsetsPerSecond).toBeLessThan(2);
+    expect(d.density.trend).toBe('falling');
   });
 
   it('measures change against a mark rather than an arbitrary frame', () => {

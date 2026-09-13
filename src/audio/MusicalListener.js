@@ -171,6 +171,12 @@ export class MusicalListener {
   constructor(options = {}) {
     this.silenceLevel = options.silenceLevel ?? SILENCE_LEVEL;
     this.pulseWindow = options.pulseWindow ?? PULSE_WINDOW_SECONDS;
+    // Onsets are kept around longer than the pulse window itself needs, because
+    // the density trend (_build) compares a recent MEDIUM_TAU-second slice
+    // against the MEDIUM_TAU-second slice before it — a horizon _estimatePulse
+    // never asks for. Pruning to just pulseWindow would starve that comparison
+    // of history it needs, so retention is the wider of the two.
+    this._onsetRetentionSeconds = Math.max(this.pulseWindow, MEDIUM_TAU * 2);
     this.describeInterval = options.describeInterval ?? DESCRIBE_INTERVAL;
     this.preferredBpm = options.preferredBpm ?? 120;
 
@@ -361,7 +367,14 @@ export class MusicalListener {
       if (count < seen) continue;
       const fired = Math.min(count - seen, 8);
       if (fired <= 0) continue;
-      const weight = ONSET_WEIGHTS[name] * Math.max(0.15, clamp01(finite(taps[`${name}Meter`])) || 1);
+      // A meter that is genuinely 0 is the weakest possible hit and must floor
+      // at 0.15, not be confused with a meter field that is simply absent —
+      // which is the one case that should fall back to full confidence.
+      const rawMeter = taps[`${name}Meter`];
+      const meterWeight = typeof rawMeter === 'number' && Number.isFinite(rawMeter)
+        ? clamp01(rawMeter)
+        : 1;
+      const weight = ONSET_WEIGHTS[name] * Math.max(0.15, meterWeight);
       for (let i = 0; i < fired; i++) this._onsets.push({ t: time, w: weight });
       this._onsetCount += fired;
       this._lastOnsetAt = time;
@@ -474,7 +487,7 @@ export class MusicalListener {
   // --- the pulse, such as it is ------------------------------------------
 
   _prunePulse(now) {
-    const from = now - this.pulseWindow;
+    const from = now - this._onsetRetentionSeconds;
     let drop = 0;
     while (drop < this._onsets.length && this._onsets[drop].t < from) drop++;
     if (drop) this._onsets.splice(0, drop);
@@ -490,7 +503,10 @@ export class MusicalListener {
    * reporting a tempo four times too fast.
    */
   _estimatePulse(now) {
-    const onsets = this._onsets;
+    // Retention now outlives the pulse window itself (see
+    // _onsetRetentionSeconds), so tempo estimation has to ask for its own
+    // window explicitly rather than assuming _onsets already is one.
+    const onsets = this._onsetsSince(now, this.pulseWindow).reverse();
     if (onsets.length < PULSE_MIN_ONSETS) return { state: 'free', bpm: null, confidence: 0 };
 
     const scores = this._scores;

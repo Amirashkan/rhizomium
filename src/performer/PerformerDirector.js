@@ -183,8 +183,15 @@ export class PerformerDirector {
 
     // Reap a request that has stopped being worth waiting for. Without this a
     // single hung fetch would silence the director for the rest of the night.
+    //
+    // The fetch itself cannot be cancelled, so it is still out there and will
+    // eventually settle. Bumping the token first is what makes that settle a
+    // no-op: ask()'s .then()/.catch() compare against the token they captured
+    // and drop the answer once it no longer matches, instead of re-spending
+    // units or clobbering whatever call has since taken this._inFlight's slot.
     if (this._inFlight && this.now() - this._inFlightAt > LIVE_TIMEOUT_MS) {
       this.log('warn', 'Director call timed out');
+      this._token++;
       this._inFlight = null;
       this._noteFailure();
     }
