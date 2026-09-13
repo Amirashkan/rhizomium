@@ -568,6 +568,15 @@ async function initialize() {
           backupDialog.show();
         }
       },
+      // A starter patch replaces the document the same way a generated patch
+      // does, so it takes the same path: a backup first, then the import, then
+      // the view framed on what was just opened.
+      onOpenStarter: async (starter) => {
+        await replaceGraphWithPatch(starter.patch, {
+          title: starter.title,
+          reason: "starter-patch",
+        });
+      },
       onClose: () => {},
       storageKey: "rhizomium.welcome.dismissed"
     });

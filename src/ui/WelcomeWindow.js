@@ -2,6 +2,7 @@
 import { makeDraggable } from './utils/draggable.js';
 import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
 import { parseAutosaveEntry } from '../core/AutosaveStore.js';
+import { STARTER_PATCHES } from '../data/starterPatches.js';
 
 export class WelcomeWindow {
   constructor(options = {}) {
@@ -10,6 +11,11 @@ export class WelcomeWindow {
     this.onOpenProject = options.onOpenProject || (() => {});
     this.onOpenBackups = options.onOpenBackups || (() => {});
     this.onShowDocs = options.onShowDocs || null;
+    // Opening a starter patch replaces the document, so the window only offers
+    // them when it has been given something that can do that — no button here
+    // that quietly does nothing.
+    this.onOpenStarter = options.onOpenStarter || null;
+    this.starterPatches = options.starterPatches || STARTER_PATCHES;
     this.onClose = options.onClose || (() => {});
     this.storageKey = options.storageKey || "rhizomium.welcome.dismissed";
 
@@ -532,6 +538,69 @@ export class WelcomeWindow {
         margin-bottom: 0;
       }
 
+      /* Starter patches: three finished graphs to open and take apart. Cards
+         rather than list rows — each one is a choice with a sentence attached,
+         and they read as a row of openings instead of more buttons. */
+      .welcome-starters {
+        background: ${SURFACE.well};
+        border: 1px solid ${SURFACE.line};
+        border-radius: 11px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+
+      .welcome-starter-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      @media (max-width: 520px) {
+        .welcome-starter-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .starter-card {
+        background: ${SURFACE.fillSoft};
+        border: 1px solid ${SURFACE.line};
+        border-radius: 10px;
+        color: ${TEXT.primary};
+        padding: 11px 12px;
+        font-family: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .starter-card:hover {
+        background: ${SURFACE.hover};
+        border-color: ${withAlpha(ACCENT.base, 0.4)};
+      }
+
+      .starter-card:active {
+        transform: translateY(1px);
+      }
+
+      .starter-card:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px ${withAlpha(ACCENT.base, 0.35)};
+      }
+
+      .starter-title {
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+
+      .starter-blurb {
+        font-size: 10.5px;
+        line-height: 1.45;
+        color: ${TEXT.tertiary};
+      }
+
       /* Scrollbar styling */
       .welcome-dialog::-webkit-scrollbar {
         width: 9px;
@@ -601,6 +670,29 @@ export class WelcomeWindow {
         </div>
       `;
 
+    const starterSection =
+      this.onOpenStarter && this.starterPatches.length > 0
+        ? `
+        <div class="welcome-starters">
+          <div class="section-title">Start From A Patch</div>
+          <div class="welcome-starter-grid">
+            ${this.starterPatches
+              .map(
+                (starter) => `
+              <button class="starter-card" data-action="starter" data-starter="${escapeAttribute(
+                starter.id,
+              )}">
+                <span class="starter-title">${escapeText(starter.title)}</span>
+                <span class="starter-blurb">${escapeText(starter.blurb)}</span>
+              </button>
+            `,
+              )
+              .join("")}
+          </div>
+        </div>
+      `
+        : "";
+
     const docsButton = this.onShowDocs
       ? `<button class="welcome-action" data-action="docs">Open Documentation</button>`
       : "";
@@ -626,6 +718,7 @@ export class WelcomeWindow {
             </button>
             ${docsButton}
           </div>
+          ${starterSection}
           ${backupList}
           <div class="welcome-tips">
             <h3>Quick Tips</h3>
@@ -712,6 +805,9 @@ export class WelcomeWindow {
         this.maybeCreateStartupBackup();
         this.hide();
         break;
+      case "starter":
+        await this.openStarter(event.currentTarget?.dataset?.starter);
+        break;
       case "backups":
         this.onOpenBackups();
         this.hide();
@@ -730,6 +826,30 @@ export class WelcomeWindow {
     }
 
     event.preventDefault();
+  }
+
+  /**
+   * Open one of the starter patches.
+   *
+   * The window closes only once the patch is on the canvas: loading replaces
+   * the document and takes a moment, and a welcome screen that vanishes onto
+   * the previous graph reads as if nothing happened. A failure leaves the
+   * window open, which is the only place left to choose something else from.
+   */
+  async openStarter(id) {
+    const starter = this.starterPatches.find((entry) => entry.id === id);
+    if (!starter || !this.onOpenStarter) {
+      return;
+    }
+
+    try {
+      await this.onOpenStarter(starter);
+    } catch (error) {
+      console.warn(`Could not open the "${starter.title}" starter patch:`, error);
+      return;
+    }
+
+    this.hide();
   }
 
   async restoreAutosave() {
@@ -788,4 +908,22 @@ export class WelcomeWindow {
 
     }
   }
+}
+
+/**
+ * Text bound for innerHTML. The starter patches are ours, but the list is an
+ * option on this window: something built from a file on disk one day must not
+ * be able to put markup on the launch screen (SECURITY.md, "Patch loading").
+ */
+function escapeText(value) {
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    (char) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char],
+  );
+}
+
+/** The same, for a value landing inside a double-quoted attribute. */
+function escapeAttribute(value) {
+  return escapeText(value);
 }
