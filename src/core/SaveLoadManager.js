@@ -9,6 +9,7 @@ import { dataUrlToBlob } from './dataUrl.js';
 import { restorePatchTextures, restoreImageTexture, restoreVideoTexture } from './patchTextures.js';
 import { encodeProjectFile, decodeProjectFile } from './projectFile.js';
 import { getAnnotationStore } from './AnnotationStore.js';
+import { isTauri } from '../utils/isTauri.js';
 
 // Re-exported: this module was the decoder's home before the web viewer
 // needed it without the rest of the save/load stack.
@@ -50,6 +51,12 @@ export class SaveLoadManager {
     this._lastAutoBackupAt = 0;
     this.maxBackups = 10;
     this.hasUnsavedChanges = false;
+    // hasUnsavedChanges is cleared by the autosave snapshot too, so it answers
+    // "is anything unpersisted right now", not "has this been saved to the
+    // artist's file". Only the second one is worth stopping a close over -
+    // an autosaved patch the artist never saved still lives nowhere they can
+    // find it - so the file-level dirty bit is tracked on its own.
+    this.hasUnsavedFileChanges = false;
     this.isImporting = false;
     this._lastAutosaveHash = null;
     this._lastBackupHash = null;
@@ -160,9 +167,30 @@ export class SaveLoadManager {
    */
   markUnsaved() {
     if (this.isImporting) return;
-    const wasClean = !this.hasUnsavedChanges;
+    const wasClean = !this.hasUnsavedFileChanges;
     this.hasUnsavedChanges = true;
+    this.hasUnsavedFileChanges = true;
     if (wasClean) this._updateDocumentTitle();
+  }
+
+  /**
+   * Mark the project as saved where the artist can find it again: a write to
+   * their file, or a load that binds the editor to one. The autosave snapshot
+   * deliberately does not come through here - it clears hasUnsavedChanges on
+   * its own and leaves the file dirty.
+   */
+  markSaved() {
+    this.hasUnsavedChanges = false;
+    this.hasUnsavedFileChanges = false;
+    this._updateDocumentTitle();
+  }
+
+  /**
+   * Whether closing now would drop edits made since the last save to a file.
+   * An empty canvas is never worth a warning - there is nothing to lose.
+   */
+  hasUnsavedWork() {
+    return !!this.hasUnsavedFileChanges && !!this.graph?.nodes?.length;
   }
 
   /**
@@ -698,7 +726,7 @@ async importProject(projectData, options = {}) {
       this.editor.draw();
     }
 
-    this.hasUnsavedChanges = false;
+    this.markSaved();
     this.updateStatus("Project loaded successfully");
 
     // Restore the 3D viewport last: the graph rebuild above creates/auto-shows
@@ -1186,7 +1214,7 @@ async reinitializeWebGPU() {
         filename || `rhizomium-project-${timestamp}.${extension}`;
       this.downloadFile(content, finalFilename, mimeType);
 
-      this.hasUnsavedChanges = false;
+      this.markSaved();
       this.updateStatus(`Project saved as ${finalFilename}`);
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -1263,7 +1291,7 @@ async reinitializeWebGPU() {
       const name = this.currentProjectName
         ? this._baseName(this.currentProjectName)
         : null;
-      const marker = this.hasUnsavedChanges ? "• " : "";
+      const marker = this.hasUnsavedFileChanges ? "• " : "";
       document.title = name ? `${marker}${name} — ${app}` : app;
     } catch {
       /* document may be unavailable in non-DOM contexts */
@@ -1296,8 +1324,7 @@ async reinitializeWebGPU() {
         try {
           const content = await this._encodeForFile(this.currentFileHandle.name);
           await this._writeToHandle(this.currentFileHandle, content);
-          this.hasUnsavedChanges = false;
-          this._updateDocumentTitle();
+          this.markSaved();
           this.updateStatus(`Saved ${this.currentFileHandle.name}`);
           return true;
         } catch (error) {
@@ -1367,8 +1394,7 @@ async reinitializeWebGPU() {
         await this._writeToHandle(handle, await this._encodeForFile(handle.name));
         this.currentFileHandle = handle;
         this.currentProjectName = handle.name;
-        this.hasUnsavedChanges = false;
-        this._updateDocumentTitle();
+        this.markSaved();
         this.updateStatus(`Saved to ${handle.name}`);
         return true;
       }
@@ -1391,8 +1417,7 @@ async reinitializeWebGPU() {
       this.downloadFile(content, fileName, this._fileMimeType(content));
       this.currentFileHandle = null; // downloads don't yield a writable handle
       this.currentProjectName = fileName;
-      this.hasUnsavedChanges = false;
-      this._updateDocumentTitle();
+      this.markSaved();
       this.updateStatus(`Saved as ${fileName}`);
       return true;
     } catch (error) {
@@ -1516,8 +1541,7 @@ async reinitializeWebGPU() {
       // "Save" reflect it. pickProjectFile() may already have set a writable
       // handle; the hidden <input> path has none, so a later Save becomes Save As.
       this.currentProjectName = file.name;
-      this.hasUnsavedChanges = false;
-      this._updateDocumentTitle();
+      this.markSaved();
 
       this.updateStatus(`Loaded ${file.name}`);
     } catch (error) {
@@ -1951,11 +1975,20 @@ async reinitializeWebGPU() {
         }
       });
 
-      window.addEventListener("beforeunload", (_e) => {
-        if (!this.autosaveEnabled) return;
-        if (this.hasUnsavedChanges) {
+      window.addEventListener("beforeunload", (e) => {
+        if (this.autosaveEnabled && this.hasUnsavedChanges) {
           this.saveToLocal();
-          // Don't show dialog - just save silently
+        }
+
+        // The snapshot above survives a crash, but it is not the artist's
+        // file - closing on top of edits they never saved still loses the
+        // patch as far as they are concerned, so the browser gets to ask.
+        // The desktop build handles its own close (see closeGuard.js); a
+        // webview's beforeunload dialog is not shown there anyway.
+        if (!isTauri() && this.hasUnsavedWork()) {
+          e.preventDefault();
+          e.returnValue = ""; // older browsers need the assignment to prompt
+          return "";
         }
       });
     } catch (error) {

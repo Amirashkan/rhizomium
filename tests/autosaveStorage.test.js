@@ -242,6 +242,7 @@ function autosaveStub(overrides = {}) {
     _scheduleAutoSave: P._scheduleAutoSave,
     _runAutoSave: P._runAutoSave,
     isPerforming: P.isPerforming,
+    hasUnsavedWork: P.hasUnsavedWork,
     shouldAutoSave: () => true,
     exportProject: vi.fn(() => bigProject()),
     saveToLocal: vi.fn().mockResolvedValue(true),

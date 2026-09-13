@@ -16,6 +16,8 @@ function makeStub(overrides = {}) {
     downloadFile: vi.fn(),
     updateStatus: vi.fn(),
     markUnsaved: P.markUnsaved,
+    markSaved: P.markSaved,
+    hasUnsavedFileChanges: false,
     _updateDocumentTitle: vi.fn(),
     _baseName: P._baseName,
     _sanitizeFileName: P._sanitizeFileName,
