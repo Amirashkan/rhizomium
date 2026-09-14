@@ -8,6 +8,9 @@ from a **scenario**: a written score that says what the set is made of and what
 it is allowed to do.
 
 ```
+ manifest ──> ShowBuilder ──> patches ──> scenes ──┐   (once, at a desk)
+ (the plan)                              scenario ─┘
+
 your DAW ──OSC──> osc_bridge_server.py ──ws──> OSCManager ─┐
                                                            │
               audio analysis (src/audio/) ─────────────────┼──> SignalBus
@@ -83,6 +86,10 @@ separates "hearing nothing" (a routing problem) from "hearing quiet music".
 2. **Scenario** tab → **Example**, then **Load**. Or write a brief and press
    **Write a scenario** to have the model draft one, which lands in the editor
    for you to read before anything plays it.
+
+   With no scenes on the rig yet, start one tab earlier: **Show** → **Example**
+   → **Build the show**, which makes the looks first. See
+   [The manifest](#the-manifest-building-a-show-that-does-not-exist-yet) below.
 3. Point your DAW at the OSC bridge (see [`../osc/README.md`](../osc/README.md)
    — the performer listens on the same bridge) and send
    `/rhizo/perf/start`.
@@ -206,6 +213,93 @@ it is doing the right thing forty times a second.
 | `masterCeiling` / `masterFloor` | 1 / 0 | a house limit the performer cannot undo |
 | `director.freedom` | 0.4 | 0 = play it as written, 1 = treat it as a starting point |
 
+## The manifest: building a show that does not exist yet
+
+A scenario can only name things that are already on the rig. That is the right
+rule at showtime — a section pointing at a scene somebody renamed is an inert
+section and a warning, never a set that stops in front of an audience — and it
+leaves one case with nowhere to start: you have the show in your head and an
+empty editor. Asked for a scenario against a rig with no scenes on it, the
+model is told outright not to invent any, so it writes a set whose every look
+is unset. Correct, and useless.
+
+A **manifest** is the other end of that. It describes the looks *before they
+exist*, in prose, and **Build the show** turns it into them:
+
+1. One patch-generator call per look, each installed as a scene under the
+   look's name.
+2. One scenario call — which can now name those scenes, because by then they
+   are on the rig.
+3. A binding pass that makes each section play the scene actually built for it.
+
+Step 3 is not a safety net for a bad model. It is the step that makes the
+difference between a document *about* a show and the show: after it, every
+patch that was built is played by a section, and the scenario's names and the
+rig's names are the same names. A look nothing in the set plays gets a section
+of its own rather than being dropped — you paid for that patch.
+
+```jsonc
+{
+  "show": "Night set",
+  "brief": "A 40-minute support slot. Dark and patient, one drop I fire by hand.",
+  "palette": "near-black, cold blue-grey, one white accent only in the drop",
+  "bpm": 128,
+  "pulse": "metered",            // or "free" — see "Music with no pulse" above
+
+  "looks": [{
+    "id": "opening",
+    "name": "Opening",
+    "brief": "Slow fog drifting across the frame, one cold light source, almost black.",
+    "mood": "patient, cold, barely moving",
+    "intensity": 0.2,            // where it sits in the shape of the set
+    "reactsTo": ["low"],         // audio channels it should visibly answer
+    "drivable": ["how fast the fog drifts", "how far the light reaches"],
+    "hold": { "bars": 32 },      // or { "seconds": 180 }
+    "next": "build"
+  }],
+
+  // Straight through to the scenario.
+  "signals": [{ "name": "energy", "source": "osc", "address": "/rhizo/perf/energy" }],
+  "cues": ["drop", "blackout"],
+  "rules": { "minSectionBars": 4 }
+}
+```
+
+A look with a `scene` instead of a `brief` names one you already have: it costs
+nothing and is bound into the set exactly like a generated one, which is how a
+show mixes looks you built by hand with looks you had built for you.
+
+`palette` and `brief` are what stop five separately generated patches from
+looking like five separate shows — every look call is told the whole set, in
+order, and where in it this one sits. `drivable` is the other half: a patch is
+being built to be *performed*, so each of those becomes a named node whose
+parameter a drive can reach, set to a value with somewhere left to travel. A
+parameter already at its maximum on the first frame is a fader with no throw.
+
+### What it costs, and what happens when it runs out
+
+A build is one `ai.patch_generator` call per look plus one
+`ai.performer_scenario` call — metered exactly like pressing those buttons
+yourself, because that is what it is doing. The **Check** button says how many
+before you start.
+
+So the rules are about not wasting what you have already spent:
+
+- **Nothing already paid for is thrown away.** A look that fails does not take
+  the ones before it with it. A scenario call that fails after the patches are
+  built falls back to a set written from the manifest alone, with no model in
+  it — plain, but it plays your looks.
+- **Out of quota stops the build**, rather than being discovered once per
+  remaining look.
+- **Stop** ends it after the look being built now. A call already in flight has
+  already been paid for, so between calls is the only cancellation worth having.
+- **Nothing is loaded.** The scenes are installed, because that is what you
+  asked for, and they are inert until something cuts to one. The scenario lands
+  in the **Scenario** tab as a document, unloaded, exactly like a drafted one —
+  which is what makes this safe to run an hour before doors.
+
+`Save…` writes a `.rzshow.json` you can keep next to the set and rebuild from.
+
 ## Talking to it from your DAW
 
 Signals you declare are polled. These are the *moments*, taken from the message
@@ -260,6 +354,8 @@ downbeat you just played.
 | `ActionExecutor.js` | the only file that touches the editor |
 | `PerformerEngine.js` | the frame loop and the state machine |
 | `PerformerDirector.js` | the model, kept off the frame loop |
+| `ShowManifest.js` | the manifest: the show as a plan, and the prompts it implies |
+| `ShowBuilder.js` | manifest in, a set that plays the looks it just built out |
 | `PerformerOSC.js` | the `/rhizo/perf/*` namespace |
 | `../ui/PerformerPanel.js` | the panel |
 
@@ -271,7 +367,12 @@ lit-up button and a 401):
 
 - **`ai.performer_scenario`** writes a scenario from a brief. Slow, run once at
   a desk. It is told what scenes, presets, parameters and OSC addresses you
-  actually have, and told not to invent any others.
+  actually have, and told not to invent any others. Building a show runs it
+  last, once the looks exist, which is the whole reason that ordering matters.
+- **`ai.patch_generator`** — the editor's own, run once per look by a show
+  build. Deliberately not a feature key of its own: a look is a patch, your
+  allowance already counts patches, and a separate key would be the same call
+  billed under a name that hides what it is.
 - **`ai.performer_live`** improvises inside one while you play. Its quota is
   **per hour**, not per day: it is the one feature whose spend tracks how long
   you perform for rather than how many times you press a button. Each call

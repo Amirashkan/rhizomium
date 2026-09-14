@@ -169,7 +169,10 @@ Drivers: `src/audio/`, `src/midi/`, `src/osc/`, `src/core/TimelineManager.js`,
 - `src/performer/` — the AI performer: a scenario (a written score) played
   against live OSC and audio while a musician performs. Two clocks on purpose —
   a synchronous per-frame engine, and a model consulted in bars and kept off
-  the frame loop. `src/performer/README.md`.
+  the frame loop. A show can also be *built* rather than only scored: a
+  manifest describes looks that do not exist yet, and one patch-generator call
+  per look turns it into the scenes the scenario then names.
+  `src/performer/README.md`.
 - `src/collab/` — multi-user editing.
 - `src/ai/` — AI features. See [Open-core boundary](#open-core-boundary).
 

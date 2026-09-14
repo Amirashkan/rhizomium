@@ -59,7 +59,7 @@ import { PerformerEngine } from './src/performer/PerformerEngine.js';
 import { PerformerDirector } from './src/performer/PerformerDirector.js';
 import { getPerformerPanel } from './src/ui/PerformerPanel.js';
 import * as audioAnalysisTaps from './src/audio/audioAnalysisTaps.js';
-import { replaceGraphWithPatch } from './src/ai/applyResult.js';
+import { replaceGraphWithPatch, patchToProjectData } from './src/ai/applyResult.js';
 import { ensureIconSprite } from './src/ui/iconSprite.js';
 import { ComputeShaderTest } from './src/test/ComputeShaderTest.js';
 import { ComputeExecutor } from './src/gpu/ComputeExecutor.js';
@@ -651,6 +651,10 @@ async function initialize() {
         vjPanel: vjControlPanel,
         director: performerDirector,
         replaceGraph: replaceGraphWithPatch,
+        // How a generated patch becomes a scene the set can cut to, for the
+        // show builder. Injected here rather than imported in the performer so
+        // that subsystem stays testable without the editor.
+        patchToProjectData,
       });
 
       window.performer = performerEngine;

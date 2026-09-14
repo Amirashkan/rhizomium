@@ -347,3 +347,133 @@ describe('PerformerDirector', () => {
     });
   });
 });
+
+describe('building a show', () => {
+  // The director's other slow job: a manifest in, a set that plays generated
+  // looks out. runFeature is still injected, so this spends nothing.
+
+  const MANIFEST = {
+    show: 'Test set',
+    looks: [
+      { id: 'opening', name: 'Opening', brief: 'slow fog over near-black' },
+      { id: 'drop', name: 'Drop', brief: 'hard, white, full frame' },
+    ],
+  };
+
+  const patch = () => ({
+    nodes: [{ id: 'a', kind: 'Noise', x: 0, y: 0, params: {} }],
+    connections: [],
+  });
+
+  function makeDirector() {
+    const run = vi.fn(async (feature) => {
+      if (feature === 'ai.patch_generator') {
+        return { result: { patch: patch(), title: 'A look', notes: 'turn the speed' } };
+      }
+      if (feature === 'ai.performer_scenario') {
+        return {
+          result: {
+            scenario: {
+              name: 'Test set',
+              sections: [
+                { id: 'opening', name: 'Opening', enter: 'manual' },
+                { id: 'drop', name: 'Drop', enter: { bars: 32 } },
+              ],
+            },
+            note: 'check the drop',
+          },
+        };
+      }
+      throw new Error(`unexpected feature ${feature}`);
+    });
+    return { run, director: new PerformerDirector({ run, now: () => 0 }) };
+  }
+
+  it('runs the editor\'s own patch generator, once per look', async () => {
+    const { run, director } = makeDirector();
+    const installed = [];
+
+    await director.buildShow(MANIFEST, {
+      installScene: (name) => { installed.push(name); return { id: name, name }; },
+    });
+
+    const generated = run.mock.calls.filter(([feature]) => feature === 'ai.patch_generator');
+    expect(generated).toHaveLength(2);
+    expect(installed).toEqual(['Opening', 'Drop']);
+  });
+
+  it('sends the show with each look, so the patches read as one set', async () => {
+    const { run, director } = makeDirector();
+    await director.buildShow(MANIFEST, { installScene: (name) => ({ id: name, name }) });
+
+    const [, input] = run.mock.calls.find(([feature]) => feature === 'ai.patch_generator');
+    expect(input.prompt).toContain('slow fog over near-black');
+    expect(input.show.context).toContain('Test set');
+    expect(input.show.look).toBe('Opening');
+  });
+
+  it('leaves the plain patch generator exactly as it was', async () => {
+    const { run, director } = makeDirector();
+    await director.generatePatch('just a patch');
+
+    const [feature, input] = run.mock.calls[0];
+    expect(feature).toBe('ai.patch_generator');
+    expect(input).toEqual({ prompt: 'just a patch', show: undefined });
+  });
+
+  it('hands back a scenario that names the scenes it just installed', async () => {
+    const { director } = makeDirector();
+    const report = await director.buildShow(MANIFEST, {
+      installScene: (name) => ({ id: `scene_${name}`, name }),
+    });
+
+    expect(report.scenario.sections.map((section) => section.look.scene))
+      .toEqual(['Opening', 'Drop']);
+    expect(report.note).toBe('check the drop');
+  });
+
+  it('loads nothing: the set is a document until the artist presses Load', async () => {
+    const { director } = makeDirector();
+    const report = await director.buildShow(MANIFEST, {
+      installScene: (name) => ({ id: name, name }),
+    });
+
+    // The same rule a drafted scenario follows. A set that starts playing
+    // because a build finished is exactly the surprise the panel avoids.
+    expect(report.scenario.name).toBe('Test set');
+    expect(director.enabled).toBe(false);
+  });
+
+  it('refuses a manifest with nothing to build, before spending a call', async () => {
+    const { run, director } = makeDirector();
+    await expect(director.buildShow({ show: 'empty' }, { installScene: () => ({}) }))
+      .rejects.toThrow(/at least one look/);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('refuses when there is nowhere to put the looks', async () => {
+    const { run, director } = makeDirector();
+    await expect(director.buildShow(MANIFEST, {})).rejects.toThrow(/Nowhere to put/);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('does not charge a show build against the live director\'s minutes', async () => {
+    // Its allowance is patch generations and one scenario, all counted by the
+    // gallery per call. The minutes readout is the live feature's alone.
+    const { director } = makeDirector();
+    await director.buildShow(MANIFEST, { installScene: (name) => ({ id: name, name }) });
+    expect(director.minutesSpent).toBe(0);
+    expect(director.calls).toBe(0);
+  });
+
+  it('says it is building, and stops saying so when it is done', async () => {
+    const { director } = makeDirector();
+    expect(director.status().building).toBe(false);
+
+    const building = director.buildShow(MANIFEST, { installScene: (name) => ({ id: name, name }) });
+    expect(director.status().building).toBe(true);
+
+    await building;
+    expect(director.status().building).toBe(false);
+  });
+});
