@@ -22,6 +22,12 @@
  * `ai.performer_scenario` writes a scenario from a brief. Slow, offline, run
  * once at a desk — the artist reads what comes back and edits it.
  *
+ * `ai.patch_generator`, run once per look, is how a show is BUILT rather than
+ * only scored: buildShow() takes a manifest describing looks that do not exist
+ * yet, generates a patch for each, has them installed as scenes, and only then
+ * writes the scenario — which can finally name them, because by that point
+ * they are on the rig. See ShowManifest.js and ShowBuilder.js.
+ *
  * `ai.performer_live` improvises within one. It is handed the scenario, the
  * live signals and the last few things that happened, and answers with a short
  * list of actions and an optional note. It runs during the set.
@@ -35,10 +41,19 @@ import { runFeature, AIRequestError, GrantError } from '../ai/aiClient.js';
 import { DirectorCadence } from './DirectorCadence.js';
 import { normalizeScenario } from './Scenario.js';
 import { normalizeAction } from './actions.js';
+import { ShowBuilder } from './ShowBuilder.js';
+import { normalizeManifest, validateManifest } from './ShowManifest.js';
 
 /** Feature keys. Mirrored in src/ai/tiers.js and api/_lib/features.js. */
 export const SCENARIO_FEATURE = 'ai.performer_scenario';
 export const LIVE_FEATURE = 'ai.performer_live';
+/**
+ * Building a show's looks is the editor's own patch generator, run once per
+ * look. Deliberately not a feature of its own: a look is a patch, an artist's
+ * allowance already counts patches, and a separate key would be the same call
+ * billed under a name that hides what it is.
+ */
+export const PATCH_FEATURE = 'ai.patch_generator';
 
 /**
  * A live call that has not answered in this long is abandoned.
@@ -129,6 +144,13 @@ export class PerformerDirector {
 
     /** Units a call in flight will cost, counted once it is known to be spent. */
     this._pendingUnits = 0;
+
+    /**
+     * True while a show is being built. Nothing in the live loop reads it —
+     * a build happens with the engine stopped — but the panel does, to keep
+     * the button from starting a second one over the first.
+     */
+    this.building = false;
   }
 
   /** Turn the live director on or off mid-set. */
@@ -387,9 +409,107 @@ export class PerformerDirector {
     };
   }
 
+  // --- building a show ---------------------------------------------------
+
+  /**
+   * Generate one patch.
+   *
+   * The same call the editor's own patch generator makes, with the show's
+   * context attached so the look comes back as one of a family rather than as
+   * a good image on its own. Everything after the call is the backend's:
+   * validateGeneratedPatch() has already dropped any parameter the node
+   * registry does not declare, so what arrives here either fits the editor or
+   * is empty.
+   *
+   * @param {string} prompt what to build, from ShowManifest.lookPrompt()
+   * @param {object} [context] { show, look } — the rest of the set
+   * @returns {Promise<{patch: object, title: string, notes: string}>}
+   */
+  async generatePatch(prompt, context = {}) {
+    const text = String(prompt || '').trim();
+    if (!text) throw new Error('Describe the look before generating a patch for it.');
+
+    const { result } = await this.run(PATCH_FEATURE, {
+      prompt: text,
+      // Read by describeShowLook() in api/_lib/features.js, and absent for
+      // every caller that is not building a show — which is what keeps the
+      // editor's own generator exactly as it was.
+      show: context.show
+        ? {
+            context: String(context.show).slice(0, 2000),
+            look: String(context.look?.name || '').slice(0, 80),
+            intensity: context.look?.intensity ?? null,
+            drivable: (context.look?.drivable || []).slice(0, 8),
+            reactsTo: (context.look?.reactsTo || []).slice(0, 8),
+          }
+        : undefined,
+    });
+
+    return {
+      patch: result?.patch || null,
+      title: String(result?.title || ''),
+      notes: String(result?.notes || ''),
+    };
+  }
+
+  /**
+   * Build a whole show from a manifest: the looks, then the set that plays them.
+   *
+   * This is the long one. It is a patch-generator call per look and then a
+   * scenario call, none of them on the frame loop and none of them in a hurry
+   * — it runs at a desk, before a show, and the artist waits on it deliberately
+   * the way they wait on the patch generator today.
+   *
+   * It does not load anything. The scenario comes back as a document for the
+   * artist to read, exactly like authorScenario() — the scenes are installed,
+   * because that is what it was asked to do and they are inert until something
+   * cuts to them, but nothing starts playing on its own. That rule is the whole
+   * reason the panel is safe to use an hour before doors.
+   *
+   * @param {object} manifest the show, from ShowManifest.js
+   * @param {object} [options]
+   * @param {Function} options.installScene (name, patch, meta) => {id, name}
+   * @param {object} [options.context] the rig, as the panel reads it
+   * @param {Function} [options.onProgress] per-look progress
+   * @param {Function} [options.shouldStop] checked between calls
+   * @param {boolean} [options.writeScenario] false to skip the scenario call
+   * @returns {Promise<object>} the builder's report
+   */
+  async buildShow(manifest, options = {}) {
+    const show = normalizeManifest(manifest);
+    const report = validateManifest(show);
+    if (report.errors.length) {
+      const first = report.errors[0];
+      throw new Error(`${first.where} — ${first.message}`);
+    }
+    if (typeof options.installScene !== 'function') {
+      throw new Error('Nowhere to put the looks: open the VJ panel first.');
+    }
+
+    const builder = new ShowBuilder({
+      generatePatch: (prompt, context) => this.generatePatch(prompt, context),
+      installScene: options.installScene,
+      authorScenario: (brief, context) => this.authorScenario(brief, context),
+      log: this.log,
+    });
+
+    this.building = true;
+    try {
+      return await builder.build(show, {
+        context: options.context,
+        onProgress: options.onProgress,
+        shouldStop: options.shouldStop,
+        writeScenario: options.writeScenario,
+      });
+    } finally {
+      this.building = false;
+    }
+  }
+
   status() {
     return {
       enabled: this.enabled,
+      building: this.building,
       thinking: Boolean(this._inFlight),
       ready: Boolean(this._ready),
       calls: this.calls,

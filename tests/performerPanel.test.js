@@ -323,3 +323,163 @@ describe('PerformerPanel', () => {
     });
   });
 });
+
+describe('the Show tab', () => {
+  // The tab used before a set exists. What matters here is the same thing that
+  // matters everywhere else in this panel: nothing is loaded behind the
+  // artist's back, and nothing from a manifest file reaches the DOM as markup.
+
+  const MANIFEST = {
+    show: 'Test set',
+    looks: [
+      { id: 'opening', name: 'Opening', brief: 'slow fog over near-black' },
+      { id: 'drop', name: 'Drop', brief: 'hard, white, full frame' },
+    ],
+  };
+
+  const patch = () => ({
+    nodes: [{ id: 'a', kind: 'Noise', x: 0, y: 0, params: {} }],
+    connections: [],
+  });
+
+  /** A director whose build does what the real one does, without a network. */
+  function fakeDirector(overrides = {}) {
+    return {
+      buildShow: vi.fn(async (manifest, options) => {
+        const built = [];
+        for (const look of manifest.looks) {
+          options.onProgress?.({ phase: 'look', status: 'start', message: `Building "${look.name}"…` });
+          const scene = options.installScene(look.name, patch(), {});
+          built.push({ lookId: look.id, sceneName: scene.name, generated: true });
+          options.onProgress?.({ phase: 'look', status: 'ok', name: look.name, message: `"${look.name}" — 1 node.` });
+        }
+        return {
+          scenario: { name: 'Test set', sections: [{ id: 'opening', look: { scene: 'Opening' } }] },
+          built, note: '', wrote: 'model', problems: [], stopped: '',
+          warnings: [], bound: built.map((b) => ({ ...b, sectionId: b.lookId })), unbound: [],
+        };
+      }),
+      ...overrides,
+    };
+  }
+
+  function showPanel(director) {
+    const { engine, panel } = build();
+    engine.director = director;
+    engine.executor.sceneManager = { getAllScenes: () => [] };
+    engine.executor.installPatchAsScene = vi.fn((name) => ({ id: `scene_${name}`, name }));
+    panel.show();
+    panel.showTab('show');
+    return { engine, panel };
+  }
+
+  it('fills the editor with the example rather than an empty box', () => {
+    const { panel } = showPanel(fakeDirector());
+    expect(panel.manifestEditor.value).toContain('"looks"');
+  });
+
+  it('says what a build will cost before one is started', () => {
+    const { panel } = showPanel(fakeDirector());
+    panel.manifestEditor.value = JSON.stringify(MANIFEST);
+    panel.checkManifest();
+    expect(panel.showStatus.textContent).toMatch(/2 patch calls/);
+  });
+
+  it('reports what is wrong instead of building it', () => {
+    const { panel } = showPanel(fakeDirector());
+    panel.manifestEditor.value = JSON.stringify({ show: 'empty' });
+    expect(panel.checkManifest()).toBeNull();
+    expect(panel.showStatus.dataset.level).toBe('error');
+  });
+
+  it('says where broken JSON is broken', () => {
+    const { panel } = showPanel(fakeDirector());
+    panel.manifestEditor.value = '{ looks: [';
+    panel.checkManifest();
+    expect(panel.showStatus.textContent).toMatch(/not valid JSON/);
+  });
+
+  it('puts the set in the Scenario tab without loading it', async () => {
+    const { engine, panel } = showPanel(fakeDirector());
+    panel.manifestEditor.value = JSON.stringify(MANIFEST);
+    const before = engine.scenario.name;
+
+    await panel.buildShow();
+
+    expect(panel.editor.value).toContain('Test set');
+    expect(panel.activeTab).toBe('scenario');
+    // Nothing loaded: the engine is still running whatever it was.
+    expect(engine.scenario.name).toBe(before);
+  });
+
+  it('keeps the built set while the artist looks at another tab', async () => {
+    // A draft costs calls. Leaving the Scenario tab to check what scenes you
+    // have and coming back to find the running scenario in its place loses an
+    // answer that was paid for.
+    const { panel } = showPanel(fakeDirector());
+    panel.manifestEditor.value = JSON.stringify(MANIFEST);
+    await panel.buildShow();
+
+    panel.showTab('set');
+    panel.showTab('scenario');
+    expect(panel.editor.value).toContain('Test set');
+
+    // Loading it makes it the running scenario, and the editor follows again.
+    panel.loadFromEditor();
+    expect(panel.editorHoldsDraft).toBe(false);
+  });
+
+  it('refuses to build when there is nowhere to put the looks', async () => {
+    const { engine, panel } = showPanel(fakeDirector());
+    engine.executor.sceneManager = null;
+    panel.manifestEditor.value = JSON.stringify(MANIFEST);
+
+    await panel.buildShow();
+    expect(panel.showStatus.textContent).toMatch(/VJ panel/);
+    expect(engine.director.buildShow).not.toHaveBeenCalled();
+  });
+
+  it('will not start a second build over the first', async () => {
+    const { engine, panel } = showPanel(fakeDirector());
+    panel.manifestEditor.value = JSON.stringify(MANIFEST);
+
+    const first = panel.buildShow();
+    await panel.buildShow();
+    await first;
+
+    expect(engine.director.buildShow).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows progress as lines, not as a spinner', async () => {
+    const { panel } = showPanel(fakeDirector());
+    panel.manifestEditor.value = JSON.stringify(MANIFEST);
+
+    await panel.buildShow();
+    expect(panel.buildLog.children.length).toBeGreaterThan(2);
+  });
+
+  it('never puts a manifest\'s text into the DOM as markup', async () => {
+    const { panel } = showPanel(fakeDirector());
+    panel.manifestEditor.value = JSON.stringify({
+      show: 'Test set',
+      looks: [{ id: 'x', name: '<img src=x onerror=alert(1)>', brief: 'a look' }],
+    });
+
+    await panel.buildShow();
+    expect(panel.buildLog.querySelector('img')).toBeNull();
+    expect(panel.buildLog.textContent).toContain('<img');
+  });
+
+  it('reports a build that failed rather than looking like it worked', async () => {
+    const director = fakeDirector({
+      buildShow: vi.fn(async () => { throw new Error('Out of patch generations today.'); }),
+    });
+    const { panel } = showPanel(director);
+    panel.manifestEditor.value = JSON.stringify(MANIFEST);
+
+    await panel.buildShow();
+    expect(panel.showStatus.dataset.level).toBe('error');
+    expect(panel.showStatus.textContent).toMatch(/Out of patch generations/);
+    expect(panel.buildButton.disabled).toBe(false);
+  });
+});

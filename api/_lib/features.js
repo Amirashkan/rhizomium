@@ -1093,7 +1093,7 @@ export function buildUserMessage(feature, input = {}) {
     case 'ai.patch_generator': {
       const prompt = String(input.prompt || '').trim();
       if (!prompt) throw new BadInputError('Describe the patch you want before generating one.');
-      return `Build a patch: ${prompt}`;
+      return `Build a patch: ${prompt}${describeShowLook(input.show)}`;
     }
 
     case 'ai.node_generator': {
@@ -1238,6 +1238,62 @@ function describeRig(input = {}) {
   if (channels.length) lines.push(`Audio channels available: ${channels.join(', ')}.`);
 
   return `\n\n# The rig\n${lines.join('\n')}`;
+}
+
+/**
+ * When this patch is one look in a show rather than a patch on its own.
+ *
+ * Absent for the editor's own generator button, which is the overwhelming
+ * majority of calls here — and absent means the prompt is byte-for-byte what
+ * it was, so nothing about that feature changed.
+ *
+ * Present when the show builder is running (src/performer/ShowBuilder.js), and
+ * what it adds is the two things that separate a look from an image. First,
+ * the rest of the set: five patches generated from five descriptions with no
+ * knowledge of each other look like five different shows spliced together,
+ * however good each one is. Second, that it will be PERFORMED — a scenario
+ * addresses nodes by name and moves single parameters, so a look whose nodes
+ * are called Blur_3 and whose interesting parameter is already at its maximum
+ * is a look nothing can play.
+ *
+ * It goes in the user turn rather than the system prompt on purpose: the
+ * system turn is the cache prefix every call for this feature shares (see
+ * prompt_cache_key in api/ai/run.js), and a paragraph that varies per look
+ * would cost that cache for every artist using the plain generator.
+ */
+function describeShowLook(show) {
+  if (!show || typeof show !== 'object') return '';
+
+  const lines = [];
+  const context = String(show.context || '').trim();
+  if (context) lines.push(context);
+
+  const look = String(show.look || '').trim();
+  if (look) lines.push(`This patch is the look called "${look}".`);
+
+  const intensity = Number(show.intensity);
+  if (Number.isFinite(intensity)) {
+    lines.push(`It plays at intensity ${round2(intensity)} of 1 across the show.`);
+  }
+
+  const reactsTo = Array.isArray(show.reactsTo) ? show.reactsTo.filter(Boolean) : [];
+  if (reactsTo.length) {
+    lines.push(`It should visibly answer the music on: ${reactsTo.join(', ')}.`);
+  }
+
+  const drivable = Array.isArray(show.drivable) ? show.drivable.filter(Boolean) : [];
+  lines.push(
+    drivable.length
+      ? `These must each be reachable as ONE named node's parameter, because that is how the performer will reach them: ${drivable.join('; ')}.`
+      : 'Leave three or four parameters worth performing, each on its own named node.'
+  );
+
+  lines.push(
+    'Name every node a performer would reach for — the scenario that plays this addresses nodes by name, and an unnamed node cannot be driven.',
+    'Set those parameters to values with somewhere left to travel: one already at its maximum is a fader with no throw.'
+  );
+
+  return `\n\n# This patch is part of a show\n${lines.join('\n')}`;
 }
 
 /** Seconds and tempi, at the precision anyone reads them: two decimals, no trailing zeros. */

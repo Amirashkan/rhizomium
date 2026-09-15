@@ -6,19 +6,27 @@ import { setIcon } from './iconSprite.js';
 import { STATE } from '../performer/PerformerEngine.js';
 import { PerformerOSC } from '../performer/PerformerOSC.js';
 import { EXAMPLE_SCENARIO } from '../performer/Scenario.js';
+import { EXAMPLE_MANIFEST, parseManifest, validateManifest } from '../performer/ShowManifest.js';
 import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
 
 /**
  * PerformerPanel - the surface for the AI performer.
  *
  * It is a performance instrument before it is a settings window, and that
- * decides most of the layout. Four tabs, and the one that is up by default is
+ * decides most of the layout. Five tabs, and the one that is up by default is
  * the one you look at with a mixer in front of you:
  *
  *   Set       where the performance is, and the buttons that move it
  *   Signals   what the performer is hearing, as meters
+ *   Show      a manifest, and the button that builds the looks from it
  *   Scenario  the score, as editable text
  *   Log       what it did, and why
+ *
+ * Show and Scenario are the two halves of getting to a set, and they are in
+ * that order because that is the order the work happens in: a manifest
+ * describes looks that do not exist, building it makes them, and what lands in
+ * Scenario is a score that names them. An artist who already has their scenes
+ * skips the first tab entirely.
  *
  * Two rules about painting run through it.
  *
@@ -38,6 +46,7 @@ import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
 const TABS = [
   { key: 'set', label: 'Set' },
   { key: 'signals', label: 'Signals' },
+  { key: 'show', label: 'Show' },
   { key: 'scenario', label: 'Scenario' },
   { key: 'log', label: 'Log' },
 ];
@@ -86,7 +95,21 @@ export class PerformerPanel {
 
     /** Set while the artist is editing, so a repaint cannot wipe their typing. */
     this.editingScenario = false;
+    this.editingManifest = false;
+    /**
+     * A scenario in the editor that is not the running one — drafted by the
+     * model, or built from a manifest — and has not been loaded yet.
+     *
+     * `editingScenario` only covers the seconds the textarea has focus, which
+     * is not the same question. A draft is left on screen while the artist
+     * looks at the Set tab to see what they already have, and coming back to
+     * find it replaced by the running scenario loses an answer they paid for.
+     */
+    this.editorHoldsDraft = false;
     this.authoring = false;
+    /** A build in progress, and the flag the Cancel button sets. */
+    this.building = false;
+    this.cancelBuild = false;
 
     this.router = new PerformerOSC(engine, { eventSystem: options.eventSystem });
     this.router.attach();
@@ -127,6 +150,7 @@ export class PerformerPanel {
 
     this.buildSetPane();
     this.buildSignalsPane();
+    this.buildShowPane();
     this.buildScenarioPane();
     this.buildLogPane();
 
@@ -314,6 +338,230 @@ export class PerformerPanel {
       help.appendChild(row);
     }
     pane.appendChild(help);
+  }
+
+  // --- the Show pane -----------------------------------------------------
+  //
+  // The one tab that is used before a set exists rather than during one. A
+  // manifest describes looks that have not been built; Build makes each one a
+  // patch, installs it as a scene, writes the set that plays them, and drops
+  // the result in the Scenario tab for the artist to read.
+  //
+  // It is deliberately the slowest thing in the panel and the only one that
+  // spends several calls in a row, so two things are non-negotiable: it says
+  // what it is doing at every step, and it can be stopped between steps.
+
+  buildShowPane() {
+    const pane = this.panes.show;
+
+    const intro = el('div', 'rz-perf-help');
+    intro.textContent =
+      'A manifest describes the show before it exists: the looks, in order, in prose. ' +
+      'Building it generates a patch for each one, installs them as scenes, and writes ' +
+      'the set that plays them. Nothing starts playing — the scenario lands in the ' +
+      'Scenario tab for you to read first.';
+    pane.appendChild(intro);
+
+    this.manifestEditor = el('textarea', 'rz-perf-editor');
+    this.manifestEditor.spellcheck = false;
+    this.manifestEditor.placeholder = 'Press Example to see the shape of one.';
+    this.manifestEditor.addEventListener('focus', () => { this.editingManifest = true; });
+    this.manifestEditor.addEventListener('blur', () => { this.editingManifest = false; });
+    pane.appendChild(this.manifestEditor);
+
+    const actions = el('div', 'rz-perf-row');
+    this.buildButton = button('Build the show', 'Generate a patch for every look, then write the set',
+      () => this.buildShow(), 'rz-perf-btn rz-perf-primary');
+    actions.appendChild(this.buildButton);
+
+    this.cancelButton = button('Stop', 'Stop after the look being built now', () => {
+      this.cancelBuild = true;
+      this.showStatus.textContent = 'Stopping after this look…';
+    });
+    this.cancelButton.disabled = true;
+    actions.appendChild(this.cancelButton);
+
+    actions.appendChild(button('Check', 'Read the manifest and say what is wrong with it',
+      () => this.checkManifest()));
+    actions.appendChild(button('Example', 'Fill the editor with a worked manifest',
+      () => { this.manifestEditor.value = JSON.stringify(EXAMPLE_MANIFEST, null, 2); this.checkManifest(); }));
+    actions.appendChild(button('Save…', 'Save the manifest to a file', () => this.saveManifest()));
+    actions.appendChild(button('Open…', 'Open a manifest file', () => this.openManifest()));
+    pane.appendChild(actions);
+
+    this.showStatus = el('div', 'rz-perf-author-status', '');
+    pane.appendChild(this.showStatus);
+
+    // One line per step, appended as it happens. A build is minutes long and a
+    // spinner for that is indistinguishable from a hang.
+    this.buildLog = el('div', 'rz-perf-report rz-perf-build-log', '');
+    pane.appendChild(this.buildLog);
+  }
+
+  /** Read the editor as a manifest, or say why it cannot be read. */
+  readManifest() {
+    const text = this.manifestEditor.value.trim();
+    if (!text) throw new Error('Write a manifest first, or press Example.');
+    return parseManifest(text);
+  }
+
+  checkManifest() {
+    let manifest;
+    try {
+      manifest = this.readManifest();
+    } catch (error) {
+      this.showStatus.textContent = error.message;
+      this.showStatus.dataset.level = 'error';
+      return null;
+    }
+
+    const report = validateManifest(manifest);
+    const lines = [
+      ...report.errors.map((p) => `error — ${p.where}: ${p.message}`),
+      ...report.warnings.map((p) => `warning — ${p.where}: ${p.message}`),
+    ];
+
+    this.buildLog.textContent = lines.join('\n');
+    this.showStatus.textContent = report.errors.length
+      ? `${report.errors.length} thing${report.errors.length === 1 ? '' : 's'} to fix before this can be built.`
+      : `${manifest.looks.length} looks, ${report.generated} of them to generate — ${report.generated} patch call${report.generated === 1 ? '' : 's'}, then one for the set.`;
+    this.showStatus.dataset.level = report.errors.length ? 'error' : report.warnings.length ? 'warn' : 'ok';
+
+    return report.errors.length ? null : manifest;
+  }
+
+  /** Append one line to the build log, the way the Log tab appends. */
+  noteBuild(text, level = 'info') {
+    const row = el('div', 'rz-perf-build-line', text);
+    row.dataset.level = level;
+    this.buildLog.appendChild(row);
+    this.buildLog.scrollTop = this.buildLog.scrollHeight;
+  }
+
+  /**
+   * Build the show.
+   *
+   * Everything the director needs that touches the editor is handed in from
+   * here — installing a scene is the executor's job, and the executor is the
+   * only file in the subsystem allowed to know what a scene is.
+   */
+  async buildShow() {
+    const director = this.engine.director;
+    if (!director) {
+      this.showStatus.textContent = 'The AI is not available in this build.';
+      this.showStatus.dataset.level = 'error';
+      return;
+    }
+    if (this.building) return;
+
+    const manifest = this.checkManifest();
+    if (!manifest) return;
+
+    const executor = this.engine.executor;
+    if (!executor?.sceneManager) {
+      this.showStatus.textContent =
+        'There is nowhere to put the looks yet. Open the VJ panel (View → VJ Control) and try again.';
+      this.showStatus.dataset.level = 'error';
+      return;
+    }
+
+    this.building = true;
+    this.cancelBuild = false;
+    this.buildButton.disabled = true;
+    this.cancelButton.disabled = false;
+    this.buildLog.replaceChildren();
+    this.showStatus.dataset.level = 'info';
+    this.showStatus.textContent = 'Building…';
+
+    try {
+      const report = await director.buildShow(manifest, {
+        context: this.rigContext(),
+        installScene: (name, patch, meta) => executor.installPatchAsScene(name, patch, meta),
+        shouldStop: () => this.cancelBuild,
+        onProgress: (event) => {
+          if (event.phase === 'done') return;
+          this.showStatus.textContent = event.message;
+          this.noteBuild(
+            event.phase === 'look' && event.status === 'ok' ? `✓ ${event.message}`
+              : event.status === 'failed' ? `× ${event.name ? `${event.name}: ` : ''}${event.message}`
+              : event.message,
+            event.status === 'failed' ? 'error' : event.status === 'ok' ? 'ok' : 'info'
+          );
+        },
+      });
+
+      // The scenario goes into the Scenario tab, unloaded — the same rule as
+      // a drafted one. A set that starts playing because a build finished is
+      // the surprise this panel exists to avoid, and an artist who has just
+      // spent six calls has every reason to read what came back.
+      this.editor.value = JSON.stringify(report.scenario, null, 2);
+      this.editingScenario = false;
+      this.editorHoldsDraft = true;
+
+      const madeLooks = report.built.filter((entry) => entry.generated).length;
+      this.showStatus.textContent = report.stopped
+        ? `Stopped: ${report.stopped}. ${madeLooks} look${madeLooks === 1 ? '' : 's'} built and kept.`
+        : `${madeLooks} look${madeLooks === 1 ? '' : 's'} built, ${report.scenario.sections.length} sections. ` +
+          'It is in the Scenario tab — read it, then press Load.';
+      this.showStatus.dataset.level = report.stopped || report.problems.length ? 'warn' : 'ok';
+
+      if (report.wrote === 'manifest' && !report.stopped) {
+        this.noteBuild('The set was written from the manifest rather than by the model.', 'warn');
+      }
+      for (const problem of report.problems) this.noteBuild(`${problem.where}: ${problem.message}`, 'error');
+      if (report.note) this.noteBuild(report.note, 'info');
+      for (const entry of report.bound) {
+        this.noteBuild(
+          `"${entry.sceneName}" plays in section "${entry.sectionId}"${entry.inserted ? ' (a section was added for it)' : ''}.`,
+          'ok'
+        );
+      }
+
+      this.showTab('scenario');
+    } catch (error) {
+      this.showStatus.textContent = error?.message || String(error);
+      this.showStatus.dataset.level = 'error';
+    } finally {
+      this.building = false;
+      this.cancelBuild = false;
+      this.buildButton.disabled = false;
+      this.cancelButton.disabled = true;
+      this.paintStructure();
+    }
+  }
+
+  saveManifest() {
+    let manifest;
+    try {
+      manifest = this.readManifest();
+    } catch (error) {
+      this.showStatus.textContent = error.message;
+      this.showStatus.dataset.level = 'error';
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${(manifest.name || 'show').replace(/[^\w.-]+/g, '-')}.rzshow.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  openManifest() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,.rzshow.json,application/json';
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      this.manifestEditor.value = await file.text();
+      this.showTab('show');
+      this.checkManifest();
+    });
+    input.click();
   }
 
   // --- the Scenario pane -------------------------------------------------
@@ -678,13 +926,18 @@ export class PerformerPanel {
       this.logDrawn = 0;
       this.appendLog();
     }
-    if (key === 'scenario' && !this.editingScenario) this.fillEditor(true);
+    if (key === 'scenario' && !this.editingScenario && !this.editorHoldsDraft) this.fillEditor(true);
+    if (key === 'show' && !this.editingManifest && !this.manifestEditor.value) {
+      this.manifestEditor.value = JSON.stringify(EXAMPLE_MANIFEST, null, 2);
+    }
   }
 
   fillEditor(force = false) {
     if (this.editingScenario && !force) return;
     this.editor.value = JSON.stringify(this.engine.scenario, null, 2);
     this.editorReport.textContent = '';
+    // Whatever was in there, it is the running scenario now.
+    this.editorHoldsDraft = false;
   }
 
   loadFromEditor() {
@@ -698,6 +951,9 @@ export class PerformerPanel {
     }
 
     const report = this.engine.loadScenario(parsed, this.knownNames());
+    // Loaded: what is in the editor and what is running are the same document.
+    this.editorHoldsDraft = false;
+
     const lines = [
       ...report.errors.map((p) => `error — ${p.where}: ${p.message}`),
       ...report.warnings.map((p) => `warning — ${p.where}: ${p.message}`),
@@ -751,6 +1007,7 @@ export class PerformerPanel {
       // artist reads and edits before playing it — loading it under a running
       // set unread is exactly the surprise this panel exists to avoid.
       this.editor.value = JSON.stringify(scenario, null, 2);
+      this.editorHoldsDraft = true;
       this.authorStatus.textContent = note
         ? `${note} — read it, then press Load.`
         : 'Drafted. Read it, then press Load.';

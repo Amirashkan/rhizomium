@@ -320,3 +320,101 @@ describe('failures that are not crashes', () => {
     expect(executor.execute(act({ type: 'cue', name: 'x' })).ok).toBe(false);
   });
 });
+
+describe('installPatchAsScene', () => {
+  // How a generated look becomes something a section can cut to. The real
+  // SceneManager, because what is under test is that the scene it stores is
+  // one switchToScene() can actually load.
+
+  const patch = () => ({
+    nodes: [
+      { id: 'a', kind: 'Noise', x: 0, y: 0, params: { scale: 3 }, name: 'fog density' },
+      { id: 'b', kind: 'OutputFinal', x: 270, y: 0, params: {} },
+    ],
+    connections: [{ from: { nodeId: 'a', pin: 0 }, to: { nodeId: 'b', pin: 0 } }],
+  });
+
+  function makeSceneManager() {
+    const scenes = new Map();
+    const order = [];
+    return {
+      scenes,
+      addScene(id, data, name) {
+        const scene = { id, name, data, notes: '' };
+        scenes.set(id, scene);
+        order.push(id);
+        return scene;
+      },
+      getScene: (id) => scenes.get(id),
+      getAllScenes: () => order.map((id) => scenes.get(id)),
+      updateSceneMetadata(id, meta) {
+        const scene = scenes.get(id);
+        if (scene && meta.notes !== undefined) scene.notes = meta.notes;
+        return Boolean(scene);
+      },
+    };
+  }
+
+  /** The real conversion, as main.js injects it. */
+  const convert = (p, { title }) => ({
+    app: 'Rhizomium-Web',
+    format: 'rhizomium-project',
+    nodes: p.nodes.map((n) => ({ id: n.id, kind: n.kind, position: { x: n.x, y: n.y }, params: n.params })),
+    connections: p.connections,
+    ...(title ? { metadata: { name: title } } : {}),
+  });
+
+  function makeInstaller(overrides = {}) {
+    return makeExecutor({
+      sceneManager: makeSceneManager(),
+      patchToProjectData: convert,
+      ...overrides,
+    });
+  }
+
+  it('stores the patch as a scene under the name the scenario will use', () => {
+    const executor = makeInstaller();
+    const scene = executor.installPatchAsScene('Opening', patch(), { notes: 'cold and slow' });
+
+    expect(scene.name).toBe('Opening');
+    // Named, so the scenario's own lookup finds it.
+    expect(executor.resolveScene('Opening').id).toBe(scene.id);
+    expect(executor.resolveScene('Opening').notes).toBe('cold and slow');
+  });
+
+  it('stores project data, not a patch — a scene is loaded, never applied', () => {
+    const executor = makeInstaller();
+    const { id } = executor.installPatchAsScene('Opening', patch());
+    const { data } = executor.sceneManager.getScene(id);
+
+    expect(data.format).toBe('rhizomium-project');
+    expect(data.nodes[0].position).toEqual({ x: 0, y: 0 });
+    expect(data.connections).toHaveLength(1);
+  });
+
+  it('replaces a look of the same name rather than leaving "Drop" and "Drop 2"', () => {
+    // A build re-run after one look came out wrong should replace that look.
+    // Two scenes with one name is a scenario naming whichever it finds first.
+    const executor = makeInstaller();
+    const first = executor.installPatchAsScene('Drop', patch());
+    const again = executor.installPatchAsScene('Drop', {
+      nodes: [{ id: 'c', kind: 'OutputFinal', x: 0, y: 0, params: {} }],
+      connections: [],
+    });
+
+    expect(again.id).toBe(first.id);
+    expect(executor.sceneManager.getAllScenes()).toHaveLength(1);
+    expect(executor.sceneManager.getScene(first.id).data.nodes).toHaveLength(1);
+  });
+
+  it('refuses an empty patch rather than installing a scene that renders nothing', () => {
+    const executor = makeInstaller();
+    expect(() => executor.installPatchAsScene('Nothing', { nodes: [], connections: [] }))
+      .toThrow(/no nodes/);
+  });
+
+  it('says where the looks would have gone when there is no scene manager', () => {
+    const executor = makeExecutor({ patchToProjectData: convert });
+    expect(() => executor.installPatchAsScene('Opening', patch())).toThrow(/scene manager/);
+  });
+});

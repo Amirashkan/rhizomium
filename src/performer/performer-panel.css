@@ -557,3 +557,26 @@
 
 .rz-perf-log-message { flex: 1; word-break: break-word; }
 .rz-perf-log-why { color: #6f6559; font-style: italic; }
+
+/* --- the show builder ---------------------------------------------------
+ *
+ * A build is minutes long and spends a call per look, so the log is a running
+ * list rather than a spinner: every step lands as its own line, in the colour
+ * that says whether it worked. The levels match the Log tab's, deliberately —
+ * they are read in the same half-second, at the same angle, in the same dark.
+ */
+
+.rz-perf-author-status[data-level="warn"] { color: #ffc86b; }
+.rz-perf-author-status[data-level="info"] { color: #8ecbff; }
+
+.rz-perf-build-log {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 150px;
+}
+
+.rz-perf-build-line { color: #8b8175; }
+.rz-perf-build-line[data-level="ok"] { color: #9cf0b4; }
+.rz-perf-build-line[data-level="warn"] { color: #ffc86b; }
+.rz-perf-build-line[data-level="error"] { color: #ff9a8b; }

@@ -102,6 +102,7 @@ export class PerformerEngine {
       editor: this.editor,
       vjPanel: deps.vjPanel || null,
       replaceGraph: deps.replaceGraph || null,
+      patchToProjectData: deps.patchToProjectData || null,
       log: (level, message, meta) => this.write(level, message, meta),
     });
 

@@ -59,6 +59,12 @@ export class ActionExecutor {
     this._transitionManager = deps.transitionManager || null;
     this.log = deps.log || (() => {});
     this.replaceGraph = deps.replaceGraph || null;
+    /**
+     * Patch -> project data, injected for the same reason replaceGraph is: it
+     * lives in the AI layer (src/ai/applyResult.js) and this file is imported
+     * by tests that have no editor to import it against.
+     */
+    this.patchToProjectData = deps.patchToProjectData || null;
 
     /** Rules from the running scenario. Set by the engine on load. */
     this.rules = null;
@@ -191,6 +197,61 @@ export class ActionExecutor {
     return (manager.getAllScenes?.() || []).find(
       (scene) => String(scene.name).toLowerCase() === wanted
     ) || null;
+  }
+
+  /**
+   * Install a patch as a scene, under a name a scenario can call it by.
+   *
+   * The show builder generates a patch per look and needs each one to become
+   * something a section can cut to. That is a scene, and this is the only file
+   * allowed to know what a scene is — so the builder is handed this rather
+   * than a SceneManager.
+   *
+   * Nothing is rendered. The conversion is the same one the AI panel uses to
+   * put a generated patch on the canvas, minus the canvas: building a
+   * five-look show through the editor would be five full graph rebuilds, five
+   * shader compiles, and would leave the artist looking at whichever look
+   * happened to be last.
+   *
+   * A name that is already taken is reused rather than duplicated. A build re-run
+   * after a look came out wrong should replace that look, not leave the artist
+   * with "Drop" and "Drop 2" and a scenario naming one of them.
+   *
+   * @param {string} name what the scenario will call it.
+   * @param {Object} patch a validated patch from the backend.
+   * @param {Object} [meta]
+   * @param {string} [meta.notes] the cue note — what this look is for.
+   * @returns {{id: string, name: string}}
+   */
+  installPatchAsScene(name, patch, meta = {}) {
+    const manager = this.sceneManager;
+    if (!manager) throw new Error('No scene manager: open the VJ panel first.');
+    if (!patch || !Array.isArray(patch.nodes) || !patch.nodes.length) {
+      throw new Error('That patch has no nodes in it.');
+    }
+
+    const toProject = this.patchToProjectData;
+    if (!toProject) throw new Error('Patches cannot be converted in this build.');
+
+    const label = String(name || meta.title || 'Look').trim() || 'Look';
+    const projectData = toProject(patch, { title: meta.title || label });
+
+    const existing = this.resolveScene(label);
+    if (existing) {
+      existing.data = projectData;
+      if (meta.notes) existing.notes = String(meta.notes).slice(0, 300);
+      this.log('info', `Scene "${existing.name}" replaced`, { nodes: patch.nodes.length });
+      return { id: existing.id, name: existing.name };
+    }
+
+    const id = `scene_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    const scene = manager.addScene(id, projectData, label);
+    if (meta.notes && manager.updateSceneMetadata) {
+      manager.updateSceneMetadata(id, { notes: String(meta.notes).slice(0, 300) });
+    }
+    this.log('info', `Scene "${label}" added`, { nodes: patch.nodes.length });
+
+    return { id: scene?.id || id, name: scene?.name || label };
   }
 
   /** The same for presets. */

@@ -176,16 +176,47 @@ export async function replaceGraphWithPatch(
     console.warn('Could not back up before applying the AI patch:', error);
   }
 
+  const projectData = patchToProjectData(patch, { title, preserveLongParams, previous: before });
+
+  await manager.importProject(projectData, { clearExisting: true, restoreViewport: false });
+  frameNodes(projectData.nodes.map((node) => ({ ...node, x: node.position.x, y: node.position.y })));
+  window.editor?.markDirty?.('ai-patch-applied');
+}
+
+/**
+ * A patch from the backend as a project the editor can open.
+ *
+ * Pulled out of replaceGraphWithPatch() because the canvas is no longer the
+ * only destination: the show builder turns a generated patch into a SCENE,
+ * which is the same conversion with nothing rendered at the end of it (see
+ * performer/ShowBuilder.js). Doing that through the canvas — import it, capture
+ * it, import the next one — would make building a five-look show five full
+ * graph rebuilds and leave the artist looking at the last one.
+ *
+ * Pure: it touches no window, which is also what lets a test read what a
+ * generated patch becomes.
+ *
+ * @param {Object} patch - the validated patch from the backend.
+ * @param {Object} [options]
+ * @param {string} [options.title] - names the project.
+ * @param {boolean} [options.preserveLongParams] - keep the artist's own value
+ *   for a parameter the model was shown only the start of.
+ * @param {Map<string, Object>} [options.previous] - the nodes that were on the
+ *   canvas, by id, for the option above.
+ * @returns {Object} project data, as exportProject() writes it.
+ */
+export function patchToProjectData(patch, { title, preserveLongParams = false, previous } = {}) {
   // Normally a no-op: the API route spaces a patch out before handing it over.
   // It runs again here because this is the last thing between a patch and the
   // canvas, and a patch that reached the editor another way — a replayed
   // answer, a fixture, a future caller — has no reason to arrive stacked.
   const laidOut = spaceOutPatch(patch);
+  const before = previous instanceof Map ? previous : new Map();
 
-  const projectData = {
+  return {
     app: 'Rhizomium-Web',
     format: 'rhizomium-project',
-    nodes: laidOut.nodes.map((node) => ({
+    nodes: (laidOut.nodes || []).map((node) => ({
       id: String(node.id),
       kind: node.kind,
       position: { x: node.x ?? 0, y: node.y ?? 0 },
@@ -202,10 +233,6 @@ export async function replaceGraphWithPatch(
     connections: laidOut.connections || [],
     ...(title ? { metadata: { name: title } } : {}),
   };
-
-  await manager.importProject(projectData, { clearExisting: true, restoreViewport: false });
-  frameNodes(laidOut.nodes);
-  window.editor?.markDirty?.('ai-patch-applied');
 }
 
 /* -------------------------------------------------------------------------
