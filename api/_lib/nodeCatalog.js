@@ -25,13 +25,33 @@ import { optionValues } from '../../src/utils/discreteParams.js';
 // nodes stacked in a single pile.
 import { spaceOutPatch } from '../../src/ai/patchLayout.js';
 
-/** Kinds a generated patch may not contain, whatever the model says. */
+/**
+ * Kinds a generated patch may not contain, whatever the model says.
+ *
+ * Both need a file the artist chose; a model cannot supply one, and a node
+ * pointing at nothing renders black with no explanation.
+ *
+ * The one exception is a show built from a folder (src/performer/ShowFolder.js):
+ * there the artist picked the clips before the call was made and the builder
+ * puts them on these nodes the moment the answer arrives, so the file the ban
+ * exists for already exists. `mediaSlots` on the call is what says so — see
+ * validateGeneratedPatch below, where it is a number rather than a flag,
+ * because "the artist supplied two clips" does not license six texture nodes.
+ */
 const UNSUPPORTED_IN_GENERATED_PATCHES = new Set([
-  // Both need a file the artist chose; a model cannot supply one, and a node
-  // pointing at nothing renders black with no explanation.
   'Texture2D',
   'TextureCube',
 ]);
+
+/**
+ * How many more texture nodes than clips a look may come back with.
+ *
+ * Not zero: the builder fills a spare node by using a clip twice, which is a
+ * composition (the same plate, rotated, over itself) and not a fault. It is
+ * small because past a couple of these the model has stopped building the look
+ * it was asked for and started asking for footage nobody has.
+ */
+const SPARE_MEDIA_SLOTS = 2;
 
 /**
  * How much of a parameter's own description travels.
@@ -232,9 +252,16 @@ export function isDefaultParamValue(kind, name, value) {
  *   refactor of a selection, which is spliced back into a patch that already
  *   has one: a selection of three blur nodes has no Output node in it and
  *   never should, and refusing it here is a 502 for an answer that is right.
+ * @param {number} [options.mediaSlots=0] - how many clips the caller has
+ *   already loaded and is about to put on texture nodes. Above zero, texture
+ *   nodes are allowed, up to this many plus a small margin.
  */
-export function validateGeneratedPatch(patch, { requireOutput = true } = {}) {
+export function validateGeneratedPatch(patch, { requireOutput = true, mediaSlots = 0 } = {}) {
   const warnings = [];
+  const allowedTextures = Number.isFinite(mediaSlots) && mediaSlots > 0
+    ? Math.floor(mediaSlots) + SPARE_MEDIA_SLOTS
+    : 0;
+  let textures = 0;
 
   if (!patch || typeof patch !== 'object') {
     throw new Error('The model did not return a patch.');
@@ -250,7 +277,14 @@ export function validateGeneratedPatch(patch, { requireOutput = true } = {}) {
       throw new Error(`The model used a node kind that does not exist: "${kind}".`);
     }
     if (UNSUPPORTED_IN_GENERATED_PATCHES.has(kind)) {
-      throw new Error(`"${kind}" needs a file you choose, so it cannot be generated.`);
+      if (!allowedTextures) {
+        throw new Error(`"${kind}" needs a file you choose, so it cannot be generated.`);
+      }
+      if (++textures > allowedTextures) {
+        throw new Error(
+          `The patch asks for ${textures} texture nodes and only ${mediaSlots} ${mediaSlots === 1 ? 'clip was' : 'clips were'} supplied. Every one past that renders black.`
+        );
+      }
     }
 
     let id = String(node.id ?? index + 1);

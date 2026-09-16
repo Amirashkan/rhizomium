@@ -607,7 +607,18 @@ function shapeResult(feature, { input, usage }, request = {}) {
     // Throws when the patch is unusable — caught in handleModelError and
     // answered 502, because a patch that cannot open is a failed call, not a
     // result to hand over.
-    const { patch, warnings } = validateGeneratedPatch(input.patch, { requireOutput: !scoped });
+    // How many clips the caller loaded before it asked. Zero for every call
+    // that is not a show being built from a folder, which is what keeps the
+    // editor's own generator refusing texture nodes exactly as it did.
+    const mediaSlots =
+      feature === 'ai.patch_generator' && Array.isArray(request?.show?.media)
+        ? request.show.media.length
+        : 0;
+
+    const { patch, warnings } = validateGeneratedPatch(input.patch, {
+      requireOutput: !scoped,
+      mediaSlots,
+    });
     return { ...meta, result: { ...input, patch, scope: scoped ? 'selection' : 'patch' }, warnings };
   }
 
