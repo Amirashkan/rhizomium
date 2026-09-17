@@ -111,6 +111,22 @@ Two rules that are not style preferences:
 Found a vulnerability? [SECURITY.md](SECURITY.md) — please do not open a public
 issue.
 
+## Branches
+
+`develop` is the integration branch — day-to-day work lands there and it is
+what CI, and anyone testing a recent change, tracks. `main` is release-only and
+moves when a release is cut.
+
+Branch off `develop`, and open pull requests against `develop` unless you are
+fixing something on a release. To follow the latest work:
+
+```bash
+./GET_LATEST.sh        # Windows: GET_LATEST.bat
+```
+
+That fetches, moves you to `develop`, fast-forwards it, and reinstalls
+dependencies only if the lockfile moved.
+
 ## Pull requests
 
 - One change per pull request. A drive-by refactor in the same diff makes the
