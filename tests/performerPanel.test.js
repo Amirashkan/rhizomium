@@ -6,6 +6,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { PerformerPanel } from '../src/ui/PerformerPanel.js';
 import { PerformerEngine } from '../src/performer/PerformerEngine.js';
 import { PerformerClock } from '../src/performer/PerformerClock.js';
+import { indexShowFolder } from '../src/performer/ShowFolder.js';
 
 class QuietExecutor {
   constructor() { this.rules = null; this.performed = []; }
@@ -481,5 +482,126 @@ describe('the Show tab', () => {
     expect(panel.showStatus.dataset.level).toBe('error');
     expect(panel.showStatus.textContent).toMatch(/Out of patch generations/);
     expect(panel.buildButton.disabled).toBe(false);
+  });
+});
+
+/* -------------------------------------------------------------------------
+ * The show folder.
+ *
+ * A manifest naming `fog-loop.mp4` is half a document; the directory it sat in
+ * is the other half. These are about the panel keeping the two together — and
+ * about the one thing it must never do, which is throw away a manifest the
+ * artist has been typing because they opened a folder to attach its footage.
+ * ---------------------------------------------------------------------- */
+
+describe('PerformerPanel: the show folder', () => {
+  const file = (name, text = '', { type = '', size = 1024 } = {}) => ({
+    name,
+    type,
+    size,
+    text: async () => text,
+    arrayBuffer: async () => new Uint8Array([1]).buffer,
+  });
+
+  const MANIFEST_TEXT = JSON.stringify({
+    show: 'Night set',
+    looks: [{ id: 'opening', name: 'Opening', brief: 'fog over the room', media: ['fog-loop'] }],
+  });
+
+  const entries = () => [
+    { path: 'night.rzshow.json', file: file('night.rzshow.json', MANIFEST_TEXT) },
+    { path: 'media/fog-loop.mp4', file: file('fog-loop.mp4', '', { type: 'video/mp4', size: 2 * 1024 * 1024 }) },
+    { path: 'media/set.wav', file: file('set.wav', '', { type: 'audio/wav' }) },
+  ];
+
+  function folderPanel() {
+    const { engine, panel } = build();
+    engine.executor.sceneManager = { getAllScenes: () => [] };
+    panel.show();
+    panel.showTab('show');
+    return { engine, panel };
+  }
+
+  /** What openShowFolder() would have got from the picker. */
+  const open = (panel, list = entries()) =>
+    panel.setShowFolder(indexShowFolder(list, { name: 'Night set' }));
+
+  it('puts the folder\'s manifest in the editor and lists its clips', async () => {
+    const { panel } = folderPanel();
+    await open(panel);
+
+    expect(panel.manifestEditor.value).toBe(MANIFEST_TEXT);
+    expect(panel.folderLabel.textContent).toContain('night.rzshow.json');
+    // One video, and the track — which is listed, because it is part of the
+    // show, and greyed, because nothing in the editor plays a file.
+    expect(panel.folderLabel.textContent).toContain('1 clip');
+    expect(panel.folderList.textContent).toContain('fog-loop.mp4');
+    expect(panel.folderList.textContent).toContain('set.wav');
+  });
+
+  it('never replaces a manifest the artist was typing', async () => {
+    const { panel } = folderPanel();
+    panel.manifestEditor.value = '{ "show": "mine, half-written"';
+
+    await open(panel);
+
+    expect(panel.manifestEditor.value).toBe('{ "show": "mine, half-written"');
+    // The folder is still taken: they opened it to attach the footage.
+    expect(panel.folder.media).toHaveLength(2);
+    expect(panel.buildLog.textContent).toMatch(/left unopened/);
+  });
+
+  it('checks the manifest against the folder as soon as it is open', async () => {
+    const { panel } = folderPanel();
+    await open(panel, [
+      { path: 'night.rzshow.json', file: file('night.rzshow.json', MANIFEST_TEXT) },
+      { path: 'media/smoke.mp4', file: file('smoke.mp4', '', { type: 'video/mp4' }) },
+    ]);
+
+    // The manifest asks for fog-loop and the folder has smoke. Better said now
+    // than after a patch call has been spent building the look without it.
+    expect(panel.buildLog.textContent).toMatch(/Nothing in the folder is called "fog-loop"/);
+  });
+
+  it('says a folder with no manifest in it has no manifest in it', async () => {
+    const { panel } = folderPanel();
+    await open(panel, [{ path: 'media/fog-loop.mp4', file: file('fog-loop.mp4', '', { type: 'video/mp4' }) }]);
+
+    expect(panel.folderLabel.textContent).toContain('no manifest');
+    expect(panel.folderLabel.dataset.level).toBe('warn');
+    // The clips are still indexed — a folder of footage with no manifest yet is
+    // exactly where an artist starts.
+    expect(panel.folder.media).toHaveLength(1);
+  });
+
+  it('hands the folder to the build, and forgets it when it is closed', async () => {
+    const { engine, panel } = folderPanel();
+    engine.director = {
+      status: () => ({ enabled: false, calls: 0, failures: 0 }),
+      buildShow: vi.fn(async () => ({
+        scenario: { name: 'Night set', sections: [] },
+        built: [], bound: [], problems: [], warnings: [], stopped: '', note: '', wrote: 'model',
+      })),
+    };
+    await open(panel);
+
+    await panel.buildShow();
+    expect(engine.director.buildShow.mock.calls[0][1].folder).toBe(panel.folder);
+
+    panel.closeShowFolder();
+    expect(panel.folder).toBeNull();
+    expect(panel.folderList.hidden).toBe(true);
+    await panel.buildShow();
+    expect(engine.director.buildShow.mock.calls[1][1].folder).toBeNull();
+  });
+
+  it('never puts a filename into the DOM as markup', async () => {
+    const { panel } = folderPanel();
+    await open(panel, [
+      { path: '<img src=x onerror=alert(1)>.png', file: file('<img src=x onerror=alert(1)>.png', '', { type: 'image/png' }) },
+    ]);
+
+    expect(panel.folderList.querySelector('img')).toBeNull();
+    expect(panel.folderList.textContent).toContain('<img');
   });
 });

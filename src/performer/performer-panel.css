@@ -580,3 +580,67 @@
 .rz-perf-build-line[data-level="ok"] { color: #9cf0b4; }
 .rz-perf-build-line[data-level="warn"] { color: #ffc86b; }
 .rz-perf-build-line[data-level="error"] { color: #ff9a8b; }
+
+/* --- the show folder ---------------------------------------------------
+ *
+ * A manifest and the media beside it are one document, so the folder sits
+ * above the manifest editor rather than beside the Save/Open buttons: it is
+ * what you open first, and what everything under it is then written against.
+ */
+
+.rz-perf-folder-row {
+  align-items: center;
+}
+
+.rz-perf-folder-label {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--rz-font-mono);
+  font-size: 10px;
+  color: #8b8175;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rz-perf-folder-label[data-level="ok"] { color: #9cf0b4; }
+.rz-perf-folder-label[data-level="warn"] { color: #ffc86b; }
+
+.rz-perf-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  /* The manifest editor below is flex: 1, so without this the file list is the
+   * thing a short panel collapses to nothing — and the filenames in it are
+   * what a look's "media" list is written from. */
+  flex: 0 0 auto;
+  max-height: 110px;
+  overflow-y: auto;
+  font-family: var(--rz-font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.rz-perf-folder-file {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+/* The filename is the string a look copies into its "media" list, so it is the
+ * one thing on the row that never gets truncated away. */
+.rz-perf-folder-name {
+  color: #d8cfc2;
+  flex-shrink: 0;
+}
+
+.rz-perf-folder-meta {
+  color: #6f675d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rz-perf-folder-file[data-kind="video"] .rz-perf-folder-name { color: #8ecbff; }
+.rz-perf-folder-file[data-kind="audio"] .rz-perf-folder-name { color: #8b8175; }
+.rz-perf-folder-file[data-kind="skipped"] .rz-perf-folder-name { color: #8b8175; text-decoration: line-through; }

@@ -8,8 +8,9 @@ from a **scenario**: a written score that says what the set is made of and what
 it is allowed to do.
 
 ```
- manifest ──> ShowBuilder ──> patches ──> scenes ──┐   (once, at a desk)
- (the plan)                              scenario ─┘
+ a folder ──> manifest ──> ShowBuilder ──> patches ──> scenes ──┐  (once,
+ (media)      (the plan)        ▲                     scenario ─┘   at a desk)
+                                └── your own clips, onto the looks
 
 your DAW ──OSC──> osc_bridge_server.py ──ws──> OSCManager ─┐
                                                            │
@@ -90,6 +91,9 @@ separates "hearing nothing" (a routing problem) from "hearing quiet music".
    With no scenes on the rig yet, start one tab earlier: **Show** → **Example**
    → **Build the show**, which makes the looks first. See
    [The manifest](#the-manifest-building-a-show-that-does-not-exist-yet) below.
+   If the show is built on footage you already have, **Open folder…** first and
+   point it at the directory holding both — see
+   [The show folder](#the-show-folder-building-on-your-own-footage).
 3. Point your DAW at the OSC bridge (see [`../osc/README.md`](../osc/README.md)
    — the performer listens on the same bridge) and send
    `/rhizo/perf/start`.
@@ -300,6 +304,72 @@ So the rules are about not wasting what you have already spent:
 
 `Save…` writes a `.rzshow.json` you can keep next to the set and rebuild from.
 
+## The show folder: building on your own footage
+
+Everything above builds what a shader can draw from nothing. That leaves out the
+artist who shot the material, or who was sent the festival's logo and a plate of
+the room — and the patch generator is told outright that it may not use a
+**Texture 2D** node, for the good reason that a model cannot supply a file and a
+texture node pointing at nothing renders black in front of an audience.
+
+A **show folder** is where the file comes from. It is an ordinary directory:
+
+```
+Night set/
+  night-set.rzshow.json     the manifest
+  media/
+    fog-loop.mp4            the footage the show is made of
+    grain.png
+    plates/room.jpg
+  set.wav                   the track — listed, not loaded
+```
+
+**Open folder…** on the Show tab takes both halves at once: the manifest fills
+the editor, and every clip beside it becomes something a look can name.
+
+```jsonc
+"looks": [{
+  "id": "opening",
+  "name": "Opening",
+  "brief": "The room, barely lit, the fog crawling across it and nothing sharp.",
+  "media": ["fog-loop", "plates/room.jpg"],
+  "drivable": ["how far the fog has eaten the plate"]
+}]
+```
+
+A reference is whatever you would have said: the filename, the name without its
+extension, a folder to take everything out of, or `"*"` for the lot. Case and
+punctuation do not matter. A name that matches nothing is a **warning at the
+desk** rather than a surprise at build time — and a name two clips answer to is
+also a warning, because guessing between them is how the wrong plate ends up in
+the drop.
+
+What then happens is the only part worth knowing in detail:
+
+1. The look's patch call is told that its clips are already loaded, on nodes
+   named `Media: fog-loop`, and to compose the look around them. That call is
+   the only one in the editor allowed to contain a texture node at all, and only
+   up to the number of clips you supplied.
+2. The clips are put on those nodes the moment the answer arrives — by name,
+   then by order, and a spare node gets a clip used twice rather than being left
+   showing nothing.
+3. The scene is installed **carrying its media inline**, the way a saved project
+   does. So the looks survive being copied to the rig's laptop, and cutting to
+   one at showtime loads its footage down the same path an opened project takes.
+
+Two limits, both the editor's own rather than this feature's: a video over
+**24 MB** and an image over **50 MB** cannot be inlined into a patch, so they are
+listed as skipped with the size in the reason. And **four clips to a look**,
+because every one of them is decoded on every frame that look is up.
+
+Audio in the folder is listed and not used. The performer listens to your live
+input — play the track into the editor and it hears it, which is the same thing
+it does on the night.
+
+Nothing about a build without a folder changes: no folder open means no clips,
+means the prompt, the backend and the installed scenes are exactly what they
+were.
+
 ## Talking to it from your DAW
 
 Signals you declare are polled. These are the *moments*, taken from the message
@@ -355,6 +425,7 @@ downbeat you just played.
 | `PerformerEngine.js` | the frame loop and the state machine |
 | `PerformerDirector.js` | the model, kept off the frame loop |
 | `ShowManifest.js` | the manifest: the show as a plan, and the prompts it implies |
+| `ShowFolder.js` | the show as a directory: which file is the manifest, which are media, and what a look's `media` list resolves to |
 | `ShowBuilder.js` | manifest in, a set that plays the looks it just built out |
 | `PerformerOSC.js` | the `/rhizo/perf/*` namespace |
 | `../ui/PerformerPanel.js` | the panel |
