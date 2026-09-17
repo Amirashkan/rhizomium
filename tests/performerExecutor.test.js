@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ActionExecutor } from '../src/performer/ActionExecutor.js';
-import { normalizeAction } from '../src/performer/actions.js';
+import { describeAction, normalizeAction } from '../src/performer/actions.js';
 import { normalizeRules } from '../src/performer/Scenario.js';
 import { SignalBus } from '../src/performer/SignalBus.js';
 import { getMasterOpacity, resetOutputOpacity } from '../src/vj/MasterOutput.js';
@@ -544,6 +544,30 @@ describe('installPatchAsScene', () => {
     expect(executor.sceneManager.getScene(first.id).data.textures.a.filename).toBe('new.png');
   });
 
+  it('gives the scene the look\'s own length, and a timeline set to it', () => {
+    // A scene IS a project: loading one restores whatever timeline it carries.
+    // A generated patch carried none, so every look was a ten-second scene in
+    // the VJ panel's list and cutting to one left the timeline exactly as the
+    // look before it had it.
+    const executor = makeInstaller();
+    const { id } = executor.installPatchAsScene('Opening', patch(), { holdSeconds: 48 });
+    const { data } = executor.sceneManager.getScene(id);
+
+    expect(data.timeline.enabled).toBe(true);
+    expect(data.timeline.timeline.duration).toBe(48);
+    expect(data.timeline.timeline.loopEnd).toBe(48);
+    // Nothing generated has keyframes, and an empty list is still the right
+    // thing to write: it says "this look animates from its own graph" rather
+    // than leaving the last scene's tracks pointing at ids this patch lacks.
+    expect(data.timeline.timeline.tracks).toEqual([]);
+  });
+
+  it('writes no timeline for a look the manifest gave no length', () => {
+    const executor = makeInstaller();
+    const { id } = executor.installPatchAsScene('Opening', patch(), {});
+    expect(executor.sceneManager.getScene(id).data.timeline).toBeUndefined();
+  });
+
   it('refuses an empty patch rather than installing a scene that renders nothing', () => {
     const executor = makeInstaller();
     expect(() => executor.installPatchAsScene('Nothing', { nodes: [], connections: [] }))
@@ -553,5 +577,302 @@ describe('installPatchAsScene', () => {
   it('says where the looks would have gone when there is no scene manager', () => {
     const executor = makeExecutor({ patchToProjectData: convert });
     expect(() => executor.installPatchAsScene('Opening', patch())).toThrow(/scene manager/);
+  });
+});
+
+// --------------------------------------------------------------------------
+// The set's own sound, and the editor's timeline.
+//
+// Both are things the performer now drives that it used to leave alone: a show
+// folder can carry the bed a look was written to, and a section has a length
+// the transport in front of the artist should be showing. Neither is faked at
+// the level that matters — the deck below is the same five calls
+// src/audio/audioDeck.js exposes, and the timeline is the real manager's
+// interface, so what is asserted here is what the editor is asked to do.
+// --------------------------------------------------------------------------
+
+function fakeDeck(overrides = {}) {
+  const deck = {
+    calls: [],
+    state: { file: '', loaded: false, playing: false, live: null, position: 0 },
+    describe: () => deck.state,
+    load: async (file, name) => {
+      deck.calls.push(`load:${name}`);
+      deck.state = { ...deck.state, file: name, loaded: true, position: 0 };
+      return deck.state;
+    },
+    play: async () => {
+      deck.calls.push('play');
+      deck.state = { ...deck.state, playing: true };
+      return { ok: true };
+    },
+    pause: () => { deck.calls.push('pause'); deck.state = { ...deck.state, playing: false }; },
+    stop: () => { deck.calls.push('stop'); deck.state = { ...deck.state, playing: false, position: 0 }; },
+    seek: (seconds) => { deck.calls.push(`seek:${seconds}`); deck.state = { ...deck.state, position: seconds }; },
+    ...overrides,
+  };
+  return deck;
+}
+
+const sound = (name, path = name) => ({
+  path, name, label: name.replace(/\.[^.]+$/, ''), kind: 'audio', size: 1024, file: { name },
+});
+
+const audioAction = (raw) => normalizeAction({ type: 'audio', ...raw });
+
+/**
+ * Let the half of an audio action that waits finish.
+ *
+ * doAudio() returns straight away — it runs inside a frame during a show — and
+ * decodes and starts the track on its own time, exactly as doScene() loads a
+ * scene. A test that asserted on the calls without this would be asserting on
+ * the frame, not on the outcome.
+ */
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe('the audio action, as a document', () => {
+  it('plays by default, because that is what a section entering its bed means', () => {
+    expect(audioAction({ clip: 'music.mp3' })).toMatchObject({
+      clip: 'music.mp3', transport: 'play', seek: null,
+    });
+  });
+
+  it('takes the words the Audio panel\'s own buttons use', () => {
+    expect(audioAction({ transport: 'pause' }).transport).toBe('pause');
+    expect(audioAction({ do: 'stop' }).transport).toBe('stop');
+    // A verb nothing here does is the commonest thing a model invents.
+    expect(audioAction({ transport: 'rewind' }).transport).toBe('play');
+  });
+
+  it('reads the clip under any of the names somebody would write it', () => {
+    expect(audioAction({ sound: 'a.mp3' }).clip).toBe('a.mp3');
+    expect(audioAction({ file: 'b.mp3' }).clip).toBe('b.mp3');
+    expect(audioAction({ track: 'c.mp3' }).clip).toBe('c.mp3');
+  });
+
+  it('keeps "no position given" distinguishable from "start at zero"', () => {
+    expect(audioAction({ clip: 'a.mp3' }).seek).toBeNull();
+    expect(audioAction({ clip: 'a.mp3', seek: 0 }).seek).toBe(0);
+    expect(audioAction({ clip: 'a.mp3', seek: 12.5 }).seek).toBe(12.5);
+  });
+
+  it('reads as one line in the log', () => {
+    expect(describeAction(audioAction({ clip: 'music.mp3' }))).toBe('play music.mp3');
+    expect(describeAction(audioAction({ transport: 'stop' }))).toBe('stop the bed');
+  });
+});
+
+describe('the set\'s own sound', () => {
+  function makePlayer(items = [sound('music.mp3', 'media/music.mp3')], overrides = {}) {
+    const deck = fakeDeck(overrides.deck);
+    const executor = makeExecutor({ audioDeck: deck, ...overrides });
+    executor.setSounds(items);
+    return { executor, deck };
+  }
+
+  it('takes only the audio out of a folder it is handed whole', () => {
+    const { executor } = makePlayer();
+    executor.setSounds([
+      { path: 'media/fog.mp4', name: 'fog.mp4', kind: 'video' },
+      sound('set.wav'),
+    ]);
+    expect(executor.sounds.map((item) => item.name)).toEqual(['set.wav']);
+  });
+
+  it('loads the bed and starts it at the top', async () => {
+    const { executor, deck } = makePlayer();
+    const result = executor.execute(audioAction({ clip: 'music.mp3' }));
+
+    expect(result.ok).toBe(true);
+    await flush();
+    // At the top, because that is what makes a section and its bed the same
+    // length: the hold was measured from this file.
+    expect(deck.calls).toEqual(['load:music.mp3', 'seek:0', 'play']);
+  });
+
+  it('does not decode the same bed again when a section re-enters', async () => {
+    const { executor, deck } = makePlayer();
+    executor.execute(audioAction({ clip: 'music.mp3' }));
+    await flush();
+    deck.calls.length = 0;
+
+    executor.execute(audioAction({ clip: 'music.mp3' }));
+    await flush();
+    expect(deck.calls).toEqual(['seek:0', 'play']);
+  });
+
+  it('refuses a name nothing in the folder answers to, where the panel can show it', () => {
+    const { executor, deck } = makePlayer();
+    const result = executor.execute(audioAction({ clip: 'nothing.mp3' }));
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/no sound in the folder called "nothing.mp3"/);
+    expect(deck.calls).toEqual([]);
+  });
+
+  it('says there is no folder open rather than naming a file nobody chose', () => {
+    const { executor } = makePlayer([]);
+    expect(executor.execute(audioAction({ clip: 'music.mp3' })).reason).toMatch(/no show folder is open/);
+  });
+
+  it('pauses and stops without touching the file', () => {
+    const { executor, deck } = makePlayer();
+    expect(executor.execute(audioAction({ transport: 'pause' })).ok).toBe(true);
+    expect(executor.execute(audioAction({ transport: 'stop' })).ok).toBe(true);
+    expect(deck.calls).toEqual(['pause', 'stop']);
+  });
+
+  it('stops only what it started, so a track the artist loaded is left playing', async () => {
+    const { executor, deck } = makePlayer();
+    expect(executor.stopSound()).toBe(false);
+
+    executor.execute(audioAction({ clip: 'music.mp3' }));
+    await flush();
+    expect(executor.stopSound('the set stopped')).toBe(true);
+    expect(deck.calls).toContain('stop');
+    // And not twice: the bed is no longer the performer's once it is stopped.
+    expect(executor.stopSound()).toBe(false);
+  });
+
+  it('is off when the scenario says the sound is the musician\'s', () => {
+    const { executor, deck } = makePlayer();
+    executor.rules = normalizeRules({ allowAudio: false });
+
+    expect(executor.execute(audioAction({ clip: 'music.mp3' })).reason).toMatch(/rules.allowAudio/);
+    expect(deck.calls).toEqual([]);
+  });
+
+  it('says so when the live input it just took over was the artist\'s', async () => {
+    const lines = [];
+    const deck = fakeDeck({ play: async () => ({ ok: true, stoppedLive: 'mic' }) });
+    const executor = makeExecutor({ audioDeck: deck, log: (level, message) => lines.push(`${level}: ${message}`) });
+    executor.setSounds([sound('music.mp3')]);
+
+    executor.execute(audioAction({ clip: 'music.mp3' }));
+    await flush();
+
+    expect(lines.join('\n')).toMatch(/warn: Live input stopped/);
+  });
+
+  it('has nowhere to play a bed in a build with no audio, and says that', () => {
+    const executor = makeExecutor({});
+    expect(executor.execute(audioAction({ clip: 'music.mp3' })).reason).toMatch(/no audio transport/);
+  });
+});
+
+describe('the editor\'s timeline', () => {
+  function fakeTimeline(start = {}) {
+    const state = {
+      enabled: false, duration: 10, currentTime: 0, loop: true,
+      loopStart: 0, loopEnd: 10, playing: false, fps: 60, ...start,
+    };
+    return {
+      state,
+      isEnabled: () => state.enabled,
+      enable: () => { state.enabled = true; },
+      disable: () => { state.enabled = false; },
+      isPlaying: () => state.playing,
+      pause: () => { state.playing = false; },
+      getFPS: () => state.fps,
+      getDuration: () => state.duration,
+      setDuration: (value) => { state.duration = value; },
+      getLoop: () => state.loop,
+      setLoop: (value) => { state.loop = value; },
+      getLoopStart: () => state.loopStart,
+      getLoopEnd: () => state.loopEnd,
+      setLoopRegion: (a, b) => { state.loopStart = a; state.loopEnd = b; },
+      getCurrentTime: () => state.currentTime,
+      setCurrentTime: (value) => { state.currentTime = value; },
+      storeOriginalValues: () => { state.stored = (state.stored || 0) + 1; },
+    };
+  }
+
+  const withTimeline = (start) => {
+    const timelineManager = fakeTimeline(start);
+    const executor = makeExecutor({ editor: { graph: { nodes: [] }, timelineManager } });
+    return { executor, timeline: timelineManager };
+  };
+
+  it('sets the section\'s length and enables it, which is what nothing did before', () => {
+    const { executor, timeline } = withTimeline();
+    expect(executor.armTimeline(48).ok).toBe(true);
+
+    expect(timeline.state.duration).toBe(48);
+    expect(timeline.state.loopStart).toBe(0);
+    expect(timeline.state.loopEnd).toBe(48);
+    expect(timeline.state.loop).toBe(true);
+    expect(timeline.state.enabled).toBe(true);
+    expect(timeline.state.currentTime).toBe(0);
+  });
+
+  it('leaves the duration alone for a section with no length of its own', () => {
+    // It runs until a cue or a condition ends it. Whatever the scene brought
+    // with it is a better answer than a number invented here.
+    const { executor, timeline } = withTimeline({ duration: 30 });
+    executor.armTimeline(0);
+    expect(timeline.state.duration).toBe(30);
+    expect(timeline.state.enabled).toBe(true);
+  });
+
+  it('takes the timeline\'s own transport out of the way rather than racing it', () => {
+    const { executor, timeline } = withTimeline({ playing: true });
+    executor.armTimeline(20);
+    expect(timeline.state.playing).toBe(false);
+  });
+
+  it('puts the playhead where the section is', () => {
+    const { executor, timeline } = withTimeline();
+    executor.armTimeline(40);
+    executor.syncTimeline(12.5);
+    expect(timeline.state.currentTime).toBe(12.5);
+  });
+
+  it('wraps a section that outlasts its hold, the way the bed under it loops', () => {
+    const { executor, timeline } = withTimeline();
+    executor.armTimeline(40);
+    executor.syncTimeline(95);
+    expect(timeline.state.currentTime).toBe(15);
+  });
+
+  it('does not move a timeline it never armed', () => {
+    const { executor, timeline } = withTimeline();
+    expect(executor.syncTimeline(5)).toBe(false);
+    expect(timeline.state.currentTime).toBe(0);
+  });
+
+  it('gives back the timeline the artist had, not the first section\'s', () => {
+    const { executor, timeline } = withTimeline({ duration: 8, loopEnd: 8, currentTime: 3 });
+    executor.armTimeline(48);
+    executor.armTimeline(90);
+    executor.syncTimeline(30);
+    executor.releaseTimeline();
+
+    expect(timeline.state.enabled).toBe(false);
+    expect(timeline.state.duration).toBe(8);
+    expect(timeline.state.loopEnd).toBe(8);
+    expect(timeline.state.currentTime).toBe(3);
+  });
+
+  it('re-reads the parameters before disabling, so nothing stale is written back', () => {
+    // disable() restores what it stored when the timeline was enabled, and by
+    // then the graph is whatever scene the set finished on. Storing again
+    // makes that restore a no-op against what is actually on the canvas.
+    const { executor, timeline } = withTimeline();
+    executor.armTimeline(48);
+    executor.releaseTimeline();
+    expect(timeline.state.stored).toBe(1);
+  });
+
+  it('leaves a timeline the artist had already enabled enabled', () => {
+    const { executor, timeline } = withTimeline({ enabled: true });
+    executor.armTimeline(48);
+    executor.releaseTimeline();
+    expect(timeline.state.enabled).toBe(true);
+  });
+
+  it('says there is no timeline rather than throwing in a build without one', () => {
+    const executor = makeExecutor({ editor: { graph: { nodes: [] } } });
+    expect(executor.armTimeline(10).ok).toBe(false);
+    expect(executor.releaseTimeline()).toBe(false);
   });
 });

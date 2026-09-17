@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { PerformerEngine, STATE } from '../src/performer/PerformerEngine.js';
 import { PerformerClock } from '../src/performer/PerformerClock.js';
+import { audioTapsWanted, setAudioTapsWanted } from '../src/audio/audioAnalysisTaps.js';
 
 /** Records every action instead of performing it. */
 class FakeExecutor {
@@ -15,6 +16,12 @@ class FakeExecutor {
     this.performed = [];
     this.drivesCleared = 0;
     this.refuseNext = null;
+    this.armed = [];
+    this.synced = [];
+    this.released = 0;
+    this.soundStopped = [];
+    this.soundPaused = 0;
+    this.soundResumed = 0;
   }
   execute(action) {
     if (this.refuseNext) {
@@ -27,6 +34,14 @@ class FakeExecutor {
   }
   tick() {}
   clearDrives() { this.drivesCleared++; }
+  // The two things the performer drives that are not the graph: the editor's
+  // timeline, and the bed a look came with. Recorded rather than done.
+  armTimeline(seconds) { this.armed.push(seconds); return { ok: true }; }
+  syncTimeline(seconds) { this.synced.push(seconds); return true; }
+  releaseTimeline() { this.released++; return true; }
+  stopSound(why) { this.soundStopped.push(why || ''); return true; }
+  pauseSound() { this.soundPaused++; return true; }
+  resumeSound() { this.soundResumed++; return true; }
   status() { return { drives: [], ramps: [], blackedOut: false, transition: {}, sceneChangeInFlight: false }; }
   /** Every action of a type, for readable assertions. */
   ofType(type) { return this.performed.filter((a) => a.type === type); }
@@ -614,6 +629,141 @@ describe('PerformerEngine', () => {
       rig.hit();
       rig.play(0.1);
       expect(rig.executor.ofType('master')).toHaveLength(1);
+    });
+  });
+
+  describe('the timeline and the sound', () => {
+    const SET = {
+      bpm: 120,
+      sections: [
+        { id: 'a', name: 'A', hold: { seconds: 40 }, onEnter: [{ type: 'audio', clip: 'music.mp3' }] },
+        { id: 'b', name: 'B', hold: { bars: 8 } },
+      ],
+    };
+
+    it('sets the timeline to the section it has just entered', () => {
+      const { engine, executor } = makeEngine(SET);
+      engine.start();
+      expect(executor.armed).toEqual([40]);
+    });
+
+    it('counts a hold in bars against the tempo the set is being played at', () => {
+      // A musician who has pulled the tempo down has made every bar longer,
+      // and a transport still measuring the old one runs out early every time.
+      const { engine, executor, clock } = makeEngine(SET);
+      clock.setBPM(60);
+      engine.start();
+      engine.jumpToSection('b');
+      engine.tick();
+      // 8 bars of 4 beats at 60 BPM is 32 seconds.
+      expect(executor.armed[executor.armed.length - 1]).toBe(32);
+    });
+
+    it('leaves a section with no length of its own to whatever the scene brought', () => {
+      const { engine, executor } = makeEngine({ sections: [{ id: 'a', name: 'A' }] });
+      engine.start();
+      expect(executor.armed).toEqual([0]);
+    });
+
+    it('moves the playhead with the section, every frame', () => {
+      const { engine, executor, play } = makeEngine(SET);
+      engine.start();
+      play(2);
+
+      expect(executor.synced.length).toBeGreaterThan(100);
+      expect(executor.synced[executor.synced.length - 1]).toBeCloseTo(2, 1);
+    });
+
+    it('starts the section\'s own bed on the way in', () => {
+      const { engine, executor } = makeEngine(SET);
+      engine.start();
+      expect(executor.ofType('audio')[0].clip).toBe('music.mp3');
+    });
+
+    it('gives the timeline back and stops the bed when the set stops', () => {
+      const { engine, executor, play } = makeEngine(SET);
+      engine.start();
+      play(1);
+      engine.stop();
+
+      expect(executor.released).toBe(1);
+      expect(executor.soundStopped).toEqual(['the set stopped']);
+      // And the playhead stops moving with it: nothing ticks once stopped.
+      const after = executor.synced.length;
+      play(1);
+      expect(executor.synced.length).toBe(after);
+    });
+
+    it('holds the bed where it is while the set is paused, and picks it up there', () => {
+      const { engine, executor, play } = makeEngine(SET);
+      engine.start();
+      play(1);
+      engine.pause();
+      expect(executor.soundPaused).toBe(1);
+
+      engine.start();
+      expect(executor.soundResumed).toBe(1);
+    });
+
+    it('stops the bed on panic, because the bed is coming out of this machine too', () => {
+      const { engine, executor } = makeEngine(SET);
+      engine.start();
+      engine.panic();
+      expect(executor.soundStopped).toEqual(['panic']);
+    });
+  });
+
+  describe('the analysis, for a set that listens to it', () => {
+    const withAudio = {
+      signals: [{ name: 'level', source: 'audio', channel: 'level' }],
+      sections: [{ id: 'a', name: 'A' }],
+    };
+
+    it('asks for the taps while a set whose signals are audio channels runs', () => {
+      // Computing them costs an engine tick a frame, so nothing does it unless
+      // something is reading them. A set declaring `level` is reading them —
+      // and used to read zero on it unless the director happened to be on.
+      const { engine } = makeEngine(withAudio);
+      expect(audioTapsWanted()).toBe(false);
+
+      engine.start();
+      expect(audioTapsWanted()).toBe(true);
+
+      engine.stop();
+      expect(audioTapsWanted()).toBe(false);
+    });
+
+    it('does not ask for a set that listens to nothing', () => {
+      const { engine } = makeEngine({
+        signals: [{ name: 'energy', source: 'osc', address: '/x' }],
+        sections: [{ id: 'a', name: 'A' }],
+      });
+      engine.start();
+      expect(audioTapsWanted()).toBe(false);
+      engine.stop();
+    });
+
+    it('follows a scenario edited mid-rehearsal', () => {
+      const { engine } = makeEngine(withAudio);
+      engine.start();
+      expect(audioTapsWanted()).toBe(true);
+
+      engine.loadScenario({ sections: [{ id: 'a', name: 'A' }] });
+      expect(audioTapsWanted()).toBe(false);
+      engine.stop();
+    });
+
+    it('never switches the taps off under the Audio panel', () => {
+      // One flag, two askers. With a boolean, whichever of them stopped last
+      // won — and a set stopping would leave an open panel showing dead meters.
+      const { engine } = makeEngine(withAudio);
+      setAudioTapsWanted(true, 'panel');
+      engine.start();
+      engine.stop();
+      expect(audioTapsWanted()).toBe(true);
+
+      setAudioTapsWanted(false, 'panel');
+      expect(audioTapsWanted()).toBe(false);
     });
   });
 

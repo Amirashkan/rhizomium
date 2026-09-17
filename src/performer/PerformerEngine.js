@@ -47,6 +47,7 @@ import {
   getMusicalListener,
   setMusicalListeningWanted,
 } from '../audio/musicalListening.js';
+import { setAudioTapsWanted } from '../audio/audioAnalysisTaps.js';
 
 /** How many log lines are kept. Enough to read back a set, bounded for a long one. */
 const MAX_LOG = 400;
@@ -97,6 +98,8 @@ export class PerformerEngine {
    * @param {object} [deps.osc] OSCManager
    * @param {object} [deps.audio] the audioAnalysisTaps module
    * @param {object} [deps.vjPanel] VJControlPanel
+   * @param {object} [deps.audioDeck] the Audio panel's transport, for a set
+   *   that plays its own beds (src/audio/audioDeck.js)
    * @param {ActionExecutor} [deps.executor]
    * @param {object} [deps.director] PerformerDirector
    */
@@ -113,6 +116,7 @@ export class PerformerEngine {
     this.executor = deps.executor || new ActionExecutor({
       editor: this.editor,
       vjPanel: deps.vjPanel || null,
+      audioDeck: deps.audioDeck || null,
       replaceGraph: deps.replaceGraph || null,
       patchToProjectData: deps.patchToProjectData || null,
       log: (level, message, meta) => this.write(level, message, meta),
@@ -196,6 +200,7 @@ export class PerformerEngine {
     this.clock.setBPM(this.scenario.bpm);
     this.clock.setMeter(this.scenario.beatsPerBar, this.scenario.barsPerPhrase);
     this.signals.setScenario(this.scenario);
+    this.syncAudioWanted();
     this.executor.rules = this.scenario.rules;
     this._brokenConditions.clear();
 
@@ -234,6 +239,8 @@ export class PerformerEngine {
     if (this.state === STATE.PAUSED) {
       this.clock.resume();
       this.state = STATE.RUNNING;
+      // The bed comes back where it was left, with the clock it was paused on.
+      this.executor.resumeSound?.();
       this.write('info', 'Resumed');
       this.emit();
       return true;
@@ -246,6 +253,7 @@ export class PerformerEngine {
 
     this.clock.start();
     this.state = STATE.RUNNING;
+    this.syncAudioWanted();
     this.queue = [];
     this._pendingCues = [];
     this._pendingJump = null;
@@ -263,6 +271,7 @@ export class PerformerEngine {
     if (this.state !== STATE.RUNNING) return false;
     this.clock.pause();
     this.state = STATE.PAUSED;
+    this.executor.pauseSound?.();
     this.write('info', 'Paused');
     this.emit();
     return true;
@@ -276,12 +285,23 @@ export class PerformerEngine {
    * a slider that snaps back. The output level is deliberately left alone: if
    * the performer faded to 40% for a breakdown, stopping should not slam it
    * back to full in front of an audience.
+   *
+   * The sound is the opposite case and stops: it is the set's own bed, and a
+   * track still playing into an analysis nothing is listening to is a room
+   * that has not been told the set is over.
    */
   stop() {
     if (this.state === STATE.STOPPED) return false;
     this.clock.stop();
     this.state = STATE.STOPPED;
+    this.syncAudioWanted();
     this.executor.clearDrives();
+    // The bed the set was playing, and the timeline the set was driving, both
+    // go back. Neither is the artist's: the bed is the show's own sound and
+    // the timeline was theirs before the set borrowed it. A track they loaded
+    // by hand is left playing — stopSound() only stops what it started.
+    this.executor.stopSound?.('the set stopped');
+    this.executor.releaseTimeline?.();
     this.queue = [];
     this._pendingCues = [];
     this._pendingJump = null;
@@ -303,6 +323,9 @@ export class PerformerEngine {
     this._pendingJump = null;
     this.executor.clearDrives();
     this.executor.execute({ type: 'blackout', on: true }, { now: Date.now() });
+    // Panic is "what is coming out of this machine is the problem", and the
+    // bed is coming out of this machine.
+    this.executor.stopSound?.('panic');
     this.state = STATE.PAUSED;
     this.clock.pause();
     this.write('warn', 'PANIC — output killed, performance paused');
@@ -389,6 +412,10 @@ export class PerformerEngine {
     this.publishEngineSignals();
     this.signals.update(delta);
     this.executor.tick(delta, this.signals);
+    // The editor's transport, on the section's clock. Cheap, and it is what
+    // makes the timeline in front of the artist describe the set rather than
+    // sit where the last person to drag it left it.
+    this.executor.syncTimeline?.(this.sectionSeconds);
 
     this.resetBarBudgetIfNeeded();
 
@@ -421,6 +448,26 @@ export class PerformerEngine {
     this.signals.intensity = section?.intensity ?? this.signals.energy;
   }
 
+  /**
+   * Keep the audio analysis running for as long as this set needs it.
+   *
+   * Computing the taps costs an engine tick and three edge detections a frame,
+   * so nothing does it unless something is reading them. Until this, the only
+   * askers were the Audio panel and the director's listener — which meant a
+   * set whose signals are `level` and `low`, played with the director off,
+   * read zero on every one of them and never moved. The signals are declared
+   * in the scenario; asking from here is asking for exactly what it declared.
+   *
+   * Called on load as well as on start, so editing a scenario mid-rehearsal
+   * moves this with it.
+   */
+  syncAudioWanted() {
+    const wanted = this.state === STATE.RUNNING
+      && this.scenario.signals.some((signal) => signal.source === 'audio');
+    setAudioTapsWanted(wanted, 'performer');
+    return wanted;
+  }
+
   /** Bars since the current section was entered. */
   get sectionBars() {
     return (this.clock.beats - this.sectionEnteredBeats) / this.clock.beatsPerBar;
@@ -428,6 +475,27 @@ export class PerformerEngine {
 
   get sectionSeconds() {
     return this.clock.seconds - this.sectionEnteredSeconds;
+  }
+
+  /**
+   * How long a section is written to be, in seconds.
+   *
+   * Bars are converted against the clock's current tempo rather than the
+   * scenario's, because the clock is what the set is actually being played to
+   * — a musician who has pulled the tempo down has made every bar longer, and
+   * a transport still measuring the old one would run out early every time.
+   *
+   * Zero when the section has no length: it runs until a cue, a condition or
+   * the artist ends it, and inventing a number for that is inventing a
+   * deadline the scenario deliberately did not write.
+   */
+  sectionLengthSeconds(section) {
+    if (!section?.hold) return 0;
+    if (section.hold.seconds !== null && section.hold.seconds > 0) return section.hold.seconds;
+    if (section.hold.bars !== null && section.hold.bars > 0) {
+      return section.hold.bars * this.clock.secondsPerBar;
+    }
+    return 0;
   }
 
   resetBarBudgetIfNeeded() {
@@ -658,6 +726,12 @@ export class PerformerEngine {
         reason: `section ${section.id}`,
       }, `section:${section.id}`);
     }
+
+    // The timeline, set to this section's length and rewound with it. After
+    // the look, because loading a scene restores whatever timeline that scene
+    // carries (ActionExecutor.installPatchAsScene writes one) — and the
+    // section's own length is the one that should win.
+    this.executor.armTimeline?.(this.sectionLengthSeconds(section));
 
     for (const drive of section.drives) {
       this.dispatch({ ...drive, type: 'drive' }, `section:${section.id}`);

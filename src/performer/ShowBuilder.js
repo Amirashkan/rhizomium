@@ -240,6 +240,11 @@ export class ShowBuilder {
             notes: generated?.notes || look.mood || look.brief,
             title: generated?.title || look.name,
             lookId: look.id,
+            // What the manifest says this look is up for, in seconds. It
+            // becomes the scene's own duration and the timeline it carries,
+            // so cutting to it sets the transport to the length the set was
+            // written to rather than leaving the last look's.
+            holdSeconds: holdSecondsOf(look, show),
             // Keyed by node id, exactly as a saved project's textures are:
             // installScene hands it straight to the scene's project data and
             // the ordinary loader puts it back on the GPU.
@@ -690,6 +695,13 @@ export function bindLooks(rawScenario, manifest, built = []) {
       ...section,
       id: section.id || look.id,
       look: { kind: 'scene', scene: entry.sceneName },
+      // The bed, the same way and for the same reason: the file is a fact
+      // about the folder, not a decision for the model. Any audio action
+      // already on the section is replaced rather than added to — two beds on
+      // one entry is one bed and a decode nobody hears.
+      onEnter: look.sound
+        ? [soundAction(look), ...section.onEnter.filter((action) => !isSoundAction(action))]
+        : section.onEnter,
     };
 
     bound.push({
@@ -701,6 +713,26 @@ export function bindLooks(rawScenario, manifest, built = []) {
   }
 
   return { scenario: { ...scenario, sections }, bound, unbound };
+}
+
+/**
+ * A look's hold in seconds, whatever unit the manifest wrote it in.
+ *
+ * Bars are converted against the show's own tempo, which is the only tempo
+ * this side of the build knows — the clock at showtime may have been pulled
+ * somewhere else by then, and the engine converts again from that when it arms
+ * the timeline (PerformerEngine.sectionLengthSeconds). What is written into
+ * the scene here is the length the set was designed to, which is the right
+ * answer for a scene loaded on its own, outside any performance.
+ */
+export function holdSecondsOf(look, show) {
+  if (look?.hold?.seconds > 0) return look.hold.seconds;
+  if (look?.hold?.bars > 0) {
+    const bpm = show?.bpm > 0 ? show.bpm : 120;
+    const beats = show?.beatsPerBar > 0 ? show.beatsPerBar : 4;
+    return Math.round(look.hold.bars * (60 / bpm) * beats * 100) / 100;
+  }
+  return 0;
 }
 
 /** One section, straight off a look, for when nothing wrote one. */
@@ -716,8 +748,34 @@ function sectionFromLook(look, show, first) {
     next: look.next || undefined,
   };
   if (look.hold) section.hold = look.hold;
+  if (look.sound) section.onEnter = [soundAction(look)];
   return section;
 }
+
+/**
+ * The action that starts a look's own bed.
+ *
+ * Written here rather than left to whoever writes the scenario, because it is
+ * not a decision: the manifest said this look has this sound, the hold was
+ * measured from that file, and a set that describes a bed it never plays is
+ * the mismatch this whole path exists to close.
+ *
+ * `quantize: 'off'` on purpose. Everything else a section does on entry can
+ * wait for a boundary; the sound cannot, because the boundary it would wait
+ * for is measured against the track that has not started.
+ */
+function soundAction(look) {
+  return {
+    type: 'audio',
+    clip: look.sound,
+    transport: 'play',
+    quantize: 'off',
+    why: `the bed "${look.sound}" belongs to ${look.name}`,
+  };
+}
+
+/** Is this an `audio` action the builder wrote, rather than the artist? */
+const isSoundAction = (action) => action?.type === 'audio';
 
 /**
  * What ends the section before this one.

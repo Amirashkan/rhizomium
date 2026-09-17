@@ -14,7 +14,10 @@ import {
   readFolderShow,
 } from '../src/performer/ShowImport.js';
 import { validateManifest } from '../src/performer/ShowManifest.js';
-import { indexShowFolder, resolveLookMedia } from '../src/performer/ShowFolder.js';
+import { scenarioFromManifest } from '../src/performer/ShowBuilder.js';
+import { normalizeScenario } from '../src/performer/Scenario.js';
+import { ActionExecutor } from '../src/performer/ActionExecutor.js';
+import { indexShowFolder, resolveLookMedia, resolveLookSound } from '../src/performer/ShowFolder.js';
 
 /** One transmission's manifest, as `transmissions` writes it. */
 const transmission = (overrides = {}) => ({
@@ -162,6 +165,25 @@ describe('lookFromTransmission', () => {
     expect(talky.hold.seconds).toBeGreaterThan(80);
   });
 
+  it('plays the piece its own bed, and leaves the narration to the artist', () => {
+    const look = lookFromTransmission(transmission(), { path: 'one/manifest.json' });
+
+    // The bed is the file holdOf() measured this look's length from, so the
+    // section and the track under it are the same length by construction.
+    expect(look.sound).toBe('one/media/music.mp3');
+    // One element behind the analysis: a voice over the bed is a mix the
+    // artist makes in their own software, not a second file chosen for them.
+    expect(look.notes).toContain('voiceover: one/media/narration.mp3');
+  });
+
+  it('has no bed when the piece never generated one', () => {
+    const silent = transmission({
+      assets: [{ kind: 'image', provider: 'stability', path: 'image.png', status: 'ok' }],
+    });
+
+    expect(lookFromTransmission(silent, { path: 'one/manifest.json' }).sound).toBe('');
+  });
+
   it('is still a look when the piece says almost nothing about itself', () => {
     const look = lookFromTransmission({ manifest_version: 1, title: 'Bare' }, { path: 'bare/manifest.json' });
 
@@ -281,6 +303,9 @@ describe('manifestFromTransmissions', () => {
     const { items, missing } = resolveLookMedia(folder, manifest.looks[0]);
     expect(missing).toEqual([]);
     expect(items.map((item) => item.name)).toEqual(['video.mp4', 'image.png']);
+
+    // And the bed, by the same path, out of the same index.
+    expect(resolveLookSound(folder, manifest.looks[0]).name).toBe('music.mp3');
   });
 });
 
@@ -364,5 +389,55 @@ describe('readFolderShow', () => {
 
     expect(result.kind).toBe('none');
     expect(result.problems).toEqual([]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// The whole trip, for the case this file exists for: a folder another tool
+// wrote, opened, built into a set, and played. Every step is the real one
+// except the model that would write the patches — what is under test is that a
+// bed in that folder is a bed coming out of the machine, which is a chain of
+// five files agreeing on one filename.
+// --------------------------------------------------------------------------
+
+describe('a folder of transmissions, end to end', () => {
+  it('plays the piece its own bed when the section it belongs to starts', async () => {
+    const entries = [
+      manifestFile('2026-09-16-cortex-vacancy/manifest.json', transmission({ slug: 'cortex-vacancy', title: 'The Cortex Vacancy' })),
+      { path: '2026-09-16-cortex-vacancy/media/video.mp4', file: file('video.mp4', '', { type: 'video/mp4' }) },
+      { path: '2026-09-16-cortex-vacancy/media/music.mp3', file: file('music.mp3', '', { type: 'audio/mpeg' }) },
+      { path: '2026-09-16-cortex-vacancy/media/narration.mp3', file: file('narration.mp3', '', { type: 'audio/mpeg' }) },
+    ];
+    const folder = indexShowFolder(entries, { name: 'Transmissions' });
+    const show = await readFolderShow(folder);
+
+    // The set the panel would write from that manifest, with the scene the
+    // build would have installed.
+    const scenario = normalizeScenario(
+      scenarioFromManifest(show.manifest, [{ lookId: show.manifest.looks[0].id, sceneName: 'The Cortex Vacancy' }])
+    );
+
+    const loaded = [];
+    const executor = new ActionExecutor({
+      editor: { graph: { nodes: [] } },
+      audioDeck: {
+        describe: () => ({ file: '', loaded: false, playing: false, live: null, position: 0 }),
+        load: async (f, name) => { loaded.push(name); },
+        play: async () => ({ ok: true }),
+        pause() {}, stop() {}, seek() {},
+      },
+    });
+    executor.setSounds(folder.media);
+
+    const enter = scenario.sections[0].onEnter.find((action) => action.type === 'audio');
+    expect(enter.clip).toBe('2026-09-16-cortex-vacancy/media/music.mp3');
+    expect(executor.execute(enter, { now: 0 }).ok).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loaded).toEqual(['music.mp3']);
+
+    // And the section is exactly as long as the bed it plays: the manifest's
+    // hold came off the same file.
+    expect(scenario.sections[0].hold.seconds).toBe(48);
   });
 });

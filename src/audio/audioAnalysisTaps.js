@@ -79,7 +79,12 @@ let live = false;
 // Computing the taps costs an engine tick and three edge detections per frame, which is wasted work
 // in a patch with no Audio Value node in it. The panel sets this while it is on screen so its
 // meters stay live even before anything has been deployed.
-let wanted = false;
+//
+// Two things ask now — the panel, and the AI performer while it runs a set whose signals are audio
+// channels — so it is a set of askers rather than a boolean. With a boolean, whichever of them
+// stopped last switched the taps off under the other, and a performer stopping mid-session would
+// have left an open Audio panel showing dead meters.
+const wanters = new Set();
 
 /** Replace this step's values. Called by AudioAnalysisProcessor. */
 export function setAudioTapValues(values) {
@@ -112,12 +117,19 @@ export function clearAudioTapValues() {
   live = false;
 }
 
-/** Ask the processor to keep the taps live even with no Audio Value node in the graph. */
-export function setAudioTapsWanted(value) {
-  wanted = !!value;
+/**
+ * Ask the processor to keep the taps live even with no Audio Value node in the graph.
+ *
+ * @param {boolean} value whether this asker wants them.
+ * @param {string} [who] which asker. Defaults to the Audio panel, which was the
+ *   only one when this took no second argument.
+ */
+export function setAudioTapsWanted(value, who = 'panel') {
+  if (value) wanters.add(who);
+  else wanters.delete(who);
 }
 
-/** Whether anything (the Audio panel) is watching the taps directly. */
+/** Whether anything — the Audio panel, a running set — is watching the taps directly. */
 export function audioTapsWanted() {
-  return wanted;
+  return wanters.size > 0;
 }

@@ -34,6 +34,7 @@ import {
 } from '../parameters/ExternalParameterControl.js';
 import { setMasterOpacity, getMasterOpacity } from '../vj/MasterOutput.js';
 import { customNodeName, defaultNodeName } from '../core/nodeName.js';
+import { resolveLookSound } from './ShowFolder.js';
 import { actionCost, actionGate, describeAction } from './actions.js';
 
 /**
@@ -65,6 +66,13 @@ export class ActionExecutor {
   constructor(deps = {}) {
     this.editor = deps.editor || null;
     this.vjPanel = deps.vjPanel || null;
+    /**
+     * The Audio panel's transport, as an object rather than as a panel
+     * (src/audio/audioDeck.js). Injected for the same reason replaceGraph is:
+     * it reaches the shared capture client, and this file is imported by tests
+     * that have no Web Audio to reach.
+     */
+    this.audioDeck = deps.audioDeck || null;
     this._sceneManager = deps.sceneManager || null;
     this._presetManager = deps.presetManager || null;
     this._transitionManager = deps.transitionManager || null;
@@ -79,6 +87,28 @@ export class ActionExecutor {
 
     /** Rules from the running scenario. Set by the engine on load. */
     this.rules = null;
+
+    /**
+     * The sound in the open show folder, as ShowFolder indexes it. Set by the
+     * panel when a folder is opened, so an `audio` action naming a file the
+     * way a manifest names it has somewhere to resolve it.
+     */
+    this.sounds = [];
+
+    /**
+     * What the performer itself started playing, so stopping the set stops the
+     * bed it started and leaves alone a track the artist loaded by hand. The
+     * name is the element's, for the log.
+     */
+    this._playing = '';
+
+    /**
+     * The timeline before the performer armed it, and whether the performer is
+     * the one that enabled it. Restoring is the whole point: an artist whose
+     * timeline was set to their own 10-second loop should get it back when the
+     * set stops, not a duration a section chose.
+     */
+    this._timelineWas = null;
 
     /** Default transition, changed by a `transition` action. */
     this.transition = { type: 'crossfade', duration: 1 };
@@ -103,6 +133,9 @@ export class ActionExecutor {
 
     /** A scene load is async; a second one on top of it is a race. */
     this.sceneChangeInFlight = false;
+
+    /** The same for a bed: decoding two files onto one element is a race. */
+    this.soundLoadInFlight = false;
 
     /**
      * Node lookup cache, dropped whenever the graph changes. The lookup walks
@@ -138,6 +171,17 @@ export class ActionExecutor {
 
   get graph() {
     return this.editor?.graph || (typeof window !== 'undefined' ? window.graph : null);
+  }
+
+  /**
+   * The editor's timeline, looked up late for the same reason the managers
+   * above are: main.js builds it after the performer, and a reference taken in
+   * the constructor would be null for the life of the session.
+   */
+  get timeline() {
+    return this.editor?.timelineManager
+      || (typeof window !== 'undefined' ? window.timelineManager : null)
+      || null;
   }
 
   // --- resolution --------------------------------------------------------
@@ -240,6 +284,10 @@ export class ActionExecutor {
    * @param {Object} patch a validated patch from the backend.
    * @param {Object} [meta]
    * @param {string} [meta.notes] the cue note — what this look is for.
+   * @param {number} [meta.holdSeconds] how long the look is up for. It becomes
+   *   the scene's duration and the timeline the scene carries, so the length
+   *   the manifest gave a look is the length the transport shows when the set
+   *   cuts to it.
    * @param {Object} [meta.textures] the look's media, keyed by node id, in the
    *   shape a saved project carries: `{ filename, dataUrl, isVideo }`. A look
    *   built on the artist's own footage (ShowFolder.js) arrives with it here,
@@ -265,6 +313,37 @@ export class ActionExecutor {
     const textures = meta.textures && typeof meta.textures === 'object' ? meta.textures : null;
     if (textures && Object.keys(textures).length) projectData.textures = textures;
 
+    // The scene's own length, and a timeline enabled at it.
+    //
+    // A scene IS a project: loading one goes through importProject(), which
+    // restores whatever timeline the project carries. A generated patch
+    // carried none, so every look installed here was a ten-second scene in the
+    // VJ panel's list (SceneManager reads `data.timeline.duration`) and
+    // cutting to one left the editor's timeline exactly as the look before it
+    // had it. Writing it here is what makes the hold in the manifest reach the
+    // transport the artist is looking at.
+    //
+    // No tracks: nothing generated has keyframes. An empty track list is still
+    // the right thing to write — it is what says "this look animates from its
+    // own graph", rather than leaving the last scene's tracks pointing at node
+    // ids this patch does not have.
+    const holdSeconds = Number(meta.holdSeconds);
+    if (Number.isFinite(holdSeconds) && holdSeconds > 0) {
+      projectData.timeline = {
+        enabled: true,
+        timeline: {
+          duration: holdSeconds,
+          currentTime: 0,
+          fps: this.timeline?.getFPS?.() || 60,
+          loop: true,
+          loopStart: 0,
+          loopEnd: holdSeconds,
+          snapToFrames: true,
+          tracks: [],
+        },
+      };
+    }
+
     const existing = this.resolveScene(label);
     if (existing) {
       existing.data = projectData;
@@ -287,6 +366,252 @@ export class ActionExecutor {
     });
 
     return { id: scene?.id || id, name: scene?.name || label };
+  }
+
+  // --- the set's own sound -----------------------------------------------
+  //
+  // A show folder can carry the beds the set was written to (ShowFolder.js).
+  // They are not media in the sense the looks are: a clip goes onto a texture
+  // node and travels inside the scene, while a bed is played into the one
+  // analysis engine the editor has, which is the same engine the artist's
+  // microphone would feed. So nothing about them is copied into a patch — the
+  // files stay where they are and the performer points the Audio panel at one.
+
+  /**
+   * The sound the performer may reach, from the open show folder.
+   *
+   * @param {Array} items media items, as ShowFolder.indexShowFolder() lists
+   *   them. Anything that is not audio is dropped here rather than at the call
+   *   site, so a caller can hand over the whole folder.
+   */
+  setSounds(items) {
+    this.sounds = (Array.isArray(items) ? items : []).filter((item) => item?.kind === 'audio');
+    return this.sounds.length;
+  }
+
+  /** The bed one reference names, matched the way a look's media is matched. */
+  resolveSound(reference) {
+    return resolveLookSound({ media: this.sounds }, reference);
+  }
+
+  /**
+   * Play, pause or stop the set's own sound.
+   *
+   * Synchronous like every other verb here, and for the same reason doScene()
+   * is: this runs inside a frame during a show. Resolving the file and
+   * refusing a name nothing answers to happens now, where the panel can show
+   * it; decoding and starting the track happens on its own time and reports
+   * into the log.
+   *
+   * The load is the expensive half and it is skipped when the file asked for
+   * is the one already on the element: a section that re-enters, or two
+   * sections sharing a bed, should not decode it again — and reloading would
+   * restart a track the set is deliberately playing through.
+   */
+  doAudio(action) {
+    const deck = this.audioDeck;
+    if (!deck) return no('there is no audio transport in this build');
+
+    let item = null;
+    if (action.clip) {
+      item = this.resolveSound(action.clip);
+      if (!item) {
+        return no(this.sounds.length
+          ? `no sound in the folder called "${action.clip}"`
+          : `no show folder is open, so there is no "${action.clip}" to play`);
+      }
+      if (!item.file) return no(`"${item.path}" has no file behind it any more`);
+    }
+
+    if (action.transport === 'pause' || action.transport === 'stop') {
+      if (action.transport === 'pause') deck.pause();
+      else deck.stop();
+      this._playing = '';
+      return ok(`${item ? `${item.name} ` : ''}${action.transport === 'pause' ? 'paused' : 'stopped'}`);
+    }
+
+    if (this.soundLoadInFlight) return no('a bed is already being loaded');
+    this.soundLoadInFlight = true;
+    this._startSound(deck, item, action)
+      .catch((error) => this.log('error', 'The bed would not start', { error: String(error?.message || error) }))
+      .finally(() => { this.soundLoadInFlight = false; });
+
+    return ok(item ? `${item.name} playing` : 'playing');
+  }
+
+  /** The half of doAudio() that waits: decode, position, start. */
+  async _startSound(deck, item, action) {
+    if (item && deck.describe().file !== item.name) {
+      await deck.load(item.file, item.name);
+    }
+
+    // A clip that was just loaded starts at the top unless the action said
+    // otherwise — that is what makes a section and its bed the same length.
+    if (action.seek !== null) deck.seek(action.seek);
+    else if (item) deck.seek(0);
+
+    const started = await deck.play();
+    if (!started.ok) {
+      this._playing = '';
+      this.log('error', `The bed would not start: ${started.reason}`, { clip: item?.name || '' });
+      return;
+    }
+
+    this._playing = item?.name || deck.describe().file || 'the bed';
+    if (started.stoppedLive) {
+      // Worth saying out loud: the artist's microphone has just gone quiet,
+      // and nothing else in the editor would tell them why.
+      this.log('warn', 'Live input stopped — a file and a live input cannot both feed the analysis', {
+        was: started.stoppedLive,
+        playing: this._playing,
+      });
+    }
+  }
+
+  /**
+   * Stop the bed the performer started, and only that.
+   *
+   * A track the artist loaded into the Audio panel themselves is theirs: the
+   * set stopping is not a reason for the room to go quiet.
+   */
+  stopSound(why = '') {
+    if (!this._playing || !this.audioDeck) return false;
+    const was = this._playing;
+    this._playing = '';
+    this.audioDeck.stop();
+    this.log('info', `Sound stopped${why ? `: ${why}` : ''}`, { was });
+    return true;
+  }
+
+  /**
+   * Hold the bed where it is, and pick it up there.
+   *
+   * Pausing a set is a rehearsal stopping to talk about the last section, and
+   * the bed is part of that section. It keeps its position — what the set
+   * comes back to is the bar it left — and `_playing` is deliberately not
+   * cleared: this is the same track, still the performer's.
+   */
+  pauseSound() {
+    if (!this._playing || !this.audioDeck) return false;
+    this.audioDeck.pause();
+    return true;
+  }
+
+  resumeSound() {
+    if (!this._playing || !this.audioDeck) return false;
+    Promise.resolve(this.audioDeck.play()).then((started) => {
+      if (started && started.ok === false) {
+        this.log('warn', `The bed would not start again: ${started.reason}`, { was: this._playing });
+      }
+    }, (error) => {
+      this.log('error', 'The bed would not start again', { error: String(error?.message || error) });
+    });
+    return true;
+  }
+
+  // --- the timeline ------------------------------------------------------
+  //
+  // A section has a length and the editor has a timeline, and until this they
+  // knew nothing about each other: a set built from a folder installed its
+  // patches and left the timeline at whatever it had been — ten seconds,
+  // disabled, playhead at zero. So a look with keyframes on it sat still, and
+  // the transport in front of the artist described nothing that was happening.
+  //
+  // Armed per SECTION rather than per set, because the section is the unit
+  // everything else here already agrees on: the scene is the section's, the
+  // bed is the section's and restarts with it, and the hold is what both were
+  // measured from. One clock, three things reading it.
+
+  /**
+   * Set the timeline to this section's length and hand it the playhead.
+   *
+   * @param {number} seconds the section's hold. Zero or less — a section that
+   *   runs until something ends it — leaves the duration alone: whatever the
+   *   scene brought with it is a better answer than a number invented here.
+   * @returns {{ok: boolean, detail?: string, reason?: string}}
+   */
+  armTimeline(seconds) {
+    const manager = this.timeline;
+    if (!manager) return no('there is no timeline in this build');
+
+    // Taken once, on the first arm, so a set of nine sections still restores
+    // the artist's own timeline rather than the first section's.
+    if (!this._timelineWas) {
+      this._timelineWas = {
+        enabled: Boolean(manager.isEnabled?.()),
+        duration: manager.getDuration?.() ?? null,
+        loop: manager.getLoop?.() ?? null,
+        loopStart: manager.getLoopStart?.() ?? null,
+        loopEnd: manager.getLoopEnd?.() ?? null,
+        currentTime: manager.getCurrentTime?.() ?? 0,
+      };
+    }
+
+    const length = Number(seconds);
+    if (Number.isFinite(length) && length > 0) {
+      manager.setDuration?.(length);
+      manager.setLoopRegion?.(0, length);
+      manager.setLoop?.(true);
+    }
+
+    // The performer owns the playhead while it runs, so the timeline's own
+    // transport is stopped rather than left advancing against it.
+    if (manager.isPlaying?.()) manager.pause?.();
+    manager.setCurrentTime?.(0);
+    if (!manager.isEnabled?.()) manager.enable?.();
+
+    return ok(length > 0 ? `${length.toFixed(1)}s` : "the scene's own length");
+  }
+
+  /**
+   * Put the playhead where the section is.
+   *
+   * Wrapped rather than clamped: a section can outlast its hold — the musician
+   * has not played the thing that ends it, the director is holding — and the
+   * bed under it is looping. A playhead pinned at the end while the sound goes
+   * round again is a transport that has stopped describing the set.
+   */
+  syncTimeline(seconds) {
+    const manager = this.timeline;
+    if (!manager || !this._timelineWas) return false;
+
+    const position = Number(seconds);
+    if (!Number.isFinite(position) || position < 0) return false;
+
+    const duration = manager.getDuration?.() || 0;
+    manager.setCurrentTime?.(duration > 0 ? position % duration : position);
+    return true;
+  }
+
+  /**
+   * Give the timeline back.
+   *
+   * disable() before the rest, for the reason applyArc.revertArc() disables
+   * before restoring: while it is enabled the timeline writes its tracks'
+   * parameters every frame, and the values it overwrote are held in the
+   * manager rather than in the patch.
+   */
+  releaseTimeline() {
+    const manager = this.timeline;
+    const was = this._timelineWas;
+    this._timelineWas = null;
+    if (!manager || !was) return false;
+
+    if (!was.enabled && manager.isEnabled?.()) {
+      // Re-read the parameters first. disable() puts back the values it stored
+      // when the timeline was enabled, and by now the graph is whatever scene
+      // the set finished on rather than the patch those values came off — so
+      // restoring them would write a value from one patch into a node that
+      // merely shares an id with the one it came from. Storing again makes the
+      // restore a no-op against what is actually on the canvas.
+      manager.storeOriginalValues?.();
+      manager.disable?.();
+    }
+    if (was.duration > 0) manager.setDuration?.(was.duration);
+    if (was.loopEnd > 0) manager.setLoopRegion?.(was.loopStart || 0, was.loopEnd);
+    if (was.loop !== null) manager.setLoop?.(was.loop);
+    manager.setCurrentTime?.(was.currentTime || 0);
+    return true;
   }
 
   /** The same for presets. */
@@ -372,6 +697,7 @@ export class ActionExecutor {
       case 'master': return this.doMaster(action);
       case 'speed': return this.doSpeed(action);
       case 'blackout': return this.doBlackout(action);
+      case 'audio': return this.doAudio(action);
       case 'graph': return this.doGraph(action, now);
       case 'log': return ok(action.message);
       // 'section' and 'cue' are the engine's own business: they change where

@@ -13,6 +13,14 @@
  * to be added there too (api/_lib/features.js, `ai.performer_live`) before the
  * model can use it — the mirror is deliberate and the comment there says so.
  *
+ * `audio` is the one verb deliberately NOT in that mirror. A set's bed is
+ * attached to the section it belongs to when the show is built, from the file
+ * the manifest named (ShowBuilder.bindLooks), and it is the one thing in here
+ * whose failure is audible in the room rather than visible on a screen: a
+ * model that decides to stop the music is a worse night than any parameter it
+ * could get wrong. A scenario may say it, a cue may say it, the artist may
+ * press it; the live director may not.
+ *
  * Every action is data: a plain object with a `type` and its own fields. They
  * are queued, quantised, logged and replayed, so none of them may hold a
  * function or a node reference. A node is named, never held — the graph it
@@ -26,6 +34,16 @@ const num = (value, fallback = 0) => {
 };
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const str = (value, fallback = '') => (typeof value === 'string' ? value : fallback);
+const pick = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
+
+/**
+ * What an `audio` action does to the transport.
+ *
+ * 'stop' rather than 'pause' is the one that rewinds, exactly as the Audio
+ * panel's two buttons do — a set that pauses its bed between two sections and
+ * a set that stops it are different sets, and the words are the artist's.
+ */
+export const TRANSPORTS = Object.freeze(['play', 'pause', 'stop']);
 
 /** "Warp.amount" split at the last dot, or null if there is nothing to split. */
 function splitDotted(value) {
@@ -150,6 +168,15 @@ export const ACTION_TYPES = Object.freeze({
     cost: 1,
     gate: null,
   },
+  audio: {
+    summary: "Play, pause or stop the set's own sound — the bed a look arrived with.",
+    fields: ['clip', 'transport', 'seek'],
+    // A load decodes a file and rewires the analysis input. Dearer than a
+    // fader, nothing like a scene: the graph is untouched and no shader
+    // recompiles.
+    cost: 2,
+    gate: 'allowAudio',
+  },
   section: {
     summary: 'Jump to a section.',
     fields: ['to'],
@@ -247,6 +274,21 @@ export function normalizeAction(raw) {
         curve: str(raw.curve) || 'linear',
         invert: Boolean(raw.invert),
         smooth: clamp(num(raw.smooth, 0), 0, 10),
+      };
+
+    case 'audio':
+      return {
+        ...common,
+        // What to play, as the artist would write a filename. Empty means
+        // whatever is already loaded, which is how a section pauses or
+        // resumes the bed the section before it started.
+        clip: str(raw.clip ?? raw.sound ?? raw.file ?? raw.track),
+        // Play is the default: an audio action in a set is nearly always a
+        // section starting the track it was written against.
+        transport: pick(str(raw.transport ?? raw.do), TRANSPORTS, 'play'),
+        // Where to start, in seconds. A load starts at the top, so this is
+        // only ever the artist dropping in somewhere on purpose.
+        seek: raw.seek === undefined || raw.seek === null ? null : clamp(num(raw.seek, 0), 0, 36000),
       };
 
     case 'undrive':
@@ -375,6 +417,15 @@ export function validateAction(action, context = {}) {
       }
       return null;
 
+    case 'audio':
+      // A play with nothing named is a resume, which is legal and common. A
+      // set that never names a file anywhere is the one worth a word: nothing
+      // is loaded at the start of a show, so there is nothing to resume.
+      if (!action.clip && action.transport === 'play' && known.sounds === 0) {
+        return warn('Nothing to play: no look in this set names a sound, so the bed this would resume was never loaded.');
+      }
+      return null;
+
     default:
       return null;
   }
@@ -397,6 +448,10 @@ export function describeAction(action) {
     case 'master': return `master → ${action.to}`;
     case 'speed': return `speed → ${action.to}`;
     case 'blackout': return action.on ? 'blackout' : 'blackout off';
+    case 'audio': {
+      const where = action.seek === null ? '' : ` from ${action.seek}s`;
+      return action.clip ? `${action.transport} ${action.clip}${where}` : `${action.transport} the bed${where}`;
+    }
     case 'section': return `jump → ${action.to}`;
     case 'cue': return `cue ${action.name}`;
     case 'graph': return `new patch${action.reason ? ` (${action.reason})` : ''}`;
