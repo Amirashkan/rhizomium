@@ -39,15 +39,17 @@ import { actionCost, actionGate, describeAction } from './actions.js';
 /**
  * How long a drive may fail to resolve before it is called out.
  *
- * Long enough to cover a scene change — the section registers its drives while
- * the look is still loading — and short enough that the warning lands while
- * the artist is still looking at the section that caused it.
+ * Short enough that the warning lands while the artist is still looking at the
+ * section that caused it. It does not have to cover a scene change: tick()
+ * holds the clock at zero while one is in flight, so this only ever waits out
+ * the last frames of a transition.
  */
 const MISSING_GRACE_SECONDS = 2;
 
 /** A result every execute() path returns, so the caller never has to guess. */
 const ok = (detail = '') => ({ ok: true, detail });
 const no = (reason) => ({ ok: false, reason });
+
 
 export class ActionExecutor {
   /**
@@ -109,6 +111,11 @@ export class ActionExecutor {
      */
     this._nodeCache = new Map();
     this._nodeCacheGraph = null;
+
+    /** describePatch()'s cache, and the node array it was built from. */
+    this._patchCache = null;
+    this._patchCacheFor = null;
+    this._patchCacheLength = -1;
   }
 
   // --- the managers, looked up late --------------------------------------
@@ -187,6 +194,9 @@ export class ActionExecutor {
   invalidateNodes() {
     this._nodeCache.clear();
     this._nodeCacheGraph = null;
+    this._patchCache = null;
+    this._patchCacheFor = null;
+    this._patchCacheLength = -1;
   }
 
   /**
@@ -464,6 +474,16 @@ export class ActionExecutor {
     return ok(`${describeAction(action)}`);
   }
 
+  /**
+   * Install a standing drive.
+   *
+   * The node is deliberately NOT required to exist yet. A section installs its
+   * drives in the same frame it cuts to its look, and that look is still
+   * loading — refusing here would refuse every drive in every section. What
+   * the drive cannot do is fail quietly forever, which is what it used to do:
+   * `missingSeconds` below is how tick() notices a drive that never found its node
+   * and says so once, instead of a set that runs clean and does not move.
+   */
   doDrive(action) {
     const key = `${action.node}|${action.param}`;
     // A drive and a ramp on one parameter would fight frame by frame. The
@@ -611,6 +631,13 @@ export class ActionExecutor {
         // patch does not have used to register cleanly, write nothing for the
         // length of the set, and leave an artist looking at a still frame with
         // a performance log full of successes.
+        //
+        // The look this drive belongs to may simply still be coming up, and
+        // the grace period is not enough on its own: a slow scene change is a
+        // long stretch of every drive in the section pointing at nothing. So
+        // the clock does not start until the load has settled.
+        if (this.sceneChangeInFlight) continue;
+
         drive.missingSeconds += delta;
         if (!drive.reported && drive.missingSeconds >= MISSING_GRACE_SECONDS) {
           drive.reported = true;
@@ -620,6 +647,15 @@ export class ActionExecutor {
             { node: drive.node, param: drive.param, signal: drive.signal });
         }
         continue;
+      }
+
+      if (drive.reported) {
+        // A look that arrived late, or a scene change into a patch that does
+        // have the node. Worth saying, because the warning above is alarming
+        // and nothing else would ever take it back.
+        this.log('info', `${drive.node}.${drive.param} found its node — driving again`,
+          { node: drive.node, param: drive.param, signal: drive.signal });
+        drive.reported = false;
       }
       drive.missingSeconds = 0;
 
@@ -707,11 +743,63 @@ export class ActionExecutor {
     else if (this.vjPanel) this.vjPanel.masterOpacity = value;
   }
 
+  /**
+   * What is actually on the canvas, for the director's prompt.
+   *
+   * The model is asked to move parameters, and until this existed the only
+   * nodes it was ever shown were the ones the scenario's own drives named — so
+   * a set whose drives were bound to nodes that are not in the patch taught it
+   * those names and it went on asking for more of them. It cannot check a
+   * patch it has never been shown.
+   *
+   * Cached against the node array itself: a project load replaces the array,
+   * and adding or removing a node changes its length, so the pair is enough to
+   * notice every change that matters here without walking the graph per frame.
+   *
+   * Bounded rather than complete. This goes into a prompt every time the
+   * director is asked, and a hundred-node patch listed in full is a prompt
+   * where the music is no longer the biggest thing in it.
+   *
+   * @param {object} [limits]
+   * @param {number} [limits.maxNodes]
+   * @param {number} [limits.maxParams] per node
+   * @returns {Array<{node: string, kind: string, params: Array<string>}>}
+   */
+  describePatch({ maxNodes = 40, maxParams = 12 } = {}) {
+    const nodes = this.graph?.nodes;
+    if (!Array.isArray(nodes)) return [];
+
+    if (this._patchCache && this._patchCacheFor === nodes
+      && this._patchCacheLength === nodes.length) {
+      return this._patchCache;
+    }
+
+    const described = nodes.slice(0, maxNodes).map((node) => ({
+      // The name a scenario should write, chosen the way resolveNode() reads
+      // one: the artist's own name when there is one, the kind when there is
+      // not. The kind rather than the definition's label ("ComputeNoise", not
+      // "Compute Noise") — both resolve, and the kind is what a scenario and
+      // a look's `requires` are written in, so it is the one to be taught.
+      node: customNodeName(node) || String(node?.kind || ''),
+      kind: String(node?.kind || ''),
+      params: Object.keys(node?.params || {}).slice(0, maxParams),
+    }));
+
+    this._patchCache = described;
+    this._patchCacheFor = nodes;
+    this._patchCacheLength = nodes.length;
+    return described;
+  }
+
   /** What the panel shows under "currently driving". */
   status() {
     return {
       drives: [...this.drives.values()].map((d) => ({
         signal: d.signal, node: d.node, param: d.param, min: d.min, max: d.max,
+        // A drive that has been looking for its node for longer than the grace
+        // period is not driving anything, and the panel should not draw it as
+        // though it were.
+        bound: !d.reported,
       })),
       ramps: [...this.ramps.values()].map((r) => ({
         node: r.master ? 'master' : r.node,

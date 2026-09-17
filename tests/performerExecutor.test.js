@@ -195,6 +195,113 @@ describe('the master fader', () => {
   });
 });
 
+// A drive is the one action that is accepted without its node existing: the
+// section that installs it is cutting to the look it belongs to in the same
+// frame, and that look is still loading. What it must never do is stay that
+// way in silence — a set whose drives are bound to nodes that are not in the
+// patch runs with no errors in the log and barely moves on stage.
+describe('a drive that never finds its node', () => {
+  function rig(nodes = []) {
+    const executor = makeExecutor({ nodes });
+    const logged = [];
+    executor.log = (level, message) => logged.push({ level, message });
+    const bus = new SignalBus({});
+    bus.value = () => 0.5;
+    return { executor, bus, logged };
+  }
+
+  const install = (executor) => executor.execute(act({
+    type: 'drive', signal: 'low', node: 'ComputeNoise', param: 'scale', min: 0, max: 1,
+  }));
+
+  it('is still accepted, because the look it belongs to may still be loading', () => {
+    const { executor } = rig();
+    expect(install(executor).ok).toBe(true);
+  });
+
+  it('says so once, after the grace period, instead of failing every frame', () => {
+    const { executor, bus, logged } = rig();
+    install(executor);
+
+    // Inside the grace period: nothing said yet.
+    executor.tick(1, bus);
+    expect(logged).toHaveLength(0);
+
+    executor.tick(1.5, bus);
+    expect(logged).toHaveLength(1);
+    expect(logged[0].level).toBe('warn');
+    expect(logged[0].message).toContain('no node "ComputeNoise"');
+
+    // And not again, at sixty frames a second, for the rest of the night.
+    for (let i = 0; i < 120; i += 1) executor.tick(1 / 60, bus);
+    expect(logged).toHaveLength(1);
+  });
+
+  it('does not start the clock while the scene it belongs to is still loading', () => {
+    const { executor, bus, logged } = rig();
+    install(executor);
+    executor.sceneChangeInFlight = true;
+
+    for (let i = 0; i < 20; i += 1) executor.tick(1, bus);
+    expect(logged).toHaveLength(0);
+  });
+
+  it('says when it finds its node after all, because the warning was alarming', () => {
+    const { executor, bus, logged, } = rig();
+    install(executor);
+    executor.tick(3, bus);
+    expect(logged).toHaveLength(1);
+
+    // The look finally lands, carrying the node the drive was written for.
+    executor.editor.graph.nodes.push(node('9', 'ComputeNoise'));
+    executor.invalidateNodes();
+    executor.tick(1 / 60, bus);
+
+    expect(logged).toHaveLength(2);
+    expect(logged[1].message).toContain('driving again');
+    expect(executor.editor.graph.nodes[0].params.scale).toBeCloseTo(0.5, 3);
+  });
+
+  it('shows in the panel status as unbound, so a dead drive does not read as a live one', () => {
+    const { executor, bus } = rig();
+    install(executor);
+    expect(executor.status().drives[0].bound).toBe(true);
+
+    executor.tick(3, bus);
+    expect(executor.status().drives[0].bound).toBe(false);
+  });
+});
+
+describe('describePatch', () => {
+  it('names each node the way a scenario has to write it', () => {
+    const executor = makeExecutor({
+      nodes: [
+        node('1', 'ComputeNoise', { params: { scale: 1, speed: 0.2 } }),
+        node('2', 'Blur', { name: 'hue drift', params: { amount: 0.5 } }),
+      ],
+    });
+
+    expect(executor.describePatch()).toEqual([
+      { node: 'ComputeNoise', kind: 'ComputeNoise', params: ['scale', 'speed'] },
+      { node: 'hue drift', kind: 'Blur', params: ['amount'] },
+    ]);
+  });
+
+  it('is bounded, because this goes into a prompt every time the director is asked', () => {
+    const nodes = Array.from({ length: 80 }, (_, i) => node(String(i), 'Blur'));
+    const executor = makeExecutor({ nodes });
+    expect(executor.describePatch({ maxNodes: 40 })).toHaveLength(40);
+  });
+
+  it('notices a project load, which replaces the node array', () => {
+    const executor = makeExecutor({ nodes: [node('1', 'Blur')] });
+    expect(executor.describePatch()[0].kind).toBe('Blur');
+
+    executor.editor.graph.nodes = [node('2', 'Warp')];
+    expect(executor.describePatch()[0].kind).toBe('Warp');
+  });
+});
+
 describe('drives', () => {
   function driveRig() {
     const target = node('1', 'Warp');

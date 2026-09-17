@@ -81,6 +81,7 @@ import {
 } from './ShowManifest.js';
 import { normalizeScenario, SCENARIO_VERSION } from './Scenario.js';
 import { handleFor } from './PatchHandles.js';
+import { defaultNodeName } from '../core/nodeName.js';
 import { mediaSlotName, mediaSlots, readMediaDataUrl, resolveLookMedia } from './ShowFolder.js';
 import { patchHandles } from './PatchHandles.js';
 
@@ -503,9 +504,13 @@ export async function attachMedia(patch, clips = []) {
  * build, with the artist watching — rather than as a `dead` entry in the live
  * director's prompt with an audience already in the room.
  *
- * Resolved through handleFor(), the same name ActionExecutor.resolveNode()
- * will look for on stage, so a name that passes here is one that will bind
- * there and one that fails here would have failed there silently.
+ * Resolved the way ActionExecutor.resolveNode() resolves one at showtime — id,
+ * then the artist's own name, then the kind, then the registry's label for it —
+ * so a name that passes here is a name that will bind on stage, and one that
+ * fails here would have failed there silently. The label matters: it is the
+ * name the node draws under when nobody has renamed it, so it is the name a
+ * model is most likely to send back, and checking without it would report a
+ * hole in a look that plays perfectly well.
  *
  * @param {object} patch a generated patch
  * @param {Array<{node: string, param: string}>} requires
@@ -526,7 +531,8 @@ export function unmetRequirements(patch, requires) {
     const key = wanted.toLowerCase();
     const node = nodes.find((one) => String(one?.id) === wanted)
       || nodes.find((one) => handleFor(one).toLowerCase() === key)
-      || nodes.find((one) => String(one?.kind).toLowerCase() === key);
+      || nodes.find((one) => String(one?.kind).toLowerCase() === key
+        || defaultNodeName(one).toLowerCase() === key);
 
     // The parameter matters as much as the node: a Blur that arrived without
     // `amount` is a drive that resolves its node and writes nowhere.
