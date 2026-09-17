@@ -129,20 +129,36 @@ describe('the token cost of every AI feature', () => {
     // model was inventing field names for the one part of a scenario that
     // addresses the rig by name — and a drive whose parameter lands in the
     // wrong field is a section that plays its look and moves nothing.
+    //
+    // It was raised again, to 1,300, for the live performer's ~500 tokens on
+    // "patch", "dead" and "picture.stillSeconds" — the blocks that tell it what
+    // it may name and whether the set is reaching the screen at all. The set
+    // that paid for them ran a whole scenario whose every drive was bound to a
+    // node the patch did not contain: the director could see the music, the
+    // sections and the log, and nothing it could address, so it answered with
+    // drives that named nothing and notes about holding a texture that had in
+    // fact been a frozen frame since the first bar. Five hundred tokens a call
+    // is the wrong side of that trade to economise on, and there is no cheaper
+    // place to put them — this is the only prompt shown a running performance.
     const system = ranges.map((range) => range.input.system);
     const spread = Math.max(...system) - Math.min(...system);
-    expect(spread).toBeLessThan(900);
+    expect(spread).toBeLessThan(1300);
   });
 
-  it('keeps the shared prompt under 9,000 tokens', () => {
+  it('keeps the shared prompt under 9,500 tokens', () => {
     // Paid in full on a cold call, and on every call for a feature nobody has
     // run recently. Two things make it up today: the registry at ~5,400 tokens
     // and EDITOR_CAPABILITIES at ~1,200, which is what the features know about
     // expressions, audio, 3D and compute nodes — none of which is visible in
     // the registry's pin lists. This is the line at which adding to either
     // stops being free.
+    //
+    // 9,000 held until the live performer crossed it; the spread test above
+    // says what it bought. The number is a guard rather than a boundary —
+    // nothing in the pricing or the cache blocks changes at it — so it moves
+    // on the same reasoning, and is still worth having at 9,500.
     for (const range of ranges) {
-      expect(range.input.system).toBeLessThan(9000);
+      expect(range.input.system).toBeLessThan(9500);
     }
   });
 

@@ -22,6 +22,7 @@ class FakeExecutor {
     this.soundStopped = [];
     this.soundPaused = 0;
     this.soundResumed = 0;
+    this.graph = { nodes: [{ id: 'n0', kind: 'Blur', params: { amount: 0.5 } }] };
   }
   execute(action) {
     if (this.refuseNext) {
@@ -42,7 +43,6 @@ class FakeExecutor {
   stopSound(why) { this.soundStopped.push(why || ''); return true; }
   pauseSound() { this.soundPaused++; return true; }
   resumeSound() { this.soundResumed++; return true; }
-  describePatch() { return [{ node: 'Blur', kind: 'Blur', params: ['amount'] }]; }
   status() { return { drives: [], ramps: [], blackedOut: false, transition: {}, sceneChangeInFlight: false }; }
   /** Every action of a type, for readable assertions. */
   ofType(type) { return this.performed.filter((a) => a.type === type); }
@@ -816,9 +816,11 @@ describe('PerformerEngine', () => {
   describe('what the director is shown', () => {
     it('includes the patch, so a plan can name a node that exists', () => {
       const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] });
-      expect(engine.describeState().patch).toEqual([
-        { node: 'Blur', kind: 'Blur', params: ['amount'] },
-      ]);
+      expect(engine.describeState().patch).toEqual({
+        nodes: [{ name: 'Blur', kind: 'Blur', named: false, params: [{ name: 'amount', at: 0.5 }] }],
+        total: 1,
+        ambiguous: [],
+      });
     });
   });
 });

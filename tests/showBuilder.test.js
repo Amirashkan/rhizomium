@@ -89,6 +89,46 @@ describe('ShowBuilder', () => {
     expect(installScene.mock.calls[1][2].holdSeconds).toBe(30);
   });
 
+  // The gap this closes: pass 2 used to be told the scene NAMES and nothing
+  // about what was inside them, so every drive it wrote named a node it had
+  // guessed at. A scenario full of guessed names loads clean and then holds one
+  // frame for the length of the show.
+  it('tells the scenario call what the patches it just built call their nodes', async () => {
+    generatePatch = vi.fn(async () => ({
+      patch: {
+        nodes: [
+          { id: 'n0', kind: 'ComputeNoise', name: 'membrane', params: { scale: 4 } },
+          { id: 'n1', kind: 'ComputeGradient', name: 'ground', params: { inputMix: 0.2 } },
+        ],
+        connections: [],
+      },
+      title: 'A patch',
+      notes: '',
+    }));
+
+    await builder().build(MANIFEST);
+
+    const [brief] = authorScenario.mock.calls[0];
+    expect(brief).toContain('"membrane" (ComputeNoise)');
+    expect(brief).toContain('scale');
+    expect(brief).toContain('"ground" (ComputeGradient)');
+    expect(brief).toContain('inputMix 0..1, now 0.2');
+    expect(brief).toContain('spelled exactly as they are listed');
+  });
+
+  it('carries the handles on the report, per look', async () => {
+    generatePatch = vi.fn(async () => ({
+      patch: { nodes: [{ id: 'n0', kind: 'ComputeNoise', params: { scale: 4 } }], connections: [] },
+      title: 'A patch',
+      notes: '',
+    }));
+
+    const report = await builder().build(MANIFEST);
+    for (const entry of report.built) {
+      expect(entry.handles.nodes.map((one) => one.name)).toEqual(['ComputeNoise']);
+    }
+  });
+
   it('tells each patch call about the show as well as the look', async () => {
     await builder().build(MANIFEST);
 

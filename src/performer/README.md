@@ -304,6 +304,32 @@ being built to be *performed*, so each of those becomes a named node whose
 parameter a drive can reach, set to a value with somewhere left to travel. A
 parameter already at its maximum on the first frame is a fader with no throw.
 
+### Names that reach something
+
+A section's look is a scene name; its drives and moves are node and parameter
+names *inside* that scene. Both have to be real, and they fail differently: a
+scene that is not loaded is a section that shows the wrong picture, which you
+see at once, while a node that is not in the patch is a drive that registers
+cleanly, writes nothing, and leaves you watching a still frame over a
+performance log full of successes.
+
+So the build carries them across. Each look's patch is read for what it
+actually called the things it left to be turned — every node a drive can
+address, its parameters and their ranges — and the scenario call is given that
+list, per section, before it writes a line. It is told to use those names and
+no others. Pass 3 then binds the scene names the same way it always did.
+
+The live director is given the same list for the patch that is on screen, plus
+two things the engine works out for it: which of the set's drives currently
+resolve to nothing, and how long it has been since anything changed what is
+visible. The second matters more than it sounds. Ambient material holds for
+minutes at a time, and every instinct a director has says hold with it — so
+without a way to tell a held texture from a frozen one, a set whose drives had
+all missed read as a set that was being played patiently.
+
+Drives that miss are reported either way. The first one that has been writing
+into nothing for a couple of seconds says so in the log, by name, once.
+
 ### What it costs, and what happens when it runs out
 
 A build is one `ai.patch_generator` call per look plus one

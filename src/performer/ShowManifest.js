@@ -39,6 +39,7 @@
  */
 
 import { MEDIA_LIMITS, mediaSlotName, resolveLookMedia, resolveLookSound } from './ShowFolder.js';
+import { handlesText } from './PatchHandles.js';
 
 /** The format version this build writes. Readers accept anything <= this. */
 export const MANIFEST_VERSION = 1;
@@ -508,15 +509,34 @@ export function lookPrompt(manifest, look, media = []) {
  * the scenario call is no longer being told "no scenes are loaded, do not
  * invent any". It is told the set, in order, by the names it can actually use.
  *
+ * That went one level deeper than it needed to. A scene name is enough to make
+ * a section play the right picture, and it is not enough to make the section
+ * DO anything: a drive and a param move name a node and a parameter inside
+ * that scene, and until the build carried those across, the only thing the
+ * model had to write them from was the editor's general vocabulary. It wrote
+ * plausible ones — "ComputeGradient.brightness", "ComputeNoise.scale" — and a
+ * patch that happened not to contain them turned every drive in the set into a
+ * line that warns once on load and then does nothing for the rest of the show.
+ * A set whose handles all miss is a still picture, and it fails silently: the
+ * scenes load, the sections advance, the log fills, and nothing moves.
+ *
+ * So each built look now arrives with what its patch actually called the
+ * things it left to be turned, and the brief lists them under the scene. The
+ * instruction that follows them is the one that matters — these names, or no
+ * drive at all.
+ *
  * @param {object} manifest
- * @param {Array<{lookId: string, sceneName: string}>} built what the patch
- *   half of the build actually produced — which is not always every look.
+ * @param {Array<{lookId: string, sceneName: string, handles?: object}>} built
+ *   what the patch half of the build actually produced — which is not always
+ *   every look.
  */
 export function scenarioBrief(manifest, built = []) {
   const show = normalizeManifest(manifest);
   const scenes = new Map(built.map((entry) => [entry.lookId, entry.sceneName]));
+  const handles = new Map(built.map((entry) => [entry.lookId, entry.handles]));
 
   const lines = [showContext(show), '', 'Write the set as these sections, in this order:'];
+  let anyHandles = false;
 
   show.looks.forEach((look, index) => {
     const bits = [`${index + 1}. id "${look.id}", name "${look.name}"`];
@@ -538,12 +558,30 @@ export function scenarioBrief(manifest, built = []) {
     if (look.notes) bits.push(look.notes);
 
     lines.push(`  ${bits.join('; ')}`);
+
+    // The handles inside that scene. Indented under the section rather than
+    // gathered at the end: a drive belongs to one section, and the model has
+    // to be able to see which names are in reach from where it is writing.
+    const text = handlesText(handles.get(look.id));
+    if (text) {
+      anyHandles = true;
+      lines.push(`    what is in "${scene}", and what each parameter's range is:`);
+      lines.push(text.replace(/^ {2}/gm, '      '));
+    }
   });
 
   lines.push(
     '',
     'Use those ids and those scene names exactly. They are the sections of this show and the scenes are already loaded under those names.'
   );
+
+  if (anyHandles) {
+    lines.push(
+      '',
+      'Drive and move ONLY the nodes and parameters listed under each section, spelled exactly as they are listed, and only in the section they are listed under. A drive finds its node by name; a name that is not in that list finds nothing, and a set written out of names that find nothing loads clean, warns once, and then holds one still frame for the length of the show.',
+      'Give every section at least one drive on a parameter that changes what is SEEN — brightness, density, scale, amount — mapped across a real part of its range rather than the top of it, and something that moves over the section on its own besides. A section that only holds is a section the audience watches nothing happen in.'
+    );
+  }
 
   if (show.cues.length) {
     lines.push(`The musician fires these by hand: ${show.cues.join(', ')}. Write a cue for each.`);

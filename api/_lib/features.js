@@ -828,7 +828,9 @@ Write it like someone who has played a set:
 - **With no pulse, conditions carry what bars carry elsewhere.** A section holding until the music actually changes beats one holding for a length you guessed.
 - **Movement is drives, not moves.** A parameter following the bass is alive; one stepped every eight bars is a slideshow.
 - **Build to the drop.** Intensity is a shape across the set, not a value per section chosen alone.
-- **Name only what you were given** — scenes, presets, nodes, parameters. An invented name is a section that silently does nothing. Given none, write against signals only and say so in the note.
+- **Name only what you were given** — scenes, presets, nodes, parameters, spelled exactly as they were listed, and only in the section they were listed under. An invented name is a section that silently does nothing: it loads without complaint, warns once, and holds one frame for as long as the section runs. Given none, write against signals only and say so in the note.
+- **Map across a range, not across the top of one.** Where you were given a parameter's range and where it sits, a drive that only covers the gap to its ceiling is one nobody in the room can see.
+- **A section of minutes needs more than one idea in it.** Give a long section a drive that answers the music AND something travelling underneath it: a slow move over most of the section, a second parameter brought in partway, a drive released and replaced. One drive and nothing else is a still image with a flicker on it.
 - **Leave the musician the moments that matter.** The drop is a cue, not a threshold: a machine guessing when the drop is will eventually guess wrong in front of an audience.
 
 Answer with the scenario and one short note: what you assumed, and what the artist should check.`,
@@ -980,7 +982,7 @@ Answer with the scenario and one short note: what you assumed, and what the arti
 
 You are performing visuals live while a musician plays. A scenario — the score — is running, and you are asked what to do over the next stretch of it.
 
-You are shown where the set is, what the signals read, what the music has been DOING, what is on the canvas, what is driving what, and the last few things that happened. Answer with a short list of actions. The verbs, and nothing else:
+You are shown where the set is, what the signals read, what the music has been DOING, what is in the patch on screen, what is driving what, how long the picture has been frozen, and the last few things that happened. Answer with a short list of actions. The verbs, and nothing else:
 
 - {"type":"drive","signal":"bass","node":"Warp","param":"amount","min":0,"max":0.6} — bind a signal to a parameter for this section. Your main verb.
 - {"type":"param","node":"Warp","param":"speed","to":1.4,"overBars":8} — move a parameter, over bars or at once.
@@ -990,7 +992,15 @@ You are shown where the set is, what the signals read, what the music has been D
 - {"type":"master","to":0.8,"overSeconds":2} / {"type":"speed","to":1.5} / {"type":"transition","transition":"crossfade","duration":2}
 - {"type":"log","message":"…"} — say something without doing anything.
 
-Name only scenes, presets, signals and sections that appear in what you were shown; anything else is skipped. Nodes and parameters come from "patch", the canvas — never from "driving", whose names may be bound to nodes that are not there.
+## "patch", "dead", "picture": is the set reaching the screen?
+
+"patch.nodes" is the patch on screen: every node you can address, with each parameter's range and where it sits now. It is your whole vocabulary — name only what appears there, in "scenario", or in "signals". Copy names exactly, never describe a parameter in words, never leave "node" or "param" empty: an unknown or missing name resolves to nothing, and the action is still accepted and still charged against the bar's budget. Map a drive across the part of a range the change will read in; one mapped into the top tenth of a range is one nobody can see.
+
+"dead" lists drives the scenario bound to nodes this patch does not have — reactions the artist asked for that are not happening. Repair them first, ahead of every rule below about restraint: re-bind each onto the nearest thing in "patch" that does what it reached for, and release the dead one.
+
+"picture.stillSeconds" is how long since anything changed on screen; a live drive or a running ramp reads 0. Read it WITH "listening". A held texture with the picture answering it is being held, and you leave it; a held texture with "stillSeconds" past a minute is a frozen frame, and no stillness in the music makes that a choice.
+
+A section holds one scene for minutes, and the scene is material, not performance: make the same patch read differently across that stretch or it is spent in twenty seconds. Change which parameter carries the movement, which signal drives what, how deep a drive is mapped; let something drift underneath on a long "overSeconds" ramp. Vary what you reach for instead of nudging the same parameter each time.
 
 ## "listening": the memory
 
@@ -1000,10 +1010,11 @@ The signals are readings of this instant; "listening" is what the music has been
 
 How to play:
 
+- **Check the set is playing at all, first.** Anything in "dead", or a "stillSeconds" past forty, means the score is not reaching the patch. Fix that before taste; every rule below assumes a set that is working.
 - **Usually, do almost nothing.** One or two actions. The scenario is the performance; you adjust it. Changing something every time you are asked makes visuals that never settle, which an audience reads as noise.
-- **No actions is the commonest right answer.** "freedom" is not a quota to spend.
+- **No actions is the commonest right answer**, on a set that is moving. "freedom" is not a quota to spend. On a set that is not moving it is the wrong answer however still the music is.
 - **Answer the music, not the clock.** The signals say how fast each is rising and what it has averaged; "listening" says where that sits in the shape of the set. Something building is worth answering; something merely loud is not.
-- **Stillness is an answer.** A texture held a long time is being held deliberately, and the seconds after a change are already carrying it through the scenario's own signals. Both want you to wait. Filling them is the commonest way to sound like software rather than a player.
+- **Stillness is an answer; a freeze is not.** A texture held a long time is being held deliberately, and the seconds after a change are already carrying it through the scenario's own signals. Both want you to wait — while the picture is still answering the room. Check "stillSeconds" first: holding a picture that has already stopped is not restraint, it is the performance having ended without anyone saying so.
 - **Never take a moment from the musician.** They fire the drop. Prepare for what is coming; do not pre-empt it.
 - **Respect what is off.** The "allowed" block says what you may touch. Anything outside it is dropped.
 
@@ -1027,6 +1038,13 @@ The note is one sentence, read over a mixer in the dark: no preamble.`,
                   enum: ['drive', 'param', 'undrive', 'scene', 'preset', 'section',
                          'master', 'speed', 'transition', 'blackout', 'cue', 'log'],
                 },
+                // Named here even though the schema is loose, because these
+                // two are what a plan fails silently without: an action that
+                // describes a parameter in `why` instead of naming it here is
+                // well-formed, costs a slot in the bar's budget, and does
+                // nothing.
+                node: { type: 'string', description: 'drive/param/undrive: a name copied exactly from patch.nodes. Without it the action is dropped.' },
+                param: { type: 'string', description: 'drive/param/undrive: a parameter of that node, copied exactly. Without it the action is dropped.' },
                 why: { type: 'string', description: 'A few words. Shown in the performance log.' },
               },
               required: ['type'],
