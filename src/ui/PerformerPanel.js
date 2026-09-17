@@ -104,11 +104,15 @@ export class PerformerPanel {
    * @param {object} [options.oscManager]
    * @param {object} [options.vjPanel]
    * @param {object} [options.eventSystem]
+   * @param {object} [options.timelinePanel] the editor's timeline, so a set
+   *   that drives it can put it on screen. Panel to panel: the engine and the
+   *   executor deal in the timeline MANAGER and know nothing about a window.
    */
   constructor(engine, options = {}) {
     this.engine = engine;
     this.oscManager = options.oscManager || null;
     this.vjPanel = options.vjPanel || null;
+    this.timelinePanel = options.timelinePanel || null;
 
     this.visible = false;
     this.activeTab = 'set';
@@ -538,6 +542,10 @@ export class PerformerPanel {
    */
   async setShowFolder(folder) {
     this.folder = folder;
+    // The beds, handed to the executor now rather than at build time: an
+    // `audio` action resolves its file against this, and a set can be loaded
+    // and played without anything ever being built.
+    this.engine.executor?.setSounds?.(folder?.media || []);
 
     const read = await readFolderShow(folder);
     this.folderShow = read;
@@ -582,6 +590,7 @@ export class PerformerPanel {
     this.folder = null;
     this.folderShow = null;
     this.manifestFromFolder = '';
+    this.engine.executor?.setSounds?.([]);
     this.paintFolder();
     this.checkManifest();
   }
@@ -613,6 +622,8 @@ export class PerformerPanel {
         : 'no manifest'
     );
     bits.push(`${usable.length} clip${usable.length === 1 ? '' : 's'}`);
+    const beds = folder.media.length - usable.length;
+    if (beds) bits.push(`${beds} sound${beds === 1 ? '' : 's'}`);
     if (folder.skipped.length) bits.push(`${folder.skipped.length} skipped`);
 
     this.folderLabel.textContent = bits.join(' · ');
@@ -774,6 +785,16 @@ export class PerformerPanel {
       if (clips) {
         this.noteBuild(
           `${clips} clip${clips === 1 ? '' : 's'} from the folder ${clips === 1 ? 'is' : 'are'} in the looks, and travel${clips === 1 ? 's' : ''} with them: the scenes carry their own media.`,
+          'ok'
+        );
+      }
+
+      const beds = manifest.looks.filter((look) => look.sound).length;
+      if (beds) {
+        this.noteBuild(
+          `${beds} look${beds === 1 ? '' : 's'} play${beds === 1 ? 's' : ''} ${beds === 1 ? 'its' : 'their'} own sound: the performer loads `
+            + `${beds === 1 ? 'it' : 'each'} into the Audio panel on the way into the section and the analysis hears `
+            + `${beds === 1 ? 'it' : 'them'}. Your live input cannot run at the same time — the file takes the input over.`,
           'ok'
         );
       }
@@ -1190,8 +1211,20 @@ export class PerformerPanel {
   // --- actions -----------------------------------------------------------
 
   toggleRun() {
-    if (this.engine.state === STATE.RUNNING) this.engine.pause();
-    else this.engine.start();
+    if (this.engine.state === STATE.RUNNING) {
+      this.engine.pause();
+      return;
+    }
+    if (!this.engine.start()) return;
+
+    // The set drives the timeline from here on (PerformerEngine.enterSection
+    // arms it, every tick moves it), and a transport that is moving behind a
+    // closed panel is a transport nobody can read. Opened rather than
+    // toggled: an artist who closed it during a set gets it back on the next
+    // start, and nothing here ever closes it.
+    if (this.engine.sections.some((section) => this.engine.sectionLengthSeconds(section) > 0)) {
+      this.timelinePanel?.show?.();
+    }
   }
 
   showTab(key) {
@@ -1258,6 +1291,9 @@ export class PerformerPanel {
       // artist had in front of them.
       sceneIds: scenes.flatMap((s) => [s.id, s.name]),
       presetIds: presets.flatMap((p) => [p.id, p.name]),
+      // How many beds the performer can reach. Zero is what makes "play the
+      // bed" a line worth a warning rather than a line that will work.
+      sounds: this.engine.executor?.sounds?.length ?? 0,
     };
   }
 

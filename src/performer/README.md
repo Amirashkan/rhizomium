@@ -220,6 +220,7 @@ outside it:
 | `drive` / `undrive` | bind a signal to a parameter, or release it |
 | `transition` | set the transition the next change uses |
 | `master` / `speed` / `blackout` | the output |
+| `audio` | play, pause or stop the set's own bed — see [the sound in the folder](#the-sound-in-the-folder) |
 | `section` / `cue` | move the set |
 | `graph` | replace the patch — recompiles the shader |
 | `log` | say something without doing anything |
@@ -236,6 +237,7 @@ it is doing the right thing forty times a second.
 | `minSceneChangeSeconds` | 4 | scene loads rebuild the graph |
 | `maxActionsPerBar` | 12 | a budget, weighted by what each action costs |
 | `allowGraphEdits` | **false** | a graph edit recompiles the shader and can drop frames |
+| `allowAudio` | true | the set may play the beds its looks name; off leaves the sound to you |
 | `masterCeiling` / `masterFloor` | 1 / 0 | a house limit the performer cannot undo |
 | `director.freedom` | 0.4 | 0 = play it as written, 1 = treat it as a starting point |
 
@@ -343,7 +345,7 @@ Night set/
     fog-loop.mp4            the footage the show is made of
     grain.png
     plates/room.jpg
-  set.wav                   the track — listed, not loaded
+  set.wav                   the bed a look can play under itself
 ```
 
 **Open folder…** on the Show tab takes both halves at once: the manifest fills
@@ -384,9 +386,47 @@ Two limits, both the editor's own rather than this feature's: a video over
 listed as skipped with the size in the reason. And **four clips to a look**,
 because every one of them is decoded on every frame that look is up.
 
-Audio in the folder is listed and not used. The performer listens to your live
-input — play the track into the editor and it hears it, which is the same thing
-it does on the night.
+### The sound in the folder
+
+A look can name one file in the folder as its **bed** — the track that plays
+under it — and the performer loads it into the Audio panel on the way into that
+section, starts it at the top, and stops it when the set stops.
+
+```jsonc
+"looks": [{
+  "id": "opening",
+  "name": "Opening",
+  "sound": "set.wav",
+  "hold": { "seconds": 96 }
+}]
+```
+
+Named the same way a clip is, and matched the same way: the filename, the name
+without its extension, the path. One file, not a list — there is one analysis
+engine and one element behind it, so a second would only be the first one's
+silence. A name the folder cannot answer is a warning at the desk.
+
+This is the same transport the Audio panel's own buttons drive, so **it is
+exclusive with your live input**: starting a bed stops the microphone, and the
+log says so when it happens. A set played to a musician in the room wants no
+beds in it at all; a set that arrived with its own — a folder another tool
+generated, a fixed piece — wants them, and the sections were written to their
+lengths.
+
+A set that names audio signals also keeps the analysis running for as long as
+it plays, whether or not the director is on. It used to be kept alive only by
+the director or by the Audio panel being open — so a set written against
+`level` and `low`, played with the director off, read zero on both and never
+moved.
+
+Three ways to turn it off, in descending order of bluntness: leave `sound` out
+of the looks, write `"rules": { "allowAudio": false }` in the scenario, or press
+stop. The live director is never given the verb at all — a model that decides to
+stop the music is a worse night than any parameter it could get wrong.
+
+Whatever happens, it is the performer's own bed that stops: a track you loaded
+into the Audio panel yourself is left playing, because you are the one playing
+it.
 
 Nothing about a build without a folder changes: no folder open means no clips,
 means the prompt, the backend and the installed scenes are exactly what they
@@ -411,8 +451,8 @@ Transmissions/
     media/
       video.mp4             the look's footage
       image.png
-      music.mp3             the bed — listed, not loaded
-      narration.mp3
+      music.mp3             the bed — played under this look
+      narration.mp3         named in the notes; the mix is yours
   2026-09-15-salt-clock/
     ...
 ```
@@ -426,6 +466,7 @@ with the manifest those pieces imply. One project is one look:
 | whatever was actually generated | its **media**, so the patch is built on the footage |
 | energy 1–5 | its **intensity** |
 | the bed's length, and the narration's | its **hold**, in seconds |
+| the bed itself | its **sound**, played under it — the same file the hold was measured from |
 | every palette in the folder | the show's **palette**, so the looks read as one set |
 | the beds that stated a tempo | the show's **bpm** (the median) |
 
@@ -532,6 +573,29 @@ it realigns the grid to you without losing count, forward to the nearest bar
 line rather than back, so a section waiting on bar 32 is released by the
 downbeat you just played.
 
+## The timeline, while a set runs
+
+The editor's timeline is the transport at the bottom of the window, and until
+a set is playing it is yours. While one is, the performer drives it:
+
+- **Entering a section sets it** to that section's own length — the `hold`,
+  counted against the tempo actually being played — and rewinds it.
+- **Every frame moves the playhead** to where the section is. A section that
+  outlasts its hold wraps rather than parking at the end, the way the bed under
+  it loops.
+- **Stopping gives it back**: the duration, the loop region and the playhead
+  you had before the set borrowed them, and the enable switch as you left it.
+
+So the transport, the bed and the section are one clock rather than three, and
+keyframes you wrote on a look play in time with it every time that look is up.
+The scenes carry this too: a look built from a manifest is installed with a
+timeline set to its hold, so the VJ panel lists the length the set was written
+to rather than a default ten seconds, and cutting to a look outside a
+performance sets the transport to that look.
+
+Starting a set that has any lengths in it opens the timeline panel, once. It is
+never closed for you.
+
 ## Safety
 
 - **The musician always wins.** A cue clears anything the director has queued.
@@ -540,7 +604,9 @@ downbeat you just played.
   control you reach for when what is on screen *is* the problem.
 - **Stop leaves the output where it was.** If the performer faded to 40% for a
   breakdown, stopping does not slam it back to full in front of an audience.
-  It does release every standing drive, so your parameters are yours again.
+  It does release every standing drive, so your parameters are yours again —
+  and it stops the bed it started and gives the timeline back, because neither
+  of those is the output and both of them are yours.
 - The director is **off until you switch it on**, and switches itself off
   rather than spending a set on refusals if the answer is "no quota".
 
@@ -556,7 +622,8 @@ downbeat you just played.
 | `PerformerEngine.js` | the frame loop and the state machine |
 | `PerformerDirector.js` | the model, kept off the frame loop |
 | `ShowManifest.js` | the manifest: the show as a plan, and the prompts it implies |
-| `ShowFolder.js` | the show as a directory: which file is the manifest, which are media, and what a look's `media` list resolves to |
+| `ShowFolder.js` | the show as a directory: which file is the manifest, which are media, and what a look's `media` and `sound` resolve to |
+| `../audio/audioDeck.js` | the Audio panel's transport, addressed by name: how a set plays its own bed |
 | `ShowBuilder.js` | manifest in, a set that plays the looks it just built out — and `manifestFromScenario()`, the same trip backwards |
 | `PerformerOSC.js` | the `/rhizo/perf/*` namespace |
 | `../ui/PerformerPanel.js` | the panel |

@@ -913,8 +913,25 @@ export class TimelinePanel {
    * Update timeline panel (called each frame)
    */
   update() {
-    if (this.visible && this.timelineManager.isPlaying()) {
-      this.render();
+    if (!this.visible) return;
+
+    // Playing is not the only thing that moves a playhead any more: the AI
+    // performer drives the time itself, frame by frame, while a set runs
+    // (ActionExecutor.syncTimeline). Redrawing on a changed time rather than
+    // on the transport's own flag is what makes that visible — and it also
+    // stops a stopped timeline repainting sixty times a second for nothing.
+    const time = this.timelineManager.getCurrentTime();
+    const enabled = this.timelineManager.isEnabled();
+    if (time === this._drawnTime && enabled === this._drawnEnabled) return;
+
+    this._drawnTime = time;
+    // The switch can be thrown from outside this panel, and a button still
+    // reading "Enable Timeline" over a running timeline is a lie.
+    if (enabled !== this._drawnEnabled) {
+      this._drawnEnabled = enabled;
+      this.enableToggle.textContent = enabled ? 'Disable Timeline' : 'Enable Timeline';
+      this.enableToggle.style.opacity = enabled ? '1' : '0.7';
     }
+    this.render();
   }
 }

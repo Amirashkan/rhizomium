@@ -35,8 +35,8 @@
  *       media/
  *         image.png          <- a look's footage
  *         video.mp4
- *         music.mp3          <- listed, not loaded: the performer listens
- *         narration.mp3         to the room, not to a file
+ *         music.mp3          <- the bed: played under the look it belongs to
+ *         narration.mp3         named in the notes, for the artist to fire
  *
  * One project is one look. What crosses over is what a patch can be built
  * from — the video and image prompts become the look's brief, the palette and
@@ -44,6 +44,13 @@
  * clips become the look's `media`, which is what puts the artist's own footage
  * on a texture node instead of leaving the model to draw everything from
  * nothing.
+ *
+ * The bed crosses over too, as the look's `sound`. It is the piece the hold was
+ * measured from, so a section and the track under it are the same length by
+ * construction, and the level and low the look answers are that track's rather
+ * than an empty room's. The narration is left named in the notes: there is one
+ * element behind the analysis, and a voice over the bed is a mix the artist
+ * makes in their own software, not something to be chosen for them here.
  *
  * What does not cross over is the copy. The brief is the news and the vignette
  * is fiction about a person in a room; neither describes an image, and a patch
@@ -211,8 +218,9 @@ function notesOf(data, assets) {
   if (text(show.key)) lines.push(`Key: ${text(show.key)}`);
   if (text(show.transition_in)) lines.push(`In: ${text(show.transition_in)}`);
 
-  // The sound is the half of this the editor does not play. Naming the files
-  // is what lets the artist find the bed to play into the room.
+  // Every sound file the piece produced, named. The bed is also the look's
+  // `sound` and is played under it; the rest are named here because they are
+  // the artist's to place — a narration is a mix decision, not a second bed.
   const sound = SOUND_KINDS.filter((kind) => assets[kind]).map((kind) => `${kind}: ${assets[kind]}`);
   if (sound.length) lines.push(...sound);
 
@@ -250,6 +258,8 @@ export function lookFromTransmission(data, options = {}) {
     mood: [text(music.mood), text(show.texture)].filter(Boolean).join(', '),
     intensity: Math.round(((energy - 1) / 4) * 100) / 100,
     media: CLIP_KINDS.filter((kind) => assets[kind]).map((kind) => assets[kind]),
+    // The bed, which is also what holdOf() measured this look's length from.
+    sound: assets.music || '',
     // These beds are ambient and the level is the one channel all of them move.
     // A look that answers nothing is a still image with a fader wired to it.
     reactsTo: ['level', 'low'],

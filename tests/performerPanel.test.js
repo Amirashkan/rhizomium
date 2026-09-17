@@ -9,10 +9,13 @@ import { PerformerClock } from '../src/performer/PerformerClock.js';
 import { indexShowFolder } from '../src/performer/ShowFolder.js';
 
 class QuietExecutor {
-  constructor() { this.rules = null; this.performed = []; }
+  constructor() { this.rules = null; this.performed = []; this.sounds = []; }
   execute(action) { this.performed.push(action); return { ok: true, cost: 1 }; }
   tick() {}
   clearDrives() {}
+  // What the panel hands over when a folder is opened: the beds a set can
+  // play. Kept, rather than ignored, because that handover is the point.
+  setSounds(items) { this.sounds = items.filter((item) => item?.kind === 'audio'); return this.sounds.length; }
   status() { return { drives: [], ramps: [], blackedOut: false, transition: {}, sceneChangeInFlight: false }; }
 }
 
@@ -52,6 +55,28 @@ describe('PerformerPanel', () => {
     expect(panel.panel.style.display).toBe('flex');
     expect(panel.toggle()).toBe(false);
     expect(panel.panel.style.display).toBe('none');
+  });
+
+  it('opens the timeline when a set that drives it starts', () => {
+    // The set moves the playhead every frame from here on, and a transport
+    // moving behind a closed panel is one nobody can read.
+    const timelinePanel = { shown: 0, show() { this.shown++; } };
+    const { panel } = build({ sections: [{ name: 'One', hold: { seconds: 40 } }] }, { timelinePanel });
+
+    panel.toggleRun();
+    expect(timelinePanel.shown).toBe(1);
+
+    // And never closes it: pausing is not a reason to take it away.
+    panel.toggleRun();
+    expect(timelinePanel.shown).toBe(1);
+  });
+
+  it('leaves the timeline alone for a set with no lengths in it', () => {
+    const timelinePanel = { shown: 0, show() { this.shown++; } };
+    const { panel } = build({ sections: [{ name: 'One' }] }, { timelinePanel });
+
+    panel.toggleRun();
+    expect(timelinePanel.shown).toBe(0);
   });
 
   it('stops its frame loop when hidden, so a closed panel costs nothing', () => {
@@ -671,11 +696,29 @@ describe('PerformerPanel: the show folder', () => {
 
     expect(panel.manifestEditor.value).toBe(MANIFEST_TEXT);
     expect(panel.folderLabel.textContent).toContain('night.rzshow.json');
-    // One video, and the track — which is listed, because it is part of the
-    // show, and greyed, because nothing in the editor plays a file.
+    // One video, and the track — listed separately from the clips, because it
+    // is played rather than put on a texture node.
     expect(panel.folderLabel.textContent).toContain('1 clip');
     expect(panel.folderList.textContent).toContain('fog-loop.mp4');
     expect(panel.folderList.textContent).toContain('set.wav');
+  });
+
+  it('hands the folder\'s sound to the executor, so a set can play it', async () => {
+    const { engine, panel } = folderPanel();
+    await open(panel);
+
+    // The beds go over as soon as the folder is opened rather than at build
+    // time: a set can be loaded and played without anything being built.
+    expect(engine.executor.sounds.map((item) => item.name)).toEqual(['set.wav']);
+
+    panel.closeShowFolder();
+    expect(engine.executor.sounds).toEqual([]);
+  });
+
+  it('counts the sound in the folder line, now that it is something a look can use', async () => {
+    const { panel } = folderPanel();
+    await open(panel);
+    expect(panel.folderLabel.textContent).toContain('1 sound');
   });
 
   it('never replaces a manifest the artist was typing', async () => {
@@ -790,11 +833,15 @@ describe('PerformerPanel: the show folder', () => {
     expect(panel.buildLog.textContent).toMatch(/is not a show/);
   });
 
-  it('marks the audio line a note, because there is nothing in it to fix', async () => {
+  it('marks the audio line a note, and says what a look can do with the file', async () => {
     const { panel } = folderPanel();
     await open(panel);
 
-    expect(panel.buildLog.textContent).toMatch(/note — the folder: 1 audio file listed but not used/);
+    // A note rather than a warning: nothing here is broken. What it says
+    // changed when a look gained a `sound` — the file is usable now, and the
+    // line is the one place the artist finds out how.
+    expect(panel.buildLog.textContent).toMatch(/note — the folder: 1 audio file here/);
+    expect(panel.buildLog.textContent).toMatch(/"sound": "set\.wav"/);
   });
 
   it('never puts a filename into the DOM as markup', async () => {
