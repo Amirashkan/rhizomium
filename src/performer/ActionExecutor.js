@@ -221,6 +221,13 @@ export class ActionExecutor {
    * @param {Object} patch a validated patch from the backend.
    * @param {Object} [meta]
    * @param {string} [meta.notes] the cue note — what this look is for.
+   * @param {Object} [meta.textures] the look's media, keyed by node id, in the
+   *   shape a saved project carries: `{ filename, dataUrl, isVideo }`. A look
+   *   built on the artist's own footage (ShowFolder.js) arrives with it here,
+   *   and it goes into the scene's project data so that loading the scene
+   *   restores the clips down the ordinary path — the same one an opened
+   *   project takes. A scene whose media lived anywhere else would render
+   *   black the first time anything cut to it.
    * @returns {{id: string, name: string}}
    */
   installPatchAsScene(name, patch, meta = {}) {
@@ -236,11 +243,17 @@ export class ActionExecutor {
     const label = String(name || meta.title || 'Look').trim() || 'Look';
     const projectData = toProject(patch, { title: meta.title || label });
 
+    const textures = meta.textures && typeof meta.textures === 'object' ? meta.textures : null;
+    if (textures && Object.keys(textures).length) projectData.textures = textures;
+
     const existing = this.resolveScene(label);
     if (existing) {
       existing.data = projectData;
       if (meta.notes) existing.notes = String(meta.notes).slice(0, 300);
-      this.log('info', `Scene "${existing.name}" replaced`, { nodes: patch.nodes.length });
+      this.log('info', `Scene "${existing.name}" replaced`, {
+        nodes: patch.nodes.length,
+        ...(textures ? { media: Object.keys(textures).length } : {}),
+      });
       return { id: existing.id, name: existing.name };
     }
 
@@ -249,7 +262,10 @@ export class ActionExecutor {
     if (meta.notes && manager.updateSceneMetadata) {
       manager.updateSceneMetadata(id, { notes: String(meta.notes).slice(0, 300) });
     }
-    this.log('info', `Scene "${label}" added`, { nodes: patch.nodes.length });
+    this.log('info', `Scene "${label}" added`, {
+      nodes: patch.nodes.length,
+      ...(textures ? { media: Object.keys(textures).length } : {}),
+    });
 
     return { id: scene?.id || id, name: scene?.name || label };
   }

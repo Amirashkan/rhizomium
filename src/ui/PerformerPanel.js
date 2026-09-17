@@ -6,7 +6,20 @@ import { setIcon } from './iconSprite.js';
 import { STATE } from '../performer/PerformerEngine.js';
 import { PerformerOSC } from '../performer/PerformerOSC.js';
 import { EXAMPLE_SCENARIO } from '../performer/Scenario.js';
-import { EXAMPLE_MANIFEST, parseManifest, validateManifest } from '../performer/ShowManifest.js';
+import {
+  EXAMPLE_MANIFEST,
+  MANIFEST_LIMITS,
+  parseManifest,
+  validateManifest,
+} from '../performer/ShowManifest.js';
+import {
+  folderPickerKind,
+  indexShowFolder,
+  readDirectoryHandle,
+  readFileList,
+} from '../performer/ShowFolder.js';
+import { manifestFromScenario } from '../performer/ShowBuilder.js';
+import { readFolderShow } from '../performer/ShowImport.js';
 import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
 
 /**
@@ -27,6 +40,13 @@ import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
  * describes looks that do not exist, building it makes them, and what lands in
  * Scenario is a score that names them. An artist who already has their scenes
  * skips the first tab entirely.
+ *
+ * The work also arrives the other way round, and more often after the first
+ * show: a set the artist already has — written by hand, drafted here, opened
+ * from someone else's machine — on a rig with none of its scenes on it. That
+ * is what **Build the missing looks** on the Scenario tab is for. It reads the
+ * set in the editor, works out which sections have nothing to show, and builds
+ * a patch for each under the name that section already uses.
  *
  * Two rules about painting run through it.
  *
@@ -110,6 +130,30 @@ export class PerformerPanel {
     /** A build in progress, and the flag the Cancel button sets. */
     this.building = false;
     this.cancelBuild = false;
+    /**
+     * The open show folder, from ShowFolder.indexShowFolder(), or null.
+     *
+     * It holds live File objects, so it is deliberately not persisted: a
+     * reopened editor has no access to last night's directory and a folder
+     * readout describing files nothing can read is worse than none.
+     */
+    this.folder = null;
+    /** The manifest text as the folder gave it, so a repaint knows what is the artist's own. */
+    this.manifestFromFolder = '';
+    /**
+     * What reading the folder's manifests found, from ShowImport.readFolderShow()
+     * — a show, a set of transmissions, or nothing this can open. Null until a
+     * folder has been read, and again as soon as one is closed.
+     */
+    this.folderShow = null;
+    /** Which of the two builds is running, so the right button is the Stop. */
+    this.buildingLooks = false;
+    /**
+     * The plan Build-the-missing-looks last described, waiting on a second
+     * press. Keyed by what it was derived from, so editing the set in between
+     * asks again rather than building the old plan.
+     */
+    this.pendingLooks = null;
 
     this.router = new PerformerOSC(engine, { eventSystem: options.eventSystem });
     this.router.attach();
@@ -362,6 +406,26 @@ export class PerformerPanel {
       'Scenario tab for you to read first.';
     pane.appendChild(intro);
 
+    // The folder, above the manifest, because it is the thing you open first:
+    // a show with footage in it is a directory, and picking it fills the
+    // editor below and hands the build the clips in one go.
+    const folderRow = el('div', 'rz-perf-row rz-perf-folder-row');
+    folderRow.appendChild(button('Open folder…', 'Open a show folder: its manifest, and the media the looks are built on',
+      () => this.openShowFolder(), 'rz-perf-btn rz-perf-folder-open'));
+    this.folderClearButton = button('Close folder', 'Forget this folder. Looks that name clips are then built without them',
+      () => this.closeShowFolder());
+    this.folderClearButton.hidden = true;
+    folderRow.appendChild(this.folderClearButton);
+    this.folderLabel = el('div', 'rz-perf-folder-label', 'No folder open.');
+    folderRow.appendChild(this.folderLabel);
+    pane.appendChild(folderRow);
+
+    // What is actually in it, one line per clip. Named, because the names are
+    // what a look writes in its "media" list.
+    this.folderList = el('div', 'rz-perf-folder-list');
+    this.folderList.hidden = true;
+    pane.appendChild(this.folderList);
+
     this.manifestEditor = el('textarea', 'rz-perf-editor');
     this.manifestEditor.spellcheck = false;
     this.manifestEditor.placeholder = 'Press Example to see the shape of one.';
@@ -398,6 +462,181 @@ export class PerformerPanel {
     pane.appendChild(this.buildLog);
   }
 
+  /* --- the show folder --------------------------------------------------
+   *
+   * A manifest that names `fog-loop.mp4` is half a document; the other half is
+   * the directory it was sitting in. Opening the directory keeps the two
+   * together — which is what makes a show portable to the rig's laptop, and
+   * what lets the build put the artist's own footage into the looks it
+   * generates rather than being told it may not have any.
+   */
+
+  /**
+   * Pick a folder and read it.
+   *
+   * Two ways in, because there are two ways a browser hands over a directory.
+   * The real picker names the folder; the `webkitdirectory` fallback does not,
+   * so the name is taken off the first path instead. Everything after this
+   * point works on the same index either way.
+   */
+  async openShowFolder() {
+    try {
+      const entries = folderPickerKind() === 'directory'
+        ? await this.pickDirectory()
+        : await this.pickDirectoryFallback();
+      if (!entries) return; // cancelled — not a failure, and not worth a line
+
+      this.setShowFolder(indexShowFolder(entries.files, { name: entries.name }));
+    } catch (error) {
+      // AbortError is the artist pressing Escape. Everything else is worth saying.
+      if (error?.name === 'AbortError') return;
+      this.showStatus.textContent = `Could not read that folder: ${error?.message || error}`;
+      this.showStatus.dataset.level = 'error';
+    }
+  }
+
+  async pickDirectory() {
+    const handle = await window.showDirectoryPicker({ id: 'rhizo-show', mode: 'read' });
+    return { name: handle?.name || '', files: await readDirectoryHandle(handle) };
+  }
+
+  /** The same, for a browser with no directory picker. */
+  pickDirectoryFallback() {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.webkitdirectory = true;
+      input.multiple = true;
+      input.addEventListener('change', () => {
+        const files = Array.from(input.files || []);
+        if (!files.length) { resolve(null); return; }
+        const first = String(files[0].webkitRelativePath || '').split('/')[0];
+        resolve({ name: first, files: readFileList(files) });
+      });
+      // A cancelled file dialog fires nothing in most browsers, so this promise
+      // is simply never settled — which is fine: nothing is waiting on it and
+      // the artist can press the button again.
+      input.click();
+    });
+  }
+
+  /**
+   * Take a folder, and put the show that is in it in the editor.
+   *
+   * What that show is takes reading the files: a `manifest.json` is as likely
+   * to be another tool's document as it is to be a set, and a foreign one
+   * loaded as a show is a page of validation errors about something the artist
+   * never wrote. ShowImport.readFolderShow() is what decides — a show manifest
+   * arrives as its own bytes, a folder of transmissions arrives as the manifest
+   * they imply, and anything else is left where it is and said out loud.
+   *
+   * Either way it is only loaded over an editor that is empty or holds
+   * something this panel put there. An artist who has been typing a manifest
+   * for ten minutes and opens a folder to attach its footage should not have
+   * that replaced — so in that one case the folder is taken and the file is
+   * offered rather than applied.
+   */
+  async setShowFolder(folder) {
+    this.folder = folder;
+
+    const read = await readFolderShow(folder);
+    this.folderShow = read;
+    folder.problems.push(...read.problems);
+
+    let loaded = false;
+    if (read.text) {
+      const typed = this.manifestEditor.value.trim();
+      const mine = !typed || this.manifestFromFolder === typed || typed === JSON.stringify(EXAMPLE_MANIFEST, null, 2);
+      if (mine) {
+        this.manifestEditor.value = read.text;
+        this.manifestFromFolder = read.text.trim();
+        loaded = true;
+      }
+    }
+
+    this.paintFolder();
+    this.showTab('show');
+
+    const report = this.checkManifest();
+    if (!loaded && read.text && report !== undefined) {
+      this.noteBuild(
+        `"${read.path}" was left unopened — the editor has a manifest in it already. Clear it and open the folder again to use the one on disk.`,
+        'warn'
+      );
+    }
+    if (loaded && read.kind === 'transmissions') {
+      // A manifest nobody wrote, so it says where it came from and what to do
+      // with it. The briefs are the prompts each piece was generated from and
+      // they are what the patches will be made of — which is worth a look
+      // before six calls are spent on them.
+      this.noteBuild(
+        `${read.projects.length} transmission${read.projects.length === 1 ? '' : 's'} read out of this folder `
+          + 'into the manifest above — the briefs, the clips each look is built on, the palette and the '
+          + 'holds. Read it, edit anything that is not the show you want, then Build.',
+        'ok'
+      );
+    }
+  }
+
+  closeShowFolder() {
+    this.folder = null;
+    this.folderShow = null;
+    this.manifestFromFolder = '';
+    this.paintFolder();
+    this.checkManifest();
+  }
+
+  /** The folder as one line, and its clips as a list under it. */
+  paintFolder() {
+    const folder = this.folder;
+    this.folderClearButton.hidden = !folder;
+    this.folderList.replaceChildren();
+    this.folderList.hidden = !folder;
+
+    if (!folder) {
+      this.folderLabel.textContent = 'No folder open.';
+      this.folderLabel.dataset.level = '';
+      return;
+    }
+
+    const usable = folder.media.filter((item) => item.kind !== 'audio');
+    const read = this.folderShow;
+    const projects = read?.projects.length || 0;
+
+    const bits = [folder.name];
+    bits.push(
+      read?.kind === 'transmissions' ? `${projects} transmission${projects === 1 ? '' : 's'}`
+        : read?.kind === 'show' ? read.path
+        // Two different answers: nothing here to open, or something here that
+        // is not a show. The second one is the one with something to fix.
+        : folder.manifests?.length ? 'no show manifest'
+        : 'no manifest'
+    );
+    bits.push(`${usable.length} clip${usable.length === 1 ? '' : 's'}`);
+    if (folder.skipped.length) bits.push(`${folder.skipped.length} skipped`);
+
+    this.folderLabel.textContent = bits.join(' · ');
+    this.folderLabel.dataset.level = read && read.kind !== 'none' ? 'ok' : 'warn';
+
+    for (const item of folder.media) {
+      const row = el('div', 'rz-perf-folder-file');
+      row.dataset.kind = item.kind;
+      // The name, because that is the string a look writes in its media list.
+      row.appendChild(el('span', 'rz-perf-folder-name', item.name));
+      row.appendChild(el('span', 'rz-perf-folder-meta',
+        `${item.kind} · ${(item.size / 1024 / 1024).toFixed(1)} MB${item.folder ? ` · ${item.folder}/` : ''}`));
+      this.folderList.appendChild(row);
+    }
+
+    for (const item of folder.skipped) {
+      const row = el('div', 'rz-perf-folder-file');
+      row.dataset.kind = 'skipped';
+      row.appendChild(el('span', 'rz-perf-folder-name', item.path));
+      row.appendChild(el('span', 'rz-perf-folder-meta', item.reason));
+      this.folderList.appendChild(row);
+    }
+  }
+
   /** Read the editor as a manifest, or say why it cannot be read. */
   readManifest() {
     const text = this.manifestEditor.value.trim();
@@ -415,16 +654,31 @@ export class PerformerPanel {
       return null;
     }
 
-    const report = validateManifest(manifest);
+    const report = validateManifest(manifest, this.folder);
     const lines = [
+      // The folder's own complaints first: a manifest naming a clip that is not
+      // there reads as a manifest problem, and it is usually a folder problem.
+      // A note is a note and says so — there is nothing to fix in it, and a line
+      // that reads like a fault in a list of faults costs the artist a minute
+      // working out which of them matter.
+      ...(this.folder?.problems || []).map((p) =>
+        `${p.level === 'note' ? 'note' : 'folder'} — ${p.where}: ${p.message}`),
       ...report.errors.map((p) => `error — ${p.where}: ${p.message}`),
       ...report.warnings.map((p) => `warning — ${p.where}: ${p.message}`),
     ];
 
     this.buildLog.textContent = lines.join('\n');
+
+    const clips = this.folder
+      ? manifest.looks.reduce((total, look) => total + (look.media.length ? 1 : 0), 0)
+      : 0;
+    const withMedia = clips
+      ? `, ${clips} of them on your own footage`
+      : '';
+
     this.showStatus.textContent = report.errors.length
       ? `${report.errors.length} thing${report.errors.length === 1 ? '' : 's'} to fix before this can be built.`
-      : `${manifest.looks.length} looks, ${report.generated} of them to generate — ${report.generated} patch call${report.generated === 1 ? '' : 's'}, then one for the set.`;
+      : `${manifest.looks.length} looks${withMedia}, ${report.generated} to generate — ${report.generated} patch call${report.generated === 1 ? '' : 's'}, then one for the set.`;
     this.showStatus.dataset.level = report.errors.length ? 'error' : report.warnings.length ? 'warn' : 'ok';
 
     return report.errors.length ? null : manifest;
@@ -469,6 +723,9 @@ export class PerformerPanel {
     this.cancelBuild = false;
     this.buildButton.disabled = true;
     this.cancelButton.disabled = false;
+    // One build at a time: both spend the same allowance and install into the
+    // same scene list.
+    this.looksButton.disabled = true;
     this.buildLog.replaceChildren();
     this.showStatus.dataset.level = 'info';
     this.showStatus.textContent = 'Building…';
@@ -476,6 +733,9 @@ export class PerformerPanel {
     try {
       const report = await director.buildShow(manifest, {
         context: this.rigContext(),
+        // Null when no folder is open, which is every build that was possible
+        // before folders existed — and those go down exactly the path they did.
+        folder: this.folder,
         installScene: (name, patch, meta) => executor.installPatchAsScene(name, patch, meta),
         shouldStop: () => this.cancelBuild,
         onProgress: (event) => {
@@ -510,6 +770,14 @@ export class PerformerPanel {
       }
       for (const problem of report.problems) this.noteBuild(`${problem.where}: ${problem.message}`, 'error');
       if (report.note) this.noteBuild(report.note, 'info');
+      const clips = report.built.reduce((total, entry) => total + (entry.media?.length || 0), 0);
+      if (clips) {
+        this.noteBuild(
+          `${clips} clip${clips === 1 ? '' : 's'} from the folder ${clips === 1 ? 'is' : 'are'} in the looks, and travel${clips === 1 ? 's' : ''} with them: the scenes carry their own media.`,
+          'ok'
+        );
+      }
+
       for (const entry of report.bound) {
         this.noteBuild(
           `"${entry.sceneName}" plays in section "${entry.sectionId}"${entry.inserted ? ' (a section was added for it)' : ''}.`,
@@ -526,6 +794,7 @@ export class PerformerPanel {
       this.cancelBuild = false;
       this.buildButton.disabled = false;
       this.cancelButton.disabled = true;
+      this.looksButton.disabled = false;
       this.paintStructure();
     }
   }
@@ -577,9 +846,19 @@ export class PerformerPanel {
       'slow build, drop at the halfway point, I fire it by hand"';
     brief.appendChild(this.briefInput);
 
+    const authorRow = el('div', 'rz-perf-row');
     this.authorButton = button('Write a scenario', 'Ask the AI to draft a scenario from this brief',
       () => this.authorScenario(), 'rz-perf-btn rz-perf-author');
-    brief.appendChild(this.authorButton);
+    authorRow.appendChild(this.authorButton);
+
+    // The other direction: a set that exists, on a rig that has none of it.
+    this.looksButton = button('Build the missing looks',
+      'Generate a patch for every section with nothing to show, and install each one '
+        + 'under the name the set already uses. What you have written above, if anything, '
+        + 'is what ties them together.',
+      () => this.buildMissingLooks(), 'rz-perf-btn rz-perf-author');
+    authorRow.appendChild(this.looksButton);
+    brief.appendChild(authorRow);
     pane.appendChild(brief);
 
     this.authorStatus = el('div', 'rz-perf-author-status', '');
@@ -1019,6 +1298,187 @@ export class PerformerPanel {
       this.authoring = false;
       this.authorButton.disabled = false;
     }
+  }
+
+  /**
+   * Build the looks this set is missing.
+   *
+   * The Show tab answers "I have the show in my head and an empty editor".
+   * This answers the one that comes up after the first show and has had no
+   * answer at all: "I have the set, and this rig has none of its scenes on
+   * it." A scenario like that validates, loads and runs — and shows nothing,
+   * section after section, because every look it names is a name and not a
+   * patch.
+   *
+   * It is the same pipeline, entered from the other end. The set is read into
+   * the manifest it implies (ShowBuilder.manifestFromScenario), a patch is
+   * generated per section that has nothing to show, and each is installed
+   * under the name that section already uses — so the set does not have to be
+   * rewritten to play what was just built for it. The scenario is never
+   * rewritten either: the artist's own drives, moves, cues and rules are the
+   * reason they wrote it, and a look is not a reason to lose them.
+   *
+   * Two presses, deliberately. The Show tab has a Check button because a
+   * manifest is typed and can be wrong; here the plan is derived from the
+   * artist's own set and cannot be, so the button is its own Check. What it
+   * cannot be is silent: this spends a patch-generator call per look, and a
+   * misclick is a bad way to find out how many.
+   */
+  async buildMissingLooks() {
+    const director = this.engine.director;
+    if (!director) {
+      this.authorStatus.textContent = 'The AI is not available in this build.';
+      this.authorStatus.dataset.level = 'error';
+      return;
+    }
+
+    // While this build is running, this button is the Stop for it. A call in
+    // flight is already paid for, so it stops after the look being built now.
+    if (this.building) {
+      if (!this.buildingLooks) return;
+      this.cancelBuild = true;
+      this.authorStatus.textContent = 'Stopping after this look…';
+      this.authorStatus.dataset.level = 'warn';
+      return;
+    }
+
+    // What is in the editor, or the running set when the editor is empty —
+    // the same thing Load acts on, so what is built is what can be read.
+    const source = this.editor.value.trim();
+    let scenario;
+    try {
+      scenario = source ? JSON.parse(source) : this.engine.scenario;
+    } catch (error) {
+      this.authorStatus.textContent = `That is not valid JSON: ${error.message}`;
+      this.authorStatus.dataset.level = 'error';
+      return;
+    }
+
+    const plan = manifestFromScenario(scenario, {
+      sceneNames: this.rigSceneNames(),
+      brief: this.briefInput.value.trim(),
+    });
+
+    if (!plan.missing.length) {
+      this.pendingLooks = null;
+      this.authorStatus.textContent = plan.satisfied.length || plan.skipped.length
+        ? 'Every section already has a look. Nothing to build.'
+        : 'This set has no sections to build looks for yet.';
+      this.authorStatus.dataset.level = 'ok';
+      return;
+    }
+
+    const signature = `${source}::${plan.missing.map((one) => one.lookId).join('|')}`;
+    if (this.pendingLooks !== signature) {
+      this.pendingLooks = signature;
+      this.describePlan(plan);
+      return;
+    }
+    this.pendingLooks = null;
+
+    const executor = this.engine.executor;
+    if (!executor?.sceneManager) {
+      this.authorStatus.textContent =
+        'There is nowhere to put the looks yet. Open the VJ panel (View → VJ Control) and try again.';
+      this.authorStatus.dataset.level = 'error';
+      return;
+    }
+
+    this.building = true;
+    this.buildingLooks = true;
+    this.cancelBuild = false;
+    this.buildButton.disabled = true;
+    this.authorButton.disabled = true;
+    this.looksButton.textContent = 'Stop';
+
+    const lines = [];
+    const report = (level) => {
+      this.editorReport.textContent = lines.join('\n');
+      this.editorReport.dataset.level = level;
+    };
+
+    try {
+      const built = await director.buildShow(plan.manifest, {
+        // The set stays the artist's. Given one, the builder skips writing a
+        // scenario entirely and only binds the looks into this.
+        scenario,
+        context: this.rigContext(),
+        installScene: (name, patch, meta) => executor.installPatchAsScene(name, patch, meta),
+        shouldStop: () => this.cancelBuild,
+        onProgress: (event) => {
+          this.authorStatus.textContent = event.message;
+          this.authorStatus.dataset.level = 'info';
+          if (event.phase !== 'look') return;
+          if (event.status === 'ok') lines.push(`✓ ${event.message}`);
+          else if (event.status === 'failed') lines.push(`× ${event.name}: ${event.message}`);
+          report('info');
+        },
+      });
+
+      // Into the editor as a draft, unloaded. Every other way of getting a
+      // scenario in this panel lands here for the artist to read first, and a
+      // set that starts playing because a build finished is exactly the
+      // surprise this panel exists to avoid.
+      this.editor.value = JSON.stringify(built.scenario, null, 2);
+      this.editingScenario = false;
+      this.editorHoldsDraft = true;
+
+      const made = built.built.filter((entry) => entry.generated).length;
+      const count = `${made} look${made === 1 ? '' : 's'}`;
+      this.authorStatus.textContent = built.stopped
+        ? `Stopped: ${built.stopped}. ${count} built and kept.`
+        : `${count} built and bound into the set. Read it, then press Load.`;
+      this.authorStatus.dataset.level = built.stopped || built.problems.length ? 'warn' : 'ok';
+
+      for (const problem of built.problems) lines.push(`${problem.where}: ${problem.message}`);
+      for (const entry of built.bound) {
+        lines.push(`"${entry.sceneName}" plays in section "${entry.sectionId}".`);
+      }
+      report(built.problems.length ? 'warn' : 'ok');
+    } catch (error) {
+      this.authorStatus.textContent = error?.message || String(error);
+      this.authorStatus.dataset.level = 'error';
+    } finally {
+      this.building = false;
+      this.buildingLooks = false;
+      this.cancelBuild = false;
+      this.buildButton.disabled = false;
+      this.authorButton.disabled = false;
+      this.looksButton.textContent = 'Build the missing looks';
+      this.paintStructure();
+    }
+  }
+
+  /**
+   * Every name a section's `scene` could resolve to, ids and names both.
+   *
+   * Read off the executor's scene manager rather than the VJ panel's. That is
+   * the one ActionExecutor.resolveScene consults when a section is cut to at
+   * showtime, so it is the only one that answers the question being asked
+   * here: does this section have anything to show, or not.
+   */
+  rigSceneNames() {
+    const manager = this.engine.executor?.sceneManager || this.vjPanel?.sceneManager;
+    return (manager?.getAllScenes?.() || []).flatMap((scene) => [scene.id, scene.name]);
+  }
+
+  /** What the next press would spend, and on what. */
+  describePlan(plan) {
+    const n = plan.missing.length;
+    this.authorStatus.textContent =
+      `${n} look${n === 1 ? '' : 's'} to build: ${plan.missing.map((one) => `"${one.name}"`).join(', ')}. `
+      + `That is ${n} patch call${n === 1 ? '' : 's'}. Press again to build.`;
+    this.authorStatus.dataset.level = 'warn';
+
+    this.editorReport.textContent = [
+      ...plan.missing.map((one) => `"${one.name}" — section "${one.sectionId}" ${one.why}.`),
+      ...plan.satisfied.map((one) => `"${one.name}" — already on the rig. Kept, and costs nothing.`),
+      ...plan.skipped.map((one) => `"${one.name}" — skipped: it ${one.why}.`),
+      ...plan.deferred.map((one) =>
+        `"${one.name}" — not in this build: ${MANIFEST_LIMITS.looks} looks is as many as one build takes. `
+        + 'Press again when this one is done.'),
+    ].join('\n');
+    this.editorReport.dataset.level = 'info';
   }
 
   /** Everything the model needs to write a scenario against this rig. */

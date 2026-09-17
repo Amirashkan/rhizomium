@@ -842,11 +842,20 @@ export class WelcomeWindow {
       return;
     }
 
+    // A double-click, or a click on a second card before the first import has
+    // resolved, would otherwise fire two overlapping whole-document replacements.
+    if (this._openingStarter) {
+      return;
+    }
+    this._openingStarter = true;
+
     try {
       await this.onOpenStarter(starter);
     } catch (error) {
       console.warn(`Could not open the "${starter.title}" starter patch:`, error);
       return;
+    } finally {
+      this._openingStarter = false;
     }
 
     this.hide();

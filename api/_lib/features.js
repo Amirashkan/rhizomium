@@ -1281,6 +1281,25 @@ function describeShowLook(show) {
     lines.push(`It should visibly answer the music on: ${reactsTo.join(', ')}.`);
   }
 
+  // The artist's own footage, already loaded and waiting on named nodes. The
+  // patch generator otherwise may not contain a texture node at all — a model
+  // cannot supply a file, and a texture node pointing at nothing renders black
+  // — so this block is the only thing that makes one legal, and the node names
+  // in it are a contract: src/performer/ShowBuilder.js goes looking for these
+  // exact names to put the files on when the answer comes back.
+  const media = Array.isArray(show.media) ? show.media.slice(0, 8) : [];
+  if (media.length) {
+    lines.push(
+      `This look is built on ${media.length === 1 ? 'a clip' : `${media.length} clips`} the artist supplied. Include ${media.length === 1 ? 'this node' : 'these nodes'}, named exactly, and compose the look around what ${media.length === 1 ? 'it carries' : 'they carry'}:`,
+      ...media.map((slot) => {
+        const node = String(slot?.node || '').slice(0, 80);
+        const kind = String(slot?.kind || '') === 'video' ? 'moving footage' : 'a still image';
+        return `- a Texture2D node named "${node}" — ${kind}`;
+      }),
+      'Add no other Texture2D or TextureCube node: there is no file for one and it would render black.'
+    );
+  }
+
   const drivable = Array.isArray(show.drivable) ? show.drivable.filter(Boolean) : [];
   lines.push(
     drivable.length

@@ -11,6 +11,9 @@
  * handshake (see accountSession.js, and the gallery's /api/desktop/pair/*).
  * This module is only the store.
  *
+ * A `npm run dev` browser is in the same position for a different reason, and
+ * holds the same credential — see usesBearerToken() below.
+ *
  * ## Where it is kept, and why that is enough
  *
  * localStorage on the app's own origin. In the desktop app that is a real
@@ -24,11 +27,40 @@
  */
 
 import { isTauri } from '../utils/isTauri.js';
+import { isDevServerOrigin } from '../utils/galleryEndpoint.js';
 
 const STORAGE_KEY = 'rhizomium.gallery.desktopToken';
 
 /** Cached, so the common path does not touch storage on every request. */
 let cached;
+
+/**
+ * Whether this client authenticates with a bearer token rather than a cookie.
+ *
+ * Two clients do, for the same underlying reason — the gallery's session
+ * cookie never reaches them:
+ *
+ *   - The desktop app is served from tauri://localhost, a different site, so
+ *     the cookie is not sent whatever CORS says.
+ *   - A `npm run dev` browser reaches the gallery through the `/gallery-api`
+ *     proxy in vite.config.js. The hop is server-side, which is what makes the
+ *     call work at all, and is also why no cookie rides along: the browser has
+ *     no art.tenderworld.org cookie to send from localhost in the first place.
+ *     src/utils/galleryEndpoint.js says the same thing from the other end.
+ *
+ * Until this named the second case the dev server was anonymous whoever the
+ * artist actually was, so every grant was priced at the free tier. The live
+ * coPerformer needs more than that, and a refusal is not transient: it stops
+ * asking and disables itself for the rest of the session
+ * (PerformerDirector._noteFailure). One tier lookup, and nothing performs.
+ *
+ * Scoped to the Vite dev server's own origin, which `strictPort: true` pins to
+ * a single port, so no deployed build can take this path.
+ */
+export function usesBearerToken() {
+  const origin = typeof window !== 'undefined' ? window.location?.origin : undefined;
+  return isTauri() || isDevServerOrigin(origin);
+}
 
 /**
  * The stored token, or null.
@@ -38,7 +70,7 @@ let cached;
  * behaves exactly as a signed-out desktop app, which is the honest result.
  */
 export function getDesktopToken() {
-  if (!isTauri()) return null;
+  if (!usesBearerToken()) return null;
   if (cached !== undefined) return cached;
 
   try {
@@ -72,7 +104,8 @@ export function clearDesktopToken() {
  * The Authorization header for a gallery request, or an empty object.
  *
  * Spread into a headers literal so a call site reads the same whether or not
- * there is a token: on the web there never is, and the cookie does the work.
+ * there is a token: on a deployed web build there never is, and the cookie
+ * does the work.
  */
 export function desktopAuthHeaders() {
   const token = getDesktopToken();

@@ -38,6 +38,29 @@
  * - **The whole thing can be cancelled**, and cancelling between calls is the
  *   only cancellation worth having: a call in flight has already been paid for.
  *
+ * ## The artist's own footage
+ *
+ * A show folder (ShowFolder.js) carries media beside the manifest, and a look
+ * that names clips is built on them: the prompt asks for a texture node per
+ * clip, attachMedia() below puts the files on the nodes that came back, and the
+ * scene is installed carrying them. Everywhere else in the editor a generated
+ * patch may not contain a texture node at all, for the good reason that a model
+ * cannot supply a file — here the file exists before the call is made, which is
+ * the whole difference.
+ * ## The set that already exists
+ *
+ * The same three passes answer the opposite case, and it is the more common
+ * one after the first show: the artist has a scenario — written by hand,
+ * drafted by the model, opened from someone else's machine — whose every
+ * section names a scene that is not on this rig. It loads, it runs, it shows
+ * nothing.
+ *
+ * manifestFromScenario() reads that set and writes the manifest it implies,
+ * one look per section that has no look, each carrying the node and parameter
+ * names the section's own drives and moves already address. Building it with
+ * `{ scenario }` then skips pass 2 — there is nothing to write — and binds the
+ * patches into the artist's own set, drives, cues and rules untouched.
+ *
  * ## What it does not do
  *
  * It does not touch the editor. `installScene` is injected by whoever has one
@@ -53,8 +76,17 @@ import {
   showContext,
   lookPrompt,
   scenarioBrief,
+  MANIFEST_LIMITS,
+  MANIFEST_VERSION,
 } from './ShowManifest.js';
 import { normalizeScenario, SCENARIO_VERSION } from './Scenario.js';
+import { mediaSlotName, mediaSlots, readMediaDataUrl, resolveLookMedia } from './ShowFolder.js';
+
+/** The node kinds a clip can arrive on. */
+const TEXTURE_KINDS = new Set(['Texture2D', 'TextureCube']);
+
+/** Compared the way ShowFolder compares a reference: case and punctuation out. */
+const loose = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 /**
  * A refusal from the gallery — the wrong tier, or an allowance that is spent.
@@ -99,6 +131,13 @@ export class ShowBuilder {
    * @param {Function} [options.shouldStop] () => boolean, checked between calls.
    * @param {boolean} [options.writeScenario] false to build the looks and
    *   write the set from the manifest without a second model call.
+   * @param {object} [options.folder] the show folder, from
+   *   ShowFolder.indexShowFolder(). With one, a look that names clips is built
+   *   with them already on its texture nodes.
+   * @param {object} [options.scenario] a set that already exists. Given one,
+   *   pass 2 does not run at all — there is nothing to write — and pass 3
+   *   binds the looks into it, leaving its drives, moves, cues and rules
+   *   exactly as the artist wrote them.
    * @returns {Promise<object>} the report: the scenario, the scenes, and what
    *   went wrong on the way.
    */
@@ -106,7 +145,8 @@ export class ShowBuilder {
     if (this.building) throw new Error('A show is already being built.');
 
     const show = normalizeManifest(manifest);
-    const report = validateManifest(show);
+    const folder = options.folder || null;
+    const report = validateManifest(show, folder);
     if (report.errors.length) {
       throw new Error(
         `This manifest cannot be built yet: ${report.errors[0].where} — ${report.errors[0].message}`
@@ -142,10 +182,25 @@ export class ShowBuilder {
           message: `Building "${look.name}" (${index + 1} of ${needed.length})…`,
         });
 
+        // The artist's own footage for this look, resolved before the call so
+        // the prompt can ask for the nodes it is about to arrive on. A clip
+        // named in the manifest and missing from the folder is a warning
+        // already reported by the check above; the look is still built.
+        const { items: clips, missing } = folder
+          ? resolveLookMedia(folder, look)
+          : { items: [], missing: [] };
+        if (missing.length) {
+          problems.push({
+            where: `look "${look.name}"`,
+            message: `no clip in the folder called ${missing.map((one) => `"${one}"`).join(', ')} — built without ${missing.length === 1 ? 'it' : 'them'}`,
+          });
+        }
+
         try {
-          const generated = await this.generatePatch(lookPrompt(show, look), {
+          const generated = await this.generatePatch(lookPrompt(show, look, clips), {
             show: showContext(show),
             look,
+            media: mediaSlots(clips),
           });
 
           const patch = generated?.patch;
@@ -153,13 +208,26 @@ export class ShowBuilder {
             throw new Error('the model answered with an empty patch');
           }
 
+          // Put the footage on the nodes the model left for it. This is the
+          // step that makes a clip part of the look rather than a file in a
+          // folder, and it happens before the scene is installed so that the
+          // scene carries its media the way a saved project does.
+          const media = await attachMedia(patch, clips);
+          for (const note of media.problems) {
+            problems.push({ where: `look "${look.name}"`, message: note });
+          }
+
           // The scene is named after the look, not after the title the model
           // chose for its patch: the scenario is about to name it, and it can
           // only name what the manifest said.
-          const scene = await this.installScene(look.name, patch, {
+          const scene = await this.installScene(look.name, media.patch, {
             notes: generated?.notes || look.mood || look.brief,
             title: generated?.title || look.name,
             lookId: look.id,
+            // Keyed by node id, exactly as a saved project's textures are:
+            // installScene hands it straight to the scene's project data and
+            // the ordinary loader puts it back on the GPU.
+            textures: media.textures,
           });
 
           built.push({
@@ -169,13 +237,16 @@ export class ShowBuilder {
             title: generated?.title || look.name,
             notes: generated?.notes || '',
             nodes: patch.nodes.length,
+            media: media.bound.map((one) => one.path),
             generated: true,
           });
 
           onProgress({
             phase: 'look', status: 'ok', index, total: needed.length,
             lookId: look.id, name: look.name,
-            message: `"${look.name}" — ${patch.nodes.length} nodes.`,
+            message: media.bound.length
+              ? `"${look.name}" — ${patch.nodes.length} nodes, ${media.bound.length} clip${media.bound.length === 1 ? '' : 's'}.`
+              : `"${look.name}" — ${patch.nodes.length} nodes.`,
           });
         } catch (error) {
           problems.push({ where: `look "${look.name}"`, message: message(error) });
@@ -194,11 +265,19 @@ export class ShowBuilder {
       }
 
       // --- pass 2: the set ------------------------------------------------
+      //
+      // Skipped entirely when the caller already has one. A set built from a
+      // scenario that exists is the same three passes with the middle one
+      // already done years ago by the artist, and rewriting it would throw
+      // away the drives and cues that are the reason they wrote it.
+      const into = options.scenario ? normalizeScenario(options.scenario) : null;
+
       let scenario = null;
       let note = '';
-      let wrote = 'manifest';
+      let wrote = into ? 'given' : 'manifest';
 
-      const wantScenario = options.writeScenario !== false && this.authorScenario && !stopped;
+      const wantScenario = options.writeScenario !== false && this.authorScenario
+        && !stopped && !into;
 
       if (wantScenario) {
         onProgress({ phase: 'scenario', status: 'start', message: 'Writing the set…' });
@@ -220,7 +299,11 @@ export class ShowBuilder {
         }
       }
 
-      if (!scenario) scenario = scenarioFromManifest(show, built);
+      if (into) {
+        onProgress({ phase: 'scenario', status: 'skipped', message: 'Keeping the set you already have.' });
+      }
+
+      if (!scenario) scenario = into || scenarioFromManifest(show, built);
 
       // --- pass 3: bind ---------------------------------------------------
       const binding = bindLooks(scenario, show, built);
@@ -249,6 +332,141 @@ export class ShowBuilder {
       this.building = false;
     }
   }
+}
+
+/**
+ * Put the artist's footage on the nodes the model left for it.
+ *
+ * The prompt asked for a Texture2D node per clip, named after the clip
+ * (`ShowFolder.mediaSlotName`). This is the other end of that contract, and it
+ * is written to survive the model getting the names slightly wrong, because a
+ * clip that does not land is a black rectangle in the middle of a look that has
+ * already been paid for:
+ *
+ *   1. By name, loosely — "Media - Fog Loop" finds "Media: fog-loop".
+ *   2. Whatever is left over, in order, onto whatever texture nodes are left.
+ *   3. If there are still nodes with nothing on them, the clips are used again
+ *      from the start. A node showing the first clip twice is a look; a node
+ *      showing nothing is a hole.
+ *
+ * The result is the `textures` map a saved project carries — keyed by node id,
+ * with the bytes inline — so the scene this becomes is restored by the ordinary
+ * loader, on this machine and on the rig's laptop it gets copied to.
+ *
+ * Pure apart from reading the files, and exported, because the three rules
+ * above are the part worth testing on its own.
+ *
+ * @param {object} patch as the model returned it
+ * @param {Array} clips from ShowFolder.resolveLookMedia()
+ * @returns {Promise<{patch: object, textures: object, bound: Array, problems: Array<string>}>}
+ */
+export async function attachMedia(patch, clips = []) {
+  const wanted = Array.isArray(clips) ? clips.filter(Boolean) : [];
+  if (!wanted.length) return { patch, textures: {}, bound: [], problems: [] };
+
+  const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
+  const slots = nodes
+    .map((node, index) => ({ node, index }))
+    .filter((entry) => TEXTURE_KINDS.has(entry.node?.kind));
+
+  if (!slots.length) {
+    return {
+      patch,
+      textures: {},
+      bound: [],
+      problems: [
+        `built without a texture node, so ${wanted.length === 1 ? 'the clip was' : `${wanted.length} clips were`} not used. The look is still installed — the footage is not in it.`,
+      ],
+    };
+  }
+
+  const taken = new Set();
+  const assigned = new Map(); // slot index in `slots` -> clip
+
+  // 1. by name.
+  slots.forEach((entry, position) => {
+    const name = loose(entry.node.name);
+    if (!name) return;
+    const found = wanted.findIndex((clip, i) => {
+      if (taken.has(i) || !fits(entry.node, clip)) return false;
+      const slot = loose(mediaSlotName(clip));
+      const label = loose(clip.label);
+      return name === slot || (label && (name === label || name.includes(label)));
+    });
+    if (found >= 0) {
+      taken.add(found);
+      assigned.set(position, wanted[found]);
+    }
+  });
+
+  // 2. and 3. — everything still empty, in order, cycling if it has to.
+  let next = 0;
+  slots.forEach((entry, position) => {
+    if (assigned.has(position)) return;
+    const spare = wanted.findIndex((clip, i) => !taken.has(i) && fits(entry.node, clip));
+    if (spare >= 0) {
+      taken.add(spare);
+      assigned.set(position, wanted[spare]);
+      return;
+    }
+    // Nothing spare. Reuse, starting from the first clip that fits this node.
+    for (let n = 0; n < wanted.length; n++) {
+      const clip = wanted[(next + n) % wanted.length];
+      if (fits(entry.node, clip)) {
+        next = (next + n + 1) % wanted.length;
+        assigned.set(position, clip);
+        return;
+      }
+    }
+  });
+
+  const textures = {};
+  const bound = [];
+  const problems = [];
+  const patched = nodes.slice();
+
+  for (const [position, clip] of assigned) {
+    const { node, index } = slots[position];
+    try {
+      const dataUrl = await readMediaDataUrl(clip);
+      textures[String(node.id)] = {
+        filename: clip.name,
+        dataUrl,
+        isVideo: clip.kind === 'video',
+      };
+      // The node's own record of which of the two kinds of file it is holding.
+      // Set by the upload everywhere else; without it a clip loads and plays
+      // while the panel shows it the controls for a still image.
+      patched[index] = {
+        ...node,
+        name: node.name || mediaSlotName(clip),
+        params: { ...(node.params || {}), sourceType: clip.kind === 'video' ? 'video' : 'image' },
+      };
+      bound.push({ nodeId: String(node.id), path: clip.path, kind: clip.kind });
+    } catch (error) {
+      // One unreadable clip costs that clip, not the look.
+      problems.push(`could not read ${clip.path}: ${message(error)}`);
+    }
+  }
+
+  const unused = wanted.filter((clip) => !bound.some((one) => one.path === clip.path));
+  if (unused.length) {
+    problems.push(
+      `${unused.map((clip) => clip.name).join(', ')} went unused: the look came back with ${slots.length} texture node${slots.length === 1 ? '' : 's'} for ${wanted.length} clips.`
+    );
+  }
+
+  return { patch: { ...patch, nodes: patched }, textures, bound, problems };
+}
+
+/**
+ * Whether this clip can go on this node.
+ *
+ * A cube map is six faces of a still image in one file; a video on one is a
+ * node that renders nothing and a question nobody can answer from the canvas.
+ */
+function fits(node, clip) {
+  return node?.kind !== 'TextureCube' || clip.kind !== 'video';
 }
 
 /**
@@ -470,6 +688,269 @@ export function scenarioFromManifest(manifest, built = []) {
         : { enabled: false, everyBars: 16, freedom: 0.4 },
     },
   });
+}
+
+// --------------------------------------------------------------------------
+// The other direction: a set that exists, and the looks it is missing
+// --------------------------------------------------------------------------
+
+/** Every node/parameter pair and signal binding one section addresses. */
+function reachesOf(section) {
+  const out = [];
+
+  for (const drive of section.drives) {
+    out.push({ node: drive.node, param: drive.param, signal: drive.signal });
+  }
+  for (const action of [...section.onEnter, ...section.onExit]) {
+    out.push({ node: action.node, param: action.param, signal: action.signal });
+  }
+  for (const move of section.moves) {
+    for (const action of move.do) {
+      out.push({ node: action.node, param: action.param, signal: action.signal });
+    }
+  }
+
+  return out.filter((entry) => entry.node && entry.param);
+}
+
+/**
+ * The audio channels a section visibly answers.
+ *
+ * Taken from the signals its drives are actually bound to rather than from the
+ * signal list, because a scenario declares every signal the artist sends and
+ * only some of them reach this section. A look told it answers everything
+ * answers nothing in particular.
+ */
+function reactsToOf(reaches, signals) {
+  const channels = new Set();
+  for (const entry of reaches) {
+    const signal = entry.signal ? signals.get(entry.signal) : null;
+    if (signal?.source === 'audio' && signal.channel) channels.add(signal.channel);
+  }
+  return [...channels];
+}
+
+/**
+ * What to build, in prose, from a section that was written to be played rather
+ * than to be described.
+ *
+ * `mood` and `notes` are the two fields a scenario carries that are already
+ * addressed to a reader — the director is shown them and never executes them —
+ * so they are the brief when they are there. When they are not, saying so
+ * outright beats padding: the show-level brief and the section's own name are
+ * then genuinely all there is, and a prompt that pretends otherwise invents
+ * the rest.
+ */
+function briefFromSection(section, sceneName) {
+  const said = [section.mood, section.notes].filter(Boolean);
+
+  const called = sceneName && sceneName.toLowerCase() !== section.name.toLowerCase()
+    ? `the section "${section.name}", which plays a scene called "${sceneName}"`
+    : `the section "${section.name}"`;
+
+  return said.length
+    ? `A look for ${called}: ${said.join('. ')}`
+    : `A look for ${called}. The set says nothing about it beyond its name, so build what `
+      + 'that name and this show ask for.';
+}
+
+/**
+ * Whether this set is counted in bars.
+ *
+ * Conservative on purpose. Anything counted in bars anywhere means metered;
+ * only a set that counts in seconds and never in bars is called free. A set
+ * with nothing timed either way stays metered, because being told a show has
+ * no pulse when it has one is the worse of the two errors — it is the line in
+ * every patch prompt that says not to build anything that answers a beat.
+ */
+function pulseOfScenario(scenario) {
+  let bars = false;
+  let seconds = false;
+
+  for (const section of scenario.sections) {
+    if (section.hold.bars || section.enter.kind === 'bars') bars = true;
+    if (section.hold.seconds || section.enter.kind === 'seconds') seconds = true;
+    for (const move of section.moves) {
+      if (move.atBars !== null) bars = true;
+      if (move.atSeconds !== null) seconds = true;
+    }
+  }
+
+  return !bars && seconds ? 'free' : 'metered';
+}
+
+/**
+ * A manifest for the set that already exists.
+ *
+ * The inverse of scenarioFromManifest(), and the answer to the case the
+ * manifest was written for turned inside out. A manifest is for the artist who
+ * has the show in their head and an empty rig. This is for the artist who has
+ * the *set* — written by hand, drafted by the model, or opened from someone
+ * else's machine — and an empty rig underneath it: every section names a scene
+ * that is not there, so the set validates, loads, runs, and shows nothing.
+ *
+ * Deriving a manifest from it means the whole build pipeline applies unchanged,
+ * and the derivation is where the word "suitable" is earned:
+ *
+ * - The look is named after the scene the section already asks for, so it is
+ *   installed under the name the set already uses. Nothing has to be renamed.
+ * - The section's drives, moves and enter/exit actions become the look's
+ *   `requires`, so the patch is built with the nodes the set already reaches
+ *   for, under those names. A beautiful patch whose nodes are called something
+ *   else is a section with every fader wired to nothing.
+ * - A look already on the rig goes in too, as a `scene`. It costs no call, and
+ *   without it every generated look would be told about a show with holes in
+ *   it — which is a different show.
+ *
+ * Pure. It reads a document and writes a document; the panel supplies the rig.
+ *
+ * @param {object} rawScenario
+ * @param {object} [options]
+ * @param {Array<string>} [options.sceneNames] scene ids and names on the rig.
+ *   Nothing here means nothing is on it — every look is missing.
+ * @param {string} [options.brief] what the whole set is, in one line.
+ * @param {string} [options.palette] the look across the whole show.
+ * @param {'metered'|'free'} [options.pulse] overrides what the set implies.
+ * @returns {{manifest: object, missing: Array, satisfied: Array, skipped: Array, deferred: Array}}
+ *   `missing` is what a build would spend a call on, in order.
+ */
+export function manifestFromScenario(rawScenario, options = {}) {
+  const scenario = normalizeScenario(rawScenario);
+
+  const have = new Set(
+    (Array.isArray(options.sceneNames) ? options.sceneNames : [])
+      .map((name) => String(name ?? '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const signals = new Map(scenario.signals.map((signal) => [signal.name, signal]));
+
+  const entries = [];
+  const skipped = [];
+  /** Scene name (lowercased) -> the section already having it built. */
+  const claimed = new Map();
+
+  for (const section of scenario.sections) {
+    const look = section.look;
+
+    // A section that plays a preset or carries its own patch has a look. It is
+    // not missing anything, and there is no scene name to build under.
+    if (look.kind === 'preset' || look.kind === 'patch') {
+      skipped.push({
+        sectionId: section.id,
+        name: section.name,
+        why: look.kind === 'preset'
+          ? `plays the preset "${look.preset}"`
+          : 'carries a patch of its own',
+      });
+      continue;
+    }
+
+    const common = {
+      id: section.id,
+      name: section.name,
+      mood: section.mood,
+      notes: section.notes,
+      intensity: section.intensity === null ? undefined : section.intensity,
+      enter: section.enter,
+      hold: section.hold.bars ? { bars: section.hold.bars }
+        : section.hold.seconds ? { seconds: section.hold.seconds }
+        : undefined,
+      next: section.next || undefined,
+    };
+
+    if (look.kind === 'scene' && have.has(look.scene.toLowerCase())) {
+      entries.push({ sectionId: section.id, needs: false, look: { ...common, scene: look.scene } });
+      continue;
+    }
+
+    // The name the set already uses, so the scene lands under it and the
+    // section needs no rewriting at all.
+    const sceneName = look.kind === 'scene' ? look.scene : section.name;
+    const key = sceneName.toLowerCase();
+
+    // Two sections playing the same absent scene want one look, not two. The
+    // second is not skipped so much as already answered: the scene it names is
+    // about to exist.
+    if (claimed.has(key)) {
+      skipped.push({
+        sectionId: section.id,
+        name: section.name,
+        why: `plays "${sceneName}", which is already being built for "${claimed.get(key)}"`,
+      });
+      continue;
+    }
+    claimed.set(key, section.name);
+
+    const reaches = reachesOf(section);
+
+    entries.push({
+      sectionId: section.id,
+      needs: true,
+      why: look.kind === 'scene'
+        ? `names the scene "${look.scene}", which is not on the rig`
+        : 'has no look at all',
+      look: {
+        ...common,
+        name: sceneName,
+        brief: briefFromSection(section, sceneName),
+        requires: reaches.map((entry) => ({ node: entry.node, param: entry.param })),
+        reactsTo: reactsToOf(reaches, signals),
+      },
+    });
+  }
+
+  // A manifest holds MANIFEST_LIMITS.looks looks, and that cap is about not
+  // spending an allowance by accident. A look already on the rig spends
+  // nothing — it is context — so it is what gets dropped first when a set is
+  // longer than a manifest can hold.
+  const cap = MANIFEST_LIMITS.looks;
+  for (let i = entries.length - 1; i >= 0 && entries.length > cap; i--) {
+    if (!entries[i].needs) entries.splice(i, 1);
+  }
+
+  // Still over, so there are more looks to build than one build can hold. The
+  // rest wait for a second press rather than being dropped quietly: they are
+  // still missing when this one finishes, so pressing again picks them up.
+  const deferred = [];
+  while (entries.length > cap) deferred.unshift(entries.pop());
+
+  const manifest = normalizeManifest({
+    version: MANIFEST_VERSION,
+    show: scenario.name,
+    brief: options.brief || scenario.notes,
+    palette: options.palette,
+    notes: scenario.notes,
+    bpm: scenario.bpm,
+    beatsPerBar: scenario.beatsPerBar,
+    barsPerPhrase: scenario.barsPerPhrase,
+    pulse: options.pulse || pulseOfScenario(scenario),
+    looks: entries.map((entry) => entry.look),
+    signals: scenario.signals,
+    cues: scenario.cues.map((cue) => cue.name),
+    rules: scenario.rules,
+  });
+
+  // Read the ids back off the normalised manifest rather than assuming they
+  // survived: it is the one place that decides what a look is called, and
+  // pass 3 matches on exactly that.
+  const described = (entry, index) => ({
+    lookId: manifest.looks[index]?.id || entry.sectionId,
+    sectionId: entry.sectionId,
+    name: manifest.looks[index]?.name || entry.look.name,
+    why: entry.why || '',
+  });
+
+  return {
+    manifest,
+    missing: entries.map(described).filter((_, i) => entries[i].needs),
+    satisfied: entries.map(described).filter((_, i) => !entries[i].needs),
+    skipped,
+    deferred: deferred.map((entry) => ({
+      sectionId: entry.sectionId,
+      name: entry.look.name,
+      why: entry.why || '',
+    })),
+  };
 }
 
 export default ShowBuilder;

@@ -407,6 +407,36 @@ describe('installPatchAsScene', () => {
     expect(executor.sceneManager.getScene(first.id).data.nodes).toHaveLength(1);
   });
 
+  it('carries a look\'s media into the scene, so the scene is not black when cut to', () => {
+    // The clips travel in the scene's project data, in the shape a saved
+    // project's textures are, because that is what the ordinary loader
+    // restores. Anywhere else and the first thing that cuts to this look shows
+    // a texture node pointing at nothing.
+    const executor = makeInstaller();
+    const textures = { a: { filename: 'fog-loop.mp4', dataUrl: 'data:video/mp4;base64,AA==', isVideo: true } };
+    const { id } = executor.installPatchAsScene('Opening', patch(), { textures });
+
+    expect(executor.sceneManager.getScene(id).data.textures).toEqual(textures);
+  });
+
+  it('leaves the scene data alone for a look with no media in it', () => {
+    const executor = makeInstaller();
+    const { id } = executor.installPatchAsScene('Opening', patch(), { textures: {} });
+    expect(executor.sceneManager.getScene(id).data.textures).toBeUndefined();
+  });
+
+  it('replaces a look\'s media along with its patch', () => {
+    const executor = makeInstaller();
+    const first = executor.installPatchAsScene('Drop', patch(), {
+      textures: { a: { filename: 'old.png', dataUrl: 'data:image/png;base64,AA==' } },
+    });
+    executor.installPatchAsScene('Drop', patch(), {
+      textures: { a: { filename: 'new.png', dataUrl: 'data:image/png;base64,BB==' } },
+    });
+
+    expect(executor.sceneManager.getScene(first.id).data.textures.a.filename).toBe('new.png');
+  });
+
   it('refuses an empty patch rather than installing a scene that renders nothing', () => {
     const executor = makeInstaller();
     expect(() => executor.installPatchAsScene('Nothing', { nodes: [], connections: [] }))

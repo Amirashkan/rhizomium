@@ -6,6 +6,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { PerformerPanel } from '../src/ui/PerformerPanel.js';
 import { PerformerEngine } from '../src/performer/PerformerEngine.js';
 import { PerformerClock } from '../src/performer/PerformerClock.js';
+import { indexShowFolder } from '../src/performer/ShowFolder.js';
 
 class QuietExecutor {
   constructor() { this.rules = null; this.performed = []; }
@@ -481,5 +482,328 @@ describe('the Show tab', () => {
     expect(panel.showStatus.dataset.level).toBe('error');
     expect(panel.showStatus.textContent).toMatch(/Out of patch generations/);
     expect(panel.buildButton.disabled).toBe(false);
+  });
+
+  // --- the other direction: a set that exists, and an empty rig -----------
+
+  describe('building the looks a set is missing', () => {
+    /** A set whose three sections have nothing to show on this rig. */
+    const SET = {
+      name: 'Night set',
+      sections: [
+        { id: 'opening', name: 'Opening', mood: 'cold', look: { scene: 'Deep Fog' } },
+        { id: 'drop', name: 'Drop' },
+      ],
+    };
+
+    const scenarioPanel = (director) => {
+      const rig = showPanel(director);
+      rig.panel.showTab('scenario');
+      rig.panel.editor.value = JSON.stringify(SET);
+      return rig;
+    };
+
+    it('says what it would cost before it spends anything', async () => {
+      const { panel } = scenarioPanel(fakeDirector());
+
+      await panel.buildMissingLooks();
+
+      expect(panel.engine.director.buildShow).not.toHaveBeenCalled();
+      expect(panel.authorStatus.textContent).toMatch(/2 looks to build/);
+      expect(panel.authorStatus.textContent).toMatch(/2 patch calls/);
+      expect(panel.editorReport.textContent).toMatch(/not on the rig/);
+    });
+
+    it('builds on the second press, and binds what it built into the set', async () => {
+      const director = fakeDirector();
+      const { panel } = scenarioPanel(director);
+
+      await panel.buildMissingLooks();
+      await panel.buildMissingLooks();
+
+      expect(director.buildShow).toHaveBeenCalledTimes(1);
+      const [manifest, options] = director.buildShow.mock.calls[0];
+      // Named after the scene the set already asks for, so nothing is renamed.
+      expect(manifest.looks.map((look) => look.name)).toEqual(['Deep Fog', 'Drop']);
+      // And the artist's own set goes in, to be bound rather than rewritten.
+      expect(options.scenario.name).toBe('Night set');
+    });
+
+    it('asks again when the set changed between the two presses', async () => {
+      const director = fakeDirector();
+      const { panel } = scenarioPanel(director);
+
+      await panel.buildMissingLooks();
+      panel.editor.value = JSON.stringify({
+        ...SET, sections: [{ id: 'opening', name: 'Opening' }],
+      });
+      await panel.buildMissingLooks();
+
+      expect(director.buildShow).not.toHaveBeenCalled();
+      expect(panel.authorStatus.textContent).toMatch(/1 look to build/);
+    });
+
+    it('spends nothing when every section already has a look', async () => {
+      const director = fakeDirector();
+      const { engine, panel } = scenarioPanel(director);
+      engine.executor.sceneManager = { getAllScenes: () => [{ id: 's1', name: 'Deep Fog' }] };
+      panel.editor.value = JSON.stringify({
+        sections: [{ id: 'opening', name: 'Opening', look: { scene: 'Deep Fog' } }],
+      });
+
+      await panel.buildMissingLooks();
+
+      expect(director.buildShow).not.toHaveBeenCalled();
+      expect(panel.authorStatus.dataset.level).toBe('ok');
+      expect(panel.authorStatus.textContent).toMatch(/Nothing to build/);
+    });
+
+    it('puts the bound set in the editor rather than under the running one', async () => {
+      const director = fakeDirector();
+      const { engine, panel } = scenarioPanel(director);
+
+      await panel.buildMissingLooks();
+      await panel.buildMissingLooks();
+
+      expect(JSON.parse(panel.editor.value).name).toBe('Test set');
+      expect(panel.editorHoldsDraft).toBe(true);
+      // Nothing started playing because a build finished.
+      expect(engine.scenario.name).not.toBe('Test set');
+      expect(panel.authorStatus.textContent).toMatch(/press Load/);
+    });
+
+    it('is the Stop for its own build while one is running', async () => {
+      let release;
+      const director = fakeDirector({
+        buildShow: vi.fn(() => new Promise((resolve) => {
+          release = () => resolve({
+            scenario: SET, built: [], note: '', wrote: 'given',
+            problems: [], stopped: 'cancelled', warnings: [], bound: [], unbound: [],
+          });
+        })),
+      });
+      const { panel } = scenarioPanel(director);
+
+      await panel.buildMissingLooks();
+      const building = panel.buildMissingLooks();
+      expect(panel.looksButton.textContent).toBe('Stop');
+
+      await panel.buildMissingLooks();
+      expect(panel.cancelBuild).toBe(true);
+      expect(director.buildShow).toHaveBeenCalledTimes(1);
+
+      release();
+      await building;
+      expect(panel.looksButton.textContent).toBe('Build the missing looks');
+      expect(panel.buildButton.disabled).toBe(false);
+    });
+
+    it('says where to put the looks when there is nowhere yet', async () => {
+      const director = fakeDirector();
+      const { engine, panel } = scenarioPanel(director);
+      engine.executor.sceneManager = null;
+
+      await panel.buildMissingLooks();
+      await panel.buildMissingLooks();
+
+      expect(director.buildShow).not.toHaveBeenCalled();
+      expect(panel.authorStatus.dataset.level).toBe('error');
+      expect(panel.authorStatus.textContent).toMatch(/VJ panel/);
+    });
+
+    it('says where broken JSON is broken instead of building it', async () => {
+      const director = fakeDirector();
+      const { panel } = scenarioPanel(director);
+      panel.editor.value = '{ sections: [';
+
+      await panel.buildMissingLooks();
+
+      expect(director.buildShow).not.toHaveBeenCalled();
+      expect(panel.authorStatus.textContent).toMatch(/not valid JSON/);
+    });
+  });
+});
+
+/* -------------------------------------------------------------------------
+ * The show folder.
+ *
+ * A manifest naming `fog-loop.mp4` is half a document; the directory it sat in
+ * is the other half. These are about the panel keeping the two together — and
+ * about the one thing it must never do, which is throw away a manifest the
+ * artist has been typing because they opened a folder to attach its footage.
+ * ---------------------------------------------------------------------- */
+
+describe('PerformerPanel: the show folder', () => {
+  const file = (name, text = '', { type = '', size = 1024 } = {}) => ({
+    name,
+    type,
+    size,
+    text: async () => text,
+    arrayBuffer: async () => new Uint8Array([1]).buffer,
+  });
+
+  const MANIFEST_TEXT = JSON.stringify({
+    show: 'Night set',
+    looks: [{ id: 'opening', name: 'Opening', brief: 'fog over the room', media: ['fog-loop'] }],
+  });
+
+  const entries = () => [
+    { path: 'night.rzshow.json', file: file('night.rzshow.json', MANIFEST_TEXT) },
+    { path: 'media/fog-loop.mp4', file: file('fog-loop.mp4', '', { type: 'video/mp4', size: 2 * 1024 * 1024 }) },
+    { path: 'media/set.wav', file: file('set.wav', '', { type: 'audio/wav' }) },
+  ];
+
+  function folderPanel() {
+    const { engine, panel } = build();
+    engine.executor.sceneManager = { getAllScenes: () => [] };
+    panel.show();
+    panel.showTab('show');
+    return { engine, panel };
+  }
+
+  /** What openShowFolder() would have got from the picker. */
+  const open = (panel, list = entries()) =>
+    panel.setShowFolder(indexShowFolder(list, { name: 'Night set' }));
+
+  it('puts the folder\'s manifest in the editor and lists its clips', async () => {
+    const { panel } = folderPanel();
+    await open(panel);
+
+    expect(panel.manifestEditor.value).toBe(MANIFEST_TEXT);
+    expect(panel.folderLabel.textContent).toContain('night.rzshow.json');
+    // One video, and the track — which is listed, because it is part of the
+    // show, and greyed, because nothing in the editor plays a file.
+    expect(panel.folderLabel.textContent).toContain('1 clip');
+    expect(panel.folderList.textContent).toContain('fog-loop.mp4');
+    expect(panel.folderList.textContent).toContain('set.wav');
+  });
+
+  it('never replaces a manifest the artist was typing', async () => {
+    const { panel } = folderPanel();
+    panel.manifestEditor.value = '{ "show": "mine, half-written"';
+
+    await open(panel);
+
+    expect(panel.manifestEditor.value).toBe('{ "show": "mine, half-written"');
+    // The folder is still taken: they opened it to attach the footage.
+    expect(panel.folder.media).toHaveLength(2);
+    expect(panel.buildLog.textContent).toMatch(/left unopened/);
+  });
+
+  it('checks the manifest against the folder as soon as it is open', async () => {
+    const { panel } = folderPanel();
+    await open(panel, [
+      { path: 'night.rzshow.json', file: file('night.rzshow.json', MANIFEST_TEXT) },
+      { path: 'media/smoke.mp4', file: file('smoke.mp4', '', { type: 'video/mp4' }) },
+    ]);
+
+    // The manifest asks for fog-loop and the folder has smoke. Better said now
+    // than after a patch call has been spent building the look without it.
+    expect(panel.buildLog.textContent).toMatch(/Nothing in the folder is called "fog-loop"/);
+  });
+
+  it('says a folder with no manifest in it has no manifest in it', async () => {
+    const { panel } = folderPanel();
+    await open(panel, [{ path: 'media/fog-loop.mp4', file: file('fog-loop.mp4', '', { type: 'video/mp4' }) }]);
+
+    expect(panel.folderLabel.textContent).toContain('no manifest');
+    expect(panel.folderLabel.dataset.level).toBe('warn');
+    // The clips are still indexed — a folder of footage with no manifest yet is
+    // exactly where an artist starts.
+    expect(panel.folder.media).toHaveLength(1);
+  });
+
+  it('hands the folder to the build, and forgets it when it is closed', async () => {
+    const { engine, panel } = folderPanel();
+    engine.director = {
+      status: () => ({ enabled: false, calls: 0, failures: 0 }),
+      buildShow: vi.fn(async () => ({
+        scenario: { name: 'Night set', sections: [] },
+        built: [], bound: [], problems: [], warnings: [], stopped: '', note: '', wrote: 'model',
+      })),
+    };
+    await open(panel);
+
+    await panel.buildShow();
+    expect(engine.director.buildShow.mock.calls[0][1].folder).toBe(panel.folder);
+
+    panel.closeShowFolder();
+    expect(panel.folder).toBeNull();
+    expect(panel.folderList.hidden).toBe(true);
+    await panel.buildShow();
+    expect(engine.director.buildShow.mock.calls[1][1].folder).toBeNull();
+  });
+
+  it('reads a folder of transmission projects into a manifest', async () => {
+    // What the other tool writes: one folder per piece, a manifest.json in each
+    // and the media beside it. Opening it used to fill the editor with the
+    // first manifest.json it found — a document with no looks in it — and hand
+    // the artist a page of errors about a show they never wrote.
+    const project = (slug, title) => JSON.stringify({
+      manifest_version: 1,
+      slug,
+      title,
+      copy: { narration: 'a line of narration' },
+      media_briefs: {
+        image: { prompt: 'frost on dark glass' },
+        music: { mood: 'hushed', bpm: 62, duration_seconds: 45 },
+        video: { prompt: 'fringes drifting over grain' },
+      },
+      performance: { energy: 2, key: 'D dorian', palette: ['near-black'], texture: 'coarse grain' },
+      assets: [{ kind: 'video', path: 'video.mp4', status: 'ok' }, { kind: 'music', path: 'bed.mp3', status: 'ok' }],
+    });
+
+    const { panel } = folderPanel();
+    await open(panel, [
+      { path: '2026-09-14-first/manifest.json', file: file('manifest.json', project('first', 'First')) },
+      { path: '2026-09-14-first/media/video.mp4', file: file('video.mp4', '', { type: 'video/mp4' }) },
+      { path: '2026-09-14-first/media/bed.mp3', file: file('bed.mp3', '', { type: 'audio/mpeg' }) },
+      { path: '2026-09-15-second/manifest.json', file: file('manifest.json', project('second', 'Second')) },
+      { path: '2026-09-15-second/media/video.mp4', file: file('video.mp4', '', { type: 'video/mp4' }) },
+    ]);
+
+    const manifest = JSON.parse(panel.manifestEditor.value);
+    expect(manifest.looks.map((look) => look.name)).toEqual(['First', 'Second']);
+    expect(manifest.looks[0].media).toEqual(['2026-09-14-first/media/video.mp4']);
+
+    expect(panel.folderLabel.textContent).toContain('2 transmissions');
+    expect(panel.folderLabel.dataset.level).toBe('ok');
+    expect(panel.buildLog.textContent).toMatch(/2 transmissions read out of this folder/);
+
+    // And it is buildable as it stands: nothing to fix before pressing Build.
+    expect(panel.showStatus.dataset.level).not.toBe('error');
+    expect(panel.showStatus.textContent).toContain('2 looks');
+  });
+
+  it('leaves a manifest that is not a show where it is, rather than loading it', async () => {
+    const { panel } = folderPanel();
+    await open(panel, [
+      { path: 'manifest.json', file: file('manifest.json', JSON.stringify({ name: 'something else', icons: [] })) },
+      { path: 'media/fog-loop.mp4', file: file('fog-loop.mp4', '', { type: 'video/mp4' }) },
+    ]);
+
+    // The editor keeps what it had — here the worked example the Show tab
+    // starts with — rather than being filled with somebody else's document.
+    expect(panel.manifestEditor.value).toContain('three-look club set');
+    expect(panel.manifestEditor.value).not.toContain('something else');
+    expect(panel.folderLabel.textContent).toContain('no show manifest');
+    expect(panel.buildLog.textContent).toMatch(/is not a show/);
+  });
+
+  it('marks the audio line a note, because there is nothing in it to fix', async () => {
+    const { panel } = folderPanel();
+    await open(panel);
+
+    expect(panel.buildLog.textContent).toMatch(/note — the folder: 1 audio file listed but not used/);
+  });
+
+  it('never puts a filename into the DOM as markup', async () => {
+    const { panel } = folderPanel();
+    await open(panel, [
+      { path: '<img src=x onerror=alert(1)>.png', file: file('<img src=x onerror=alert(1)>.png', '', { type: 'image/png' }) },
+    ]);
+
+    expect(panel.folderList.querySelector('img')).toBeNull();
+    expect(panel.folderList.textContent).toContain('<img');
   });
 });

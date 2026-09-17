@@ -5,6 +5,7 @@ import { RenderLoop } from "./src/core/RenderLoop.js";
 import { buildWGSL } from "./src/codegen/glslBuilder.js";
 import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
+import { installUnsavedCloseGuard } from "./src/core/closeGuard.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { FileManager } from "./src/ui/FileManager.js";
 import { getAIPanel } from "./src/ui/AIPanel.js";
@@ -546,6 +547,10 @@ async function initialize() {
     saveLoadManager = new SaveLoadManager(editor, graph, updateShaderFromGraph);
     saveLoadManager.setTextureManager(window.textureManager);
 
+    // Closing the desktop window on top of unsaved edits asks first; the web
+    // build gets the same question from beforeunload. No-op off the desktop.
+    installUnsavedCloseGuard(saveLoadManager);
+
     // Set saveLoadManager on editor for VJ panel
     editor.saveLoadManager = saveLoadManager;
 
@@ -572,7 +577,15 @@ async function initialize() {
       // does, so it takes the same path: a backup first, then the import, then
       // the view framed on what was just opened.
       onOpenStarter: async (starter) => {
-        await replaceGraphWithPatch(starter.patch, {
+        // Nodes hydrate with `params` assigned by reference (graphHydration.js
+        // clones `props` but not `params`), so passing the shared STARTER_PATCHES
+        // object straight through means editing a slider after opening a starter
+        // patch mutates that starter's definition for the rest of the session.
+        // Clone it here so every open starts from the untouched original.
+        const patch = typeof structuredClone === "function"
+          ? structuredClone(starter.patch)
+          : JSON.parse(JSON.stringify(starter.patch));
+        await replaceGraphWithPatch(patch, {
           title: starter.title,
           reason: "starter-patch",
         });
@@ -3470,7 +3483,7 @@ if (graph && graph.nodes) {
     // Unbind from any previously opened file so the next Save prompts fresh.
     saveLoadManager.currentFileHandle = null;
     saveLoadManager.setProjectName(null);
-    saveLoadManager.hasUnsavedChanges = false;
+    saveLoadManager.markSaved();
     saveLoadManager.updateStatus("New project created");
   }
 }

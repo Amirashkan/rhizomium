@@ -205,8 +205,15 @@ export class PerformerDirector {
 
     // Reap a request that has stopped being worth waiting for. Without this a
     // single hung fetch would silence the director for the rest of the night.
+    //
+    // The fetch itself cannot be cancelled, so it is still out there and will
+    // eventually settle. Bumping the token first is what makes that settle a
+    // no-op: ask()'s .then()/.catch() compare against the token they captured
+    // and drop the answer once it no longer matches, instead of re-spending
+    // units or clobbering whatever call has since taken this._inFlight's slot.
     if (this._inFlight && this.now() - this._inFlightAt > LIVE_TIMEOUT_MS) {
       this.log('warn', 'Director call timed out');
+      this._token++;
       this._inFlight = null;
       this._noteFailure();
     }
@@ -422,7 +429,8 @@ export class PerformerDirector {
    * is empty.
    *
    * @param {string} prompt what to build, from ShowManifest.lookPrompt()
-   * @param {object} [context] { show, look } — the rest of the set
+   * @param {object} [context] { show, look, media } — the rest of the set, and
+   *   the clips already loaded for this look
    * @returns {Promise<{patch: object, title: string, notes: string}>}
    */
   async generatePatch(prompt, context = {}) {
@@ -441,6 +449,15 @@ export class PerformerDirector {
             intensity: context.look?.intensity ?? null,
             drivable: (context.look?.drivable || []).slice(0, 8),
             reactsTo: (context.look?.reactsTo || []).slice(0, 8),
+            // The clips the builder has already loaded for this look, as the
+            // names of the nodes it is about to put them on. It is also what
+            // tells the backend a texture node is legal in this answer at all
+            // — so only the names travel, never the bytes: the file stays on
+            // the artist's machine and goes on the node here.
+            media: (context.media || []).slice(0, 8).map((slot) => ({
+              node: String(slot?.node || '').slice(0, 80),
+              kind: slot?.kind === 'video' ? 'video' : 'image',
+            })),
           }
         : undefined,
     });
@@ -470,14 +487,21 @@ export class PerformerDirector {
    * @param {object} [options]
    * @param {Function} options.installScene (name, patch, meta) => {id, name}
    * @param {object} [options.context] the rig, as the panel reads it
+   * @param {object} [options.folder] the show folder, when one is open: the
+   *   manifest's media references are resolved against it and a look that
+   *   names clips is built with them on it
    * @param {Function} [options.onProgress] per-look progress
    * @param {Function} [options.shouldStop] checked between calls
    * @param {boolean} [options.writeScenario] false to skip the scenario call
+   * @param {object} [options.scenario] a set that already exists: the looks are
+   *   built and bound into it instead of a new set being written. This is the
+   *   half of the pipeline a scenario with no scenes under it needs, and it
+   *   costs one call per missing look and nothing else.
    * @returns {Promise<object>} the builder's report
    */
   async buildShow(manifest, options = {}) {
     const show = normalizeManifest(manifest);
-    const report = validateManifest(show);
+    const report = validateManifest(show, options.folder || null);
     if (report.errors.length) {
       const first = report.errors[0];
       throw new Error(`${first.where} — ${first.message}`);
@@ -497,9 +521,11 @@ export class PerformerDirector {
     try {
       return await builder.build(show, {
         context: options.context,
+        folder: options.folder,
         onProgress: options.onProgress,
         shouldStop: options.shouldStop,
         writeScenario: options.writeScenario,
+        scenario: options.scenario,
       });
     } finally {
       this.building = false;
