@@ -81,6 +81,7 @@ import {
 } from './ShowManifest.js';
 import { normalizeScenario, SCENARIO_VERSION } from './Scenario.js';
 import { mediaSlotName, mediaSlots, readMediaDataUrl, resolveLookMedia } from './ShowFolder.js';
+import { patchHandles } from './PatchHandles.js';
 
 /** The node kinds a clip can arrive on. */
 const TEXTURE_KINDS = new Set(['Texture2D', 'TextureCube']);
@@ -237,6 +238,12 @@ export class ShowBuilder {
             title: generated?.title || look.name,
             notes: generated?.notes || '',
             nodes: patch.nodes.length,
+            // What the patch actually called the things it left to be turned.
+            // Pass 2 is about to write drives against this look, and until
+            // this was carried across it was writing them against node names
+            // it had guessed — which load, warn once, and then do nothing for
+            // the length of the set.
+            handles: patchHandles(media.patch),
             media: media.bound.map((one) => one.path),
             generated: true,
           });
