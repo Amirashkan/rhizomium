@@ -40,6 +40,17 @@ import { actionCost, actionGate, describeAction } from './actions.js';
 const ok = (detail = '') => ({ ok: true, detail });
 const no = (reason) => ({ ok: false, reason });
 
+/**
+ * How long a drive may fail to find its node before it is reported.
+ *
+ * A drive is installed in the same frame as the scene change it belongs to,
+ * and that scene is still loading — so for a moment every drive in a section
+ * points at nothing, and warning immediately would warn about every section.
+ * The grace runs from the moment the load settles, not from the install, so
+ * this is only ever waiting out the last frames of a transition.
+ */
+const DRIVE_BIND_GRACE_SECONDS = 2;
+
 export class ActionExecutor {
   /**
    * @param {object} deps
@@ -100,6 +111,11 @@ export class ActionExecutor {
      */
     this._nodeCache = new Map();
     this._nodeCacheGraph = null;
+
+    /** describePatch()'s cache, and the node array it was built from. */
+    this._patchCache = null;
+    this._patchCacheFor = null;
+    this._patchCacheLength = -1;
   }
 
   // --- the managers, looked up late --------------------------------------
@@ -178,6 +194,9 @@ export class ActionExecutor {
   invalidateNodes() {
     this._nodeCache.clear();
     this._nodeCacheGraph = null;
+    this._patchCache = null;
+    this._patchCacheFor = null;
+    this._patchCacheLength = -1;
   }
 
   /**
@@ -455,6 +474,16 @@ export class ActionExecutor {
     return ok(`${describeAction(action)}`);
   }
 
+  /**
+   * Install a standing drive.
+   *
+   * The node is deliberately NOT required to exist yet. A section installs its
+   * drives in the same frame it cuts to its look, and that look is still
+   * loading — refusing here would refuse every drive in every section. What
+   * the drive cannot do is fail quietly forever, which is what it used to do:
+   * `unboundFor` below is how tick() notices a drive that never found its node
+   * and says so once, instead of a set that runs clean and does not move.
+   */
   doDrive(action) {
     const key = `${action.node}|${action.param}`;
     // A drive and a ramp on one parameter would fight frame by frame. The
@@ -471,6 +500,10 @@ export class ActionExecutor {
       invert: action.invert,
       smooth: action.smooth,
       current: null,
+      /** Seconds this drive has spent unable to resolve its node. */
+      unboundFor: 0,
+      /** Whether that has already been reported, so it is said once. */
+      reportedUnbound: false,
     });
     return ok(describeAction(action));
   }
@@ -589,7 +622,31 @@ export class ActionExecutor {
   tick(delta, signals) {
     for (const drive of this.drives.values()) {
       const node = this.resolveNode(drive.node);
-      if (!node) continue;
+      if (!node) {
+        // The look this drive belongs to is still coming up. Nothing is wrong
+        // yet, and the clock on it should not start until the graph is settled.
+        if (this.sceneChangeInFlight) continue;
+
+        drive.unboundFor += delta;
+        if (!drive.reportedUnbound && drive.unboundFor >= DRIVE_BIND_GRACE_SECONDS) {
+          drive.reportedUnbound = true;
+          // The one line that turns "the visuals barely move" into something
+          // readable: the drive was accepted, the signal is arriving, and it
+          // is being written into a node that is not in the patch.
+          this.log('warn', `${drive.signal} drives ${drive.node}.${drive.param}, but no node "${drive.node}" is in this patch — the drive is doing nothing`, {
+            signal: drive.signal, node: drive.node, param: drive.param,
+          });
+        }
+        continue;
+      }
+
+      if (drive.reportedUnbound) {
+        // A look that arrived late, or a scene change into a patch that does
+        // have the node. Worth saying, because the warning above is alarming.
+        this.log('info', `${drive.node}.${drive.param} found its node — driving again`);
+      }
+      drive.reportedUnbound = false;
+      drive.unboundFor = 0;
 
       const reading = signals ? signals.value(drive.signal) : 0;
 
@@ -675,11 +732,63 @@ export class ActionExecutor {
     else if (this.vjPanel) this.vjPanel.masterOpacity = value;
   }
 
+  /**
+   * What is actually on the canvas, for the director's prompt.
+   *
+   * The model is asked to move parameters, and until this existed the only
+   * nodes it was ever shown were the ones the scenario's own drives named — so
+   * a set whose drives were bound to nodes that are not in the patch taught it
+   * those names and it went on asking for more of them. It cannot check a
+   * patch it has never been shown.
+   *
+   * Cached against the node array itself: a project load replaces the array,
+   * and adding or removing a node changes its length, so the pair is enough to
+   * notice every change that matters here without walking the graph per frame.
+   *
+   * Bounded rather than complete. This goes into a prompt every time the
+   * director is asked, and a hundred-node patch listed in full is a prompt
+   * where the music is no longer the biggest thing in it.
+   *
+   * @param {object} [limits]
+   * @param {number} [limits.maxNodes]
+   * @param {number} [limits.maxParams] per node
+   * @returns {Array<{node: string, kind: string, params: Array<string>}>}
+   */
+  describePatch({ maxNodes = 40, maxParams = 12 } = {}) {
+    const nodes = this.graph?.nodes;
+    if (!Array.isArray(nodes)) return [];
+
+    if (this._patchCache && this._patchCacheFor === nodes
+      && this._patchCacheLength === nodes.length) {
+      return this._patchCache;
+    }
+
+    const described = nodes.slice(0, maxNodes).map((node) => ({
+      // The name a scenario should write, chosen the way resolveNode() reads
+      // one: the artist's own name when there is one, the kind when there is
+      // not. The kind rather than the definition's label ("ComputeNoise", not
+      // "Compute Noise") — both resolve, and the kind is what a scenario and
+      // a look's `requires` are written in, so it is the one to be taught.
+      node: customNodeName(node) || String(node?.kind || ''),
+      kind: String(node?.kind || ''),
+      params: Object.keys(node?.params || {}).slice(0, maxParams),
+    }));
+
+    this._patchCache = described;
+    this._patchCacheFor = nodes;
+    this._patchCacheLength = nodes.length;
+    return described;
+  }
+
   /** What the panel shows under "currently driving". */
   status() {
     return {
       drives: [...this.drives.values()].map((d) => ({
         signal: d.signal, node: d.node, param: d.param, min: d.min, max: d.max,
+        // A drive that has been looking for its node for longer than the grace
+        // period is not driving anything, and the panel should not draw it as
+        // though it were.
+        bound: !d.reportedUnbound,
       })),
       ramps: [...this.ramps.values()].map((r) => ({
         node: r.master ? 'master' : r.node,

@@ -870,6 +870,11 @@ export class PerformerEngine {
       // frame. Cached inside the listener, so building this every frame costs
       // a property read.
       listening: this.listening(),
+      // What is on the canvas right now. Without it the model's only view of
+      // the patch is the node names the scenario's own drives happen to use,
+      // so a set whose drives name nodes that are not there teaches it those
+      // names and it keeps asking for them.
+      patch: this.executor.describePatch?.() || [],
       driving: this.executor.status().drives,
       recent: this.log.slice(-12).map((entry) => ({
         at: entry.bar,
@@ -960,6 +965,17 @@ export class PerformerEngine {
     this._listening = wanted;
     setMusicalListeningWanted(wanted);
     if (wanted) this.director?.setListener?.(getMusicalListener());
+
+    // Two switches have to agree for the director to run: this one, which is
+    // the artist inviting it, and the scenario's own rule, which is the set
+    // saying it wants one. A show built by the show builder ships with the
+    // rule off, so turning the panel switch on can look like nothing at all
+    // happening. Say which switch is holding it rather than leaving the artist
+    // to find a field they cannot see from the panel.
+    if (wanted && !this.scenario.rules.director.enabled) {
+      this.write('warn', 'The director is on, but this scenario has rules.director.enabled off — it will not be asked. Turn it on in the scenario to use it.');
+    }
+
     return this.director?.setEnabled?.(wanted) ?? wanted;
   }
 

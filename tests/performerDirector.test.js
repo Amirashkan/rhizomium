@@ -55,6 +55,39 @@ describe('PerformerDirector', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  // A section change is the second door into ask(). It used to be the only one
+  // that did not check the scenario's own switch, so a set with the director
+  // off in its rules still spent a call at every boundary — and because the
+  // engine does not consult a director its rules have off, nothing collected
+  // the answer or timed the request out. It surfaced much later, as a plan
+  // dropped for arriving half a minute after it was asked for.
+  it('does not ask at a section change when the scenario has the director off', () => {
+    director.setEnabled(true);
+    const off = state();
+    off.scenario.rules.director.enabled = false;
+
+    director.onSectionChange(off);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('still asks at a section change when the scenario wants one', () => {
+    director.setEnabled(true);
+    director.onSectionChange(state());
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the model the patch, so a plan can name a node that exists', () => {
+    director.setEnabled(true);
+    director.offer(state({
+      patch: [{ node: 'ComputeNoise', kind: 'ComputeNoise', params: ['scale', 'speed'] }],
+    }));
+
+    const [, input] = run.mock.calls[0];
+    expect(input.state.patch).toEqual([
+      { node: 'ComputeNoise', kind: 'ComputeNoise', params: ['scale', 'speed'] },
+    ]);
+  });
+
   it('asks once when enabled, and not again until the cadence has passed', () => {
     director.setEnabled(true);
     director.offer(state({ now: { bar: 0, bpm: 120 } }));
