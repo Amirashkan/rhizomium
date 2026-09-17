@@ -38,6 +38,16 @@
  * - **The whole thing can be cancelled**, and cancelling between calls is the
  *   only cancellation worth having: a call in flight has already been paid for.
  *
+ * ## The artist's own footage
+ *
+ * A show folder (ShowFolder.js) carries media beside the manifest, and a look
+ * that names clips is built on them: the prompt asks for a texture node per
+ * clip, attachMedia() below puts the files on the nodes that came back, and the
+ * scene is installed carrying them. Everywhere else in the editor a generated
+ * patch may not contain a texture node at all, for the good reason that a model
+ * cannot supply a file — here the file exists before the call is made, which is
+ * the whole difference.
+ *
  * ## The set that already exists
  *
  * The same three passes answer the opposite case, and it is the more common
@@ -51,16 +61,6 @@
  * names the section's own drives and moves already address. Building it with
  * `{ scenario }` then skips pass 2 — there is nothing to write — and binds the
  * patches into the artist's own set, drives, cues and rules untouched.
- *
- * ## The artist's own footage
- *
- * A show folder (ShowFolder.js) carries media beside the manifest, and a look
- * that names clips is built on them: the prompt asks for a texture node per
- * clip, attachMedia() below puts the files on the nodes that came back, and the
- * scene is installed carrying them. Everywhere else in the editor a generated
- * patch may not contain a texture node at all, for the good reason that a model
- * cannot supply a file — here the file exists before the call is made, which is
- * the whole difference.
  *
  * ## What it does not do
  *
@@ -132,13 +132,13 @@ export class ShowBuilder {
    * @param {Function} [options.shouldStop] () => boolean, checked between calls.
    * @param {boolean} [options.writeScenario] false to build the looks and
    *   write the set from the manifest without a second model call.
+   * @param {object} [options.folder] the show folder, from
+   *   ShowFolder.indexShowFolder(). With one, a look that names clips is built
+   *   with them already on its texture nodes.
    * @param {object} [options.scenario] a set that already exists. Given one,
    *   pass 2 does not run at all — there is nothing to write — and pass 3
    *   binds the looks into it, leaving its drives, moves, cues and rules
    *   exactly as the artist wrote them.
-   * @param {object} [options.folder] the show folder, from
-   *   ShowFolder.indexShowFolder(). With one, a look that names clips is built
-   *   with them already on its texture nodes.
    * @returns {Promise<object>} the report: the scenario, the scenes, and what
    *   went wrong on the way.
    */

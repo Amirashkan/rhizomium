@@ -202,9 +202,6 @@ function normalizeLook(raw, index) {
     // Parameters the artist wants to be able to reach while the set runs,
     // in prose. The patch prompt turns these into named nodes.
     drivable: list(source.drivable ?? source.controls).map((c) => trimmed(c, 60)).filter(Boolean).slice(0, 8),
-    // Parameters the set already addresses by name, when this look was derived
-    // from a scenario rather than written for one. See normalizeRequires().
-    requires: normalizeRequires(source.requires ?? source.reaches),
     // Clips from the show folder this look is built around, named the way the
     // artist would say them: a filename, a name without its extension, a
     // folder to take everything out of, or "*" for the lot. Resolved against
@@ -212,6 +209,9 @@ function normalizeLook(raw, index) {
     // without one, which is why nothing here tries to validate the strings.
     media: list(source.media ?? source.footage ?? source.clips)
       .map((c) => trimmed(c, 200)).filter(Boolean).slice(0, 16),
+    // Parameters the set already addresses by name, when this look was derived
+    // from a scenario rather than written for one. See normalizeRequires().
+    requires: normalizeRequires(source.requires ?? source.reaches),
     hold: normalizeLength(source.hold ?? source.length ?? source.duration),
     // Passed through to the scenario untouched: a manifest that already knows
     // this look is entered by a cue should not have that guessed at again.

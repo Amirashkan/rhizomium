@@ -171,14 +171,14 @@ Drivers: `src/audio/`, `src/midi/`, `src/osc/`, `src/core/TimelineManager.js`,
   a synchronous per-frame engine, and a model consulted in bars and kept off
   the frame loop. A show can also be *built* rather than only scored: a
   manifest describes looks that do not exist yet, and one patch-generator call
-  per look turns it into the scenes the scenario then names. The same pipeline
-  runs backwards for the commoner case — a set that already exists on a rig
-  with none of its scenes on it reads as the manifest it implies, and the
-  patches are built into the artist's own scenario rather than a new one. A
-  manifest opened as a *folder* brings the artist's own footage with it: the
-  clips beside it go onto the generated looks, which is the one case where a
-  generated patch is allowed a texture node at all — everywhere else a model
-  cannot supply the file and the node would render black. `src/performer/README.md`.
+  per look turns it into the scenes the scenario then names. A manifest opened
+  as a *folder* brings the artist's own footage with it: the clips beside it go
+  onto the generated looks, which is the one case where a generated patch is
+  allowed a texture node at all — everywhere else a model cannot supply the file
+  and the node would render black. The same pipeline runs backwards for the
+  commoner case — a set that already exists on a rig with none of its scenes on
+  it reads as the manifest it implies, and the patches are built into the
+  artist's own scenario rather than a new one. `src/performer/README.md`.
 - `src/collab/` — multi-user editing.
 - `src/ai/` — AI features. See [Open-core boundary](#open-core-boundary).
 

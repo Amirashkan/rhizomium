@@ -734,6 +734,69 @@ describe('PerformerPanel: the show folder', () => {
     expect(engine.director.buildShow.mock.calls[1][1].folder).toBeNull();
   });
 
+  it('reads a folder of transmission projects into a manifest', async () => {
+    // What the other tool writes: one folder per piece, a manifest.json in each
+    // and the media beside it. Opening it used to fill the editor with the
+    // first manifest.json it found — a document with no looks in it — and hand
+    // the artist a page of errors about a show they never wrote.
+    const project = (slug, title) => JSON.stringify({
+      manifest_version: 1,
+      slug,
+      title,
+      copy: { narration: 'a line of narration' },
+      media_briefs: {
+        image: { prompt: 'frost on dark glass' },
+        music: { mood: 'hushed', bpm: 62, duration_seconds: 45 },
+        video: { prompt: 'fringes drifting over grain' },
+      },
+      performance: { energy: 2, key: 'D dorian', palette: ['near-black'], texture: 'coarse grain' },
+      assets: [{ kind: 'video', path: 'video.mp4', status: 'ok' }, { kind: 'music', path: 'bed.mp3', status: 'ok' }],
+    });
+
+    const { panel } = folderPanel();
+    await open(panel, [
+      { path: '2026-09-14-first/manifest.json', file: file('manifest.json', project('first', 'First')) },
+      { path: '2026-09-14-first/media/video.mp4', file: file('video.mp4', '', { type: 'video/mp4' }) },
+      { path: '2026-09-14-first/media/bed.mp3', file: file('bed.mp3', '', { type: 'audio/mpeg' }) },
+      { path: '2026-09-15-second/manifest.json', file: file('manifest.json', project('second', 'Second')) },
+      { path: '2026-09-15-second/media/video.mp4', file: file('video.mp4', '', { type: 'video/mp4' }) },
+    ]);
+
+    const manifest = JSON.parse(panel.manifestEditor.value);
+    expect(manifest.looks.map((look) => look.name)).toEqual(['First', 'Second']);
+    expect(manifest.looks[0].media).toEqual(['2026-09-14-first/media/video.mp4']);
+
+    expect(panel.folderLabel.textContent).toContain('2 transmissions');
+    expect(panel.folderLabel.dataset.level).toBe('ok');
+    expect(panel.buildLog.textContent).toMatch(/2 transmissions read out of this folder/);
+
+    // And it is buildable as it stands: nothing to fix before pressing Build.
+    expect(panel.showStatus.dataset.level).not.toBe('error');
+    expect(panel.showStatus.textContent).toContain('2 looks');
+  });
+
+  it('leaves a manifest that is not a show where it is, rather than loading it', async () => {
+    const { panel } = folderPanel();
+    await open(panel, [
+      { path: 'manifest.json', file: file('manifest.json', JSON.stringify({ name: 'something else', icons: [] })) },
+      { path: 'media/fog-loop.mp4', file: file('fog-loop.mp4', '', { type: 'video/mp4' }) },
+    ]);
+
+    // The editor keeps what it had — here the worked example the Show tab
+    // starts with — rather than being filled with somebody else's document.
+    expect(panel.manifestEditor.value).toContain('three-look club set');
+    expect(panel.manifestEditor.value).not.toContain('something else');
+    expect(panel.folderLabel.textContent).toContain('no show manifest');
+    expect(panel.buildLog.textContent).toMatch(/is not a show/);
+  });
+
+  it('marks the audio line a note, because there is nothing in it to fix', async () => {
+    const { panel } = folderPanel();
+    await open(panel);
+
+    expect(panel.buildLog.textContent).toMatch(/note — the folder: 1 audio file listed but not used/);
+  });
+
   it('never puts a filename into the DOM as markup', async () => {
     const { panel } = folderPanel();
     await open(panel, [

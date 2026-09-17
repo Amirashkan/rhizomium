@@ -75,7 +75,7 @@ describe('indexShowFolder', () => {
     expect(folder.media).toHaveLength(1);
   });
 
-  it('picks the shallowest, most specific manifest and names the ones it ignored', () => {
+  it('picks the shallowest, most specific manifest and lists the rest behind it', () => {
     const folder = indexShowFolder([
       entry('media/manifest.json'),
       entry('show.json'),
@@ -84,7 +84,11 @@ describe('indexShowFolder', () => {
 
     expect(folder.manifest.path).toBe('night-set.rzshow.json');
     expect(folder.extraManifests).toEqual(expect.arrayContaining(['show.json', 'media/manifest.json']));
-    expect(folder.problems.some((p) => /More than one manifest/.test(p.message))).toBe(true);
+    // All of them, best first. Which are worth complaining about is decided
+    // once they have been read — a folder of project folders holds one manifest
+    // each and wants every one of them. See ShowImport.readFolderShow().
+    expect(folder.manifests.map((one) => one.path))
+      .toEqual(['night-set.rzshow.json', 'show.json', 'media/manifest.json']);
   });
 
   it('lists a clip too big to inline as skipped, with the size in the reason', () => {
