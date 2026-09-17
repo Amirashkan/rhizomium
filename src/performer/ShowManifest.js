@@ -38,6 +38,8 @@
  * one-error-at-a-time loop wastes the one thing that desk has.
  */
 
+import { MEDIA_LIMITS, mediaSlotName, resolveLookMedia } from './ShowFolder.js';
+
 /** The format version this build writes. Readers accept anything <= this. */
 export const MANIFEST_VERSION = 1;
 
@@ -203,6 +205,13 @@ function normalizeLook(raw, index) {
     // Parameters the set already addresses by name, when this look was derived
     // from a scenario rather than written for one. See normalizeRequires().
     requires: normalizeRequires(source.requires ?? source.reaches),
+    // Clips from the show folder this look is built around, named the way the
+    // artist would say them: a filename, a name without its extension, a
+    // folder to take everything out of, or "*" for the lot. Resolved against
+    // the folder by ShowFolder.resolveLookMedia() — meaningless, and inert,
+    // without one, which is why nothing here tries to validate the strings.
+    media: list(source.media ?? source.footage ?? source.clips)
+      .map((c) => trimmed(c, 200)).filter(Boolean).slice(0, 16),
     hold: normalizeLength(source.hold ?? source.length ?? source.duration),
     // Passed through to the scenario untouched: a manifest that already knows
     // this look is entered by a cue should not have that guessed at again.
@@ -298,9 +307,14 @@ const at = (where, message) => ({ where, message });
  * produces a show, and the one thing this pass must not do is refuse to build
  * something the artist could have played.
  *
+ * @param {object} [manifest]
+ * @param {object} [folder] the show folder, from ShowFolder.indexShowFolder().
+ *   With one, a look's `media` is resolved here rather than at build time: a
+ *   clip named slightly wrong is a typo to fix at the desk, and finding it out
+ *   after six patch calls have been spent is finding it out too late.
  * @returns {{errors: Array<{where: string, message: string}>, warnings: Array, generated: number}}
  */
-export function validateManifest(manifest) {
+export function validateManifest(manifest, folder = null) {
   const errors = [];
   const warnings = [];
   const show = normalizeManifest(manifest);
@@ -329,7 +343,27 @@ export function validateManifest(manifest) {
     if (show.pulse === 'free' && look.hold?.bars) {
       warnings.push(at(where, 'This show has no pulse, so a hold in bars is counted against a tempo nobody is playing to. Use seconds.'));
     }
+
+    if (look.media.length && !folder) {
+      warnings.push(at(where, `Names ${look.media.length} clip${look.media.length === 1 ? '' : 's'}, but no show folder is open. Open the folder they are in — press "Open folder…" — or this look is built without them.`));
+    } else if (look.media.length && folder) {
+      const { missing, dropped } = resolveLookMedia(folder, look);
+      if (missing.length) {
+        warnings.push(at(where, `Nothing in the folder is called ${missing.map((m) => `"${m}"`).join(', ')}. The look is still built, without ${missing.length === 1 ? 'it' : 'them'}.`));
+      }
+      if (dropped) {
+        warnings.push(at(where, `More clips than one look can hold. The first ${MEDIA_LIMITS.perLook} are used and ${dropped} more ${dropped === 1 ? 'is' : 'are'} left out — every clip in a look is decoded on every frame it is up.`));
+      }
+    }
   });
+
+  const clips = (folder?.media || []).filter((item) => item.kind !== 'audio');
+  if (clips.length && !show.looks.some((look) => look.media.length)) {
+    // The folder is the only place the artist could have meant this footage to
+    // be used, and nothing is using it. Said once, at the show level, rather
+    // than once per look.
+    warnings.push(at('media', `${clips.length} clip${clips.length === 1 ? '' : 's'} in this folder and no look asks for ${clips.length === 1 ? 'it' : 'any'}. Add "media": ["${clips[0].name}"] to a look to build it on that footage, or "media": ["*"] for all of them.`));
+  }
 
   if (generated > 6) {
     warnings.push(at('looks', `${generated} looks means ${generated} patch-generator calls, one after another. Check your allowance before you start — a build that runs out halfway keeps the patches it already made, but it will not finish the set.`));
@@ -384,9 +418,10 @@ export function showContext(manifest) {
  * name, parameters with somewhere to travel, and a first frame that is already
  * the look rather than the look at full tilt.
  */
-export function lookPrompt(manifest, look) {
+export function lookPrompt(manifest, look, media = []) {
   const show = normalizeManifest(manifest);
   const one = show.looks.find((entry) => entry.id === look?.id) || normalizeLook(look || {}, 0);
+  const clips = Array.isArray(media) ? media : [];
 
   const lines = [
     `${one.brief || one.name}`,
@@ -407,6 +442,23 @@ export function lookPrompt(manifest, look) {
   }
   if (one.reactsTo.length) {
     lines.push(`It should visibly answer the music on: ${one.reactsTo.join(', ')}.`);
+  }
+
+  // The artist's own footage. Everywhere else in the editor a Texture 2D node
+  // is refused in a generated patch, because a model cannot supply the file and
+  // a texture node pointing at nothing renders black. Here the file exists and
+  // is about to be put on the node, so the refusal does not apply — and the
+  // look is not "a patch that could use footage", it is a patch built around
+  // this footage, which is why the clips go near the top of the instructions
+  // rather than at the end as an option.
+  if (clips.length) {
+    lines.push(
+      '',
+      `This look is built on the artist's own media. ${clips.length === 1 ? 'One clip is' : `${clips.length} clips are`} already loaded and waiting on ${clips.length === 1 ? 'a node' : 'nodes'}:`,
+      ...clips.map((clip) => `- a Texture2D node named exactly "${mediaSlotName(clip)}" — ${clip.kind === 'video' ? 'moving footage' : 'a still image'}, from ${clip.name}`),
+      'Put those nodes in the patch under those exact names, wire each one through, and compose the look around what they carry. Do not add any other Texture2D or TextureCube node: there is no file for it and it would render black.',
+      'The footage is the material, not a backdrop — treat it the way the brief describes and let the rest of the graph work on it.'
+    );
   }
 
   lines.push(

@@ -8,6 +8,12 @@ import { PerformerOSC } from '../performer/PerformerOSC.js';
 import { EXAMPLE_SCENARIO } from '../performer/Scenario.js';
 import { EXAMPLE_MANIFEST, MANIFEST_LIMITS, parseManifest, validateManifest } from '../performer/ShowManifest.js';
 import { manifestFromScenario } from '../performer/ShowBuilder.js';
+import {
+  folderPickerKind,
+  indexShowFolder,
+  readDirectoryHandle,
+  readFileList,
+} from '../performer/ShowFolder.js';
 import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
 
 /**
@@ -126,6 +132,16 @@ export class PerformerPanel {
      * asks again rather than building the old plan.
      */
     this.pendingLooks = null;
+    /**
+     * The open show folder, from ShowFolder.indexShowFolder(), or null.
+     *
+     * It holds live File objects, so it is deliberately not persisted: a
+     * reopened editor has no access to last night's directory and a folder
+     * readout describing files nothing can read is worse than none.
+     */
+    this.folder = null;
+    /** The manifest text as the folder gave it, so a repaint knows what is the artist's own. */
+    this.manifestFromFolder = '';
 
     this.router = new PerformerOSC(engine, { eventSystem: options.eventSystem });
     this.router.attach();
@@ -378,6 +394,26 @@ export class PerformerPanel {
       'Scenario tab for you to read first.';
     pane.appendChild(intro);
 
+    // The folder, above the manifest, because it is the thing you open first:
+    // a show with footage in it is a directory, and picking it fills the
+    // editor below and hands the build the clips in one go.
+    const folderRow = el('div', 'rz-perf-row rz-perf-folder-row');
+    folderRow.appendChild(button('Open folder…', 'Open a show folder: its manifest, and the media the looks are built on',
+      () => this.openShowFolder(), 'rz-perf-btn rz-perf-folder-open'));
+    this.folderClearButton = button('Close folder', 'Forget this folder. Looks that name clips are then built without them',
+      () => this.closeShowFolder());
+    this.folderClearButton.hidden = true;
+    folderRow.appendChild(this.folderClearButton);
+    this.folderLabel = el('div', 'rz-perf-folder-label', 'No folder open.');
+    folderRow.appendChild(this.folderLabel);
+    pane.appendChild(folderRow);
+
+    // What is actually in it, one line per clip. Named, because the names are
+    // what a look writes in its "media" list.
+    this.folderList = el('div', 'rz-perf-folder-list');
+    this.folderList.hidden = true;
+    pane.appendChild(this.folderList);
+
     this.manifestEditor = el('textarea', 'rz-perf-editor');
     this.manifestEditor.spellcheck = false;
     this.manifestEditor.placeholder = 'Press Example to see the shape of one.';
@@ -414,6 +450,152 @@ export class PerformerPanel {
     pane.appendChild(this.buildLog);
   }
 
+  /* --- the show folder --------------------------------------------------
+   *
+   * A manifest that names `fog-loop.mp4` is half a document; the other half is
+   * the directory it was sitting in. Opening the directory keeps the two
+   * together — which is what makes a show portable to the rig's laptop, and
+   * what lets the build put the artist's own footage into the looks it
+   * generates rather than being told it may not have any.
+   */
+
+  /**
+   * Pick a folder and read it.
+   *
+   * Two ways in, because there are two ways a browser hands over a directory.
+   * The real picker names the folder; the `webkitdirectory` fallback does not,
+   * so the name is taken off the first path instead. Everything after this
+   * point works on the same index either way.
+   */
+  async openShowFolder() {
+    try {
+      const entries = folderPickerKind() === 'directory'
+        ? await this.pickDirectory()
+        : await this.pickDirectoryFallback();
+      if (!entries) return; // cancelled — not a failure, and not worth a line
+
+      this.setShowFolder(indexShowFolder(entries.files, { name: entries.name }));
+    } catch (error) {
+      // AbortError is the artist pressing Escape. Everything else is worth saying.
+      if (error?.name === 'AbortError') return;
+      this.showStatus.textContent = `Could not read that folder: ${error?.message || error}`;
+      this.showStatus.dataset.level = 'error';
+    }
+  }
+
+  async pickDirectory() {
+    const handle = await window.showDirectoryPicker({ id: 'rhizo-show', mode: 'read' });
+    return { name: handle?.name || '', files: await readDirectoryHandle(handle) };
+  }
+
+  /** The same, for a browser with no directory picker. */
+  pickDirectoryFallback() {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.webkitdirectory = true;
+      input.multiple = true;
+      input.addEventListener('change', () => {
+        const files = Array.from(input.files || []);
+        if (!files.length) { resolve(null); return; }
+        const first = String(files[0].webkitRelativePath || '').split('/')[0];
+        resolve({ name: first, files: readFileList(files) });
+      });
+      // A cancelled file dialog fires nothing in most browsers, so this promise
+      // is simply never settled — which is fine: nothing is waiting on it and
+      // the artist can press the button again.
+      input.click();
+    });
+  }
+
+  /**
+   * Take a folder, and put its manifest in the editor.
+   *
+   * The manifest is only loaded over an editor that is empty or holds
+   * something this panel put there. An artist who has been typing a manifest
+   * for ten minutes and opens a folder to attach its footage should not have
+   * that replaced — so in that one case the folder is taken and the file is
+   * offered rather than applied.
+   */
+  async setShowFolder(folder) {
+    this.folder = folder;
+
+    let loaded = false;
+    if (folder.manifest) {
+      const typed = this.manifestEditor.value.trim();
+      const mine = !typed || this.manifestFromFolder === typed || typed === JSON.stringify(EXAMPLE_MANIFEST, null, 2);
+      if (mine) {
+        try {
+          const text = await folder.manifest.file.text();
+          this.manifestEditor.value = text;
+          this.manifestFromFolder = text.trim();
+          loaded = true;
+        } catch (error) {
+          folder.problems.push({ where: folder.manifest.path, message: `could not be read: ${error?.message || error}` });
+        }
+      }
+    }
+
+    this.paintFolder();
+    this.showTab('show');
+
+    const report = this.checkManifest();
+    if (!loaded && folder.manifest && report !== undefined) {
+      this.noteBuild(
+        `"${folder.manifest.path}" was left unopened — the editor has a manifest in it already. Clear it and open the folder again to use the one on disk.`,
+        'warn'
+      );
+    }
+  }
+
+  closeShowFolder() {
+    this.folder = null;
+    this.manifestFromFolder = '';
+    this.paintFolder();
+    this.checkManifest();
+  }
+
+  /** The folder as one line, and its clips as a list under it. */
+  paintFolder() {
+    const folder = this.folder;
+    this.folderClearButton.hidden = !folder;
+    this.folderList.replaceChildren();
+    this.folderList.hidden = !folder;
+
+    if (!folder) {
+      this.folderLabel.textContent = 'No folder open.';
+      this.folderLabel.dataset.level = '';
+      return;
+    }
+
+    const usable = folder.media.filter((item) => item.kind !== 'audio');
+    const bits = [folder.name];
+    bits.push(folder.manifest ? folder.manifest.path : 'no manifest');
+    bits.push(`${usable.length} clip${usable.length === 1 ? '' : 's'}`);
+    if (folder.skipped.length) bits.push(`${folder.skipped.length} skipped`);
+
+    this.folderLabel.textContent = bits.join(' · ');
+    this.folderLabel.dataset.level = folder.manifest ? 'ok' : 'warn';
+
+    for (const item of folder.media) {
+      const row = el('div', 'rz-perf-folder-file');
+      row.dataset.kind = item.kind;
+      // The name, because that is the string a look writes in its media list.
+      row.appendChild(el('span', 'rz-perf-folder-name', item.name));
+      row.appendChild(el('span', 'rz-perf-folder-meta',
+        `${item.kind} · ${(item.size / 1024 / 1024).toFixed(1)} MB${item.folder ? ` · ${item.folder}/` : ''}`));
+      this.folderList.appendChild(row);
+    }
+
+    for (const item of folder.skipped) {
+      const row = el('div', 'rz-perf-folder-file');
+      row.dataset.kind = 'skipped';
+      row.appendChild(el('span', 'rz-perf-folder-name', item.path));
+      row.appendChild(el('span', 'rz-perf-folder-meta', item.reason));
+      this.folderList.appendChild(row);
+    }
+  }
+
   /** Read the editor as a manifest, or say why it cannot be read. */
   readManifest() {
     const text = this.manifestEditor.value.trim();
@@ -431,16 +613,27 @@ export class PerformerPanel {
       return null;
     }
 
-    const report = validateManifest(manifest);
+    const report = validateManifest(manifest, this.folder);
     const lines = [
+      // The folder's own complaints first: a manifest naming a clip that is not
+      // there reads as a manifest problem, and it is usually a folder problem.
+      ...(this.folder?.problems || []).map((p) => `folder — ${p.where}: ${p.message}`),
       ...report.errors.map((p) => `error — ${p.where}: ${p.message}`),
       ...report.warnings.map((p) => `warning — ${p.where}: ${p.message}`),
     ];
 
     this.buildLog.textContent = lines.join('\n');
+
+    const clips = this.folder
+      ? manifest.looks.reduce((total, look) => total + (look.media.length ? 1 : 0), 0)
+      : 0;
+    const withMedia = clips
+      ? `, ${clips} of them on your own footage`
+      : '';
+
     this.showStatus.textContent = report.errors.length
       ? `${report.errors.length} thing${report.errors.length === 1 ? '' : 's'} to fix before this can be built.`
-      : `${manifest.looks.length} looks, ${report.generated} of them to generate — ${report.generated} patch call${report.generated === 1 ? '' : 's'}, then one for the set.`;
+      : `${manifest.looks.length} looks${withMedia}, ${report.generated} to generate — ${report.generated} patch call${report.generated === 1 ? '' : 's'}, then one for the set.`;
     this.showStatus.dataset.level = report.errors.length ? 'error' : report.warnings.length ? 'warn' : 'ok';
 
     return report.errors.length ? null : manifest;
@@ -495,6 +688,9 @@ export class PerformerPanel {
     try {
       const report = await director.buildShow(manifest, {
         context: this.rigContext(),
+        // Null when no folder is open, which is every build that was possible
+        // before folders existed — and those go down exactly the path they did.
+        folder: this.folder,
         installScene: (name, patch, meta) => executor.installPatchAsScene(name, patch, meta),
         shouldStop: () => this.cancelBuild,
         onProgress: (event) => {
@@ -529,6 +725,14 @@ export class PerformerPanel {
       }
       for (const problem of report.problems) this.noteBuild(`${problem.where}: ${problem.message}`, 'error');
       if (report.note) this.noteBuild(report.note, 'info');
+      const clips = report.built.reduce((total, entry) => total + (entry.media?.length || 0), 0);
+      if (clips) {
+        this.noteBuild(
+          `${clips} clip${clips === 1 ? '' : 's'} from the folder ${clips === 1 ? 'is' : 'are'} in the looks, and travel${clips === 1 ? 's' : ''} with them: the scenes carry their own media.`,
+          'ok'
+        );
+      }
+
       for (const entry of report.bound) {
         this.noteBuild(
           `"${entry.sceneName}" plays in section "${entry.sectionId}"${entry.inserted ? ' (a section was added for it)' : ''}.`,

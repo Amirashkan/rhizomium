@@ -52,6 +52,16 @@
  * `{ scenario }` then skips pass 2 — there is nothing to write — and binds the
  * patches into the artist's own set, drives, cues and rules untouched.
  *
+ * ## The artist's own footage
+ *
+ * A show folder (ShowFolder.js) carries media beside the manifest, and a look
+ * that names clips is built on them: the prompt asks for a texture node per
+ * clip, attachMedia() below puts the files on the nodes that came back, and the
+ * scene is installed carrying them. Everywhere else in the editor a generated
+ * patch may not contain a texture node at all, for the good reason that a model
+ * cannot supply a file — here the file exists before the call is made, which is
+ * the whole difference.
+ *
  * ## What it does not do
  *
  * It does not touch the editor. `installScene` is injected by whoever has one
@@ -71,6 +81,13 @@ import {
   MANIFEST_VERSION,
 } from './ShowManifest.js';
 import { normalizeScenario, SCENARIO_VERSION } from './Scenario.js';
+import { mediaSlotName, mediaSlots, readMediaDataUrl, resolveLookMedia } from './ShowFolder.js';
+
+/** The node kinds a clip can arrive on. */
+const TEXTURE_KINDS = new Set(['Texture2D', 'TextureCube']);
+
+/** Compared the way ShowFolder compares a reference: case and punctuation out. */
+const loose = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 /**
  * A refusal from the gallery — the wrong tier, or an allowance that is spent.
@@ -119,6 +136,9 @@ export class ShowBuilder {
    *   pass 2 does not run at all — there is nothing to write — and pass 3
    *   binds the looks into it, leaving its drives, moves, cues and rules
    *   exactly as the artist wrote them.
+   * @param {object} [options.folder] the show folder, from
+   *   ShowFolder.indexShowFolder(). With one, a look that names clips is built
+   *   with them already on its texture nodes.
    * @returns {Promise<object>} the report: the scenario, the scenes, and what
    *   went wrong on the way.
    */
@@ -126,7 +146,8 @@ export class ShowBuilder {
     if (this.building) throw new Error('A show is already being built.');
 
     const show = normalizeManifest(manifest);
-    const report = validateManifest(show);
+    const folder = options.folder || null;
+    const report = validateManifest(show, folder);
     if (report.errors.length) {
       throw new Error(
         `This manifest cannot be built yet: ${report.errors[0].where} — ${report.errors[0].message}`
@@ -162,10 +183,25 @@ export class ShowBuilder {
           message: `Building "${look.name}" (${index + 1} of ${needed.length})…`,
         });
 
+        // The artist's own footage for this look, resolved before the call so
+        // the prompt can ask for the nodes it is about to arrive on. A clip
+        // named in the manifest and missing from the folder is a warning
+        // already reported by the check above; the look is still built.
+        const { items: clips, missing } = folder
+          ? resolveLookMedia(folder, look)
+          : { items: [], missing: [] };
+        if (missing.length) {
+          problems.push({
+            where: `look "${look.name}"`,
+            message: `no clip in the folder called ${missing.map((one) => `"${one}"`).join(', ')} — built without ${missing.length === 1 ? 'it' : 'them'}`,
+          });
+        }
+
         try {
-          const generated = await this.generatePatch(lookPrompt(show, look), {
+          const generated = await this.generatePatch(lookPrompt(show, look, clips), {
             show: showContext(show),
             look,
+            media: mediaSlots(clips),
           });
 
           const patch = generated?.patch;
@@ -173,13 +209,26 @@ export class ShowBuilder {
             throw new Error('the model answered with an empty patch');
           }
 
+          // Put the footage on the nodes the model left for it. This is the
+          // step that makes a clip part of the look rather than a file in a
+          // folder, and it happens before the scene is installed so that the
+          // scene carries its media the way a saved project does.
+          const media = await attachMedia(patch, clips);
+          for (const note of media.problems) {
+            problems.push({ where: `look "${look.name}"`, message: note });
+          }
+
           // The scene is named after the look, not after the title the model
           // chose for its patch: the scenario is about to name it, and it can
           // only name what the manifest said.
-          const scene = await this.installScene(look.name, patch, {
+          const scene = await this.installScene(look.name, media.patch, {
             notes: generated?.notes || look.mood || look.brief,
             title: generated?.title || look.name,
             lookId: look.id,
+            // Keyed by node id, exactly as a saved project's textures are:
+            // installScene hands it straight to the scene's project data and
+            // the ordinary loader puts it back on the GPU.
+            textures: media.textures,
           });
 
           built.push({
@@ -189,13 +238,16 @@ export class ShowBuilder {
             title: generated?.title || look.name,
             notes: generated?.notes || '',
             nodes: patch.nodes.length,
+            media: media.bound.map((one) => one.path),
             generated: true,
           });
 
           onProgress({
             phase: 'look', status: 'ok', index, total: needed.length,
             lookId: look.id, name: look.name,
-            message: `"${look.name}" — ${patch.nodes.length} nodes.`,
+            message: media.bound.length
+              ? `"${look.name}" — ${patch.nodes.length} nodes, ${media.bound.length} clip${media.bound.length === 1 ? '' : 's'}.`
+              : `"${look.name}" — ${patch.nodes.length} nodes.`,
           });
         } catch (error) {
           problems.push({ where: `look "${look.name}"`, message: message(error) });
@@ -281,6 +333,141 @@ export class ShowBuilder {
       this.building = false;
     }
   }
+}
+
+/**
+ * Put the artist's footage on the nodes the model left for it.
+ *
+ * The prompt asked for a Texture2D node per clip, named after the clip
+ * (`ShowFolder.mediaSlotName`). This is the other end of that contract, and it
+ * is written to survive the model getting the names slightly wrong, because a
+ * clip that does not land is a black rectangle in the middle of a look that has
+ * already been paid for:
+ *
+ *   1. By name, loosely — "Media - Fog Loop" finds "Media: fog-loop".
+ *   2. Whatever is left over, in order, onto whatever texture nodes are left.
+ *   3. If there are still nodes with nothing on them, the clips are used again
+ *      from the start. A node showing the first clip twice is a look; a node
+ *      showing nothing is a hole.
+ *
+ * The result is the `textures` map a saved project carries — keyed by node id,
+ * with the bytes inline — so the scene this becomes is restored by the ordinary
+ * loader, on this machine and on the rig's laptop it gets copied to.
+ *
+ * Pure apart from reading the files, and exported, because the three rules
+ * above are the part worth testing on its own.
+ *
+ * @param {object} patch as the model returned it
+ * @param {Array} clips from ShowFolder.resolveLookMedia()
+ * @returns {Promise<{patch: object, textures: object, bound: Array, problems: Array<string>}>}
+ */
+export async function attachMedia(patch, clips = []) {
+  const wanted = Array.isArray(clips) ? clips.filter(Boolean) : [];
+  if (!wanted.length) return { patch, textures: {}, bound: [], problems: [] };
+
+  const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
+  const slots = nodes
+    .map((node, index) => ({ node, index }))
+    .filter((entry) => TEXTURE_KINDS.has(entry.node?.kind));
+
+  if (!slots.length) {
+    return {
+      patch,
+      textures: {},
+      bound: [],
+      problems: [
+        `built without a texture node, so ${wanted.length === 1 ? 'the clip was' : `${wanted.length} clips were`} not used. The look is still installed — the footage is not in it.`,
+      ],
+    };
+  }
+
+  const taken = new Set();
+  const assigned = new Map(); // slot index in `slots` -> clip
+
+  // 1. by name.
+  slots.forEach((entry, position) => {
+    const name = loose(entry.node.name);
+    if (!name) return;
+    const found = wanted.findIndex((clip, i) => {
+      if (taken.has(i) || !fits(entry.node, clip)) return false;
+      const slot = loose(mediaSlotName(clip));
+      const label = loose(clip.label);
+      return name === slot || (label && (name === label || name.includes(label)));
+    });
+    if (found >= 0) {
+      taken.add(found);
+      assigned.set(position, wanted[found]);
+    }
+  });
+
+  // 2. and 3. — everything still empty, in order, cycling if it has to.
+  let next = 0;
+  slots.forEach((entry, position) => {
+    if (assigned.has(position)) return;
+    const spare = wanted.findIndex((clip, i) => !taken.has(i) && fits(entry.node, clip));
+    if (spare >= 0) {
+      taken.add(spare);
+      assigned.set(position, wanted[spare]);
+      return;
+    }
+    // Nothing spare. Reuse, starting from the first clip that fits this node.
+    for (let n = 0; n < wanted.length; n++) {
+      const clip = wanted[(next + n) % wanted.length];
+      if (fits(entry.node, clip)) {
+        next = (next + n + 1) % wanted.length;
+        assigned.set(position, clip);
+        return;
+      }
+    }
+  });
+
+  const textures = {};
+  const bound = [];
+  const problems = [];
+  const patched = nodes.slice();
+
+  for (const [position, clip] of assigned) {
+    const { node, index } = slots[position];
+    try {
+      const dataUrl = await readMediaDataUrl(clip);
+      textures[String(node.id)] = {
+        filename: clip.name,
+        dataUrl,
+        isVideo: clip.kind === 'video',
+      };
+      // The node's own record of which of the two kinds of file it is holding.
+      // Set by the upload everywhere else; without it a clip loads and plays
+      // while the panel shows it the controls for a still image.
+      patched[index] = {
+        ...node,
+        name: node.name || mediaSlotName(clip),
+        params: { ...(node.params || {}), sourceType: clip.kind === 'video' ? 'video' : 'image' },
+      };
+      bound.push({ nodeId: String(node.id), path: clip.path, kind: clip.kind });
+    } catch (error) {
+      // One unreadable clip costs that clip, not the look.
+      problems.push(`could not read ${clip.path}: ${message(error)}`);
+    }
+  }
+
+  const unused = wanted.filter((clip) => !bound.some((one) => one.path === clip.path));
+  if (unused.length) {
+    problems.push(
+      `${unused.map((clip) => clip.name).join(', ')} went unused: the look came back with ${slots.length} texture node${slots.length === 1 ? '' : 's'} for ${wanted.length} clips.`
+    );
+  }
+
+  return { patch: { ...patch, nodes: patched }, textures, bound, problems };
+}
+
+/**
+ * Whether this clip can go on this node.
+ *
+ * A cube map is six faces of a still image in one file; a video on one is a
+ * node that renders nothing and a question nobody can answer from the canvas.
+ */
+function fits(node, clip) {
+  return node?.kind !== 'TextureCube' || clip.kind !== 'video';
 }
 
 /**
