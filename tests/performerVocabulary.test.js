@@ -99,6 +99,70 @@ describe('what the director is shown', () => {
     const { engine } = engineOver([node('1', 'ComputeNoise')], oneSection([]));
     expect(engine.stillSeconds()).toBe(0);
   });
+
+  // The case that reads as a working set from every other angle: the node is
+  // there, the parameter is there, the drive writes every frame. What it
+  // writes is the bottom of its range, because nothing has ever come down that
+  // signal — so the picture has not moved since the first frame and the old
+  // reading of "a drive resolves, therefore the picture is alive" said it had.
+  it('counts the picture as frozen when a resolving drive is fed by a signal that never arrived', () => {
+    const { engine, play } = engineOver(
+      [node('1', 'ComputeNoise', { name: 'membrane' })],
+      {
+        name: 'set',
+        signals: [{ name: 'level', source: 'osc', address: '/never' }],
+        sections: [{ id: 'a', name: 'A', drives: [{ signal: 'level', node: 'membrane', param: 'scale' }] }],
+        rules: { director: { enabled: false } },
+      }
+    );
+    engine.start();
+    play(30);
+    expect(engine.stillSeconds()).toBeGreaterThan(25);
+  });
+});
+
+describe('the three things that black a canvas', () => {
+  const withSignal = (drives) => ({
+    name: 'set',
+    signals: [{ name: 'level', source: 'osc', address: '/never' }],
+    sections: [{ id: 'a', name: 'A', drives }],
+    rules: { director: { enabled: false } },
+  });
+
+  it('names a drive whose signal never arrived, and what it is pinning', () => {
+    const { engine, play } = engineOver(
+      [node('1', 'ComputeNoise', { name: 'membrane' })],
+      withSignal([{ signal: 'level', node: 'membrane', param: 'scale', min: 0, max: 2 }])
+    );
+    engine.start();
+    play(1);
+
+    const dead = engine.describeState().dead;
+    expect(dead).toHaveLength(1);
+    expect(dead[0].why).toContain('has never arrived');
+    // The number the artist can actually see on the screen.
+    expect(dead[0].pinnedAt).toBe(0);
+  });
+
+  it('carries the master fader, which blacks the output on its own', () => {
+    const { engine } = engineOver([node('1', 'ComputeNoise')], oneSection([]));
+    expect(engine.describeState().picture.master).toBe(1);
+
+    engine.executor.setMaster(0);
+    expect(engine.describeState().picture.master).toBe(0);
+
+    // MasterOutput holds this for the whole module, so a test that pulls the
+    // fader down and walks away pulls it down for everything after it.
+    engine.executor.setMaster(1);
+  });
+
+  it('carries the blackout, which does too', () => {
+    const { engine } = engineOver([node('1', 'ComputeNoise')], oneSection([]));
+    expect(engine.describeState().picture.blackedOut).toBe(false);
+
+    engine.executor.execute(normalizeAction({ type: 'blackout', on: true }), { now: 0 });
+    expect(engine.describeState().picture.blackedOut).toBe(true);
+  });
 });
 
 describe('a drive bound to nothing', () => {

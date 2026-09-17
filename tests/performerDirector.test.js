@@ -196,6 +196,18 @@ describe('PerformerDirector', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it('does not ask on a section change the scenario\'s own rules have off', () => {
+    // The engine consults the director only when rules.director.enabled is on,
+    // so without this gate a section boundary is a second door into ask(): the
+    // call is made and charged, and nothing ever collects the answer or times
+    // it out. It surfaces much later as a plan dropped for arriving late.
+    director.setEnabled(true);
+    director.onSectionChange(state({
+      scenario: { ...state().scenario, rules: { ...state().scenario.rules, director: { enabled: false, freedom: 0.4 } } },
+    }));
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it('keeps a signal nothing has sent out of the prompt', () => {
     director.setEnabled(true);
     director.offer(state({

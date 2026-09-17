@@ -130,9 +130,29 @@ describe('the token cost of every AI feature', () => {
     // fact been a frozen frame since the first bar. Five hundred tokens a call
     // is the wrong side of that trade to economise on, and there is no cheaper
     // place to put them — this is the only prompt shown a running performance.
+    //
+    // And again, to 1,600, for ~240 tokens that answer the other half of the
+    // same set: what to do when the screen is black. Three of them.
+    //
+    // "patch" is a list of HANDLES — a node with nothing numeric on it is not
+    // in it, the output node above all — so a model reading it as the graph
+    // finds no output node in it and is right. The set that paid for this then
+    // spent forty bars reporting a missing output connection it had inferred,
+    // holding every call because graph edits were off. It could not have
+    // checked: the master fader, the blackout and the fact that a drive on a
+    // signal nothing has sent pins its parameter to the bottom of its range
+    // every frame were all absent from the prompt, and those are the three
+    // things that actually black a canvas. So: the three are in "picture" and
+    // "dead" now, and the prompt says plainly that the handle list is not the
+    // graph and that an absence inferred from it is not a finding.
+    //
+    // The trade is the same one as above and it is worth taking at a worse
+    // rate: a quarter of a call's tokens against a director that can tell a
+    // dark stage from a still one. What must not follow is a third raise for
+    // prose — the next thing that wants room here should displace something.
     const system = ranges.map((range) => range.input.system);
     const spread = Math.max(...system) - Math.min(...system);
-    expect(spread).toBeLessThan(1300);
+    expect(spread).toBeLessThan(1600);
   });
 
   it('keeps the shared prompt under 9,500 tokens', () => {

@@ -38,6 +38,7 @@
 
 import { NodeDefs } from '../data/NodeDefs.js';
 import { customNodeName, defaultNodeName } from '../core/nodeName.js';
+import { mapNormalizedValue } from '../parameters/ExternalParameterControl.js';
 
 /** Parameter types a fader can move. Everything else is not a number. */
 const NUMERIC_TYPES = new Set(['float', 'f32', 'int', 'slider']);
@@ -160,18 +161,35 @@ function performableParams(node, limit) {
 }
 
 /**
- * Which of these drives address something that is not there.
+ * Which of these drives are not moving anything.
  *
  * The engine reports this to the director rather than only to the log: a
  * broken drive is the one thing in a performance the model can repair without
  * being asked, because it can see both what the set wanted and what the patch
  * has.
  *
+ * Three ways a drive can be inert, and the third is the one that is invisible
+ * from every other readout. A drive whose node is missing and a drive whose
+ * parameter is missing both write nowhere. A drive whose node and parameter
+ * BOTH resolve, bound to a signal that has never arrived, writes every frame —
+ * it writes `mapNormalizedValue(0, …)`, which is the bottom of its own range,
+ * forever. On a scale, an opacity or a density that bottom is usually 0, and a
+ * parameter pinned at 0 every frame is a black canvas that no readout in the
+ * prompt was naming: `signals` drops a signal nothing has sent, `driving` lists
+ * the binding as though it were working, and the parameter cannot be moved by
+ * a `param` action because the drive overwrites it on the next frame.
+ *
+ * So the pinned value is reported with it. "the signal never arrived" is a
+ * diagnosis; "Lateral Drift.scaleX is pinned at 0" is the thing on screen.
+ *
  * @param {Array<{node: string, param: string, signal?: string}>} drives
  * @param {object} patch
- * @returns {Array<{signal: string, node: string, param: string, why: string}>}
+ * @param {object} [signals] SignalBus.snapshot(), when liveness is to be judged
+ *   too. Omitted — as the scenario-side callers do — only the patch is checked.
+ * @returns {Array<{signal: string, node: string, param: string, why: string,
+ *   pinnedAt?: number}>}
  */
-export function deadDrives(drives, patch) {
+export function deadDrives(drives, patch, signals = null) {
   const list = Array.isArray(drives) ? drives : [];
   if (!list.length) return [];
 
@@ -199,10 +217,45 @@ export function deadDrives(drives, patch) {
         param: String(drive?.param || ''),
         why: drive?.param ? `"${found.kind}" has no parameter by that name` : 'no parameter was named',
       });
+      continue;
+    }
+
+    // Both ends resolve. The remaining way to be inert is the source: a signal
+    // the bus has never had a reading for. Only checked when the caller passed
+    // a snapshot — a declared signal that is merely quiet right now is a
+    // normal, musical thing and is not this.
+    if (signals && isUnseen(signals, drive?.signal)) {
+      out.push({
+        signal: String(drive?.signal || ''),
+        node: String(drive?.node || ''),
+        param: String(drive?.param || ''),
+        why: drive?.signal
+          ? `the signal "${drive.signal}" has never arrived, so this writes the bottom of its range every frame`
+          : 'no signal was named',
+        pinnedAt: round(mapNormalizedValue(0, {
+          min: drive?.min,
+          max: drive?.max,
+          curve: drive?.curve,
+          inverted: drive?.invert,
+        })),
+      });
     }
   }
 
   return out;
+}
+
+/**
+ * Whether a signal is one the bus knows about and has never had a reading for.
+ *
+ * A name the snapshot does not carry at all is NOT reported. Those are the
+ * built-ins (`energy`, `intensity`, the clock) and a scenario's `extras`, which
+ * are computed rather than sent and have no `seen` to be false — calling them
+ * dead would put every set's own signals in the list.
+ */
+function isUnseen(signals, name) {
+  const signal = signals?.[String(name || '')];
+  return Boolean(signal) && signal.seen === false;
 }
 
 /** resolveNode()'s lookup, without an executor. Kept in step with it by tests. */

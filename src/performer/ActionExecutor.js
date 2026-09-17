@@ -720,6 +720,10 @@ export class ActionExecutor {
         remaining: Math.max(0, r.duration - r.elapsed),
       })),
       blackedOut: this.blackedOut,
+      // What the whole output is being multiplied by. Read from MasterOutput
+      // rather than remembered here, because the panel's own fader and a MIDI
+      // controller both write it without going through this executor.
+      master: getMasterOpacity(),
       transition: { ...this.transition },
       sceneChangeInFlight: this.sceneChangeInFlight,
     };

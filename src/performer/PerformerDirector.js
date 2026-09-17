@@ -253,6 +253,14 @@ export class PerformerDirector {
    */
   onSectionChange(state) {
     if (!this.enabled) return;
+    // The same gate consultDirector() applies, and for the same reason.
+    // Without it this is a second door into ask() that the scenario's own
+    // switch does not cover: a set with the director turned off in its rules
+    // would still spend a call at every section boundary, and — because the
+    // engine is not consulting a director its rules have off — nothing would
+    // ever collect the answer or time the request out. It surfaces much later,
+    // as a plan dropped for arriving half a minute after it was asked for.
+    if (!state?.scenario?.rules?.director?.enabled) return;
     if (this._inFlight || this.now() < this._nextAllowedAt) return;
     this.ask(state, 'section');
   }

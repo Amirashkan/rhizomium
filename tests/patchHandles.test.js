@@ -144,6 +144,68 @@ describe('deadDrives', () => {
   });
 });
 
+// The third way to be inert, and the one that is invisible everywhere else.
+// Both ends resolve, so nothing in the patch is wrong; the signal has simply
+// never arrived, and mapNormalizedValue(0, …) goes into the parameter every
+// frame. On a scale or an opacity that is 0, which is a black canvas that
+// `signals` does not mention (it drops a signal nothing has sent), `driving`
+// reports as a working binding, and no `param` move can lift, because the
+// drive wins the next frame.
+describe('deadDrives: a drive bound to a signal that never arrived', () => {
+  const graph = patch(node('1', 'ComputeNoise', { name: 'membrane' }));
+  const live = { level: { seen: true, value: 0.4 } };
+  const never = { level: { seen: false, value: 0 } };
+  const drive = { signal: 'level', node: 'membrane', param: 'scale', min: 0, max: 2 };
+
+  it('is not reported while the caller passes no snapshot to judge it by', () => {
+    expect(deadDrives([drive], graph)).toEqual([]);
+  });
+
+  it('is not reported for a signal that has arrived, however low it reads now', () => {
+    expect(deadDrives([drive], graph, live)).toEqual([]);
+  });
+
+  it('is reported, by name, for a signal that never has', () => {
+    const dead = deadDrives([drive], graph, never);
+    expect(dead).toHaveLength(1);
+    expect(dead[0].why).toContain('has never arrived');
+    expect(dead[0].signal).toBe('level');
+    expect(dead[0].node).toBe('membrane');
+  });
+
+  it('says what the parameter is pinned at, which is the thing on screen', () => {
+    // The bottom of the drive's own range: what the artist sees is not "no
+    // signal", it is a scale of 0.
+    expect(deadDrives([drive], graph, never)[0].pinnedAt).toBe(0);
+  });
+
+  it('reads the pin through the drive\'s own curve and inversion', () => {
+    // Inverted, a dead signal pins to the TOP of the range instead — still
+    // frozen, and a very different picture. Reporting `min` flatly would have
+    // been wrong here.
+    const inverted = { ...drive, invert: true };
+    expect(deadDrives([inverted], graph, never)[0].pinnedAt).toBe(2);
+  });
+
+  it('leaves a signal the bus does not carry at all alone', () => {
+    // `energy`, `intensity`, the clock and a scenario's own extras are computed
+    // rather than sent: they are not in the snapshot and have no `seen` to be
+    // false. Calling those dead would put every set's own signals in the list.
+    const builtin = { ...drive, signal: 'energy' };
+    expect(deadDrives([builtin], graph, never)).toEqual([]);
+  });
+
+  it('reports the missing node first when both are wrong', () => {
+    // One line per drive, naming the thing to fix first. A drive that is bound
+    // to nothing AND fed by nothing is repaired by re-binding it, not by
+    // chasing the signal.
+    const both = { signal: 'level', node: 'ComputeGradient', param: 'brightness' };
+    const dead = deadDrives([both], graph, never);
+    expect(dead).toHaveLength(1);
+    expect(dead[0].why).toBe('no node by that name');
+  });
+});
+
 describe('a kind the registry does not know', () => {
   it('falls back to the numbers the node is carrying', () => {
     const handles = patchHandles(patch(node('1', 'SomethingNewer', { params: { amount: 0.3, label: 'x' } })));
