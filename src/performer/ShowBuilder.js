@@ -237,6 +237,13 @@ export class ShowBuilder {
             title: generated?.title || look.name,
             notes: generated?.notes || '',
             nodes: patch.nodes.length,
+            // What a drive in this look's section can actually reach. The
+            // scenario call is about to be told to name only what it was
+            // given, and until this was passed the only parameters it had been
+            // given were the ones in whatever patch happened to be open — so
+            // it named those, and the sections drove a node that is not in the
+            // scene they load.
+            parameters: patchParameters(media.patch),
             media: media.bound.map((one) => one.path),
             generated: true,
           });
@@ -460,6 +467,30 @@ export async function attachMedia(patch, clips = []) {
 }
 
 /**
+ * The parameters a drive can reach in one built look, as "node.param".
+ *
+ * Numeric only: a drive writes a float into a uniform, so a select, a colour
+ * or a file is not something a signal can move. Capped, because this is
+ * prompt text and a forty-node patch has a few hundred of them — the ones
+ * worth driving are the ones an artist would reach for first, and a list long
+ * enough to bury them is not more useful for being complete.
+ */
+function patchParameters(patch, limit = 24) {
+  const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
+  const out = [];
+  for (const node of nodes) {
+    const label = String(node?.name || node?.kind || '').trim();
+    if (!label) continue;
+    for (const [key, value] of Object.entries(node?.params || {})) {
+      if (typeof value !== 'number') continue;
+      out.push(`${label}.${key}`);
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
+/**
  * Whether this clip can go on this node.
  *
  * A cube map is six faces of a still image in one file; a video on one is a
@@ -490,6 +521,11 @@ function mergeContext(context, show, built) {
         id: entry.sceneId || entry.lookId,
         name: entry.sceneName,
         notes: look?.mood || entry.notes || '',
+        // The parameters of THIS scene, so a drive in its section names
+        // something the section will actually have loaded. The flat list
+        // beside it is the patch that is open in the editor, which during a
+        // show build is nobody's section.
+        parameters: entry.parameters || [],
       };
     });
 
