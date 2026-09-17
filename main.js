@@ -5,6 +5,7 @@ import { RenderLoop } from "./src/core/RenderLoop.js";
 import { buildWGSL } from "./src/codegen/glslBuilder.js";
 import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
+import { installUnsavedCloseGuard } from "./src/core/closeGuard.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { FileManager } from "./src/ui/FileManager.js";
 import { getAIPanel } from "./src/ui/AIPanel.js";
@@ -545,6 +546,10 @@ async function initialize() {
 
     saveLoadManager = new SaveLoadManager(editor, graph, updateShaderFromGraph);
     saveLoadManager.setTextureManager(window.textureManager);
+
+    // Closing the desktop window on top of unsaved edits asks first; the web
+    // build gets the same question from beforeunload. No-op off the desktop.
+    installUnsavedCloseGuard(saveLoadManager);
 
     // Set saveLoadManager on editor for VJ panel
     editor.saveLoadManager = saveLoadManager;
@@ -3478,7 +3483,7 @@ if (graph && graph.nodes) {
     // Unbind from any previously opened file so the next Save prompts fresh.
     saveLoadManager.currentFileHandle = null;
     saveLoadManager.setProjectName(null);
-    saveLoadManager.hasUnsavedChanges = false;
+    saveLoadManager.markSaved();
     saveLoadManager.updateStatus("New project created");
   }
 }
