@@ -483,6 +483,145 @@ describe('the Show tab', () => {
     expect(panel.showStatus.textContent).toMatch(/Out of patch generations/);
     expect(panel.buildButton.disabled).toBe(false);
   });
+
+  // --- the other direction: a set that exists, and an empty rig -----------
+
+  describe('building the looks a set is missing', () => {
+    /** A set whose three sections have nothing to show on this rig. */
+    const SET = {
+      name: 'Night set',
+      sections: [
+        { id: 'opening', name: 'Opening', mood: 'cold', look: { scene: 'Deep Fog' } },
+        { id: 'drop', name: 'Drop' },
+      ],
+    };
+
+    const scenarioPanel = (director) => {
+      const rig = showPanel(director);
+      rig.panel.showTab('scenario');
+      rig.panel.editor.value = JSON.stringify(SET);
+      return rig;
+    };
+
+    it('says what it would cost before it spends anything', async () => {
+      const { panel } = scenarioPanel(fakeDirector());
+
+      await panel.buildMissingLooks();
+
+      expect(panel.engine.director.buildShow).not.toHaveBeenCalled();
+      expect(panel.authorStatus.textContent).toMatch(/2 looks to build/);
+      expect(panel.authorStatus.textContent).toMatch(/2 patch calls/);
+      expect(panel.editorReport.textContent).toMatch(/not on the rig/);
+    });
+
+    it('builds on the second press, and binds what it built into the set', async () => {
+      const director = fakeDirector();
+      const { panel } = scenarioPanel(director);
+
+      await panel.buildMissingLooks();
+      await panel.buildMissingLooks();
+
+      expect(director.buildShow).toHaveBeenCalledTimes(1);
+      const [manifest, options] = director.buildShow.mock.calls[0];
+      // Named after the scene the set already asks for, so nothing is renamed.
+      expect(manifest.looks.map((look) => look.name)).toEqual(['Deep Fog', 'Drop']);
+      // And the artist's own set goes in, to be bound rather than rewritten.
+      expect(options.scenario.name).toBe('Night set');
+    });
+
+    it('asks again when the set changed between the two presses', async () => {
+      const director = fakeDirector();
+      const { panel } = scenarioPanel(director);
+
+      await panel.buildMissingLooks();
+      panel.editor.value = JSON.stringify({
+        ...SET, sections: [{ id: 'opening', name: 'Opening' }],
+      });
+      await panel.buildMissingLooks();
+
+      expect(director.buildShow).not.toHaveBeenCalled();
+      expect(panel.authorStatus.textContent).toMatch(/1 look to build/);
+    });
+
+    it('spends nothing when every section already has a look', async () => {
+      const director = fakeDirector();
+      const { engine, panel } = scenarioPanel(director);
+      engine.executor.sceneManager = { getAllScenes: () => [{ id: 's1', name: 'Deep Fog' }] };
+      panel.editor.value = JSON.stringify({
+        sections: [{ id: 'opening', name: 'Opening', look: { scene: 'Deep Fog' } }],
+      });
+
+      await panel.buildMissingLooks();
+
+      expect(director.buildShow).not.toHaveBeenCalled();
+      expect(panel.authorStatus.dataset.level).toBe('ok');
+      expect(panel.authorStatus.textContent).toMatch(/Nothing to build/);
+    });
+
+    it('puts the bound set in the editor rather than under the running one', async () => {
+      const director = fakeDirector();
+      const { engine, panel } = scenarioPanel(director);
+
+      await panel.buildMissingLooks();
+      await panel.buildMissingLooks();
+
+      expect(JSON.parse(panel.editor.value).name).toBe('Test set');
+      expect(panel.editorHoldsDraft).toBe(true);
+      // Nothing started playing because a build finished.
+      expect(engine.scenario.name).not.toBe('Test set');
+      expect(panel.authorStatus.textContent).toMatch(/press Load/);
+    });
+
+    it('is the Stop for its own build while one is running', async () => {
+      let release;
+      const director = fakeDirector({
+        buildShow: vi.fn(() => new Promise((resolve) => {
+          release = () => resolve({
+            scenario: SET, built: [], note: '', wrote: 'given',
+            problems: [], stopped: 'cancelled', warnings: [], bound: [], unbound: [],
+          });
+        })),
+      });
+      const { panel } = scenarioPanel(director);
+
+      await panel.buildMissingLooks();
+      const building = panel.buildMissingLooks();
+      expect(panel.looksButton.textContent).toBe('Stop');
+
+      await panel.buildMissingLooks();
+      expect(panel.cancelBuild).toBe(true);
+      expect(director.buildShow).toHaveBeenCalledTimes(1);
+
+      release();
+      await building;
+      expect(panel.looksButton.textContent).toBe('Build the missing looks');
+      expect(panel.buildButton.disabled).toBe(false);
+    });
+
+    it('says where to put the looks when there is nowhere yet', async () => {
+      const director = fakeDirector();
+      const { engine, panel } = scenarioPanel(director);
+      engine.executor.sceneManager = null;
+
+      await panel.buildMissingLooks();
+      await panel.buildMissingLooks();
+
+      expect(director.buildShow).not.toHaveBeenCalled();
+      expect(panel.authorStatus.dataset.level).toBe('error');
+      expect(panel.authorStatus.textContent).toMatch(/VJ panel/);
+    });
+
+    it('says where broken JSON is broken instead of building it', async () => {
+      const director = fakeDirector();
+      const { panel } = scenarioPanel(director);
+      panel.editor.value = '{ sections: [';
+
+      await panel.buildMissingLooks();
+
+      expect(director.buildShow).not.toHaveBeenCalled();
+      expect(panel.authorStatus.textContent).toMatch(/not valid JSON/);
+    });
+  });
 });
 
 /* -------------------------------------------------------------------------

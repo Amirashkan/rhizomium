@@ -175,7 +175,10 @@ Drivers: `src/audio/`, `src/midi/`, `src/osc/`, `src/core/TimelineManager.js`,
   as a *folder* brings the artist's own footage with it: the clips beside it go
   onto the generated looks, which is the one case where a generated patch is
   allowed a texture node at all — everywhere else a model cannot supply the file
-  and the node would render black. `src/performer/README.md`.
+  and the node would render black. The same pipeline runs backwards for the
+  commoner case — a set that already exists on a rig with none of its scenes on
+  it reads as the manifest it implies, and the patches are built into the
+  artist's own scenario rather than a new one. `src/performer/README.md`.
 - `src/collab/` — multi-user editing.
 - `src/ai/` — AI features. See [Open-core boundary](#open-core-boundary).
 

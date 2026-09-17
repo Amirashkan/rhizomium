@@ -94,6 +94,11 @@ separates "hearing nothing" (a routing problem) from "hearing quiet music".
    If the show is built on footage you already have, **Open folder…** first and
    point it at the directory holding both — see
    [The show folder](#the-show-folder-building-on-your-own-footage).
+
+   Already holding a set — your own, or one somebody sent you — on a rig with
+   none of its scenes on it? Open it in **Scenario** and press **Build the
+   missing looks**. See
+   [The set that does exist](#the-set-that-does-exist-on-a-rig-that-does-not).
 3. Point your DAW at the OSC bridge (see [`../osc/README.md`](../osc/README.md)
    — the performer listens on the same bridge) and send
    `/rhizo/perf/start`.
@@ -369,6 +374,61 @@ it does on the night.
 Nothing about a build without a folder changes: no folder open means no clips,
 means the prompt, the backend and the installed scenes are exactly what they
 were.
+## The set that does exist, on a rig that does not
+
+The manifest answers "the show is in my head and the editor is empty". The
+commoner problem after the first show is the mirror of it: you have the **set**
+— written by hand, drafted here, opened from someone else's machine, or carried
+over from a rig that is not this one — and every section of it names a scene
+that is not loaded. It validates. It loads. It runs. It shows nothing, section
+after section, because a look it names is a name and not a patch.
+
+**Scenario → Build the missing looks** is that case. It reads the set in the
+editor, works out which sections have nothing to show, and builds one patch per
+section. It is the same pipeline as a show build, entered from the other end,
+and the differences are all in the word *suitable*:
+
+- **Each look is installed under the name the section already uses.** A section
+  that says `{ "scene": "Deep Fog" }` gets a scene called Deep Fog. Nothing is
+  renamed, and the set you wrote still reads the way you wrote it.
+- **The patch is asked for the nodes your set already reaches for.** Every
+  `node`/`param` the section's drives, moves and enter/exit actions address is
+  named in the prompt, exactly, as a node that has to exist. This is the whole
+  difference between a patch that suits the section and one that fits it: a
+  beautiful look whose nodes are called something else is a section with every
+  fader wired to nothing.
+- **The audio it has to answer comes from the drives that are bound**, not from
+  the signal list. A look told it answers everything answers nothing.
+- **Your scenario is not rewritten.** No scenario call is made at all — there
+  is nothing to write. The drives, moves, cues and rules are the reason you
+  wrote the set; a look is not a reason to lose them. Only the looks are bound.
+- **A section that plays a preset, or carries its own patch, is left alone.**
+  It has a look. And two sections naming the same absent scene get one patch,
+  not two.
+- **A scene already on the rig costs nothing** and still goes into the plan,
+  because every look call is told the whole set in order — a set with holes in
+  it describes a different show.
+
+What it costs is one `ai.patch_generator` call per missing look and nothing
+else. It says so before it spends anything: the first press names the looks and
+the number of calls, the second one builds. Editing the set in between asks
+again rather than building the old plan, and while it runs the button is the
+**Stop** — which, like every other build here, stops after the look being built
+now, because a call in flight is already paid for.
+
+What lands is the same as everywhere else in this panel: the bound set goes
+into the editor as a document, unloaded, for you to read before anything plays
+it. The scenes, meanwhile, are already installed under the names your sections
+use — so a set you were holding that showed nothing is one **Load** from
+showing what it says.
+
+A build takes twelve looks at a time. A longer set says which ones it left, and
+they are still missing when it finishes, so pressing again picks them up.
+
+If you filled in the brief box above the button, that one line is given to
+every look as what the whole set is — the same job `brief` and `palette` do in
+a manifest, and the same reason: it is most of what stops separately generated
+patches from looking like separate shows.
 
 ## Talking to it from your DAW
 
@@ -427,6 +487,7 @@ downbeat you just played.
 | `ShowManifest.js` | the manifest: the show as a plan, and the prompts it implies |
 | `ShowFolder.js` | the show as a directory: which file is the manifest, which are media, and what a look's `media` list resolves to |
 | `ShowBuilder.js` | manifest in, a set that plays the looks it just built out |
+| `ShowBuilder.js` | manifest in, a set that plays the looks it just built out — and `manifestFromScenario()`, the same trip backwards |
 | `PerformerOSC.js` | the `/rhizo/perf/*` namespace |
 | `../ui/PerformerPanel.js` | the panel |
 
