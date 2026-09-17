@@ -42,6 +42,7 @@ class FakeExecutor {
   stopSound(why) { this.soundStopped.push(why || ''); return true; }
   pauseSound() { this.soundPaused++; return true; }
   resumeSound() { this.soundResumed++; return true; }
+  describePatch() { return [{ node: 'Blur', kind: 'Blur', params: ['amount'] }]; }
   status() { return { drives: [], ramps: [], blackedOut: false, transition: {}, sceneChangeInFlight: false }; }
   /** Every action of a type, for readable assertions. */
   ofType(type) { return this.performed.filter((a) => a.type === type); }
@@ -785,6 +786,39 @@ describe('PerformerEngine', () => {
       engine.setDirectorEnabled(false);
       expect(director.enabled).toBe(false);
       expect(engine.listening()).toBeNull();
+    });
+
+    // Two switches have to agree, and only one of them is on the panel. A show
+    // built by the show builder ships with the scenario's rule off, so turning
+    // the panel switch on used to look like nothing happening at all.
+    it('says which switch is holding the director back', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {} };
+      const { engine } = makeEngine(
+        { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: false } } },
+        { director }
+      );
+
+      engine.setDirectorEnabled(true);
+      const said = engine.log.map((entry) => entry.message).join('\n');
+      expect(said).toMatch(/rules\.director\.enabled off/);
+    });
+
+    it('says nothing when the two agree', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {} };
+      const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] }, { director });
+
+      engine.setDirectorEnabled(true);
+      const said = engine.log.map((entry) => entry.message).join('\n');
+      expect(said).not.toMatch(/rules\.director\.enabled/);
+    });
+  });
+
+  describe('what the director is shown', () => {
+    it('includes the patch, so a plan can name a node that exists', () => {
+      const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] });
+      expect(engine.describeState().patch).toEqual([
+        { node: 'Blur', kind: 'Blur', params: ['amount'] },
+      ]);
     });
   });
 });

@@ -81,6 +81,7 @@ import {
   MANIFEST_VERSION,
 } from './ShowManifest.js';
 import { normalizeScenario, SCENARIO_VERSION } from './Scenario.js';
+import { customNodeName, defaultNodeName } from '../core/nodeName.js';
 import { mediaSlotName, mediaSlots, readMediaDataUrl, resolveLookMedia } from './ShowFolder.js';
 
 /** The node kinds a clip can arrive on. */
@@ -216,6 +217,19 @@ export class ShowBuilder {
           const media = await attachMedia(patch, clips);
           for (const note of media.problems) {
             problems.push({ where: `look "${look.name}"`, message: note });
+          }
+
+          // The look is still installed: a patch that is missing a parameter
+          // the set reaches for is a look with a hole in it, not a failure,
+          // and it is better on the rig than not built at all. But it is said
+          // here, once, while the artist is watching a build — rather than
+          // discovered at showtime as visuals that do not move.
+          const unmet = unmetRequirements(media.patch, look.requires);
+          if (unmet.length) {
+            problems.push({
+              where: `look "${look.name}"`,
+              message: `came back without ${unmet.map((one) => `"${one}"`).join(', ')}, which the set drives — ${unmet.length === 1 ? 'that drive will do' : 'those drives will do'} nothing until the patch or the scenario is changed to agree`,
+            });
           }
 
           // The scene is named after the look, not after the title the model
@@ -494,6 +508,52 @@ function patchParameters(patch, limit = 24) {
     }
   }
   return out;
+}
+
+/**
+ * What the look was asked for and did not come back with.
+ *
+ * A look's `requires` is every node and parameter the set already reaches for
+ * — the drives, the moves, the enter and exit actions of the section about to
+ * play it. The prompt asks for them by name. Nothing used to check that they
+ * arrived, and a look that came back without them installs, plays, and looks
+ * exactly like a look that worked: the section cuts to it, its drives are
+ * accepted, its signals arrive, and every one of them writes into a node that
+ * is not there. The set runs clean and barely moves.
+ *
+ * Checked the way ActionExecutor.resolveNode() resolves one at showtime — id,
+ * then the artist's own name, then the kind — so a name that passes here is a
+ * name that will bind on stage, and one that fails here would have failed
+ * there silently.
+ *
+ * @param {object} patch a generated patch
+ * @param {Array<{node: string, param: string}>} requires
+ * @returns {Array<string>} "Node.param" for each one missing, in order
+ */
+export function unmetRequirements(patch, requires) {
+  const list = Array.isArray(requires) ? requires : [];
+  if (!list.length) return [];
+
+  const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
+  const missing = [];
+
+  for (const entry of list) {
+    const wanted = String(entry?.node ?? '').trim();
+    const param = String(entry?.param ?? '').trim();
+    if (!wanted || !param) continue;
+
+    const key = wanted.toLowerCase();
+    const node = nodes.find((one) => String(one?.id) === wanted)
+      || nodes.find((one) => customNodeName(one).toLowerCase() === key)
+      || nodes.find((one) => String(one?.kind).toLowerCase() === key
+        || defaultNodeName(one).toLowerCase() === key);
+
+    // The parameter matters as much as the node: a Blur that arrived without
+    // `amount` is a drive that resolves its node and writes nowhere.
+    if (!node || !(param in (node.params || {}))) missing.push(`${wanted}.${param}`);
+  }
+
+  return missing;
 }
 
 /**
