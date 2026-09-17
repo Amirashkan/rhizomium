@@ -195,6 +195,51 @@ describe('the prompts', () => {
   });
 });
 
+describe('the names a set already reaches for', () => {
+  const look = (requires) => normalizeManifest({ looks: [{ name: 'A', brief: 'x', requires }] }).looks[0];
+
+  it('reads both the pair and the "Node.param" shorthand a scenario prints', () => {
+    expect(look([{ node: 'Warp', param: 'amount' }, 'Colour.hue']))
+      .toMatchObject({ requires: [{ node: 'Warp', param: 'amount' }, { node: 'Colour', param: 'hue' }] });
+  });
+
+  it('splits on the last dot, so a node with a dot in its name survives', () => {
+    expect(look(['Warp.2.amount']).requires).toEqual([{ node: 'Warp.2', param: 'amount' }]);
+  });
+
+  it('names a parameter once however many times the section reaches for it', () => {
+    // A section that drives a parameter and also moves it names it twice.
+    expect(look(['Warp.amount', { node: 'warp', param: 'AMOUNT' }]).requires).toHaveLength(1);
+  });
+
+  it('drops what is not a parameter at all, rather than asking for half of one', () => {
+    expect(look(['Warp', { node: 'Warp' }, { param: 'amount' }, 42, null]).requires).toEqual([]);
+  });
+
+  it('holds the cap, so one strange set cannot write an unbounded prompt', () => {
+    const many = Array.from({ length: MANIFEST_LIMITS.requires + 5 }, (_, i) => `Node${i}.amount`);
+    expect(look(many).requires).toHaveLength(MANIFEST_LIMITS.requires);
+  });
+
+  it('asks the model for those names exactly, and says why', () => {
+    const manifest = normalizeManifest({
+      looks: [{ name: 'A', brief: 'fog', requires: ['Warp.amount'] }],
+    });
+    const prompt = lookPrompt(manifest, manifest.looks[0]);
+
+    expect(prompt).toContain('a node named exactly "Warp", with a parameter named exactly "amount"');
+    expect(prompt).toMatch(/not suggestions/);
+  });
+
+  it('says nothing about them when a look is being written for no set', () => {
+    const manifest = normalizeManifest({ looks: [{ name: 'A', brief: 'fog' }] });
+    const prompt = lookPrompt(manifest, manifest.looks[0]);
+
+    expect(prompt).not.toMatch(/named exactly/);
+    expect(prompt).toMatch(/three or four parameters worth performing/);
+  });
+});
+
 describe('slugId', () => {
   it('makes something usable out of anything', () => {
     expect(slugId('The Drop!')).toBe('the-drop');

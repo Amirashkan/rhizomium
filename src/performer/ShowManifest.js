@@ -59,6 +59,7 @@ export const MANIFEST_LIMITS = Object.freeze({
   signals: 64,
   briefChars: 1000,
   lookBriefChars: 600,
+  requires: 16,
 });
 
 const num = (value, fallback = 0) => {
@@ -118,6 +119,56 @@ function normalizeLength(raw) {
 }
 
 /**
+ * Node/parameter pairs this look has to contain, by name.
+ *
+ * Nothing hand-written fills this in. It is what a look derived from a
+ * scenario that already exists carries: a section whose drives reach for
+ * "Warp.amount" needs a patch with a node called Warp that has a parameter
+ * called amount, or the drive is inert and the section is a still image with
+ * a fader wired to nothing. The names are not a hint — ActionExecutor resolves
+ * a node by them, and a name that is nearly right resolves to nothing.
+ *
+ * Accepts the "Node.param" shorthand a scenario prints a parameter in, and
+ * deduplicates: a section that drives one parameter and also moves it names it
+ * twice, and the prompt should ask for it once.
+ */
+function normalizeRequires(raw) {
+  const out = [];
+  const seen = new Set();
+
+  for (const entry of list(raw)) {
+    let node = '';
+    let param = '';
+
+    if (typeof entry === 'string') {
+      // The last dot, not the first: a node called "Warp.2" is a node an
+      // artist can name and "Warp.2.amount" still means its amount.
+      const dot = entry.lastIndexOf('.');
+      if (dot > 0) {
+        node = entry.slice(0, dot);
+        param = entry.slice(dot + 1);
+      }
+    } else if (entry && typeof entry === 'object') {
+      node = str(entry.node ?? entry.nodeId);
+      param = str(entry.param ?? entry.parameter);
+    }
+
+    node = node.trim().slice(0, 60);
+    param = param.trim().slice(0, 60);
+    if (!node || !param) continue;
+
+    const key = `${node.toLowerCase()}.${param.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({ node, param });
+    if (out.length >= MANIFEST_LIMITS.requires) break;
+  }
+
+  return out;
+}
+
+/**
  * One look in the show.
  *
  * Two kinds, and which one this is decides whether it costs a model call:
@@ -149,6 +200,9 @@ function normalizeLook(raw, index) {
     // Parameters the artist wants to be able to reach while the set runs,
     // in prose. The patch prompt turns these into named nodes.
     drivable: list(source.drivable ?? source.controls).map((c) => trimmed(c, 60)).filter(Boolean).slice(0, 8),
+    // Parameters the set already addresses by name, when this look was derived
+    // from a scenario rather than written for one. See normalizeRequires().
+    requires: normalizeRequires(source.requires ?? source.reaches),
     hold: normalizeLength(source.hold ?? source.length ?? source.duration),
     // Passed through to the scenario untouched: a manifest that already knows
     // this look is entered by a cue should not have that guessed at again.
@@ -361,10 +415,24 @@ export function lookPrompt(manifest, look) {
     '- Name every node a performer will reach for, with a name that says what turning it does — the scenario addresses nodes by name, and a name is the only handle it has.',
     one.drivable.length
       ? `- These have to be reachable as single parameters: ${one.drivable.join('; ')}. Give each one its own named node.`
-      : '- Leave three or four parameters worth performing: something that moves, something that changes the colour, something that changes the density.',
+      : one.requires.length
+        ? '- Beyond the named parameters below, leave a couple more worth performing.'
+        : '- Leave three or four parameters worth performing: something that moves, something that changes the colour, something that changes the density.',
     '- Set each of those to a value with somewhere to travel. A parameter already at its maximum on the first frame is a fader with no throw.',
     '- The first frame must already be this look. It is cut to live, in front of an audience, with no time to warm up.'
   );
+
+  // The set this look is being built INTO, when there already is one. These
+  // names are the whole difference between a patch that fits the section and a
+  // patch that merely suits it: the drives are already written against them.
+  if (one.requires.length) {
+    lines.push(
+      '',
+      'This look goes into a set that already exists, and the set reaches for these by name:',
+      ...one.requires.map((entry) => `- a node named exactly "${entry.node}", with a parameter named exactly "${entry.param}"`),
+      'Those names are not suggestions. A drive finds its node by name, so a node called something else is a parameter nothing in the set can move.'
+    );
+  }
 
   return lines.join('\n');
 }
