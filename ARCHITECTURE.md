@@ -166,7 +166,7 @@ Drivers: `src/audio/`, `src/midi/`, `src/osc/`, `src/core/TimelineManager.js`,
 - `src/screens/`, `src/mapping/`, `src/output/` — multi-screen and projection
   mapping.
 - `src/vj/` — performance-oriented panel.
-- `src/performer/` — the AI performer: a scenario (a written score) played
+- `src/performer/` — coPerformer: a scenario (a written score) played
   against live OSC and audio while a musician performs. Two clocks on purpose —
   a synchronous per-frame engine, and a model consulted in bars and kept off
   the frame loop. A show can also be *built* rather than only scored: a

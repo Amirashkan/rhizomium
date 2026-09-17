@@ -1,5 +1,5 @@
 /**
- * Scenario.js - the score the AI performer plays.
+ * Scenario.js - the score coPerformer plays.
  *
  * A scenario is the one document a performance is written in. It says what the
  * musician is sending, what the set is made of, and what the performer is

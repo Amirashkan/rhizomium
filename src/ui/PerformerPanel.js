@@ -17,7 +17,7 @@ import {
 import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
 
 /**
- * PerformerPanel - the surface for the AI performer.
+ * PerformerPanel - the surface for the coPerformer.
  *
  * It is a performance instrument before it is a settings window, and that
  * decides most of the layout. Five tabs, and the one that is up by default is
@@ -193,7 +193,7 @@ export class PerformerPanel {
     const header = el('div', 'rz-perf-header');
 
     const title = el('div', 'rz-perf-title');
-    setIcon(title, 'vj', { text: 'AI Performer', size: 16 });
+    setIcon(title, 'vj', { text: 'coPerformer', size: 16 });
     header.appendChild(title);
 
     this.stateChip = el('span', 'rz-perf-chip', 'stopped');

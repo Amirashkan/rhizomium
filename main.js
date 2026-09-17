@@ -634,7 +634,7 @@ async function initialize() {
       console.error("Error stack:", error.stack);
     }
 
-    // The AI performer. Built last of the live-control systems because it
+    // The coPerformer. Built last of the live-control systems because it
     // drives all of them: OSC in, the VJ panel's scenes and presets out, and
     // the editor's own parameter path in between.
     //
@@ -680,7 +680,7 @@ async function initialize() {
       });
       window.performerPanel = performerPanel;
     } catch (error) {
-      console.error("ERROR creating AI performer:", error);
+      console.error("ERROR creating coPerformer:", error);
       console.error("Error stack:", error.stack);
     }
 
@@ -1635,19 +1635,19 @@ function setupUIEventHandlers() {
     console.error('[main.js] Timeline button NOT found in DOM!');
   }
 
-  // AI Performer panel
+  // coPerformer panel
   const performerButton = document.getElementById("btn-toggle-performer");
   if (performerButton) {
     performerButton.addEventListener("click", () => {
       try {
         if (performerPanel && typeof performerPanel.toggle === 'function') {
           performerPanel.toggle();
-          updateStatus(performerPanel.visible ? "AI Performer opened" : "AI Performer closed");
+          updateStatus(performerPanel.visible ? "coPerformer opened" : "coPerformer closed");
         } else {
-          updateStatus("AI Performer failed to load", "error");
+          updateStatus("coPerformer failed to load", "error");
         }
       } catch (error) {
-        updateStatus("Error toggling AI Performer: " + error.message, "error");
+        updateStatus("Error toggling coPerformer: " + error.message, "error");
       }
     });
   }

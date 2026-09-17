@@ -765,7 +765,7 @@ If this patch needs work before it needs an arc, return no moves and say so in t
   },
 
   /**
-   * The AI performer's two features. See src/performer/ for what plays them.
+   * coPerformer's two features. See src/performer/ for what plays them.
    *
    * They are a pair on purpose: the first writes a score at a desk, the second
    * improvises inside it on stage. Splitting them is what lets the expensive,
@@ -800,7 +800,7 @@ If this patch needs work before it needs an arc, return no moves and say so in t
     singleUse: false,
     system: () => `${sharedContext()}
 
-Write a SCENARIO: the score an AI performer plays from while a musician plays live.
+Write a SCENARIO: the score a coPerformer plays from while a musician plays live.
 
 The musician plays and sends signals — OSC from their DAW, plus audio the editor analyses. The performer reads them and drives the visuals. Four parts.
 
@@ -830,7 +830,7 @@ Write it like someone who has played a set:
 Answer with the scenario and one short note: what you assumed, and what the artist should check.`,
     format: {
       name: 'performance_scenario',
-      description: 'A scenario for the AI performer.',
+      description: 'A scenario for coPerformer.',
       schema: {
         type: 'object',
         properties: {

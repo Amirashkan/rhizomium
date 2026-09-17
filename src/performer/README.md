@@ -1,4 +1,4 @@
-# The AI Performer
+# coPerformer
 
 You play the music. It plays the visuals.
 
@@ -83,7 +83,7 @@ separates "hearing nothing" (a routing problem) from "hearing quiet music".
 
 ## Start here
 
-1. Open **View → AI Performer** (`Ctrl/Cmd+Alt+R`).
+1. Open **View → coPerformer** (`Ctrl/Cmd+Alt+R`).
 2. **Scenario** tab → **Example**, then **Load**. Or write a brief and press
    **Write a scenario** to have the model draft one, which lands in the editor
    for you to read before anything plays it.

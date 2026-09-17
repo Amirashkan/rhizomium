@@ -228,7 +228,7 @@ export const PANEL_REGISTRY = [
   },
   {
     key: 'performer',
-    label: 'AI Performer',
+    label: 'coPerformer',
     kind: 'workspace',
     selector: '#performer-panel',
     get: () => window.performerPanel || null,
