@@ -169,6 +169,30 @@ describe('checking a manifest against the folder', () => {
     expect(warnings.filter((w) => /folder|clip/i.test(w.message))).toEqual([]);
   });
 
+  it('warns about a bed the folder does not have, and about one with no folder open', () => {
+    const withSound = (sound) => ({
+      show: 'Night set',
+      brief: 'one look',
+      cues: ['drop'],
+      signals: [{ name: 'energy', source: 'osc', address: '/x' }],
+      looks: [{ id: 'opening', name: 'Opening', brief: 'fog over the room', sound }],
+    });
+
+    const sounds = indexShowFolder([
+      { path: 'night.rzshow.json', file: { name: 'night.rzshow.json', size: 10, type: 'application/json' } },
+      { path: 'set.wav', file: clipFile('set.wav', 'audio/wav', 3) },
+    ]);
+
+    expect(validateManifest(withSound('missing.wav'), sounds).warnings
+      .some((w) => /No sound in the folder is called "missing.wav"/.test(w.message))).toBe(true);
+    expect(validateManifest(withSound('set.wav'), null).warnings
+      .some((w) => /no show folder is open/.test(w.message))).toBe(true);
+    // And nothing at all when the file is there, which is the usual case for a
+    // folder another tool wrote.
+    expect(validateManifest(withSound('set.wav'), sounds).warnings
+      .some((w) => /sound/i.test(w.message))).toBe(false);
+  });
+
   it('points out footage nobody is using, with the line to paste', () => {
     const { warnings } = validateManifest(withMedia([]), FOLDER);
     const note = warnings.find((w) => w.where === 'media');

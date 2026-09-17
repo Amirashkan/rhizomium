@@ -79,6 +79,16 @@ describe('ShowBuilder', () => {
     expect(report.built.filter((entry) => entry.generated)).toHaveLength(3);
   });
 
+  it('installs each look with the length the manifest gave it', async () => {
+    await builder().build(MANIFEST);
+
+    // 32 bars at 128 in 4/4 is 60s. It becomes the scene's own duration and
+    // the timeline the scene carries, so cutting to it sets the transport to
+    // the length the set was written to.
+    expect(installScene.mock.calls[0][2].holdSeconds).toBe(60);
+    expect(installScene.mock.calls[1][2].holdSeconds).toBe(30);
+  });
+
   it('tells each patch call about the show as well as the look', async () => {
     await builder().build(MANIFEST);
 
@@ -275,6 +285,45 @@ describe('bindLooks', () => {
     expect(new Set(scenes).size).toBe(scenes.length);
   });
 
+  it('attaches the bed the manifest named, whoever wrote the set', () => {
+    // The file is a fact about the folder, not a decision for the model: the
+    // hold was measured from it, and a set that describes a bed it never plays
+    // is the mismatch this path exists to close.
+    const withSound = normalizeManifest({
+      ...MANIFEST,
+      looks: MANIFEST.looks.map((look, index) => (index === 0 ? { ...look, sound: 'media/music.mp3' } : look)),
+    });
+    const { scenario } = bindLooks(modelScenario().scenario, withSound, built);
+
+    expect(scenario.sections[0].onEnter[0]).toMatchObject({
+      type: 'audio', clip: 'media/music.mp3', transport: 'play', quantize: 'off',
+    });
+    // Only that section: nothing is put under a look that named no sound.
+    expect(scenario.sections[1].onEnter.some((action) => action.type === 'audio')).toBe(false);
+  });
+
+  it('never leaves two beds on one entry', () => {
+    const withSound = normalizeManifest({
+      ...MANIFEST,
+      looks: MANIFEST.looks.map((look, index) => (index === 0 ? { ...look, sound: 'media/music.mp3' } : look)),
+    });
+    const scenario = {
+      sections: [{
+        id: 'opening',
+        name: 'Opening',
+        enter: 'manual',
+        onEnter: [{ type: 'audio', clip: 'something-else.mp3' }, { type: 'master', to: 0.8 }],
+      }],
+    };
+    const { scenario: bound } = bindLooks(scenario, withSound, [built[0]]);
+
+    const audio = bound.sections[0].onEnter.filter((action) => action.type === 'audio');
+    expect(audio).toHaveLength(1);
+    expect(audio[0].clip).toBe('media/music.mp3');
+    // Everything else the section did on entry is still there.
+    expect(bound.sections[0].onEnter.some((action) => action.type === 'master')).toBe(true);
+  });
+
   it('leaves a section the show says nothing about alone', () => {
     const scenario = {
       sections: [
@@ -324,6 +373,19 @@ describe('scenarioFromManifest', () => {
 
   it('leaves the director off: a set nobody has read does not get a model in it', () => {
     expect(scenarioFromManifest(MANIFEST, []).rules.director.enabled).toBe(false);
+  });
+});
+
+describe('a look with its own sound, written straight from the manifest', () => {
+  it('plays it on the way into the section', () => {
+    const scenario = scenarioFromManifest({
+      ...MANIFEST,
+      looks: [{ ...MANIFEST.looks[0], sound: 'media/music.mp3' }],
+    }, [{ lookId: 'opening', sceneName: 'Opening' }]);
+
+    expect(scenario.sections[0].onEnter[0]).toMatchObject({
+      type: 'audio', clip: 'media/music.mp3', transport: 'play',
+    });
   });
 });
 

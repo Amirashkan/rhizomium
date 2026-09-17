@@ -16,6 +16,7 @@ import {
   readFileList,
   readMediaDataUrl,
   resolveLookMedia,
+  resolveLookSound,
 } from '../src/performer/ShowFolder.js';
 
 /** A file as a directory hands one over: a name, a type and a size. */
@@ -183,6 +184,34 @@ describe('resolveLookMedia', () => {
 
   it('is empty with no folder, rather than throwing', () => {
     expect(resolveLookMedia(null, { media: ['fog'] }).items).toEqual([]);
+  });
+});
+
+describe('resolveLookSound', () => {
+  const folder = indexShowFolder(FOLDER);
+
+  it('finds the bed by name, by path, and by the name without its extension', () => {
+    expect(resolveLookSound(folder, { sound: 'set.wav' }).path).toBe('set.wav');
+    expect(resolveLookSound(folder, { sound: 'set' }).path).toBe('set.wav');
+    expect(resolveLookSound(folder, 'Set').path).toBe('set.wav');
+  });
+
+  it('never returns a clip: a texture is not something the analysis can hear', () => {
+    expect(resolveLookSound(folder, { sound: 'fog-loop.mp4' })).toBeNull();
+  });
+
+  it('is one file, because there is one analysis engine behind it', () => {
+    const two = indexShowFolder([
+      entry('a.wav', { type: 'audio/wav' }),
+      entry('b.wav', { type: 'audio/wav' }),
+    ]);
+    // "*" is a shorthand for the lot everywhere else. Here the lot is one.
+    expect(resolveLookSound(two, { sound: '*' }).path).toBe('a.wav');
+  });
+
+  it('says nothing rather than something when a look names no sound', () => {
+    expect(resolveLookSound(folder, { sound: '' })).toBeNull();
+    expect(resolveLookSound(null, { sound: 'set.wav' })).toBeNull();
   });
 });
 

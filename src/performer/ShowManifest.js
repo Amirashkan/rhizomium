@@ -38,7 +38,7 @@
  * one-error-at-a-time loop wastes the one thing that desk has.
  */
 
-import { MEDIA_LIMITS, mediaSlotName, resolveLookMedia } from './ShowFolder.js';
+import { MEDIA_LIMITS, mediaSlotName, resolveLookMedia, resolveLookSound } from './ShowFolder.js';
 
 /** The format version this build writes. Readers accept anything <= this. */
 export const MANIFEST_VERSION = 1;
@@ -209,6 +209,11 @@ function normalizeLook(raw, index) {
     // without one, which is why nothing here tries to validate the strings.
     media: list(source.media ?? source.footage ?? source.clips)
       .map((c) => trimmed(c, 200)).filter(Boolean).slice(0, 16),
+    // The bed this look plays under itself, named the same way a clip is and
+    // resolved against the folder's audio by ShowFolder.resolveLookSound().
+    // One, not a list: there is one analysis engine and one element behind it,
+    // so a second file would only be the first one's silence.
+    sound: trimmed(source.sound ?? source.bed ?? source.track, 200),
     // Parameters the set already addresses by name, when this look was derived
     // from a scenario rather than written for one. See normalizeRequires().
     requires: normalizeRequires(source.requires ?? source.reaches),
@@ -354,6 +359,12 @@ export function validateManifest(manifest, folder = null) {
       if (dropped) {
         warnings.push(at(where, `More clips than one look can hold. The first ${MEDIA_LIMITS.perLook} are used and ${dropped} more ${dropped === 1 ? 'is' : 'are'} left out — every clip in a look is decoded on every frame it is up.`));
       }
+    }
+
+    if (look.sound && !folder) {
+      warnings.push(at(where, `Plays "${look.sound}" under itself, but no show folder is open. Open the folder it is in — press "Open folder…" — or this look is played in silence.`));
+    } else if (look.sound && folder && !resolveLookSound(folder, look)) {
+      warnings.push(at(where, `No sound in the folder is called "${look.sound}". The look still plays, with whatever the room is giving it.`));
     }
   });
 
@@ -520,6 +531,10 @@ export function scenarioBrief(manifest, built = []) {
     if (look.enter) bits.push(`entered by: ${JSON.stringify(look.enter)}`);
     if (look.next) bits.push(`then "${look.next}"`);
     if (look.reactsTo.length) bits.push(`answers: ${look.reactsTo.join(', ')}`);
+    // Said so the set reads right — a section with its own bed is a section
+    // whose length is that bed's — and said as already handled, because the
+    // audio action is attached after this call by ShowBuilder.bindLooks().
+    if (look.sound) bits.push(`plays its own sound (${look.sound}); it is attached for you, do not write an audio action`);
     if (look.notes) bits.push(look.notes);
 
     lines.push(`  ${bits.join('; ')}`);

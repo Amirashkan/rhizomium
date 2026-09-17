@@ -29,6 +29,7 @@ import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
 import { describeAudioSource, getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
+import { getAudioDeck } from './src/audio/audioDeck.js';
 import { MIDIManager } from './src/midi/MIDIManager.js';
 import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
@@ -664,6 +665,9 @@ async function initialize() {
         vjPanel: vjControlPanel,
         director: performerDirector,
         replaceGraph: replaceGraphWithPatch,
+        // The Audio panel's transport, so a set that arrived with its own beds
+        // can play them into the one analysis engine the editor has.
+        audioDeck: getAudioDeck(),
         // How a generated patch becomes a scene the set can cut to, for the
         // show builder. Injected here rather than imported in the performer so
         // that subsystem stays testable without the editor.
@@ -685,6 +689,9 @@ async function initialize() {
         oscManager: window.oscManager || null,
         vjPanel: vjControlPanel,
         eventSystem: editor.eventSystem,
+        // Built above, at the same point in boot as the rest of the editor's
+        // windows, so a set that drives the timeline can show it.
+        timelinePanel,
       });
       window.performerPanel = performerPanel;
     } catch (error) {

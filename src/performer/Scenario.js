@@ -351,6 +351,11 @@ export function normalizeRules(raw) {
     allowSceneChanges: input.allowSceneChanges !== false,
     allowPresets: input.allowPresets !== false,
     allowParameterMoves: input.allowParameterMoves !== false,
+    // The set's own sound. On by default, because a set that arrived with its
+    // beds is a set whose sections were written to their lengths — and off is
+    // the switch for the night the musician is playing the sound themselves
+    // and nothing should touch the Audio panel.
+    allowAudio: input.allowAudio !== false,
     // Off by default, and the only one that is: a graph edit recompiles the
     // shader, which can drop frames on stage. A scenario that wants it says so.
     allowGraphEdits: Boolean(input.allowGraphEdits),
