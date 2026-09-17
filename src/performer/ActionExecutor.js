@@ -36,6 +36,15 @@ import { setMasterOpacity, getMasterOpacity } from '../vj/MasterOutput.js';
 import { customNodeName, defaultNodeName } from '../core/nodeName.js';
 import { actionCost, actionGate, describeAction } from './actions.js';
 
+/**
+ * How long a drive may fail to resolve before it is called out.
+ *
+ * Long enough to cover a scene change — the section registers its drives while
+ * the look is still loading — and short enough that the warning lands while
+ * the artist is still looking at the section that caused it.
+ */
+const MISSING_GRACE_SECONDS = 2;
+
 /** A result every execute() path returns, so the caller never has to guess. */
 const ok = (detail = '') => ({ ok: true, detail });
 const no = (reason) => ({ ok: false, reason });
@@ -471,6 +480,14 @@ export class ActionExecutor {
       invert: action.invert,
       smooth: action.smooth,
       current: null,
+      // How long this drive has been writing into nothing. A section declares
+      // its drives while the scene it belongs to is still loading, so a drive
+      // that does not resolve on the frame it is registered is normal and a
+      // refusal here would break every section entry. One that still does not
+      // resolve a moment later is a dead handle, and that is worth saying out
+      // loud exactly once — see tick().
+      missingSeconds: 0,
+      reported: false,
     });
     return ok(describeAction(action));
   }
@@ -589,7 +606,22 @@ export class ActionExecutor {
   tick(delta, signals) {
     for (const drive of this.drives.values()) {
       const node = this.resolveNode(drive.node);
-      if (!node) continue;
+      if (!node) {
+        // Silence here was the whole failure. A drive bound to a name the
+        // patch does not have used to register cleanly, write nothing for the
+        // length of the set, and leave an artist looking at a still frame with
+        // a performance log full of successes.
+        drive.missingSeconds += delta;
+        if (!drive.reported && drive.missingSeconds >= MISSING_GRACE_SECONDS) {
+          drive.reported = true;
+          this.log('warn',
+            `${drive.signal} drives ${drive.node}.${drive.param}, but no node "${drive.node}" `
+            + 'is in this patch — the drive is doing nothing',
+            { node: drive.node, param: drive.param, signal: drive.signal });
+        }
+        continue;
+      }
+      drive.missingSeconds = 0;
 
       const reading = signals ? signals.value(drive.signal) : 0;
 

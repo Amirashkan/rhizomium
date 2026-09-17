@@ -40,7 +40,7 @@
 import { runFeature, AIRequestError, GrantError } from '../ai/aiClient.js';
 import { DirectorCadence } from './DirectorCadence.js';
 import { normalizeScenario } from './Scenario.js';
-import { normalizeAction } from './actions.js';
+import { normalizeAction, validateAction } from './actions.js';
 import { ShowBuilder } from './ShowBuilder.js';
 import { normalizeManifest, validateManifest } from './ShowManifest.js';
 
@@ -592,16 +592,38 @@ function compactState(state, listening) {
     listening: listening || null,
     signals,
     driving: state.driving,
+    // The nodes and parameters in the patch that is actually on screen, and
+    // where each one currently sits. This is not context, it is the
+    // vocabulary: without it a live plan can only name things it invented, and
+    // ActionExecutor resolves a name it does not have to nothing.
+    patch: state.patch || null,
+    // Drives the set declared that resolve to nothing, and how long the
+    // picture has been frozen. Both are here for the same reason: a model
+    // reading only the music cannot tell a texture being held deliberately
+    // from a show whose every handle misses.
+    dead: state.dead?.length ? state.dead : undefined,
+    picture: state.picture,
     recent: state.recent,
   };
 }
 
 /**
- * Turn an answer into a plan, dropping anything that is not a verb we know.
+ * Turn an answer into a plan, dropping anything that is not a verb we know or
+ * that names nothing to act on.
  *
  * A model that invented an action loses that line, not the whole plan — the
  * same rule normalizeAction() applies to a hand-written scenario, for the same
  * reason: most of a good answer is still worth playing.
+ *
+ * The second filter is newer and it is about the bar budget rather than about
+ * tidiness. normalizeAction() coerces: a drive whose node arrived as a
+ * sentence of intent rather than a name becomes a drive with an empty node,
+ * which is a well-formed action that cannot do anything. Those were being
+ * queued, quantised, charged against `maxActionsPerBar` and logged as
+ * `drives .` — three of them in a row in one set — while the real actions
+ * behind them were dropped for want of budget. validateAction() is the check a
+ * scenario's own actions already get on load; a plan from the model has no
+ * more claim to skip it.
  */
 function shapePlan(result, askedAtBeats, askedAtSeconds) {
   if (!result || typeof result !== 'object') return null;
@@ -609,7 +631,8 @@ function shapePlan(result, askedAtBeats, askedAtSeconds) {
   const actions = (Array.isArray(result.actions) ? result.actions : [])
     .slice(0, MAX_PLAN_ACTIONS)
     .map(normalizeAction)
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((action) => validateAction(action)?.severity !== 'error');
 
   const note = String(result.note || '').slice(0, 300);
   if (!actions.length && !note) return null;
