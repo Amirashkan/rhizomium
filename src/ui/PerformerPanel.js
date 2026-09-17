@@ -6,7 +6,8 @@ import { setIcon } from './iconSprite.js';
 import { STATE } from '../performer/PerformerEngine.js';
 import { PerformerOSC } from '../performer/PerformerOSC.js';
 import { EXAMPLE_SCENARIO } from '../performer/Scenario.js';
-import { EXAMPLE_MANIFEST, parseManifest, validateManifest } from '../performer/ShowManifest.js';
+import { EXAMPLE_MANIFEST, MANIFEST_LIMITS, parseManifest, validateManifest } from '../performer/ShowManifest.js';
+import { manifestFromScenario } from '../performer/ShowBuilder.js';
 import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
 
 /**
@@ -27,6 +28,13 @@ import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
  * describes looks that do not exist, building it makes them, and what lands in
  * Scenario is a score that names them. An artist who already has their scenes
  * skips the first tab entirely.
+ *
+ * The work also arrives the other way round, and more often after the first
+ * show: a set the artist already has — written by hand, drafted here, opened
+ * from someone else's machine — on a rig with none of its scenes on it. That
+ * is what **Build the missing looks** on the Scenario tab is for. It reads the
+ * set in the editor, works out which sections have nothing to show, and builds
+ * a patch for each under the name that section already uses.
  *
  * Two rules about painting run through it.
  *
@@ -110,6 +118,14 @@ export class PerformerPanel {
     /** A build in progress, and the flag the Cancel button sets. */
     this.building = false;
     this.cancelBuild = false;
+    /** Which of the two builds is running, so the right button is the Stop. */
+    this.buildingLooks = false;
+    /**
+     * The plan Build-the-missing-looks last described, waiting on a second
+     * press. Keyed by what it was derived from, so editing the set in between
+     * asks again rather than building the old plan.
+     */
+    this.pendingLooks = null;
 
     this.router = new PerformerOSC(engine, { eventSystem: options.eventSystem });
     this.router.attach();
@@ -469,6 +485,9 @@ export class PerformerPanel {
     this.cancelBuild = false;
     this.buildButton.disabled = true;
     this.cancelButton.disabled = false;
+    // One build at a time: both spend the same allowance and install into the
+    // same scene list.
+    this.looksButton.disabled = true;
     this.buildLog.replaceChildren();
     this.showStatus.dataset.level = 'info';
     this.showStatus.textContent = 'Building…';
@@ -526,6 +545,7 @@ export class PerformerPanel {
       this.cancelBuild = false;
       this.buildButton.disabled = false;
       this.cancelButton.disabled = true;
+      this.looksButton.disabled = false;
       this.paintStructure();
     }
   }
@@ -577,9 +597,19 @@ export class PerformerPanel {
       'slow build, drop at the halfway point, I fire it by hand"';
     brief.appendChild(this.briefInput);
 
+    const authorRow = el('div', 'rz-perf-row');
     this.authorButton = button('Write a scenario', 'Ask the AI to draft a scenario from this brief',
       () => this.authorScenario(), 'rz-perf-btn rz-perf-author');
-    brief.appendChild(this.authorButton);
+    authorRow.appendChild(this.authorButton);
+
+    // The other direction: a set that exists, on a rig that has none of it.
+    this.looksButton = button('Build the missing looks',
+      'Generate a patch for every section with nothing to show, and install each one '
+        + 'under the name the set already uses. What you have written above, if anything, '
+        + 'is what ties them together.',
+      () => this.buildMissingLooks(), 'rz-perf-btn rz-perf-author');
+    authorRow.appendChild(this.looksButton);
+    brief.appendChild(authorRow);
     pane.appendChild(brief);
 
     this.authorStatus = el('div', 'rz-perf-author-status', '');
@@ -1019,6 +1049,187 @@ export class PerformerPanel {
       this.authoring = false;
       this.authorButton.disabled = false;
     }
+  }
+
+  /**
+   * Build the looks this set is missing.
+   *
+   * The Show tab answers "I have the show in my head and an empty editor".
+   * This answers the one that comes up after the first show and has had no
+   * answer at all: "I have the set, and this rig has none of its scenes on
+   * it." A scenario like that validates, loads and runs — and shows nothing,
+   * section after section, because every look it names is a name and not a
+   * patch.
+   *
+   * It is the same pipeline, entered from the other end. The set is read into
+   * the manifest it implies (ShowBuilder.manifestFromScenario), a patch is
+   * generated per section that has nothing to show, and each is installed
+   * under the name that section already uses — so the set does not have to be
+   * rewritten to play what was just built for it. The scenario is never
+   * rewritten either: the artist's own drives, moves, cues and rules are the
+   * reason they wrote it, and a look is not a reason to lose them.
+   *
+   * Two presses, deliberately. The Show tab has a Check button because a
+   * manifest is typed and can be wrong; here the plan is derived from the
+   * artist's own set and cannot be, so the button is its own Check. What it
+   * cannot be is silent: this spends a patch-generator call per look, and a
+   * misclick is a bad way to find out how many.
+   */
+  async buildMissingLooks() {
+    const director = this.engine.director;
+    if (!director) {
+      this.authorStatus.textContent = 'The AI is not available in this build.';
+      this.authorStatus.dataset.level = 'error';
+      return;
+    }
+
+    // While this build is running, this button is the Stop for it. A call in
+    // flight is already paid for, so it stops after the look being built now.
+    if (this.building) {
+      if (!this.buildingLooks) return;
+      this.cancelBuild = true;
+      this.authorStatus.textContent = 'Stopping after this look…';
+      this.authorStatus.dataset.level = 'warn';
+      return;
+    }
+
+    // What is in the editor, or the running set when the editor is empty —
+    // the same thing Load acts on, so what is built is what can be read.
+    const source = this.editor.value.trim();
+    let scenario;
+    try {
+      scenario = source ? JSON.parse(source) : this.engine.scenario;
+    } catch (error) {
+      this.authorStatus.textContent = `That is not valid JSON: ${error.message}`;
+      this.authorStatus.dataset.level = 'error';
+      return;
+    }
+
+    const plan = manifestFromScenario(scenario, {
+      sceneNames: this.rigSceneNames(),
+      brief: this.briefInput.value.trim(),
+    });
+
+    if (!plan.missing.length) {
+      this.pendingLooks = null;
+      this.authorStatus.textContent = plan.satisfied.length || plan.skipped.length
+        ? 'Every section already has a look. Nothing to build.'
+        : 'This set has no sections to build looks for yet.';
+      this.authorStatus.dataset.level = 'ok';
+      return;
+    }
+
+    const signature = `${source}::${plan.missing.map((one) => one.lookId).join('|')}`;
+    if (this.pendingLooks !== signature) {
+      this.pendingLooks = signature;
+      this.describePlan(plan);
+      return;
+    }
+    this.pendingLooks = null;
+
+    const executor = this.engine.executor;
+    if (!executor?.sceneManager) {
+      this.authorStatus.textContent =
+        'There is nowhere to put the looks yet. Open the VJ panel (View → VJ Control) and try again.';
+      this.authorStatus.dataset.level = 'error';
+      return;
+    }
+
+    this.building = true;
+    this.buildingLooks = true;
+    this.cancelBuild = false;
+    this.buildButton.disabled = true;
+    this.authorButton.disabled = true;
+    this.looksButton.textContent = 'Stop';
+
+    const lines = [];
+    const report = (level) => {
+      this.editorReport.textContent = lines.join('\n');
+      this.editorReport.dataset.level = level;
+    };
+
+    try {
+      const built = await director.buildShow(plan.manifest, {
+        // The set stays the artist's. Given one, the builder skips writing a
+        // scenario entirely and only binds the looks into this.
+        scenario,
+        context: this.rigContext(),
+        installScene: (name, patch, meta) => executor.installPatchAsScene(name, patch, meta),
+        shouldStop: () => this.cancelBuild,
+        onProgress: (event) => {
+          this.authorStatus.textContent = event.message;
+          this.authorStatus.dataset.level = 'info';
+          if (event.phase !== 'look') return;
+          if (event.status === 'ok') lines.push(`✓ ${event.message}`);
+          else if (event.status === 'failed') lines.push(`× ${event.name}: ${event.message}`);
+          report('info');
+        },
+      });
+
+      // Into the editor as a draft, unloaded. Every other way of getting a
+      // scenario in this panel lands here for the artist to read first, and a
+      // set that starts playing because a build finished is exactly the
+      // surprise this panel exists to avoid.
+      this.editor.value = JSON.stringify(built.scenario, null, 2);
+      this.editingScenario = false;
+      this.editorHoldsDraft = true;
+
+      const made = built.built.filter((entry) => entry.generated).length;
+      const count = `${made} look${made === 1 ? '' : 's'}`;
+      this.authorStatus.textContent = built.stopped
+        ? `Stopped: ${built.stopped}. ${count} built and kept.`
+        : `${count} built and bound into the set. Read it, then press Load.`;
+      this.authorStatus.dataset.level = built.stopped || built.problems.length ? 'warn' : 'ok';
+
+      for (const problem of built.problems) lines.push(`${problem.where}: ${problem.message}`);
+      for (const entry of built.bound) {
+        lines.push(`"${entry.sceneName}" plays in section "${entry.sectionId}".`);
+      }
+      report(built.problems.length ? 'warn' : 'ok');
+    } catch (error) {
+      this.authorStatus.textContent = error?.message || String(error);
+      this.authorStatus.dataset.level = 'error';
+    } finally {
+      this.building = false;
+      this.buildingLooks = false;
+      this.cancelBuild = false;
+      this.buildButton.disabled = false;
+      this.authorButton.disabled = false;
+      this.looksButton.textContent = 'Build the missing looks';
+      this.paintStructure();
+    }
+  }
+
+  /**
+   * Every name a section's `scene` could resolve to, ids and names both.
+   *
+   * Read off the executor's scene manager rather than the VJ panel's. That is
+   * the one ActionExecutor.resolveScene consults when a section is cut to at
+   * showtime, so it is the only one that answers the question being asked
+   * here: does this section have anything to show, or not.
+   */
+  rigSceneNames() {
+    const manager = this.engine.executor?.sceneManager || this.vjPanel?.sceneManager;
+    return (manager?.getAllScenes?.() || []).flatMap((scene) => [scene.id, scene.name]);
+  }
+
+  /** What the next press would spend, and on what. */
+  describePlan(plan) {
+    const n = plan.missing.length;
+    this.authorStatus.textContent =
+      `${n} look${n === 1 ? '' : 's'} to build: ${plan.missing.map((one) => `"${one.name}"`).join(', ')}. `
+      + `That is ${n} patch call${n === 1 ? '' : 's'}. Press again to build.`;
+    this.authorStatus.dataset.level = 'warn';
+
+    this.editorReport.textContent = [
+      ...plan.missing.map((one) => `"${one.name}" — section "${one.sectionId}" ${one.why}.`),
+      ...plan.satisfied.map((one) => `"${one.name}" — already on the rig. Kept, and costs nothing.`),
+      ...plan.skipped.map((one) => `"${one.name}" — skipped: it ${one.why}.`),
+      ...plan.deferred.map((one) =>
+        `"${one.name}" — not in this build: ${MANIFEST_LIMITS.looks} looks is as many as one build takes. `
+        + 'Press again when this one is done.'),
+    ].join('\n');
+    this.editorReport.dataset.level = 'info';
   }
 
   /** Everything the model needs to write a scenario against this rig. */

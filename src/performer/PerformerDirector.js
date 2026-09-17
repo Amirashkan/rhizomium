@@ -473,6 +473,10 @@ export class PerformerDirector {
    * @param {Function} [options.onProgress] per-look progress
    * @param {Function} [options.shouldStop] checked between calls
    * @param {boolean} [options.writeScenario] false to skip the scenario call
+   * @param {object} [options.scenario] a set that already exists: the looks are
+   *   built and bound into it instead of a new set being written. This is the
+   *   half of the pipeline a scenario with no scenes under it needs, and it
+   *   costs one call per missing look and nothing else.
    * @returns {Promise<object>} the builder's report
    */
   async buildShow(manifest, options = {}) {
@@ -500,6 +504,7 @@ export class PerformerDirector {
         onProgress: options.onProgress,
         shouldStop: options.shouldStop,
         writeScenario: options.writeScenario,
+        scenario: options.scenario,
       });
     } finally {
       this.building = false;
