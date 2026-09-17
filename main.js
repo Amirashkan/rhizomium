@@ -572,7 +572,15 @@ async function initialize() {
       // does, so it takes the same path: a backup first, then the import, then
       // the view framed on what was just opened.
       onOpenStarter: async (starter) => {
-        await replaceGraphWithPatch(starter.patch, {
+        // Nodes hydrate with `params` assigned by reference (graphHydration.js
+        // clones `props` but not `params`), so passing the shared STARTER_PATCHES
+        // object straight through means editing a slider after opening a starter
+        // patch mutates that starter's definition for the rest of the session.
+        // Clone it here so every open starts from the untouched original.
+        const patch = typeof structuredClone === "function"
+          ? structuredClone(starter.patch)
+          : JSON.parse(JSON.stringify(starter.patch));
+        await replaceGraphWithPatch(patch, {
           title: starter.title,
           reason: "starter-patch",
         });
