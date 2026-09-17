@@ -8,12 +8,14 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeScenario,
   validateScenario,
+  normalizeDrive,
   normalizeEnter,
   normalizeSignal,
   emptyScenario,
   EXAMPLE_SCENARIO,
   LIMITS,
 } from '../src/performer/Scenario.js';
+import { normalizeAction } from '../src/performer/actions.js';
 
 describe('normalizeScenario', () => {
   it('turns nothing at all into a runnable document', () => {
@@ -93,6 +95,117 @@ describe('normalizeScenario', () => {
     });
     expect(scenario.sections[0].onEnter).toHaveLength(1);
     expect(scenario.sections[0].onEnter[0].type).toBe('master');
+  });
+});
+
+// What the model actually answers with, which is not always what it was asked
+// for. A drive and a move are the two parts of a scenario that address the rig
+// by name, and the rig is described to the model as a list of "node.param"
+// strings — so a pair arriving in one field, or a time arriving beside `at`
+// rather than inside it, is a section that plays its look and moves nothing.
+// Each of these is a whole set's worth of drives, so none of them is a
+// curiosity.
+describe('a drive the way a model writes one', () => {
+  it('splits a dotted pair that arrived in the parameter field', () => {
+    const drive = normalizeDrive({ signal: 'energy', param: 'ComputeNoise.scale' });
+    expect(drive.node).toBe('ComputeNoise');
+    expect(drive.param).toBe('scale');
+  });
+
+  it('splits one that arrived as a "target"', () => {
+    const drive = normalizeDrive({ signal: 'energy', target: 'ComputeGradient.angle' });
+    expect(drive.node).toBe('ComputeGradient');
+    expect(drive.param).toBe('angle');
+  });
+
+  it('reads a nested target object', () => {
+    const drive = normalizeDrive({ signal: 'bass', target: { node: 'Warp', param: 'amount' } });
+    expect(drive.node).toBe('Warp');
+    expect(drive.param).toBe('amount');
+  });
+
+  it('takes the parameter once when the node is written twice', () => {
+    const drive = normalizeDrive({ signal: 'bass', node: 'Warp', param: 'Warp.amount' });
+    expect(drive.node).toBe('Warp');
+    expect(drive.param).toBe('amount');
+  });
+
+  it('splits at the last dot, so a node with a dot in its name survives', () => {
+    const drive = normalizeDrive({ signal: 'bass', param: 'Fog 2.0.opacity' });
+    expect(drive.node).toBe('Fog 2.0');
+    expect(drive.param).toBe('opacity');
+  });
+
+  it('leaves a plain pair exactly as written', () => {
+    const drive = normalizeDrive({ signal: 'bass', node: 'Warp', param: 'amount' });
+    expect(drive.node).toBe('Warp');
+    expect(drive.param).toBe('amount');
+  });
+
+  it('reads the same dotted pair in an action, so a cue is not dead either', () => {
+    const action = normalizeAction({ type: 'drive', signal: 'bass', param: 'Warp.amount' });
+    expect(action.node).toBe('Warp');
+    expect(action.param).toBe('amount');
+    const release = normalizeAction({ type: 'undrive', target: 'Warp.amount' });
+    expect(release.node).toBe('Warp');
+    expect(release.param).toBe('amount');
+  });
+
+  it('still reports a drive that names nothing at all, and says which one', () => {
+    const report = validateScenario(normalizeScenario({
+      signals: [{ name: 'energy', source: 'osc', address: '/e' }],
+      sections: [{ name: 'a', drives: [{ id: 'd1', signal: 'energy', min: 0, max: 1 }] }],
+    }));
+    expect(report.ok).toBe(false);
+    expect(report.errors.some((e) => e.message.includes('"d1"'))).toBe(true);
+  });
+});
+
+describe('a move the way a model writes one', () => {
+  const moveIn = (section) => normalizeScenario({ sections: [section] }).sections[0].moves[0];
+
+  it('takes seconds written beside "at" rather than inside it', () => {
+    const move = moveIn({ name: 'a', moves: [{ seconds: 40, do: [{ type: 'master', to: 1 }] }] });
+    expect(move.atSeconds).toBe(40);
+    expect(move.atBars).toBeNull();
+  });
+
+  it('takes bars written beside "at"', () => {
+    const move = moveIn({ name: 'a', moves: [{ bars: 16, do: [{ type: 'master', to: 1 }] }] });
+    expect(move.atBars).toBe(16);
+  });
+
+  it('reads a bare "at" in the unit the section around it is written in', () => {
+    const free = moveIn({
+      name: 'a',
+      enter: { seconds: 60 },
+      hold: { seconds: 90 },
+      moves: [{ at: 30, do: [{ type: 'master', to: 1 }] }],
+    });
+    expect(free.atSeconds).toBe(30);
+    expect(free.atBars).toBeNull();
+
+    const metered = moveIn({
+      name: 'a',
+      enter: { bars: 32 },
+      moves: [{ at: 8, do: [{ type: 'master', to: 1 }] }],
+    });
+    expect(metered.atBars).toBe(8);
+    expect(metered.atSeconds).toBeNull();
+  });
+
+  it('reads a time with its unit written on it', () => {
+    expect(moveIn({ name: 'a', moves: [{ at: '45s', do: [{ type: 'master', to: 1 }] }] }).atSeconds).toBe(45);
+    expect(moveIn({ name: 'a', moves: [{ at: '8 bars', do: [{ type: 'master', to: 1 }] }] }).atBars).toBe(8);
+    expect(moveIn({ name: 'a', moves: [{ at: '1:30', do: [{ type: 'master', to: 1 }] }] }).atSeconds).toBe(90);
+    expect(moveIn({ name: 'a', moves: [{ at: '2 min', do: [{ type: 'master', to: 1 }] }] }).atSeconds).toBe(120);
+  });
+
+  it('still reports a move with no time at all', () => {
+    const report = validateScenario(normalizeScenario({
+      sections: [{ name: 'a', moves: [{ id: 'move1', do: [{ type: 'master', to: 1 }] }] }],
+    }));
+    expect(report.errors.some((e) => /"move1" has no time/.test(e.message))).toBe(true);
   });
 });
 
