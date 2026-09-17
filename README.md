@@ -59,9 +59,17 @@ output, the generative AI tools. The gate is real and enforced server-side
 (`api/_lib/grant.js`), and it is deliberately visible in the source. Setting
 your tier in devtools lights up the buttons and earns you a 401.
 
-**Working on AI features without an account:** set `AI_DEBUG_MODE` and use the
-unsigned debug grant — see `src/ai/debugMode.js`. This is the supported local
-path.
+**Working on AI features with your own account:** sign in from the dev server
+via **Tools → Account…**. On `localhost:5173` that pairs for a bearer token
+rather than relying on a cookie, because the gallery is reached through a
+server-side proxy no cookie rides along with.
+
+**Without an account:** `AI_DEBUG_MODE` is a *deployment* variable, not a local
+one — setting it in your shell does nothing, since `/api` is proxied to the
+real deployment, which ignores it in production. Run your own backend instead:
+`vercel dev` with `AI_DEBUG_MODE=1` and `OPENAI_API_KEY`, then
+`API_PROXY=http://localhost:3000 npm run dev`. See `src/ai/debugMode.js` and
+`src/performer/README.md` § Running it locally.
 
 For redistribution or embedding under terms other than the AGPL, see
 [COMMERCIAL.md](COMMERCIAL.md). Names and logos are reserved — see
