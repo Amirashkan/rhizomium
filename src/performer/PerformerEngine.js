@@ -41,6 +41,7 @@ import { SignalBus } from './SignalBus.js';
 import { ActionExecutor } from './ActionExecutor.js';
 import { emptyScenario, normalizeScenario, validateScenario } from './Scenario.js';
 import { describeAction } from './actions.js';
+import { deadDrives, patchHandles } from './PatchHandles.js';
 import {
   describeMusic,
   getMusicalListener,
@@ -70,6 +71,17 @@ const MAX_QUANTIZE_WAIT_BARS = 8;
  * audience's patience.
  */
 const ONSET_QUANTIZE_TIMEOUT_SECONDS = 12;
+
+/**
+ * Action types that alter what an audience sees.
+ *
+ * `transition` only sets how the NEXT change will happen and `log` is a line
+ * in a file, so neither resets the stillness clock — counting them would let
+ * the performer talk itself out of noticing that nothing has moved.
+ */
+const CHANGES_THE_PICTURE = new Set([
+  'scene', 'preset', 'param', 'drive', 'undrive', 'master', 'speed', 'blackout', 'graph',
+]);
 
 /** Engine states, for the panel's transport. */
 export const STATE = Object.freeze({
@@ -146,6 +158,26 @@ export class PerformerEngine {
 
     /** Wall-clock of the last tick, for the panel's "is it alive" readout. */
     this.lastTickAt = 0;
+
+    /**
+     * Show-clock seconds of the last action that changed what is on screen.
+     *
+     * The director is shown how long the MUSIC has held (listening.texture),
+     * and had no way at all to see how long the PICTURE has. Those come apart
+     * badly and the set this was written for is the case: a drone holds for
+     * three minutes, which reads as "hold" in every prompt rule there is,
+     * while behind it every drive in the scenario is bound to a node that is
+     * not in the patch, so the picture has not moved once since the first
+     * frame. The model kept answering "hold the settling field" because
+     * nothing it could see said the field had settled into a freeze.
+     *
+     * Stamped from the show clock rather than wall time, because it is a fact
+     * about the performance: a set paused for an encore has not been holding a
+     * frozen picture for the length of the break. Null until the first section
+     * is entered, so a performer sitting stopped at a desk does not read as an
+     * hour of freeze the moment it is started.
+     */
+    this._changedAtSeconds = null;
   }
 
   // --- scenario ----------------------------------------------------------
@@ -595,6 +627,7 @@ export class PerformerEngine {
     this.sectionEnteredBeats = this.clock.beats;
     this.sectionEnteredSeconds = this.clock.seconds;
     this._firedMoves.clear();
+    this._changedAtSeconds = this.clock.seconds;
 
     const section = this.currentSection;
     if (!section) return;
@@ -710,6 +743,7 @@ export class PerformerEngine {
     this._barSpent += result.cost;
 
     if (result.ok) {
+      if (CHANGES_THE_PICTURE.has(action.type)) this._changedAtSeconds = this.clock.seconds;
       this.write('action', describeAction(action), { source, detail: result.detail, why: action.why });
     } else {
       this.write('warn', `Skipped ${describeAction(action)}: ${result.reason}`, { source });
@@ -836,6 +870,10 @@ export class PerformerEngine {
    */
   describeState() {
     const section = this.currentSection;
+    const status = this.executor.status();
+    // Taken once: the prompt's own `signals` block reads it, and so does
+    // deadDrives() below, and snapshot() walks every signal to build it.
+    const signals = this.signals.snapshot();
 
     return {
       scenario: {
@@ -865,12 +903,40 @@ export class PerformerEngine {
         energy: round(this.signals.energy),
         intensity: round(this.signals.intensity),
       },
-      signals: this.signals.snapshot(),
+      signals,
       // What the room has been doing, as opposed to what it is doing this
       // frame. Cached inside the listener, so building this every frame costs
       // a property read.
       listening: this.listening(),
-      driving: this.executor.status().drives,
+      driving: status.drives,
+      // The vocabulary. Without it the director was being told to "name only
+      // nodes that appear in what you were shown" while being shown no nodes
+      // at all, and it answered the only way that leaves: a drive with an
+      // empty node, a paragraph of intent in `why`, and nothing on screen.
+      patch: patchHandles(this.executor.graph),
+      // …and which of the set's own drives are moving nothing. This is the
+      // failure the director is best placed to repair, because it is the only
+      // thing in the show that can see all three of what the section wanted,
+      // what the patch actually has, and what the room is actually sending.
+      // The snapshot goes in so a drive whose ends both resolve but whose
+      // signal has never arrived is reported too: that one writes the bottom
+      // of its range every frame, which is the black picture no other readout
+      // here was naming.
+      dead: deadDrives(status.drives, this.executor.graph, signals),
+      picture: {
+        // Seconds since anything changed what is on screen. A live drive or a
+        // running ramp IS the picture moving, so those read as zero; a drive
+        // bound to a node that is not there is not, which is the distinction
+        // that makes this number worth showing at all.
+        stillSeconds: this.stillSeconds(signals),
+        // What sits between the patch and the audience. A master faded out and
+        // a blackout left on are each a black canvas with a perfectly healthy
+        // patch behind it, and the director was shown neither — so the question
+        // it is most often asked in the dark, "why is there nothing there?",
+        // was the one it had no way to answer, and it guessed at the graph.
+        master: round(status.master ?? 1),
+        blackedOut: Boolean(status.blackedOut),
+      },
       recent: this.log.slice(-12).map((entry) => ({
         at: entry.bar,
         level: entry.level,
@@ -879,6 +945,38 @@ export class PerformerEngine {
       askedAtBeats: this.clock.beats,
       askedAtSeconds: this.nowSeconds(),
     };
+  }
+
+  /**
+   * How long the picture has been frozen, in seconds.
+   *
+   * Anything still writing a parameter counts as movement, so this is zero
+   * while a drive resolves or a ramp runs, and climbs only when the performer
+   * has genuinely stopped changing what is on screen. That is deliberately
+   * stricter than "when did the last action succeed": registering a drive
+   * against a node that is not in the patch succeeds, and it is exactly the
+   * case this number exists to expose.
+   *
+   * @param {object} [signals] SignalBus.snapshot(), when the caller already
+   *   has one — describeState() builds this every frame the director is
+   *   offered, and snapshot() walks every signal in the set to produce it.
+   */
+  stillSeconds(signals = null) {
+    const status = this.executor.status();
+    if (status.ramps.length) return 0;
+
+    const graph = this.executor.graph;
+    // The snapshot matters here as much as the graph does. A drive bound to a
+    // signal that has never arrived resolves its node, writes its parameter
+    // every frame, and moves nothing — counting that as movement is what let a
+    // frozen canvas report itself as a picture still being played.
+    const heard = signals || this.signals.snapshot();
+    const live = status.drives.length
+      && status.drives.length > deadDrives(status.drives, graph, heard).length;
+    if (live) return 0;
+
+    if (this._changedAtSeconds === null) return 0;
+    return Math.max(0, round(this.clock.seconds - this._changedAtSeconds));
   }
 
   /**
@@ -960,6 +1058,17 @@ export class PerformerEngine {
     this._listening = wanted;
     setMusicalListeningWanted(wanted);
     if (wanted) this.director?.setListener?.(getMusicalListener());
+
+    // Two switches have to agree for the director to run: this one, which is
+    // the artist inviting it, and the scenario's own rule, which is the set
+    // saying it wants one. A show built by the show builder ships with the
+    // rule off, so turning the panel switch on can look like nothing at all
+    // happening. Say which switch is holding it rather than leaving the artist
+    // to find a field they cannot see from the panel.
+    if (wanted && !this.scenario.rules.director.enabled) {
+      this.write('warn', 'The director is on, but this scenario has rules.director.enabled off — it will not be asked. Turn it on in the scenario to use it.');
+    }
+
     return this.director?.setEnabled?.(wanted) ?? wanted;
   }
 

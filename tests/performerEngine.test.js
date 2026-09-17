@@ -636,5 +636,31 @@ describe('PerformerEngine', () => {
       expect(director.enabled).toBe(false);
       expect(engine.listening()).toBeNull();
     });
+
+    // Two switches have to agree, and only one of them is on the panel. A show
+    // built from a manifest ships with the scenario's rule off, so the artist
+    // turns the director on, watches a set go by with nothing from it, and has
+    // no way from the panel to see which switch is holding it.
+    it('says so when the scenario\'s own rule is what is holding the director off', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
+      const { engine } = makeEngine(
+        { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: false } } },
+        { director }
+      );
+
+      engine.setDirectorEnabled(true);
+      expect(engine.log.some((entry) => /rules\.director\.enabled off/.test(entry.message))).toBe(true);
+    });
+
+    it('stays quiet when both switches agree', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
+      const { engine } = makeEngine(
+        { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: true } } },
+        { director }
+      );
+
+      engine.setDirectorEnabled(true);
+      expect(engine.log.some((entry) => /rules\.director\.enabled off/.test(entry.message))).toBe(false);
+    });
   });
 });

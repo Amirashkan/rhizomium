@@ -8,7 +8,7 @@
 // does not rewrite the set around it.
 
 import { describe, it, expect, vi } from 'vitest';
-import { ShowBuilder, manifestFromScenario } from '../src/performer/ShowBuilder.js';
+import { ShowBuilder, manifestFromScenario, unmetRequirements } from '../src/performer/ShowBuilder.js';
 import { lookPrompt, MANIFEST_LIMITS } from '../src/performer/ShowManifest.js';
 
 /** A set with three sections, none of whose scenes are on this rig. */
@@ -37,6 +37,41 @@ const SET = Object.freeze({
 const patch = (n = 2) => ({
   nodes: Array.from({ length: n }, (_, i) => ({ id: `n${i}`, kind: 'Noise', x: 0, y: 0, params: {} })),
   connections: [],
+});
+
+// The whole point of a look's `requires`: the set already drives "Warp.amount",
+// so the patch built for it has to have that node and that parameter. Nothing
+// used to check, and a look that came back without them was indistinguishable
+// from one that worked — it installs, it plays, and every drive in the section
+// writes into a node that is not there.
+describe('unmetRequirements', () => {
+  const needs = [{ node: 'Warp', param: 'amount' }];
+
+  it('is satisfied by the node kind, the way the executor resolves one', () => {
+    const built = { nodes: [{ id: 'n0', kind: 'Warp', params: { amount: 0.5 } }] };
+    expect(unmetRequirements(built, needs)).toEqual([]);
+  });
+
+  it('is satisfied by the name the model gave the node', () => {
+    const built = { nodes: [{ id: 'n0', kind: 'Blur', name: 'Warp', params: { amount: 0 } }] };
+    expect(unmetRequirements(built, needs)).toEqual([]);
+  });
+
+  it('reports a node that is simply not there', () => {
+    const built = { nodes: [{ id: 'n0', kind: 'Noise', params: {} }] };
+    expect(unmetRequirements(built, needs)).toEqual(['Warp.amount']);
+  });
+
+  // A node that resolves and a parameter that does not is the same failure one
+  // step in: the drive finds its node and writes nowhere.
+  it('reports a node that arrived without the parameter', () => {
+    const built = { nodes: [{ id: 'n0', kind: 'Warp', params: { speed: 1 } }] };
+    expect(unmetRequirements(built, needs)).toEqual(['Warp.amount']);
+  });
+
+  it('asks nothing of a look the set does not reach into', () => {
+    expect(unmetRequirements({ nodes: [] }, [])).toEqual([]);
+  });
 });
 
 describe('manifestFromScenario', () => {
@@ -239,11 +274,29 @@ describe('building into a set that already exists', () => {
     const report = await show.build(plan.manifest, { scenario: SET });
 
     expect(report.built.filter((entry) => entry.generated)).toHaveLength(2);
-    expect(report.problems[0].message).toMatch(/fell over/);
+    // Among the problems rather than first among them: the looks that DID
+    // build are also reported here, because this suite's stub patch is two
+    // Noise nodes and the set drives "Warp".
+    expect(report.problems.map((one) => one.message).join('\n')).toMatch(/fell over/);
     // The section whose look failed still names what it always named. It is
     // inert, exactly as inert as it was before the build, and one press away
     // from being built again — which is the point of not rewriting the set.
     expect(report.scenario.sections[1].look).toEqual({ kind: 'scene', scene: 'Tightening' });
+  });
+
+  it('says which looks came back without the nodes the set drives', async () => {
+    const { builder: show } = builder();
+    const plan = manifestFromScenario(SET);
+
+    const report = await show.build(plan.manifest, { scenario: SET });
+
+    // The stub patch is Noise nodes; the set drives "Warp". Every look is
+    // still installed — a look with a hole in it beats no look at all — but
+    // the hole is named here rather than found on stage.
+    const said = report.problems.map((one) => one.message).join('\n');
+    expect(said).toMatch(/came back without "Warp\.amount"/);
+    expect(said).toMatch(/will do nothing/);
+    expect(report.built.filter((entry) => entry.generated)).toHaveLength(3);
   });
 
   it('tells each look about the whole set, including the ones already on the rig', async () => {

@@ -79,6 +79,46 @@ describe('ShowBuilder', () => {
     expect(report.built.filter((entry) => entry.generated)).toHaveLength(3);
   });
 
+  // The gap this closes: pass 2 used to be told the scene NAMES and nothing
+  // about what was inside them, so every drive it wrote named a node it had
+  // guessed at. A scenario full of guessed names loads clean and then holds one
+  // frame for the length of the show.
+  it('tells the scenario call what the patches it just built call their nodes', async () => {
+    generatePatch = vi.fn(async () => ({
+      patch: {
+        nodes: [
+          { id: 'n0', kind: 'ComputeNoise', name: 'membrane', params: { scale: 4 } },
+          { id: 'n1', kind: 'ComputeGradient', name: 'ground', params: { inputMix: 0.2 } },
+        ],
+        connections: [],
+      },
+      title: 'A patch',
+      notes: '',
+    }));
+
+    await builder().build(MANIFEST);
+
+    const [brief] = authorScenario.mock.calls[0];
+    expect(brief).toContain('"membrane" (ComputeNoise)');
+    expect(brief).toContain('scale');
+    expect(brief).toContain('"ground" (ComputeGradient)');
+    expect(brief).toContain('inputMix 0..1, now 0.2');
+    expect(brief).toContain('spelled exactly as they are listed');
+  });
+
+  it('carries the handles on the report, per look', async () => {
+    generatePatch = vi.fn(async () => ({
+      patch: { nodes: [{ id: 'n0', kind: 'ComputeNoise', params: { scale: 4 } }], connections: [] },
+      title: 'A patch',
+      notes: '',
+    }));
+
+    const report = await builder().build(MANIFEST);
+    for (const entry of report.built) {
+      expect(entry.handles.nodes.map((one) => one.name)).toEqual(['ComputeNoise']);
+    }
+  });
+
   it('tells each patch call about the show as well as the look', async () => {
     await builder().build(MANIFEST);
 
@@ -97,6 +137,39 @@ describe('ShowBuilder', () => {
     const [brief, context] = authorScenario.mock.calls[0];
     expect(brief).toContain('the scene "Opening"');
     expect(context.scenes.map((scene) => scene.name)).toEqual(['Opening', 'Build', 'Drop']);
+  });
+
+  it('tells the model what each built scene can be driven on', async () => {
+    generatePatch = vi.fn(async () => ({
+      patch: {
+        nodes: [
+          { id: 'n0', kind: 'ComputeNoise', name: 'ComputeNoise', params: { scale: 8, mode: 'fbm' } },
+          { id: 'n1', kind: 'Blur', name: 'Blur', params: { radius: 4, tint: '#fff' } },
+        ],
+        connections: [],
+      },
+    }));
+
+    await builder().build(MANIFEST);
+
+    // Without this the only parameters the scenario call has ever been given
+    // are the ones in whatever patch is open in the editor — which during a
+    // build is not the graph any of these sections will load. The model does
+    // as it is told, names those, and every drive in the set addresses a node
+    // that is not there.
+    //
+    // The list is the look's handles flattened, not a walk of the values the
+    // patch happens to carry. That difference is `octaves`, `speed` and `seed`:
+    // real drivable parameters sitting at their registry defaults, which a
+    // freshly generated patch does not write out — so walking the patch hid
+    // exactly the parameters a new look leaves to be turned. A scenario writer
+    // that cannot name ComputeNoise.speed cannot write the most obvious drive
+    // on a noise node.
+    const [, context] = authorScenario.mock.calls[0];
+    expect(context.scenes[0].parameters).toEqual([
+      'ComputeNoise.scale', 'ComputeNoise.octaves', 'ComputeNoise.speed', 'ComputeNoise.seed',
+      'Blur.radius',
+    ]);
   });
 
   it('binds every section to the scene that was actually built for it', async () => {
