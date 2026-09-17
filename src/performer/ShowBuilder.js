@@ -80,6 +80,7 @@ import {
   MANIFEST_VERSION,
 } from './ShowManifest.js';
 import { normalizeScenario, SCENARIO_VERSION } from './Scenario.js';
+import { handleFor } from './PatchHandles.js';
 import { mediaSlotName, mediaSlots, readMediaDataUrl, resolveLookMedia } from './ShowFolder.js';
 import { patchHandles } from './PatchHandles.js';
 
@@ -218,6 +219,19 @@ export class ShowBuilder {
             problems.push({ where: `look "${look.name}"`, message: note });
           }
 
+          // The look is still installed: a patch that is missing a parameter
+          // the set reaches for is a look with a hole in it, not a failure,
+          // and it is better on the rig than not built at all. But it is said
+          // here, once, while the artist is watching a build — rather than
+          // discovered at showtime as visuals that do not move.
+          const unmet = unmetRequirements(media.patch, look.requires);
+          if (unmet.length) {
+            problems.push({
+              where: `look "${look.name}"`,
+              message: `came back without ${unmet.map((one) => `"${one}"`).join(', ')}, which the set drives — ${unmet.length === 1 ? 'that drive will do' : 'those drives will do'} nothing until the patch or the scenario is changed to agree`,
+            });
+          }
+
           // The scene is named after the look, not after the title the model
           // chose for its patch: the scenario is about to name it, and it can
           // only name what the manifest said.
@@ -243,6 +257,14 @@ export class ShowBuilder {
             // this was carried across it was writing them against node names
             // it had guessed — which load, warn once, and then do nothing for
             // the length of the set.
+            //
+            // Both sides of this merge carried the same fix and this is the
+            // richer shape: patchHandles() resolves a name the way showtime
+            // will, keeps each parameter's range and where it sits, and says
+            // when one handle answers for two nodes. A flat "Node.param" list
+            // could say none of that, and a range is the difference between a
+            // drive that reads and one mapped into the top tenth of a span it
+            // was already sitting in.
             handles: patchHandles(media.patch),
             media: media.bound.map((one) => one.path),
             generated: true,
@@ -467,6 +489,84 @@ export async function attachMedia(patch, clips = []) {
 }
 
 /**
+ * What the look was asked for and did not come back with.
+ *
+ * A look's `requires` is every node and parameter the set already reaches for
+ * — the drives, the moves, the enter and exit actions of the section about to
+ * play it. The prompt asks for them by name. Nothing used to check that they
+ * arrived, and a look that came back without them installs, plays, and looks
+ * exactly like a look that worked: the section cuts to it, its drives are
+ * accepted, its signals arrive, and every one of them writes into a node that
+ * is not there. The set runs clean and barely moves.
+ *
+ * This is the earliest the whole failure can be caught — at the desk, during a
+ * build, with the artist watching — rather than as a `dead` entry in the live
+ * director's prompt with an audience already in the room.
+ *
+ * Resolved through handleFor(), the same name ActionExecutor.resolveNode()
+ * will look for on stage, so a name that passes here is one that will bind
+ * there and one that fails here would have failed there silently.
+ *
+ * @param {object} patch a generated patch
+ * @param {Array<{node: string, param: string}>} requires
+ * @returns {Array<string>} "Node.param" for each one missing, in order
+ */
+export function unmetRequirements(patch, requires) {
+  const list = Array.isArray(requires) ? requires : [];
+  if (!list.length) return [];
+
+  const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
+  const missing = [];
+
+  for (const entry of list) {
+    const wanted = String(entry?.node ?? '').trim();
+    const param = String(entry?.param ?? '').trim();
+    if (!wanted || !param) continue;
+
+    const key = wanted.toLowerCase();
+    const node = nodes.find((one) => String(one?.id) === wanted)
+      || nodes.find((one) => handleFor(one).toLowerCase() === key)
+      || nodes.find((one) => String(one?.kind).toLowerCase() === key);
+
+    // The parameter matters as much as the node: a Blur that arrived without
+    // `amount` is a drive that resolves its node and writes nowhere.
+    if (!node || !(param in (node.params || {}))) missing.push(`${wanted}.${param}`);
+  }
+
+  return missing;
+}
+
+/**
+ * The parameters a drive can reach in one built look, as "node.param".
+ *
+ * Flattened from the look's handles rather than walked out of the patch a
+ * second time, so the names here and the names in the scenario brief cannot
+ * drift: both are what ActionExecutor.resolveNode() will find on stage.
+ * Reading the patch directly — the shape this replaced — saw only parameters
+ * the patch carried a value for, and missed every one still sitting at its
+ * registry default, which is most of a freshly generated look.
+ *
+ * Capped, because this is prompt text and a forty-node patch has a few
+ * hundred of them: a list long enough to bury the ones an artist would reach
+ * for first is not more useful for being complete.
+ */
+export function handleParameters(handles, limit = 24) {
+  const nodes = Array.isArray(handles?.nodes) ? handles.nodes : [];
+  const out = [];
+  for (const node of nodes) {
+    const label = String(node?.name || '').trim();
+    if (!label) continue;
+    for (const param of node.params || []) {
+      const name = String(param?.name || '').trim();
+      if (!name) continue;
+      out.push(`${label}.${name}`);
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
+/**
  * Whether this clip can go on this node.
  *
  * A cube map is six faces of a still image in one file; a video on one is a
@@ -497,6 +597,11 @@ function mergeContext(context, show, built) {
         id: entry.sceneId || entry.lookId,
         name: entry.sceneName,
         notes: look?.mood || entry.notes || '',
+        // The parameters of THIS scene, so a drive in its section names
+        // something the section will actually have loaded. The flat list
+        // beside it is the patch that is open in the editor, which during a
+        // show build is nobody's section.
+        parameters: handleParameters(entry.handles),
       };
     });
 

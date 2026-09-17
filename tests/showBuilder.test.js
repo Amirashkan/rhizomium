@@ -139,6 +139,39 @@ describe('ShowBuilder', () => {
     expect(context.scenes.map((scene) => scene.name)).toEqual(['Opening', 'Build', 'Drop']);
   });
 
+  it('tells the model what each built scene can be driven on', async () => {
+    generatePatch = vi.fn(async () => ({
+      patch: {
+        nodes: [
+          { id: 'n0', kind: 'ComputeNoise', name: 'ComputeNoise', params: { scale: 8, mode: 'fbm' } },
+          { id: 'n1', kind: 'Blur', name: 'Blur', params: { radius: 4, tint: '#fff' } },
+        ],
+        connections: [],
+      },
+    }));
+
+    await builder().build(MANIFEST);
+
+    // Without this the only parameters the scenario call has ever been given
+    // are the ones in whatever patch is open in the editor — which during a
+    // build is not the graph any of these sections will load. The model does
+    // as it is told, names those, and every drive in the set addresses a node
+    // that is not there.
+    //
+    // The list is the look's handles flattened, not a walk of the values the
+    // patch happens to carry. That difference is `octaves`, `speed` and `seed`:
+    // real drivable parameters sitting at their registry defaults, which a
+    // freshly generated patch does not write out — so walking the patch hid
+    // exactly the parameters a new look leaves to be turned. A scenario writer
+    // that cannot name ComputeNoise.speed cannot write the most obvious drive
+    // on a noise node.
+    const [, context] = authorScenario.mock.calls[0];
+    expect(context.scenes[0].parameters).toEqual([
+      'ComputeNoise.scale', 'ComputeNoise.octaves', 'ComputeNoise.speed', 'ComputeNoise.seed',
+      'Blur.radius',
+    ]);
+  });
+
   it('binds every section to the scene that was actually built for it', async () => {
     const report = await builder().build(MANIFEST);
 

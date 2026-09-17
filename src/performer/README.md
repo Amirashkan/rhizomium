@@ -190,6 +190,23 @@ Section changes are quantised by `transition.quantize` — `beat`, `half`, `bar`
 lands even if the condition that decided it has since stopped being true: a
 decision already made should not be un-made by the wait.
 
+A **drive** addresses a parameter as two fields, `node` and `param`, because a
+node is matched by id, then name, then kind, and the parameter is a key on
+whatever that found. Everything that lists parameters — the rig block the model
+is given, the panel's own readout — prints them as `Warp.amount`, so a drive
+that arrives carrying the pair in one field is split at the last dot rather than
+thrown away. The same goes for the actions: `{ "target": "Warp.amount" }` is
+read exactly like `{ "node": "Warp", "param": "amount" }`.
+
+A **move** says when with `atBars`, `atSeconds` or `when`, and a move with none
+of the three is reported — it can never fire. `{ "at": { "bars": 8 } }`,
+`{ "bars": 8 }`, `{ "at": "8 bars" }` and `{ "at": "1:30" }` all say it too. A
+bare number with no unit on it (`{ "at": 30 }`) is read in the unit its section
+is written in: seconds in a section entered and held in seconds, bars
+everywhere else — on material with no pulse there is nothing to count bars
+against, so reading it as bars would be a move that fires at a time nobody
+chose.
+
 ### Actions
 
 The whole vocabulary is [`actions.js`](actions.js) and nothing invents a verb

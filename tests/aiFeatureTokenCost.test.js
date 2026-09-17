@@ -153,6 +153,22 @@ describe('the token cost of every AI feature', () => {
     const system = ranges.map((range) => range.input.system);
     const spread = Math.max(...system) - Math.min(...system);
     expect(spread).toBeLessThan(1600);
+    //
+    // The scenario call then grew too, for the mirror-image reason: the shape
+    // of a drive and of a move, and the list of verbs an action may use, were
+    // described in prose and nowhere demonstrated, so the model invented field
+    // names for the one part of a scenario that addresses the rig by name.
+    // That paragraph is paid once before a show, where the same words in the
+    // live prompt would be paid every half-minute all night — which is why the
+    // two are allowed to diverge and why this is a spread, not a ceiling.
+    //
+    // It did not move this number. The live performer still owns the maximum
+    // (~9,400 against the scenario call's ~8,900) and neither is the minimum,
+    // so the scenario prompt has room to grow before it is what this measures.
+    //
+    // Measured spread today: 1,541, against a bound of 1,600. That is 59
+    // tokens of headroom on purpose. The next paragraph that wants room here
+    // should displace one, not raise this again.
   });
 
   it('keeps the shared prompt under 9,500 tokens', () => {
