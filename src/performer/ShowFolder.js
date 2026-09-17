@@ -133,8 +133,10 @@ export function mediaSlotName(item) {
  * @param {object} [options]
  * @param {string} [options.name] what to call the folder in the readout.
  * @returns {{
- *   name: string, manifest: object|null, media: Array, skipped: Array,
- *   problems: Array<{where: string, message: string}>, extraManifests: Array<string>
+ *   name: string, manifest: object|null, manifests: Array<{path: string, file: object}>,
+ *   media: Array, skipped: Array,
+ *   problems: Array<{where: string, level: string, message: string}>,
+ *   extraManifests: Array<string>
  * }}
  */
 export function indexShowFolder(entries, options = {}) {
@@ -208,15 +210,15 @@ export function indexShowFolder(entries, options = {}) {
   if (!found.length) {
     problems.push({
       where: 'the folder',
+      level: 'warn',
       message: 'No manifest in it. A show folder holds a .rzshow.json next to its media — press Example, then Save… into this folder to start one.',
     });
   }
-  if (extraManifests.length) {
-    problems.push({
-      where: 'the folder',
-      message: `More than one manifest here. Using "${chosen.path}"; ignoring ${extraManifests.join(', ')}.`,
-    });
-  }
+
+  // Which of several manifests to complain about is not decided here any more.
+  // A directory of project folders written by another tool holds one manifest
+  // per folder and all of them are wanted, so the choice is made once they have
+  // been read — see ShowImport.readFolderShow().
 
   const audio = media.filter((item) => item.kind === 'audio').length;
   if (audio) {
@@ -224,8 +226,13 @@ export function indexShowFolder(entries, options = {}) {
     // correct — it is the show — but nothing in the editor plays a file: the
     // performer listens to what is coming out of the room, which is the
     // musician. See src/audio/README.md.
+    //
+    // A note rather than a warning: nothing is wrong, and a line that reads
+    // like a fault in a list of faults is a line that costs the artist a
+    // minute working out which of them to fix.
     problems.push({
       where: 'the folder',
+      level: 'note',
       message: `${audio} audio file${audio === 1 ? '' : 's'} listed but not used: the performer listens to your live input, not to a file. Play the track into the editor and it will hear it.`,
     });
   }
@@ -233,6 +240,10 @@ export function indexShowFolder(entries, options = {}) {
   return {
     name: String(options.name || '').trim() || (chosen ? chosen.path.split('/')[0] : '') || 'Show folder',
     manifest: chosen ? { path: chosen.path, file: chosen.file } : null,
+    // Every manifest in the folder, best first, because a folder can hold one
+    // per project rather than one per show. The reader takes them in this
+    // order; `manifest` is still the single best candidate for the one-file case.
+    manifests: ranked(found).map((entry) => ({ path: entry.path, file: entry.file })),
     media,
     skipped,
     problems,
@@ -249,10 +260,14 @@ export function indexShowFolder(entries, options = {}) {
  * the same choice every time the folder is opened.
  */
 function pickManifest(found) {
-  if (!found.length) return null;
+  return ranked(found)[0] || null;
+}
+
+/** Every manifest found, in the order pickManifest() prefers them. */
+function ranked(found) {
   const rank = (entry) => MANIFEST_PATTERNS.findIndex((pattern) => pattern.test(entry.name));
   return found.slice().sort((a, b) =>
-    a.depth - b.depth || rank(a) - rank(b) || a.path.localeCompare(b.path))[0];
+    a.depth - b.depth || rank(a) - rank(b) || a.path.localeCompare(b.path));
 }
 
 /**

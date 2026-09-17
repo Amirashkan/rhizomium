@@ -374,6 +374,60 @@ it does on the night.
 Nothing about a build without a folder changes: no folder open means no clips,
 means the prompt, the backend and the installed scenes are exactly what they
 were.
+
+### A folder another tool wrote
+
+Not every `manifest.json` is a show. A folder generated somewhere else holds
+one that describes something else entirely, and reading it as a set produces a
+show with no looks in it — a page of validation errors about a document you
+never wrote. So the manifests in a folder are read before anything is opened
+from them, and one that is not a show is left where it is and said so plainly.
+
+One foreign format is read rather than ignored:
+[`transmissions`](https://github.com/Amirashkan/transmissions), which writes one
+project folder per piece.
+
+```
+Transmissions/
+  2026-09-14-lattice-that-remembers/
+    manifest.json           the prompts, the palette, the energy, the files
+    media/
+      video.mp4             the look's footage
+      image.png
+      music.mp3             the bed — listed, not loaded
+      narration.mp3
+  2026-09-15-salt-clock/
+    ...
+```
+
+Open the directory — one project, or the whole pool — and the Show tab fills
+with the manifest those pieces imply. One project is one look:
+
+| in the project | becomes |
+| --- | --- |
+| the video and image prompts, and the texture line | the look's **brief** |
+| whatever was actually generated | its **media**, so the patch is built on the footage |
+| energy 1–5 | its **intensity** |
+| the bed's length, and the narration's | its **hold**, in seconds |
+| every palette in the folder | the show's **palette**, so the looks read as one set |
+| the beds that stated a tempo | the show's **bpm** (the median) |
+
+The set is written in seconds and nothing in it is counted in bars: these beds
+are ambient, and a tempo detector asked for a BPM on a drone will always find
+one and always be wrong. The signals are the four the tool's own exporter
+declares — `level`, `low`, `high` and the `push` you send over
+`/rhizo/perf/energy` — and there is a cue per piece, so any of them can be
+reached by hand mid-set.
+
+What does not cross over is the copy. A transmission's brief is the news and its
+vignette is fiction about a person in a room; neither describes an image, and a
+patch prompt fed either builds an illustration of a story. The prompts were
+written for this and say so: abstract material, no objects, no figures, no text.
+
+It is a manifest like any other once it is there — **edit it before you build**.
+The briefs are what each patch will be made of, and twelve looks is twelve
+calls.
+
 ## The set that does exist, on a rig that does not
 
 The manifest answers "the show is in my head and the editor is empty". The

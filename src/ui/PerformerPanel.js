@@ -19,6 +19,7 @@ import {
   readFileList,
 } from '../performer/ShowFolder.js';
 import { manifestFromScenario } from '../performer/ShowBuilder.js';
+import { readFolderShow } from '../performer/ShowImport.js';
 import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
 
 /**
@@ -139,6 +140,12 @@ export class PerformerPanel {
     this.folder = null;
     /** The manifest text as the folder gave it, so a repaint knows what is the artist's own. */
     this.manifestFromFolder = '';
+    /**
+     * What reading the folder's manifests found, from ShowImport.readFolderShow()
+     * — a show, a set of transmissions, or nothing this can open. Null until a
+     * folder has been read, and again as soon as one is closed.
+     */
+    this.folderShow = null;
     /** Which of the two builds is running, so the right button is the Stop. */
     this.buildingLooks = false;
     /**
@@ -514,9 +521,16 @@ export class PerformerPanel {
   }
 
   /**
-   * Take a folder, and put its manifest in the editor.
+   * Take a folder, and put the show that is in it in the editor.
    *
-   * The manifest is only loaded over an editor that is empty or holds
+   * What that show is takes reading the files: a `manifest.json` is as likely
+   * to be another tool's document as it is to be a set, and a foreign one
+   * loaded as a show is a page of validation errors about something the artist
+   * never wrote. ShowImport.readFolderShow() is what decides — a show manifest
+   * arrives as its own bytes, a folder of transmissions arrives as the manifest
+   * they imply, and anything else is left where it is and said out loud.
+   *
+   * Either way it is only loaded over an editor that is empty or holds
    * something this panel put there. An artist who has been typing a manifest
    * for ten minutes and opens a folder to attach its footage should not have
    * that replaced — so in that one case the folder is taken and the file is
@@ -525,19 +539,18 @@ export class PerformerPanel {
   async setShowFolder(folder) {
     this.folder = folder;
 
+    const read = await readFolderShow(folder);
+    this.folderShow = read;
+    folder.problems.push(...read.problems);
+
     let loaded = false;
-    if (folder.manifest) {
+    if (read.text) {
       const typed = this.manifestEditor.value.trim();
       const mine = !typed || this.manifestFromFolder === typed || typed === JSON.stringify(EXAMPLE_MANIFEST, null, 2);
       if (mine) {
-        try {
-          const text = await folder.manifest.file.text();
-          this.manifestEditor.value = text;
-          this.manifestFromFolder = text.trim();
-          loaded = true;
-        } catch (error) {
-          folder.problems.push({ where: folder.manifest.path, message: `could not be read: ${error?.message || error}` });
-        }
+        this.manifestEditor.value = read.text;
+        this.manifestFromFolder = read.text.trim();
+        loaded = true;
       }
     }
 
@@ -545,16 +558,29 @@ export class PerformerPanel {
     this.showTab('show');
 
     const report = this.checkManifest();
-    if (!loaded && folder.manifest && report !== undefined) {
+    if (!loaded && read.text && report !== undefined) {
       this.noteBuild(
-        `"${folder.manifest.path}" was left unopened — the editor has a manifest in it already. Clear it and open the folder again to use the one on disk.`,
+        `"${read.path}" was left unopened — the editor has a manifest in it already. Clear it and open the folder again to use the one on disk.`,
         'warn'
+      );
+    }
+    if (loaded && read.kind === 'transmissions') {
+      // A manifest nobody wrote, so it says where it came from and what to do
+      // with it. The briefs are the prompts each piece was generated from and
+      // they are what the patches will be made of — which is worth a look
+      // before six calls are spent on them.
+      this.noteBuild(
+        `${read.projects.length} transmission${read.projects.length === 1 ? '' : 's'} read out of this folder `
+          + 'into the manifest above — the briefs, the clips each look is built on, the palette and the '
+          + 'holds. Read it, edit anything that is not the show you want, then Build.',
+        'ok'
       );
     }
   }
 
   closeShowFolder() {
     this.folder = null;
+    this.folderShow = null;
     this.manifestFromFolder = '';
     this.paintFolder();
     this.checkManifest();
@@ -574,13 +600,23 @@ export class PerformerPanel {
     }
 
     const usable = folder.media.filter((item) => item.kind !== 'audio');
+    const read = this.folderShow;
+    const projects = read?.projects.length || 0;
+
     const bits = [folder.name];
-    bits.push(folder.manifest ? folder.manifest.path : 'no manifest');
+    bits.push(
+      read?.kind === 'transmissions' ? `${projects} transmission${projects === 1 ? '' : 's'}`
+        : read?.kind === 'show' ? read.path
+        // Two different answers: nothing here to open, or something here that
+        // is not a show. The second one is the one with something to fix.
+        : folder.manifests?.length ? 'no show manifest'
+        : 'no manifest'
+    );
     bits.push(`${usable.length} clip${usable.length === 1 ? '' : 's'}`);
     if (folder.skipped.length) bits.push(`${folder.skipped.length} skipped`);
 
     this.folderLabel.textContent = bits.join(' · ');
-    this.folderLabel.dataset.level = folder.manifest ? 'ok' : 'warn';
+    this.folderLabel.dataset.level = read && read.kind !== 'none' ? 'ok' : 'warn';
 
     for (const item of folder.media) {
       const row = el('div', 'rz-perf-folder-file');
@@ -622,7 +658,11 @@ export class PerformerPanel {
     const lines = [
       // The folder's own complaints first: a manifest naming a clip that is not
       // there reads as a manifest problem, and it is usually a folder problem.
-      ...(this.folder?.problems || []).map((p) => `folder — ${p.where}: ${p.message}`),
+      // A note is a note and says so — there is nothing to fix in it, and a line
+      // that reads like a fault in a list of faults costs the artist a minute
+      // working out which of them matter.
+      ...(this.folder?.problems || []).map((p) =>
+        `${p.level === 'note' ? 'note' : 'folder'} — ${p.where}: ${p.message}`),
       ...report.errors.map((p) => `error — ${p.where}: ${p.message}`),
       ...report.warnings.map((p) => `warning — ${p.where}: ${p.message}`),
     ];
