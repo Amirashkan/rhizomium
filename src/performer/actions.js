@@ -27,6 +27,64 @@ const num = (value, fallback = 0) => {
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const str = (value, fallback = '') => (typeof value === 'string' ? value : fallback);
 
+/** "Warp.amount" split at the last dot, or null if there is nothing to split. */
+function splitDotted(value) {
+  const text = str(value).trim();
+  const cut = text.lastIndexOf('.');
+  if (cut <= 0 || cut === text.length - 1) return null;
+  return { node: text.slice(0, cut).trim(), param: text.slice(cut + 1).trim() };
+}
+
+/**
+ * The node and parameter one action or drive addresses, out of whatever shape
+ * it arrived in.
+ *
+ * Everything downstream wants two fields — `{"node":"Warp","param":"amount"}`
+ * — because a node is matched by id, then name, then kind (ActionExecutor
+ * .resolveNode) and a parameter is a key on it. But the rig is DESCRIBED to
+ * the model as a list of "node.param" strings (describeRig in
+ * api/_lib/features.js, and the panel's own rigContext()), and a model shown
+ * "ComputeNoise.scale" quotes it back in one field about as often as it splits
+ * it into two. A drive that names its parameter perfectly and lands in the
+ * wrong field is a section that silently does nothing at showtime, so the
+ * dotted form is read here rather than dropped.
+ *
+ * The split is at the LAST dot: a node someone called "Fog 2.0" is a name, and
+ * a parameter with a dot in it is not.
+ */
+export function parameterTarget(raw) {
+  const input = raw && typeof raw === 'object' ? raw : {};
+  const nested = input.target && typeof input.target === 'object' ? input.target : {};
+
+  const node = str(
+    input.node ?? input.nodeId ?? input.nodeName
+    ?? nested.node ?? nested.nodeId ?? nested.nodeName
+  ).trim();
+  const param = str(
+    input.param ?? input.parameter ?? input.paramName ?? input.parameterName
+    ?? nested.param ?? nested.parameter ?? nested.paramName ?? nested.parameterName
+  ).trim();
+
+  // A dotted pair in the parameter field. Taken when there is no node, and
+  // also when the node repeats the head of it ("Warp" + "Warp.amount"), which
+  // is the same answer written twice rather than a disagreement.
+  const inParam = splitDotted(param);
+  if (inParam && (!node || inParam.node === node)) return inParam;
+
+  if (node && param) return { node, param };
+
+  // A dotted pair on its own, in one of the fields a model reaches for when it
+  // is copying a name straight out of the list it was shown.
+  const loose = splitDotted(input.target) || splitDotted(input.path) || splitDotted(input.parameterPath);
+  if (!node && !param && loose) return loose;
+
+  // Everything in the node field: "ComputeNoise.scale" with no parameter.
+  const inNode = !param && splitDotted(node);
+  if (inNode) return inNode;
+
+  return { node, param };
+}
+
 /**
  * The vocabulary.
  *
@@ -171,8 +229,7 @@ export function normalizeAction(raw) {
       const overSeconds = raw.overSeconds === undefined ? null : clamp(num(raw.overSeconds, 0), 0, 600);
       return {
         ...common,
-        node: str(raw.node ?? raw.nodeId),
-        param: str(raw.param ?? raw.parameter),
+        ...parameterTarget(raw),
         to: num(raw.to ?? raw.value, 0),
         overBars,
         overSeconds,
@@ -184,8 +241,7 @@ export function normalizeAction(raw) {
       return {
         ...common,
         signal: str(raw.signal),
-        node: str(raw.node ?? raw.nodeId),
-        param: str(raw.param ?? raw.parameter),
+        ...parameterTarget(raw),
         min: num(raw.min, 0),
         max: num(raw.max, 1),
         curve: str(raw.curve) || 'linear',
@@ -196,8 +252,7 @@ export function normalizeAction(raw) {
     case 'undrive':
       return {
         ...common,
-        node: str(raw.node ?? raw.nodeId),
-        param: str(raw.param ?? raw.parameter),
+        ...parameterTarget(raw),
       };
 
     case 'transition':

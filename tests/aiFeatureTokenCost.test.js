@@ -119,9 +119,19 @@ describe('the token cost of every AI feature', () => {
     // formality: every token here is paid on each of a live director's calls,
     // and a set asks a lot of them. Anything that grows this further wants to
     // justify itself the same way or move into sharedContext().
+    //
+    // It now owns the spread, at ~840, and the payer is the other performer
+    // feature: writing a set costs one call before a show rather than one
+    // every half-minute during it, so a paragraph here is paid once where the
+    // same paragraph in the live prompt is paid all night. What it bought is
+    // the shape of a drive and of a move, and the list of verbs an action may
+    // use. Those were described in prose and nowhere demonstrated, so the
+    // model was inventing field names for the one part of a scenario that
+    // addresses the rig by name — and a drive whose parameter lands in the
+    // wrong field is a section that plays its look and moves nothing.
     const system = ranges.map((range) => range.input.system);
     const spread = Math.max(...system) - Math.min(...system);
-    expect(spread).toBeLessThan(750);
+    expect(spread).toBeLessThan(900);
   });
 
   it('keeps the shared prompt under 9,000 tokens', () => {

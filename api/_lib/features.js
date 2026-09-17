@@ -809,8 +809,12 @@ The musician plays and sends signals — OSC from their DAW, plus audio the edit
 **sections** — the set, in order. Each names a look (a scene or preset the artist already has), how it is entered, how long it holds, and what moves inside it:
 - "enter": {"cue":"name"} for a moment the musician fires, {"bars":32} or {"seconds":90} for the clock, {"when":"energy > 0.6"} for the music, or "manual".
 - "hold" is the floor the section cannot end before, in {"bars":N} or {"seconds":N}. Without it a "when" sitting near its threshold flips between two sections every few frames.
-- "drives" bind a signal to one parameter for the section's length. Your main verb.
-- "moves" fire actions a set distance in.
+- "drives" bind a signal to one parameter for the section's length. Your main verb: {"signal":"bass","node":"Warp","param":"amount","min":0,"max":0.6,"curve":"linear"}. The node and the parameter are two fields. The rig below lists what you can reach as "Warp.amount" because that is how it reads; written into a drive as one string it reaches nothing.
+- "moves" fire actions a set distance in: {"atBars":16,"do":[…]} on a pulse, {"atSeconds":40,"do":[…]} without one, or {"when":"energy > 0.8","do":[…]} for one that waits on the music. A move with none of those three can never fire.
+
+The actions inside "moves", "cues" and "onEnter" are these verbs and no others — an invented one is dropped on the way in:
+{"type":"param","node":"Warp","param":"speed","to":1.4,"overBars":8} (or "overSeconds") · {"type":"drive",…} as above · {"type":"undrive","node":"Warp","param":"amount"} · {"type":"scene","scene":"…"} · {"type":"preset","preset":"…"} · {"type":"transition","transition":"crossfade","duration":2} · {"type":"master","to":0.8,"overSeconds":2} · {"type":"speed","to":1.5} · {"type":"blackout","on":true} · {"type":"section","to":"drop"} · {"type":"cue","name":"lift"} · {"type":"log","message":"…"}
+Any of them also takes "quantize" ("off", "onset", "beat", "half", "bar", "phrase") and "why", the line the artist reads in the log when it fires.
 
 **cues** — moments the musician fires out of order: the drop, a blackout, a lift.
 
@@ -873,8 +877,46 @@ Answer with the scenario and one short note: what you assumed, and what the arti
                     hold: { type: 'object', additionalProperties: true },
                     look: { type: 'object', additionalProperties: true },
                     transition: { type: 'object', additionalProperties: true },
-                    drives: { type: 'array', items: { type: 'object', additionalProperties: true } },
-                    moves: { type: 'array', items: { type: 'object', additionalProperties: true } },
+                    // Spelled out rather than left as bare objects, unlike
+                    // the action lists either side of them: a drive's node and
+                    // parameter are two fields and the rig is described to the
+                    // model as one dotted string ("Warp.amount"), so this is
+                    // the one place a plausible answer was landing in a
+                    // section that silently did nothing. The client repairs a
+                    // dotted pair anyway (Scenario.normalizeDrive), but the
+                    // repair is the net, not the plan.
+                    drives: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          signal: { type: 'string', description: 'A signal declared above.' },
+                          node: { type: 'string', description: 'The node, by name. Never "node.param" in one field.' },
+                          param: { type: 'string', description: 'The parameter on that node, on its own.' },
+                          min: { type: 'number' },
+                          max: { type: 'number' },
+                          curve: { type: 'string', enum: ['linear', 'exponential', 'logarithmic'] },
+                          smooth: { type: 'number', description: 'Extra lag, in seconds.' },
+                        },
+                        required: ['signal', 'node', 'param'],
+                        additionalProperties: true,
+                      },
+                    },
+                    moves: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          atBars: { type: 'number', description: 'Bars into the section. On a pulse only.' },
+                          atSeconds: { type: 'number', description: 'Seconds into the section. Use this off a pulse.' },
+                          when: { type: 'string', description: 'A condition instead of a time.' },
+                          do: { type: 'array', items: { type: 'object', additionalProperties: true } },
+                        },
+                        required: ['do'],
+                        additionalProperties: true,
+                      },
+                    },
                     onEnter: { type: 'array', items: { type: 'object', additionalProperties: true } },
                     next: { type: 'string' },
                     intensity: { type: 'number', description: '0-1, what this section plays at.' },
@@ -1210,7 +1252,17 @@ function describeRig(input = {}) {
   lines.push(
     scenes.length
       ? `Scenes loaded (name — id, and the artist's own cue note where there is one):\n${scenes
-          .map((s) => `  ${s?.name} — ${s?.id}${s?.notes ? ` — ${s.notes}` : ''}`)
+          .map((s) => {
+            const head = `  ${s?.name} — ${s?.id}${s?.notes ? ` — ${s.notes}` : ''}`;
+            // A scene that came with its own parameters is one this build just
+            // made, and these are the only parameters a section looking at it
+            // can drive: the flat list below is whatever patch is open in the
+            // editor, which is a different graph entirely.
+            const params = list(s?.parameters).slice(0, 24);
+            return params.length
+              ? `${head}\n      a drive in its section can reach: ${params.join(', ')}`
+              : head;
+          })
           .join('\n')}`
       : 'No scenes are loaded. Do not invent scene names: write sections whose look is left unset, and say so in the note.'
   );
@@ -1223,7 +1275,7 @@ function describeRig(input = {}) {
   const parameters = list(input.parameters);
   lines.push(
     parameters.length
-      ? `Parameters a drive can reach, as node.param:\n  ${parameters.join(', ')}`
+      ? `Parameters in the patch that is open right now, printed as node.param and written into a drive as two fields, "node" and "param". A section that loads a scene has that scene's parameters instead, listed above:\n  ${parameters.join(', ')}`
       : 'No patch is open, so there are no parameters to drive. Write the set with scenes and presets only.'
   );
 
