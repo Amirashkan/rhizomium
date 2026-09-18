@@ -42,6 +42,7 @@ import { ActionExecutor } from './ActionExecutor.js';
 import { emptyScenario, normalizeScenario, validateScenario } from './Scenario.js';
 import { describeAction } from './actions.js';
 import { deadDrives, patchHandles } from './PatchHandles.js';
+import { activeDirection } from './PreDirections.js';
 import {
   describeMusic,
   getMusicalListener,
@@ -306,6 +307,10 @@ export class PerformerEngine {
     this._pendingCues = [];
     this._pendingJump = null;
     this.sectionIndex = -1;
+    // The show's direction goes with the show. Nothing consults the director
+    // while stopped, so this would otherwise sit in the panel reading as the
+    // direction for a set that is not running.
+    this.director?.setPreDirection?.('');
     this.write('info', 'Stopped');
     this.emit();
     return true;
@@ -865,12 +870,52 @@ export class PerformerEngine {
     const director = this.director;
     if (!director || !this.scenario.rules.director.enabled) return;
 
+    this.syncPreDirection();
     director.offer?.(this.describeState());
 
     const plan = director.take?.();
     if (!plan) return;
 
     this.applyPlan(plan);
+  }
+
+  /**
+   * Hand the director the show's own direction for where the set is now.
+   *
+   * The set carries its direction the way it carries its sections — written at
+   * the desk, anchored to a moment (PreDirections.js) — and this is the one
+   * place that can resolve WHICH line is live, because it is the only thing
+   * that knows where the set is. The director just holds whatever it is given.
+   *
+   * Called from consultDirector(), so once a frame while the director is on,
+   * and deliberately not on the scenario's own path: a set played by a person
+   * with the director off has nothing to hand the direction to, and resolving
+   * it anyway would be a walk of the list sixty times a second for nobody.
+   *
+   * The log line is why setPreDirection() reports whether it changed. An
+   * unattended show's whole record of being directed is this log, and a line
+   * written per frame is not a record.
+   */
+  syncPreDirection() {
+    const directions = this.scenario.directions;
+    if (!directions?.length) {
+      this.director?.setPreDirection?.('');
+      return;
+    }
+
+    const section = this.currentSection;
+    const live = activeDirection(directions, {
+      sectionId: section?.id || null,
+      sectionBars: this.sectionBars,
+      sectionSeconds: this.sectionSeconds,
+      setBars: this.clock.barsElapsed,
+      setSeconds: this.clock.seconds,
+    });
+
+    const text = live?.text || '';
+    if (this.director?.setPreDirection?.(text) && text) {
+      this.write('director', `Direction: ${text}`);
+    }
   }
 
   /**

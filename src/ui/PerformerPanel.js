@@ -18,6 +18,13 @@ import {
   readDirectoryHandle,
   readFileList,
 } from '../performer/ShowFolder.js';
+import {
+  describeDirectionAt,
+  directionLines,
+  parseDirectionLines,
+  spreadOverTimeline,
+  validateDirections,
+} from '../performer/PreDirections.js';
 import { manifestFromScenario } from '../performer/ShowBuilder.js';
 import { readFolderShow } from '../performer/ShowImport.js';
 import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
@@ -31,7 +38,8 @@ import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
  *
  *   Set       where the performance is, and the buttons that move it
  *   Signals   what the performer is hearing, as meters
- *   Show      a manifest, and the button that builds the looks from it
+ *   Show      a manifest, the button that builds the looks from it, and the
+ *             show's own pre-direction
  *   Scenario  the score, as editable text
  *   Log       what it did, and why
  *
@@ -47,6 +55,12 @@ import { AUDIO_TAP_CHANNELS } from '../audio/audioAnalysisTaps.js';
  * is what **Build the missing looks** on the Scenario tab is for. It reads the
  * set in the editor, works out which sections have nothing to show, and builds
  * a patch for each under the name that section already uses.
+ *
+ * The Show tab has one thing on it that is neither: **Pre-directions**, beside
+ * the folder. The steer box on the Set tab is a line of direction typed while
+ * the set runs, which only works while somebody is standing there. A show
+ * handed entirely to the model has nobody to type, so its direction is written
+ * here instead and put on the timeline — see PreDirections.js.
  *
  * Two rules about painting run through it.
  *
@@ -346,6 +360,17 @@ export class PerformerPanel {
     });
     box.appendChild(this.steerInput);
 
+    // What the SHOW is telling the model, as opposed to what the box above is.
+    // On an unattended set this is the only direction there is, and the
+    // question an artist checking in on one actually has is "is it still being
+    // told anything?" — which nothing on the panel could answer before.
+    // Written here rather than on the Show tab because this is the tab you
+    // look at with a mixer in front of you.
+    this.directorPlan = el('div', 'rz-perf-director-plan', '');
+    this.directorPlan.title = 'The show\'s own direction for where the set is now. '
+      + 'Write these on the Show tab; what you type above wins over them.';
+    box.appendChild(this.directorPlan);
+
     this.directorNote = el('div', 'rz-perf-director-note', '');
     box.appendChild(this.directorNote);
 
@@ -420,9 +445,21 @@ export class PerformerPanel {
       () => this.closeShowFolder());
     this.folderClearButton.hidden = true;
     folderRow.appendChild(this.folderClearButton);
+    // Beside the folder, because it belongs to the same moment: this is the
+    // pane you are on before a set exists, and the direction for a show that
+    // nobody will be standing over is written here, at the desk, with the
+    // rest of the planning.
+    this.preDirectionButton = button('Pre-directions…',
+      'Write the direction for the show now, and put it on the timeline. '
+        + 'This is what directs the set when nobody is at the laptop to type.',
+      () => this.togglePreDirections(), 'rz-perf-btn rz-perf-predirections');
+    folderRow.appendChild(this.preDirectionButton);
+
     this.folderLabel = el('div', 'rz-perf-folder-label', 'No folder open.');
     folderRow.appendChild(this.folderLabel);
     pane.appendChild(folderRow);
+
+    pane.appendChild(this.buildPreDirectionBox());
 
     // What is actually in it, one line per clip. Named, because the names are
     // what a look writes in its "media" list.
@@ -464,6 +501,161 @@ export class PerformerPanel {
     // spinner for that is indistinguishable from a hang.
     this.buildLog = el('div', 'rz-perf-report rz-perf-build-log', '');
     pane.appendChild(this.buildLog);
+  }
+
+  /* --- pre-directions ---------------------------------------------------
+   *
+   * The steer box on the Set tab is a line of direction typed while the set
+   * runs, and it only works because somebody is standing there. Hand the whole
+   * show to the model and that box holds whatever was in it when the doors
+   * opened, for the length of the set.
+   *
+   * These are the same sentences, written here instead, and put on the
+   * timeline — one per section, in the order they were written — so the
+   * director is handed the line for wherever the set has got to. See
+   * PreDirections.js for the resolution rule; this is only the surface.
+   *
+   * A textarea rather than a table, for the reason the scenario editor is one:
+   * what is being written is three sentences of prose, not nine fields.
+   */
+
+  buildPreDirectionBox() {
+    const box = el('div', 'rz-perf-predirection-box');
+    box.hidden = true;
+    this.preDirectionBox = box;
+
+    box.appendChild(el('div', 'rz-perf-help',
+      'One line of direction per line. Put it on the timeline and each one is handed '
+      + 'to the AI for its stretch of the set. A line with no section in front of it '
+      + 'stands for the whole show and holds wherever nothing else is said.'));
+
+    this.preDirectionEditor = el('textarea', 'rz-perf-predirection-editor');
+    this.preDirectionEditor.spellcheck = false;
+    this.preDirectionEditor.rows = 5;
+    this.preDirectionEditor.placeholder =
+      'Patient and cold. Never bright until the drop.\n'
+      + 'drop: let it go — hard, white, full frame\n'
+      + 'drop +16: hold it there, do not add anything';
+    // The same claim the scenario editor makes: a repaint while the artist is
+    // typing would throw the edit away.
+    this.preDirectionEditor.addEventListener('focus', () => { this.editingDirections = true; });
+    this.preDirectionEditor.addEventListener('blur', () => { this.editingDirections = false; });
+    box.appendChild(this.preDirectionEditor);
+
+    const actions = el('div', 'rz-perf-row');
+    actions.appendChild(button('Set on the timeline',
+      'Put these on the set: one per section, in the order written, and each held '
+        + 'until the next one starts',
+      () => this.setDirectionsOnTimeline(), 'rz-perf-btn rz-perf-primary'));
+    actions.appendChild(button('Revert', 'Go back to the direction the set is carrying',
+      () => this.fillPreDirectionEditor(true)));
+    actions.appendChild(button('Clear', 'Take all the pre-direction off the set',
+      () => this.clearPreDirections()));
+    box.appendChild(actions);
+
+    this.preDirectionStatus = el('div', 'rz-perf-author-status', '');
+    box.appendChild(this.preDirectionStatus);
+
+    // Where each one landed, once it is on the timeline. The point of the
+    // button is that it decides the anchors for you, so it has to say what it
+    // decided — otherwise the set carries five lines and the artist has no way
+    // to know which section is about to be handed which.
+    this.preDirectionList = el('div', 'rz-perf-predirection-list');
+    box.appendChild(this.preDirectionList);
+
+    return box;
+  }
+
+  /** Open or close the box, filling it from the running set the first time. */
+  togglePreDirections() {
+    const open = this.preDirectionBox.hidden;
+    this.preDirectionBox.hidden = !open;
+    this.preDirectionButton.dataset.open = open ? 'true' : 'false';
+    if (open) this.fillPreDirectionEditor();
+    return open;
+  }
+
+  /** The direction the set is carrying, as lines. */
+  fillPreDirectionEditor(force = false) {
+    if (this.editingDirections && !force) return;
+    this.preDirectionEditor.value = directionLines(this.engine.scenario.directions);
+    this.preDirectionStatus.textContent = '';
+    this.preDirectionStatus.dataset.level = 'ok';
+    this.paintPreDirectionList();
+  }
+
+  /**
+   * Put what is in the box on the set.
+   *
+   * Anchors are decided here rather than written by the artist: a line already
+   * naming a section keeps its place, and the rest are dealt out across the
+   * sections in order (PreDirections.spreadOverTimeline). Loading goes through
+   * the engine's ordinary scenario load, so this is a live edit — the set does
+   * not stop, and a section that survived it keeps its position.
+   */
+  setDirectionsOnTimeline() {
+    const sections = this.engine.scenario.sections;
+    const written = parseDirectionLines(this.preDirectionEditor.value);
+
+    if (!sections.length) {
+      this.preDirectionStatus.textContent =
+        'There are no sections to put these on yet. Build the show, or load a set, first.';
+      this.preDirectionStatus.dataset.level = 'warn';
+      return;
+    }
+
+    const directions = spreadOverTimeline(written, sections);
+    // Straight onto the running scenario. Pre-directions are never executed —
+    // they are only what the director is told — so there is nothing here that
+    // has to wait for a section boundary.
+    this.engine.loadScenario({ ...this.engine.scenario, directions }, this.knownNames());
+
+    // The editor is rewritten with the anchors that were just decided, so what
+    // is in the box and what is on the set are the same document. Forced,
+    // because the artist's cursor is almost certainly still in it.
+    this.fillPreDirectionEditor(true);
+
+    const report = validateDirections(directions, {
+      sectionIds: sections.map((section) => section.id),
+    });
+    const lines = [
+      ...report.errors.map((p) => `error — ${p.where}: ${p.message}`),
+      ...report.warnings.map((p) => `warning — ${p.where}: ${p.message}`),
+    ];
+
+    this.preDirectionStatus.textContent = lines.length
+      ? lines.join('\n')
+      : directions.length
+        ? `${directions.length} pre-direction${directions.length === 1 ? '' : 's'} on the timeline.`
+        : 'No pre-directions — the set carries none.';
+    this.preDirectionStatus.dataset.level = report.errors.length ? 'error'
+      : report.warnings.length ? 'warn' : 'ok';
+
+    this.paintStructure();
+    return directions;
+  }
+
+  /** Take every pre-direction off the set, and out of the box. */
+  clearPreDirections() {
+    this.engine.loadScenario({ ...this.engine.scenario, directions: [] }, this.knownNames());
+    this.preDirectionEditor.value = '';
+    this.preDirectionStatus.textContent = 'The set carries no pre-direction. The AI improvises unled.';
+    this.preDirectionStatus.dataset.level = 'ok';
+    this.paintPreDirectionList();
+    this.paintStructure();
+  }
+
+  /** One row per pre-direction: where it lands, and what it says. */
+  paintPreDirectionList() {
+    if (!this.preDirectionList) return;
+    this.preDirectionList.replaceChildren();
+
+    for (const direction of this.engine.scenario.directions) {
+      const row = el('div', 'rz-perf-predirection');
+      row.appendChild(el('span', 'rz-perf-predirection-at', describeDirectionAt(direction.at)));
+      row.appendChild(el('span', 'rz-perf-predirection-text', direction.text));
+      this.preDirectionList.appendChild(row);
+    }
   }
 
   /* --- the show folder --------------------------------------------------
@@ -940,6 +1132,9 @@ export class PerformerPanel {
     this.paintCues();
     this.paintDirector(status.director);
     this.paintMeterRows(status.signals);
+    // Only when it is open: the rows are a read of the running scenario, and
+    // nothing behind a hidden box is worth rebuilding on every change.
+    if (this.preDirectionBox && !this.preDirectionBox.hidden) this.paintPreDirectionList();
 
     if (!this.editingScenario && !this.editor.value) this.fillEditor(true);
   }
@@ -964,6 +1159,16 @@ export class PerformerPanel {
     this.sectionList.replaceChildren();
     this.sectionRows = [];
 
+    // The pre-directions, grouped by the section they are anchored to, in the
+    // order they were written — which is the order they take effect in.
+    const bySection = new Map();
+    for (const direction of this.engine.scenario.directions) {
+      if (!direction.at.section) continue;
+      const list = bySection.get(direction.at.section);
+      if (list) list.push(direction);
+      else bySection.set(direction.at.section, [direction]);
+    }
+
     this.engine.sections.forEach((section, index) => {
       const row = el('div', 'rz-perf-section');
       row.dataset.index = String(index);
@@ -976,6 +1181,20 @@ export class PerformerPanel {
 
       const look = el('div', 'rz-perf-section-look', describeLook(section.look));
       row.appendChild(look);
+
+      // The pre-direction the AI is handed here, on the row for the section it
+      // is anchored to. This is what "on the timeline" means from the front:
+      // the set's direction is visible in the same list as its sections,
+      // rather than only in the document.
+      const directions = bySection.get(section.id);
+      if (directions?.length) {
+        const line = el('div', 'rz-perf-section-direction');
+        line.textContent = directions.map((d) => d.text).join(' → ');
+        line.title = directions
+          .map((d) => `${describeDirectionAt(d.at)}: ${d.text}`)
+          .join('\n');
+        row.appendChild(line);
+      }
 
       const progress = el('div', 'rz-perf-section-progress');
       const fill = el('div', 'rz-perf-section-fill');
@@ -1047,6 +1266,13 @@ export class PerformerPanel {
           : 'off';
     this.directorStatus.dataset.error = director.lastError ? 'true' : 'false';
     this.directorNote.textContent = director.lastNote || '';
+
+    // Empty and hidden rather than a placeholder: a set with no pre-direction
+    // is the ordinary case for someone standing at the laptop, and a line
+    // saying so every night is a line nobody reads.
+    const planned = director.preDirection || '';
+    this.directorPlan.textContent = planned ? `Plan: ${planned}` : '';
+    this.directorPlan.hidden = !planned;
   }
 
   /**
@@ -1241,6 +1467,10 @@ export class PerformerPanel {
     if (key === 'scenario' && !this.editingScenario && !this.editorHoldsDraft) this.fillEditor(true);
     if (key === 'show' && !this.editingManifest && !this.manifestEditor.value) {
       this.manifestEditor.value = JSON.stringify(EXAMPLE_MANIFEST, null, 2);
+    }
+    // A set may have been loaded, or built, since the box was last looked at.
+    if (key === 'show' && this.preDirectionBox && !this.preDirectionBox.hidden) {
+      this.fillPreDirectionEditor();
     }
   }
 

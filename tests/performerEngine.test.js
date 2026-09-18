@@ -825,4 +825,106 @@ describe('PerformerEngine', () => {
       });
     });
   });
+
+  // The show's own direction, handed over as the set moves.
+  //
+  // Resolving WHICH line is live is the engine's job because it is the only
+  // thing that knows where the set is (PreDirections.js has the rule and its
+  // own tests); what these pin down is the handover — that it happens as the
+  // set moves, that it is said in the log once rather than per frame, and that
+  // a set carrying none hands over nothing rather than last night's line.
+  describe('pre-directions', () => {
+    /** A director that only records what it is told. */
+    const fake = () => ({
+      enabled: true,
+      preDirection: '',
+      offered: 0,
+      setEnabled(v) { this.enabled = v; return v; },
+      setListener() {},
+      setPreDirection(text) {
+        if (text === this.preDirection) return false;
+        this.preDirection = text;
+        return true;
+      },
+      offer() { this.offered++; },
+      take() { return null; },
+      discard() {},
+      status: () => ({}),
+    });
+
+    const SET = {
+      sections: [
+        { id: 'intro', name: 'Intro', hold: { bars: 4 }, enter: { bars: 0 } },
+        { id: 'drop', name: 'Drop', hold: { bars: 8 }, enter: { bars: 4 } },
+      ],
+      directions: [
+        { text: 'patient and cold' },
+        { at: { section: 'drop' }, text: 'let it go' },
+      ],
+      rules: { director: { enabled: true }, minSectionBars: 0 },
+    };
+
+    it('hands over the standing line, then the section\'s own', () => {
+      const director = fake();
+      const { engine, play } = makeEngine(SET, { director });
+      engine.start();
+
+      play(0.5);
+      expect(director.preDirection).toBe('patient and cold');
+
+      // Into the drop. Four bars at 120bpm is 8 seconds, and the change is
+      // quantised to the next bar line after that, so give it a bar's slack.
+      play(12);
+      expect(engine.currentSection.id).toBe('drop');
+      expect(director.preDirection).toBe('let it go');
+    });
+
+    it('writes each new direction to the log once, not once a frame', () => {
+      const director = fake();
+      const { engine, play } = makeEngine(SET, { director });
+      engine.start();
+      play(2);
+
+      const lines = engine.log.filter((entry) => /^Direction: patient and cold$/.test(entry.message));
+      expect(lines).toHaveLength(1);
+      // …and the frames really did go by, so this is not a loop that never ran.
+      expect(director.offered).toBeGreaterThan(60);
+    });
+
+    it('hands over nothing when the set carries no direction', () => {
+      const director = fake();
+      const { engine, play } = makeEngine(
+        { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: true } } },
+        { director }
+      );
+      engine.start();
+      play(1);
+      expect(director.preDirection).toBe('');
+    });
+
+    it('takes the direction back when the set stops', () => {
+      // Nothing consults the director while stopped, so a line left in place
+      // would sit in the panel reading as the direction for a set that is not
+      // running.
+      const director = fake();
+      const { engine, play } = makeEngine(SET, { director });
+      engine.start();
+      play(0.5);
+      expect(director.preDirection).toBe('patient and cold');
+
+      engine.stop();
+      expect(director.preDirection).toBe('');
+    });
+
+    it('does not resolve a direction for a set whose rules have the director off', () => {
+      const director = fake();
+      const { engine, play } = makeEngine(
+        { ...SET, rules: { director: { enabled: false } } },
+        { director }
+      );
+      engine.start();
+      play(1);
+      expect(director.preDirection).toBe('');
+    });
+  });
 });

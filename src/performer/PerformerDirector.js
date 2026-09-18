@@ -139,6 +139,23 @@ export class PerformerDirector {
     /** Free text from the artist: "keep it dark", "more strobe". Sent with every ask. */
     this.steer = '';
 
+    /**
+     * The line the SHOW has for this moment, as opposed to the one the artist
+     * just typed.
+     *
+     * Written at the desk and anchored to a point on the timeline
+     * (PreDirections.js); the engine hands over whichever one is live each
+     * time it offers a state. It exists because the steer above only works
+     * while somebody is standing at the laptop — hand the whole set to the
+     * model and that box holds whatever was in it when the doors opened, for
+     * forty minutes.
+     *
+     * Both travel, and the prompt keeps them apart: one was decided hours ago
+     * and one is a person in the room changing their mind, and collapsing the
+     * two would make the plan argue with the artist in a single sentence.
+     */
+    this.preDirection = '';
+
     /** Minutes of performance charged for so far, for the panel's readout. */
     this.minutesSpent = 0;
 
@@ -191,6 +208,24 @@ export class PerformerDirector {
   /** A line of direction from the artist, carried into the next ask. */
   setSteer(text) {
     this.steer = typeof text === 'string' ? text.slice(0, 500) : '';
+  }
+
+  /**
+   * The show's own direction for where the set is now.
+   *
+   * Called by the engine every time it offers a state, so it has to be a plain
+   * assignment — resolving WHICH line is live is the engine's job, because it
+   * is the only thing that knows where the set is. Returns whether it changed,
+   * which is what lets the engine log a new direction once rather than every
+   * frame.
+   *
+   * @returns {boolean} true if this is a different line from the last one
+   */
+  setPreDirection(text) {
+    const next = typeof text === 'string' ? text.slice(0, 500) : '';
+    if (next === this.preDirection) return false;
+    this.preDirection = next;
+    return true;
   }
 
   // --- the live loop -----------------------------------------------------
@@ -290,6 +325,7 @@ export class PerformerDirector {
     const request = this.run(LIVE_FEATURE, {
       state: compactState(state, heard),
       steer: this.steer,
+      preDirection: this.preDirection,
       freedom: state.scenario.rules.director.freedom,
     }, { units })
       .then(({ result }) => {
@@ -560,6 +596,7 @@ export class PerformerDirector {
       lastError: this.lastError,
       lastNote: this.lastNote,
       steer: this.steer,
+      preDirection: this.preDirection,
       cadence: this.cadence.status(),
       nextAllowedInMs: Math.max(0, this._nextAllowedAt - this.now()),
     };

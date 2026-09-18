@@ -1184,7 +1184,31 @@ export function buildUserMessage(feature, input = {}) {
         throw new BadInputError('No performance state to act on.');
       }
       const steer = String(input.steer || '').trim();
-      const steerText = steer ? `\nThe artist says: ${steer}\n` : '';
+      // Two kinds of direction, kept apart on purpose.
+      //
+      // The pre-direction was written at the desk and anchored to this moment
+      // of the show (src/performer/PreDirections.js): it is the plan, and on
+      // an unattended set it is the only direction there is. The steer is a
+      // person at the laptop who has just changed their mind, so it outranks
+      // the plan and is said last and said so.
+      //
+      // Collapsing the two into one line was the other option and it is the
+      // wrong one: "keep it dark" and "bring it up now" arriving as one
+      // instruction is a contradiction the model has to guess its way out of,
+      // and it guesses differently every call.
+      const planned = String(input.preDirection || '').trim();
+      const plannedText = planned
+        ? `\nThe show's plan for this moment: ${planned}\n`
+        : '';
+      // Which wins is only worth saying when there are two of them. On a set
+      // with no pre-directions this is the line it has always been, because
+      // naming a plan that is not there is an instruction to weigh the steer
+      // against nothing.
+      const steerText = steer
+        ? planned
+          ? `\nThe artist, live, right now — this wins where it disagrees with the plan: ${steer}\n`
+          : `\nThe artist says: ${steer}\n`
+        : '';
       const freedom = Number(input.freedom);
       const freedomText = Number.isFinite(freedom) ? `\nfreedom: ${freedom.toFixed(2)}\n` : '';
       // The state travels as JSON rather than as prose. It is read by a model
@@ -1196,7 +1220,7 @@ export function buildUserMessage(feature, input = {}) {
       // that does not exist here.
       const free = state?.listening && state.listening.pulse?.state !== 'metered';
       const horizon = free ? 'over the next half-minute' : 'over the next few bars';
-      return `Here is the performance right now.\n\n${JSON.stringify(state)}\n${steerText}${freedomText}\nWhat do you do ${horizon}?`;
+      return `Here is the performance right now.\n\n${JSON.stringify(state)}\n${plannedText}${steerText}${freedomText}\nWhat do you do ${horizon}?`;
     }
 
     default:

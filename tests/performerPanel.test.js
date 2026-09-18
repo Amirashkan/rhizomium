@@ -854,3 +854,136 @@ describe('PerformerPanel: the show folder', () => {
     expect(panel.folderList.textContent).toContain('<img');
   });
 });
+
+// Pre-directions, beside the folder on the Show tab.
+//
+// The button's promise is that an artist writes the arc as a few sentences and
+// never has to think about an anchor, so what is tested is the promise: the
+// lines land on the set, they land in the order written, and what comes back in
+// the box says where each one went.
+describe('PerformerPanel pre-directions', () => {
+  const SET = {
+    sections: [
+      { id: 'intro', name: 'Intro' },
+      { id: 'build', name: 'Build' },
+      { id: 'drop', name: 'Drop' },
+    ],
+  };
+
+  /** A shown panel with the box open, which is how the artist reaches it. */
+  function openBox(scenario = SET) {
+    const rig = build(scenario);
+    rig.panel.show();
+    rig.panel.showTab('show');
+    rig.panel.togglePreDirections();
+    return rig;
+  }
+
+  it('is closed until the button beside the folder is pressed', () => {
+    const { panel } = build(SET);
+    expect(panel.preDirectionBox.hidden).toBe(true);
+    expect(panel.togglePreDirections()).toBe(true);
+    expect(panel.preDirectionBox.hidden).toBe(false);
+    expect(panel.togglePreDirections()).toBe(false);
+    expect(panel.preDirectionBox.hidden).toBe(true);
+  });
+
+  it('puts plain lines on the set, one per section, in the order written', () => {
+    const { engine, panel } = openBox();
+    panel.preDirectionEditor.value = 'patient and cold\ntighten it\nlet it go';
+    panel.setDirectionsOnTimeline();
+
+    expect(engine.scenario.directions.map((d) => d.text))
+      .toEqual(['patient and cold', 'tighten it', 'let it go']);
+    expect(engine.scenario.directions.map((d) => d.at.section))
+      .toEqual(['intro', 'build', 'drop']);
+  });
+
+  it('writes the anchors it decided back into the box', () => {
+    // Otherwise the set carries anchors the artist never saw and the next edit
+    // is made against a document that has moved under them.
+    const { panel } = openBox();
+    panel.preDirectionEditor.value = 'one\ntwo\nthree';
+    panel.setDirectionsOnTimeline();
+
+    expect(panel.preDirectionEditor.value).toBe('intro: one\nbuild: two\ndrop: three');
+  });
+
+  it('says how many landed, and lists where', () => {
+    // Two lines over three sections is three: the spread fills every section,
+    // so the count it reports is the coverage rather than what was typed.
+    const { panel } = openBox();
+    panel.preDirectionEditor.value = 'one\ntwo';
+    panel.setDirectionsOnTimeline();
+
+    expect(panel.preDirectionStatus.textContent).toMatch(/3 pre-directions on the timeline/);
+    expect(panel.preDirectionList.children).toHaveLength(3);
+  });
+
+  it('keeps an anchor the artist wrote by hand', () => {
+    const { engine, panel } = openBox();
+    panel.preDirectionEditor.value = 'one\ndrop +16: mine';
+    panel.setDirectionsOnTimeline();
+
+    const mine = engine.scenario.directions.find((d) => d.text === 'mine');
+    expect(mine.at).toEqual({ section: 'drop', bars: 16, seconds: null, whole: false });
+  });
+
+  it('refuses, and says why, when there is no timeline to put them on', () => {
+    const { engine, panel } = openBox({ sections: [] });
+    panel.preDirectionEditor.value = 'keep it dark';
+    panel.setDirectionsOnTimeline();
+
+    expect(engine.scenario.directions).toEqual([]);
+    expect(panel.preDirectionStatus.textContent).toMatch(/no sections to put these on/);
+  });
+
+  it('does not stop the set to change its direction', () => {
+    // A pre-direction is never executed, so there is nothing to wait for — and
+    // an artist fixing a line mid-rehearsal should not lose the run to do it.
+    const { engine, panel } = openBox();
+    engine.start();
+    const wasOn = engine.currentSection.id;
+
+    panel.preDirectionEditor.value = 'one\ntwo\nthree';
+    panel.setDirectionsOnTimeline();
+
+    expect(engine.state).toBe('running');
+    expect(engine.currentSection.id).toBe(wasOn);
+  });
+
+  it('takes them all off again', () => {
+    const { engine, panel } = openBox();
+    panel.preDirectionEditor.value = 'one\ntwo';
+    panel.setDirectionsOnTimeline();
+    panel.clearPreDirections();
+
+    expect(engine.scenario.directions).toEqual([]);
+    expect(panel.preDirectionEditor.value).toBe('');
+    expect(panel.preDirectionList.children).toHaveLength(0);
+  });
+
+  it('shows a section\'s direction on its row in the set list', () => {
+    const { panel } = openBox();
+    panel.preDirectionEditor.value = 'one\ntwo\nthree';
+    panel.setDirectionsOnTimeline();
+
+    const rows = panel.sectionList.querySelectorAll('.rz-perf-section-direction');
+    expect(rows).toHaveLength(3);
+    expect(rows[2].textContent).toBe('three');
+    // Every section has one, which is what the button promises.
+    expect([...rows].every((r) => r.textContent.trim())).toBe(true);
+  });
+
+  it('never puts a direction into the DOM as markup', () => {
+    // Same rule as every other string that arrives from a file: a scenario
+    // opened from someone else's machine is untrusted text.
+    const { panel } = openBox();
+    panel.preDirectionEditor.value = '<img src=x onerror=alert(1)>';
+    panel.setDirectionsOnTimeline();
+
+    expect(panel.preDirectionList.querySelector('img')).toBeNull();
+    expect(panel.sectionList.querySelector('img')).toBeNull();
+    expect(panel.preDirectionList.textContent).toContain('<img');
+  });
+});

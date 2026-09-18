@@ -194,8 +194,16 @@ export function sampleInputs(feature) {
 
     case 'ai.performer_live':
       return {
-        min: { state: smallestPerformanceState(), steer: '', freedom: 0 },
-        max: { state: busiestPerformanceState(), steer: LONG_PROMPT, freedom: 1 },
+        min: { state: smallestPerformanceState(), steer: '', preDirection: '', freedom: 0 },
+        // Both lines of direction at once: the show's plan for this moment and
+        // an artist typing over the top of it. Capped in the panel at 500
+        // characters each, so LONG_PROMPT is the generous end of both.
+        max: {
+          state: busiestPerformanceState(),
+          steer: LONG_PROMPT,
+          preDirection: LONG_PROMPT,
+          freedom: 1,
+        },
       };
 
     default:

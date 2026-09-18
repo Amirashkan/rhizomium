@@ -544,3 +544,53 @@ describe('building a show', () => {
     expect(director.status().building).toBe(false);
   });
 });
+
+// The show's own direction, as opposed to the artist's.
+//
+// The director does not decide which pre-direction is live — the engine does,
+// because it is the only thing that knows where the set is. What the director
+// owes is that the line reaches the call, that it stays apart from the steer,
+// and that it reports a change so the engine can log it once.
+describe('the pre-direction', () => {
+  it('travels with the ask, beside the steer rather than instead of it', async () => {
+    const run = vi.fn().mockResolvedValue({ result: { actions: [] } });
+    const director = new PerformerDirector({ run });
+
+    director.setSteer('bring it up now');
+    director.setPreDirection('keep it dark');
+    director.ask(state(), 'interval');
+
+    const [, input] = run.mock.calls[0];
+    expect(input.preDirection).toBe('keep it dark');
+    expect(input.steer).toBe('bring it up now');
+  });
+
+  it('sends an empty line when the set carries no direction', () => {
+    const run = vi.fn().mockResolvedValue({ result: { actions: [] } });
+    const director = new PerformerDirector({ run });
+    director.ask(state(), 'interval');
+    expect(run.mock.calls[0][1].preDirection).toBe('');
+  });
+
+  it('reports only a change, so the engine logs a new line once', () => {
+    const director = new PerformerDirector({ run: vi.fn() });
+
+    expect(director.setPreDirection('keep it dark')).toBe(true);
+    expect(director.setPreDirection('keep it dark')).toBe(false);
+    expect(director.setPreDirection('let it go')).toBe(true);
+    expect(director.setPreDirection('')).toBe(true);
+    expect(director.setPreDirection('')).toBe(false);
+  });
+
+  it('holds nothing when handed something that is not a string', () => {
+    const director = new PerformerDirector({ run: vi.fn() });
+    director.setPreDirection({ text: 'keep it dark' });
+    expect(director.preDirection).toBe('');
+  });
+
+  it('shows it in status, for the panel\'s readout', () => {
+    const director = new PerformerDirector({ run: vi.fn() });
+    director.setPreDirection('keep it dark');
+    expect(director.status().preDirection).toBe('keep it dark');
+  });
+});

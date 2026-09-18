@@ -108,7 +108,7 @@ panel is closed until you open it.
 
 ## The scenario
 
-A plain JSON document with four parts. [`Scenario.js`](Scenario.js) has the
+A plain JSON document with five parts. [`Scenario.js`](Scenario.js) has the
 full shape and `EXAMPLE_SCENARIO` at the bottom of it is a working set.
 
 ```jsonc
@@ -146,6 +146,13 @@ full shape and `EXAMPLE_SCENARIO` at the bottom of it is a working set.
 
   // Moments you fire by hand, out of order.
   "cues": [{ "name": "drop", "do": [{ "type": "section", "to": "drop" }] }],
+
+  // What the AI should be going for, written before the show. Never executed.
+  "directions": [
+    { "text": "Patient and cold. Never bright until the drop." },
+    { "at": { "section": "drop" }, "text": "Let it go — hard, white, full frame." },
+    { "at": { "section": "drop", "bars": 16 }, "text": "Hold it there." }
+  ],
 
   // The fence.
   "rules": { "minSectionBars": 4, "allowGraphEdits": false,
@@ -240,6 +247,75 @@ it is doing the right thing forty times a second.
 | `allowAudio` | true | the set may play the beds its looks name; off leaves the sound to you |
 | `masterCeiling` / `masterFloor` | 1 / 0 | a house limit the performer cannot undo |
 | `director.freedom` | 0.4 | 0 = play it as written, 1 = treat it as a starting point |
+
+### Pre-directions: putting the whole show on the AI
+
+There are two boxes you can put a line of direction in, and which one you want
+depends on whether you are going to be standing there.
+
+The box on the **Set** tab is live: type "keep it dark" mid-set and it goes
+into the next question the director asks. It works because you are at the
+laptop, changing your mind as the room changes.
+
+Hand the whole show to the model and there is nobody to type into it. That box
+then holds whatever was in it when the doors opened, for the length of the set.
+**Pre-directions** are the same sentences, written at the desk and anchored to a
+moment of the show — so the set carries its own direction the way it already
+carries its own sections.
+
+Write them on the **Show** tab, beside **Open folder…**, one per line, and
+press **Set on the timeline**:
+
+```
+set: Patient and cold. Never bright until the drop.
+Open on almost nothing.
+Tighten it, contrast climbing.
+drop: let it go — hard, white, full frame
+drop +16: hold it there, do not add anything
+```
+
+Four kinds of line:
+
+| | |
+| --- | --- |
+| `set: …` | the **show's own** direction. Holds everywhere, under everything else, and **Set on the timeline** leaves it where it is |
+| `section: …` | belongs to that section |
+| `section +16: …` | an offset into it — bars, or `+30s` for seconds — so one long section can be directed in stages |
+| a plain line | not placed yet. This is the one the button deals out |
+| `# …` | a comment, never sent |
+
+You do not have to write any of that. **Set on the timeline** deals the plain
+lines out across the sections you have, in the order you wrote them, and
+**fills every section**: three lines over six sections is three stretches of
+show, each line holding until the next takes over. Then it writes the anchors it
+chose back into the box, so you can see where each one went. A line you
+anchored by hand is left exactly where you put it, and no repeat is written over
+it.
+
+At showtime exactly one line is live, under one rule:
+
+> the show's standing direction, overridden by the section's own
+
+and within a section, the last one reached. That rule deliberately does *not*
+carry a section's line into the next section — a drop that is over should not
+still be telling the model to go hard — which is exactly why **Set on the
+timeline** writes the coverage out rather than leaving it to be inferred.
+
+Never two at once: "keep it dark"
+and "let it go" handed to a model as one instruction is a contradiction it has
+to guess its way out of, and it guesses differently every call. The line that
+is live shows up under the steer box on the Set tab and in the log, so you can
+see what an unattended set is being told.
+
+If you *are* standing there, both travel, and the prompt says which wins: what
+you type live beats the plan. Writing pre-directions does not take the live box
+away.
+
+Being direction rather than instruction, none of this is ever executed — like a
+section's `mood` and `notes` it is only what the director is *told*. So a
+pre-direction cannot break a set. The worst a bad one does is never be heard,
+and a line anchored to a section that no longer exists is a warning at the desk,
+not a show that stops. [`PreDirections.js`](PreDirections.js) has the rule.
 
 ## The manifest: building a show that does not exist yet
 
@@ -676,6 +752,7 @@ never closed for you.
 | | |
 | --- | --- |
 | `Scenario.js` | the document: normalise (never throws) and validate (reports everything at once) |
+| `PreDirections.js` | the direction written before the show: the anchors, and which single line is live at a moment |
 | `actions.js` | the vocabulary, and what each action costs |
 | `PerformerClock.js` | a monotonic musical clock that survives a tempo change and a backgrounded tab |
 | `SignalBus.js` | named signals: normalisation, frame-rate-independent smoothing, derived readings |
@@ -703,8 +780,10 @@ lit-up button and a 401):
   build. Deliberately not a feature key of its own: a look is a patch, your
   allowance already counts patches, and a separate key would be the same call
   billed under a name that hides what it is.
-- **`ai.performer_live`** improvises inside one while you play. Its quota is
-  **per hour**, not per day: it is the one feature whose spend tracks how long
+- **`ai.performer_live`** improvises inside one while you play, or in place of
+  you when the set is unattended — it is handed the show's pre-direction for
+  whatever moment the set has reached, and anything you type live on top of it.
+  Its quota is **per hour**, not per day: it is the one feature whose spend tracks how long
   you perform for rather than how many times you press a button. Each call
   carries the minutes of set since the last one, so a cadence that reacts to
   the music does not make the bill unpredictable. (The gallery's grant issuer

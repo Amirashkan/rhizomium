@@ -5,10 +5,12 @@
  * musician is sending, what the set is made of, and what the performer is
  * allowed to do with it:
  *
- *   signals   named live values - an OSC address, an audio band, the clock
- *   sections  the set, in order: what each one looks like and when it ends
- *   cues      named moments the musician fires by hand, out of order
- *   rules     the fence: what the performer may touch and how often
+ *   signals     named live values - an OSC address, an audio band, the clock
+ *   sections    the set, in order: what each one looks like and when it ends
+ *   cues        named moments the musician fires by hand, out of order
+ *   directions  what the AI should be going for, written before the show and
+ *               anchored to a moment of it - see PreDirections.js
+ *   rules       the fence: what the performer may touch and how often
  *
  * It is deliberately a plain object. It is written by hand in the panel, saved
  * next to a patch, drafted by the model (ai.performer_scenario), and read back
@@ -26,6 +28,10 @@
  */
 
 import { ACTION_TYPES, normalizeAction, parameterTarget, validateAction } from './actions.js';
+import {
+  normalizeDirections,
+  validateDirections,
+} from './PreDirections.js';
 
 /** The format version this build writes. Readers accept anything <= this. */
 export const SCENARIO_VERSION = 1;
@@ -541,6 +547,10 @@ export function normalizeScenario(raw) {
     signals: dedupedSignals,
     sections,
     cues,
+    // The direction the show carries for itself. Never executed - like a
+    // section's `mood` and `notes` these are what the director is TOLD, which
+    // is why a bad one is a warning and never stops a set.
+    directions: normalizeDirections(input.directions ?? input.preDirections),
     rules: normalizeRules(input.rules),
   };
 }
@@ -657,6 +667,16 @@ export function validateScenario(scenario, known = {}) {
   for (const cue of scenario.cues) {
     checkActions(cue.do, `cue "${cue.name}"`);
   }
+
+  // The pre-directions, against the sections they name. Reported here rather
+  // than only in the panel so a set opened from someone else's machine says
+  // "this line is anchored to a section you do not have" at the desk, instead
+  // of holding one sentence for the whole show and never saying why.
+  const directions = validateDirections(scenario.directions, {
+    sectionIds: [...sectionIds],
+  });
+  errors.push(...directions.errors);
+  warnings.push(...directions.warnings);
 
   // A set nothing can start is the one configuration worth calling an error:
   // every section waiting on something means the performer sits dark.
@@ -808,6 +828,16 @@ export const EXAMPLE_SCENARIO = Object.freeze({
     { name: 'drop', do: [{ type: 'section', to: 'drop' }] },
     { name: 'panic', do: [{ type: 'blackout', on: true }] },
     { name: 'lift', do: [{ type: 'master', to: 1, overSeconds: 1 }] },
+  ],
+  // What to be going for, written before the show. The first has no section,
+  // so it stands for the whole set and holds wherever nothing else is said;
+  // the rest take over in the sections they name. See PreDirections.js.
+  directions: [
+    { text: 'Patient and cold. Never bright until the drop.' },
+    { at: { section: 'build' }, text: 'Tighten it. Contrast climbing, still dark.' },
+    { at: { section: 'drop' }, text: 'Let it go — hard, white, full frame.' },
+    { at: { section: 'drop', bars: 16 }, text: 'Hold it there. Do not add anything else.' },
+    { at: { section: 'breakdown' }, text: 'Take it all the way down and leave it alone.' },
   ],
   rules: {
     minSectionBars: 4,

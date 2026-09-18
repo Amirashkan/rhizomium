@@ -355,4 +355,50 @@ describe('validateScenario', () => {
       expect(scenario.rules.director.everyBars).toBe(16);
     });
   });
+
+  // Pre-directions. The resolution rule and the text format have their own
+  // file (tests/preDirections.test.js); what matters here is that a scenario
+  // carries them, round-trips them, and reports a bad one as a warning.
+  describe('directions', () => {
+    it('carries them, coerced from the shorthand', () => {
+      const scenario = normalizeScenario({
+        sections: [{ id: 'a', name: 'A' }],
+        directions: ['patient and cold', { at: 'a', text: 'tighten it' }],
+      });
+      expect(scenario.directions).toHaveLength(2);
+      expect(scenario.directions[0].at.section).toBe('');
+      expect(scenario.directions[1].at.section).toBe('a');
+    });
+
+    it('is an empty list when the scenario said nothing', () => {
+      expect(normalizeScenario({ sections: [{ id: 'a' }] }).directions).toEqual([]);
+    });
+
+    it('round-trips through JSON without moving a line', () => {
+      const one = normalizeScenario({
+        sections: [{ id: 'drop', name: 'Drop' }],
+        directions: [{ at: { section: 'drop', bars: 16 }, text: 'hold it there' }],
+      });
+      const again = normalizeScenario(JSON.parse(JSON.stringify(one)));
+      expect(again.directions).toEqual(one.directions);
+    });
+
+    it('warns about a line anchored to a section that does not exist, and still runs', () => {
+      // The set opened from someone else's machine. A pre-direction cannot be
+      // allowed to stop a show — the worst a bad one does is never be heard.
+      const scenario = normalizeScenario({
+        sections: [{ id: 'a', name: 'A' }],
+        directions: [{ at: { section: 'gone' }, text: 'x' }],
+      });
+      const report = validateScenario(scenario);
+      expect(report.ok).toBe(true);
+      expect(report.warnings.some((w) => /pre-direction 1/.test(w.where))).toBe(true);
+    });
+
+    it('accepts the worked example, directions and all', () => {
+      const report = validateScenario(normalizeScenario(EXAMPLE_SCENARIO));
+      expect(report.errors).toEqual([]);
+      expect(normalizeScenario(EXAMPLE_SCENARIO).directions.length).toBeGreaterThan(0);
+    });
+  });
 });
