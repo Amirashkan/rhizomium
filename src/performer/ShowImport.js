@@ -231,18 +231,32 @@ function briefOf(data) {
  * Which is the whole reason this is derived rather than waited for: a
  * transmission written last month has an energy on it, so a folder the artist
  * already has arrives directed without being regenerated.
+ *
+ * Kept word-for-word the same as the read on the `transmissions` side
+ * (`transmissions/rhizomium.py`, MOVEMENT_BY_ENERGY), because the same pieces
+ * reach the performer either way — opened as a folder here, or exported from
+ * there as a scenario or a manifest — and the two arriving differently
+ * directed would be a difference nobody could see the cause of. No handle
+ * names, for the same reason: an export writes `drift`, `fill` and `glow` and
+ * drives them, while a show built from these folders has patches generated
+ * from the briefs and is not guaranteed to have nodes under those names.
  */
 const MOVEMENT_BY_ENERGY = Object.freeze([
   // 1
-  'Hold it. Almost nothing should move — one slow drift and no more.',
+  'Hold it. Almost nothing should move - one slow drift and no more.',
   // 2
   'Keep it patient. One thing moving at a time, and never brighten it.',
   // 3
   'Let it breathe. Move steadily, stay dark, and do not build to anything.',
   // 4
   'Push it. Let density and contrast climb, and keep them climbing.',
-  // 5
-  'Let it go — full frame, hard, everything answering the sound at once.',
+  // 5 — "densest", not "brightest". These sets are half an hour in a dark
+  // room, and a strobe or a full-white frame is not one going hard, it is one
+  // breaking. The top of the scale is the line most likely to cross that, so
+  // it carries the rule itself rather than trusting the model to remember a
+  // paragraph it was shown elsewhere.
+  'The densest point of the set: everything answering the accent at once. '
+    + 'Still a dark room - no strobe, no white frame, no cut every few seconds.',
 ]);
 
 /**
@@ -453,10 +467,12 @@ export function manifestFromTransmissions(entries, options = {}) {
     palette: paletteOf(kept),
     // The floor under every piece. Said once, because it is true of all of
     // them and a line repeated per look is a line that stops being read.
+    // The two rules this material will not break, put in front of the model at
+    // the moment it is deciding rather than left in a brief it was shown once.
     direction:
-      'These are ambient pieces and there is nobody at the laptop: let each one hold. '
-      + 'Change something every half-minute or so, never more than one thing at a time, and '
-      + 'never brighten the frame to fill a quiet stretch — the quiet is the piece.',
+      'A pool of abstract material in a dark room, not a story: let each section hold, '
+      + 'one change at a time. Never let a look become an object, and never strobe or go '
+      + 'white - that is it breaking, not going hard.',
     bpm: bpmOf(kept),
     // These beds are ambient and most have no usable pulse, so the set is
     // written in seconds and nothing in it is counted in bars. A tempo detector

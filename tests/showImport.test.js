@@ -466,8 +466,18 @@ describe('a transmissions show, directed', () => {
       transmission({ performance: { energy: 5, texture: 'grain' } }), { path: 'b/manifest.json' });
 
     expect(quiet.direction).toMatch(/hold it/i);
-    expect(loud.direction).toMatch(/let it go/i);
+    expect(loud.direction).toMatch(/densest point/i);
     expect(quiet.direction).not.toBe(loud.direction);
+  });
+
+  it('does not tell the loudest piece to do what this material will not do', () => {
+    // Half an hour in a dark room. A strobe or a full-white frame is not a set
+    // going hard, it is a set breaking — and the top of the energy scale is the
+    // one line most likely to cross that, so it carries the rule itself.
+    const loud = lookFromTransmission(
+      transmission({ performance: { energy: 5, texture: 'grain' } }), { path: 'b/manifest.json' });
+    expect(loud.direction).toMatch(/no strobe/i);
+    expect(loud.direction).toMatch(/no white frame/i);
   });
 
   it('carries the arranger\'s transition_out, which nothing else would think about', () => {
@@ -495,7 +505,11 @@ describe('a transmissions show, directed', () => {
       { path: 'a/manifest.json', data: transmission({ slug: 'one' }) },
       { path: 'b/manifest.json', data: transmission({ slug: 'two' }) },
     ]);
-    expect(manifest.direction).toMatch(/nobody at the laptop/i);
+    expect(manifest.direction).toMatch(/dark room/i);
+    // The two rules the material will not break, said where the model is
+    // deciding rather than in a brief it was shown once.
+    expect(manifest.direction).toMatch(/never let a look become an object/i);
+    expect(manifest.direction).toMatch(/never strobe or go white/i);
   });
 
   it('no longer warns that the show has no direction in it', () => {
