@@ -167,8 +167,19 @@ describe('ShowBuilder', () => {
     // build is not the graph any of these sections will load. The model does
     // as it is told, names those, and every drive in the set addresses a node
     // that is not there.
+    //
+    // The list is the look's handles flattened, not a walk of the values the
+    // patch happens to carry. That difference is `octaves`, `speed` and `seed`:
+    // real drivable parameters sitting at their registry defaults, which a
+    // freshly generated patch does not write out — so walking the patch hid
+    // exactly the parameters a new look leaves to be turned. A scenario writer
+    // that cannot name ComputeNoise.speed cannot write the most obvious drive
+    // on a noise node.
     const [, context] = authorScenario.mock.calls[0];
-    expect(context.scenes[0].parameters).toEqual(['ComputeNoise.scale', 'Blur.radius']);
+    expect(context.scenes[0].parameters).toEqual([
+      'ComputeNoise.scale', 'ComputeNoise.octaves', 'ComputeNoise.speed', 'ComputeNoise.seed',
+      'Blur.radius',
+    ]);
   });
 
   it('binds every section to the scene that was actually built for it', async () => {

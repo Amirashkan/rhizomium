@@ -320,8 +320,8 @@ list, per section, before it writes a line. It is told to use those names and
 no others. Pass 3 then binds the scene names the same way it always did.
 
 The live director is given the same list for the patch that is on screen, plus
-two things the engine works out for it: which of the set's drives currently
-resolve to nothing, and how long it has been since anything changed what is
+two things the engine works out for it: which of the set's drives are currently
+moving nothing, and how long it has been since anything changed what is
 visible. The second matters more than it sounds. Ambient material holds for
 minutes at a time, and every instinct a director has says hold with it — so
 without a way to tell a held texture from a frozen one, a set whose drives had
@@ -329,6 +329,41 @@ all missed read as a set that was being played patiently.
 
 Drives that miss are reported either way. The first one that has been writing
 into nothing for a couple of seconds says so in the log, by name, once.
+
+#### Why the screen is black
+
+Three things black a canvas, and for a long time the director could see none of
+them — so asked what was wrong with a dark stage, it reasoned about the only
+thing it had ever been told existed, the node registry, and reported a missing
+output connection it had no way to observe. It then held every call for the rest
+of the set, because graph edits were off and a graph fault was not its to fix.
+Nothing in its prompt could have contradicted it.
+
+All three are in `picture` and `dead` now:
+
+- **The master fader**, and **the blackout**. Either is a black screen with a
+  perfectly healthy patch behind it. Both are read from `MasterOutput` rather
+  than remembered by the executor, because the panel's own fader and a MIDI
+  controller write them without going through it.
+- **A drive whose signal has never arrived.** This is the one that hides. Its
+  node resolves, its parameter resolves, and it writes every single frame — it
+  writes `mapNormalizedValue(0, …)`, the bottom of its own range, because
+  `SignalBus.value()` reads 0 for a signal nothing has sent. On a scale, an
+  opacity or a density that bottom is 0. Meanwhile `compactState()` drops a
+  signal with `seen: false` from the prompt entirely (correctly — a missing
+  signal is not "the bass is at zero"), and `driving` lists the binding as
+  though it were working. So: the picture is black, the prompt says the set is
+  running, and a `param` move cannot lift the parameter because the drive
+  overwrites it on the next frame. `deadDrives()` now takes the signal snapshot
+  and reports these with the value they are pinning, and `stillSeconds()` stops
+  counting such a drive as movement.
+
+The prompt also says plainly that `patch.nodes` is a list of *handles* and not
+the graph. A node with nothing numeric on it is not in that list — the output
+node above all — so a model reading it as the graph correctly finds no output
+node in it. Absence from the handle list is not evidence of anything, and the
+director is told not to stop performing on a theory about something it cannot
+see.
 
 ### What it costs, and what happens when it runs out
 

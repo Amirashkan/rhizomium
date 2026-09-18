@@ -253,13 +253,13 @@ export class PerformerDirector {
    */
   onSectionChange(state) {
     if (!this.enabled) return;
-    // The same gate offer() applies, and for the same reason. Without it this
-    // is a second door into ask() that the scenario's own switch does not
-    // cover: a set with the director turned off in its rules would still spend
-    // a call at every section boundary, and — because the engine is not
-    // consulting a director its rules have off — nothing would ever collect
-    // the answer or time the request out. It surfaces much later, as a plan
-    // dropped for arriving half a minute after it was asked for.
+    // The same gate consultDirector() applies, and for the same reason.
+    // Without it this is a second door into ask() that the scenario's own
+    // switch does not cover: a set with the director turned off in its rules
+    // would still spend a call at every section boundary, and — because the
+    // engine is not consulting a director its rules have off — nothing would
+    // ever collect the answer or time the request out. It surfaces much later,
+    // as a plan dropped for arriving half a minute after it was asked for.
     if (!state?.scenario?.rules?.director?.enabled) return;
     if (this._inFlight || this.now() < this._nextAllowedAt) return;
     this.ask(state, 'section');
@@ -406,6 +406,14 @@ export class PerformerDirector {
         id: String(scene.id),
         name: String(scene.name),
         notes: String(scene.notes || ''),
+        // What a drive can reach inside THIS scene, when the caller knows —
+        // a show build does, because it just made the patch. Dropping it here
+        // is what left the backend rendering "the parameters of the patch that
+        // is open right now" as the only list a scenario was ever given, and
+        // during a build the open patch is nobody's section.
+        ...(scene.parameters?.length
+          ? { parameters: scene.parameters.slice(0, 24).map(String) }
+          : {}),
       })),
       presets: (context.presets || []).slice(0, 40).map((preset) => ({
         id: String(preset.id),
@@ -599,10 +607,6 @@ function compactState(state, listening) {
     // signal values cannot carry: they are all "right now" by construction.
     listening: listening || null,
     signals,
-    // The nodes and parameters that actually exist, so a plan can name one
-    // the executor will find. A plan that names anything else is skipped at
-    // the boundary, which costs a call and shows nothing.
-    patch: state.patch || [],
     driving: state.driving,
     // The nodes and parameters in the patch that is actually on screen, and
     // where each one currently sits. This is not context, it is the

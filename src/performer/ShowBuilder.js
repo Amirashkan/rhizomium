@@ -81,7 +81,8 @@ import {
   MANIFEST_VERSION,
 } from './ShowManifest.js';
 import { normalizeScenario, SCENARIO_VERSION } from './Scenario.js';
-import { customNodeName, defaultNodeName } from '../core/nodeName.js';
+import { handleFor } from './PatchHandles.js';
+import { defaultNodeName } from '../core/nodeName.js';
 import { mediaSlotName, mediaSlots, readMediaDataUrl, resolveLookMedia } from './ShowFolder.js';
 import { patchHandles } from './PatchHandles.js';
 
@@ -258,18 +259,19 @@ export class ShowBuilder {
             title: generated?.title || look.name,
             notes: generated?.notes || '',
             nodes: patch.nodes.length,
-            // What a drive in this look's section can actually reach. The
-            // scenario call is about to be told to name only what it was
-            // given, and until this was passed the only parameters it had been
-            // given were the ones in whatever patch happened to be open — so
-            // it named those, and the sections drove a node that is not in the
-            // scene they load.
-            parameters: patchParameters(media.patch),
             // What the patch actually called the things it left to be turned.
             // Pass 2 is about to write drives against this look, and until
             // this was carried across it was writing them against node names
             // it had guessed — which load, warn once, and then do nothing for
             // the length of the set.
+            //
+            // Both sides of this merge carried the same fix and this is the
+            // richer shape: patchHandles() resolves a name the way showtime
+            // will, keeps each parameter's range and where it sits, and says
+            // when one handle answers for two nodes. A flat "Node.param" list
+            // could say none of that, and a range is the difference between a
+            // drive that reads and one mapped into the top tenth of a span it
+            // was already sitting in.
             handles: patchHandles(media.patch),
             media: media.bound.map((one) => one.path),
             generated: true,
@@ -494,30 +496,6 @@ export async function attachMedia(patch, clips = []) {
 }
 
 /**
- * The parameters a drive can reach in one built look, as "node.param".
- *
- * Numeric only: a drive writes a float into a uniform, so a select, a colour
- * or a file is not something a signal can move. Capped, because this is
- * prompt text and a forty-node patch has a few hundred of them — the ones
- * worth driving are the ones an artist would reach for first, and a list long
- * enough to bury them is not more useful for being complete.
- */
-function patchParameters(patch, limit = 24) {
-  const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
-  const out = [];
-  for (const node of nodes) {
-    const label = String(node?.name || node?.kind || '').trim();
-    if (!label) continue;
-    for (const [key, value] of Object.entries(node?.params || {})) {
-      if (typeof value !== 'number') continue;
-      out.push(`${label}.${key}`);
-      if (out.length >= limit) return out;
-    }
-  }
-  return out;
-}
-
-/**
  * What the look was asked for and did not come back with.
  *
  * A look's `requires` is every node and parameter the set already reaches for
@@ -528,10 +506,17 @@ function patchParameters(patch, limit = 24) {
  * accepted, its signals arrive, and every one of them writes into a node that
  * is not there. The set runs clean and barely moves.
  *
- * Checked the way ActionExecutor.resolveNode() resolves one at showtime — id,
- * then the artist's own name, then the kind — so a name that passes here is a
- * name that will bind on stage, and one that fails here would have failed
- * there silently.
+ * This is the earliest the whole failure can be caught — at the desk, during a
+ * build, with the artist watching — rather than as a `dead` entry in the live
+ * director's prompt with an audience already in the room.
+ *
+ * Resolved the way ActionExecutor.resolveNode() resolves one at showtime — id,
+ * then the artist's own name, then the kind, then the registry's label for it —
+ * so a name that passes here is a name that will bind on stage, and one that
+ * fails here would have failed there silently. The label matters: it is the
+ * name the node draws under when nobody has renamed it, so it is the name a
+ * model is most likely to send back, and checking without it would report a
+ * hole in a look that plays perfectly well.
  *
  * @param {object} patch a generated patch
  * @param {Array<{node: string, param: string}>} requires
@@ -551,7 +536,7 @@ export function unmetRequirements(patch, requires) {
 
     const key = wanted.toLowerCase();
     const node = nodes.find((one) => String(one?.id) === wanted)
-      || nodes.find((one) => customNodeName(one).toLowerCase() === key)
+      || nodes.find((one) => handleFor(one).toLowerCase() === key)
       || nodes.find((one) => String(one?.kind).toLowerCase() === key
         || defaultNodeName(one).toLowerCase() === key);
 
@@ -561,6 +546,36 @@ export function unmetRequirements(patch, requires) {
   }
 
   return missing;
+}
+
+/**
+ * The parameters a drive can reach in one built look, as "node.param".
+ *
+ * Flattened from the look's handles rather than walked out of the patch a
+ * second time, so the names here and the names in the scenario brief cannot
+ * drift: both are what ActionExecutor.resolveNode() will find on stage.
+ * Reading the patch directly — the shape this replaced — saw only parameters
+ * the patch carried a value for, and missed every one still sitting at its
+ * registry default, which is most of a freshly generated look.
+ *
+ * Capped, because this is prompt text and a forty-node patch has a few
+ * hundred of them: a list long enough to bury the ones an artist would reach
+ * for first is not more useful for being complete.
+ */
+export function handleParameters(handles, limit = 24) {
+  const nodes = Array.isArray(handles?.nodes) ? handles.nodes : [];
+  const out = [];
+  for (const node of nodes) {
+    const label = String(node?.name || '').trim();
+    if (!label) continue;
+    for (const param of node.params || []) {
+      const name = String(param?.name || '').trim();
+      if (!name) continue;
+      out.push(`${label}.${name}`);
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
 }
 
 /**
@@ -598,7 +613,7 @@ function mergeContext(context, show, built) {
         // something the section will actually have loaded. The flat list
         // beside it is the patch that is open in the editor, which during a
         // show build is nobody's section.
-        parameters: entry.parameters || [],
+        parameters: handleParameters(entry.handles),
       };
     });
 

@@ -120,16 +120,6 @@ describe('the token cost of every AI feature', () => {
     // and a set asks a lot of them. Anything that grows this further wants to
     // justify itself the same way or move into sharedContext().
     //
-    // It now owns the spread, at ~840, and the payer is the other performer
-    // feature: writing a set costs one call before a show rather than one
-    // every half-minute during it, so a paragraph here is paid once where the
-    // same paragraph in the live prompt is paid all night. What it bought is
-    // the shape of a drive and of a move, and the list of verbs an action may
-    // use. Those were described in prose and nowhere demonstrated, so the
-    // model was inventing field names for the one part of a scenario that
-    // addresses the rig by name — and a drive whose parameter lands in the
-    // wrong field is a section that plays its look and moves nothing.
-    //
     // It was raised again, to 1,300, for the live performer's ~500 tokens on
     // "patch", "dead" and "picture.stillSeconds" — the blocks that tell it what
     // it may name and whether the set is reaching the screen at all. The set
@@ -140,9 +130,45 @@ describe('the token cost of every AI feature', () => {
     // fact been a frozen frame since the first bar. Five hundred tokens a call
     // is the wrong side of that trade to economise on, and there is no cheaper
     // place to put them — this is the only prompt shown a running performance.
+    //
+    // And again, to 1,600, for ~240 tokens that answer the other half of the
+    // same set: what to do when the screen is black. Three of them.
+    //
+    // "patch" is a list of HANDLES — a node with nothing numeric on it is not
+    // in it, the output node above all — so a model reading it as the graph
+    // finds no output node in it and is right. The set that paid for this then
+    // spent forty bars reporting a missing output connection it had inferred,
+    // holding every call because graph edits were off. It could not have
+    // checked: the master fader, the blackout and the fact that a drive on a
+    // signal nothing has sent pins its parameter to the bottom of its range
+    // every frame were all absent from the prompt, and those are the three
+    // things that actually black a canvas. So: the three are in "picture" and
+    // "dead" now, and the prompt says plainly that the handle list is not the
+    // graph and that an absence inferred from it is not a finding.
+    //
+    // The trade is the same one as above and it is worth taking at a worse
+    // rate: a quarter of a call's tokens against a director that can tell a
+    // dark stage from a still one. What must not follow is a third raise for
+    // prose — the next thing that wants room here should displace something.
     const system = ranges.map((range) => range.input.system);
     const spread = Math.max(...system) - Math.min(...system);
-    expect(spread).toBeLessThan(1300);
+    expect(spread).toBeLessThan(1600);
+    //
+    // The scenario call then grew too, for the mirror-image reason: the shape
+    // of a drive and of a move, and the list of verbs an action may use, were
+    // described in prose and nowhere demonstrated, so the model invented field
+    // names for the one part of a scenario that addresses the rig by name.
+    // That paragraph is paid once before a show, where the same words in the
+    // live prompt would be paid every half-minute all night — which is why the
+    // two are allowed to diverge and why this is a spread, not a ceiling.
+    //
+    // It did not move this number. The live performer still owns the maximum
+    // (~9,400 against the scenario call's ~8,900) and neither is the minimum,
+    // so the scenario prompt has room to grow before it is what this measures.
+    //
+    // Measured spread today: 1,541, against a bound of 1,600. That is 59
+    // tokens of headroom on purpose. The next paragraph that wants room here
+    // should displace one, not raise this again.
   });
 
   it('keeps the shared prompt under 9,500 tokens', () => {

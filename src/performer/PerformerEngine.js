@@ -945,6 +945,9 @@ export class PerformerEngine {
   describeState() {
     const section = this.currentSection;
     const status = this.executor.status();
+    // Taken once: the prompt's own `signals` block reads it, and so does
+    // deadDrives() below, and snapshot() walks every signal to build it.
+    const signals = this.signals.snapshot();
 
     return {
       scenario: {
@@ -974,7 +977,7 @@ export class PerformerEngine {
         energy: round(this.signals.energy),
         intensity: round(this.signals.intensity),
       },
-      signals: this.signals.snapshot(),
+      signals,
       // What the room has been doing, as opposed to what it is doing this
       // frame. Cached inside the listener, so building this every frame costs
       // a property read.
@@ -985,17 +988,28 @@ export class PerformerEngine {
       // at all, and it answered the only way that leaves: a drive with an
       // empty node, a paragraph of intent in `why`, and nothing on screen.
       patch: patchHandles(this.executor.graph),
-      // …and which of the set's own drives are bound to nothing. This is the
+      // …and which of the set's own drives are moving nothing. This is the
       // failure the director is best placed to repair, because it is the only
-      // thing in the show that can see both what the section wanted and what
-      // the patch actually has.
-      dead: deadDrives(status.drives, this.executor.graph),
+      // thing in the show that can see all three of what the section wanted,
+      // what the patch actually has, and what the room is actually sending.
+      // The snapshot goes in so a drive whose ends both resolve but whose
+      // signal has never arrived is reported too: that one writes the bottom
+      // of its range every frame, which is the black picture no other readout
+      // here was naming.
+      dead: deadDrives(status.drives, this.executor.graph, signals),
       picture: {
         // Seconds since anything changed what is on screen. A live drive or a
         // running ramp IS the picture moving, so those read as zero; a drive
         // bound to a node that is not there is not, which is the distinction
         // that makes this number worth showing at all.
-        stillSeconds: this.stillSeconds(),
+        stillSeconds: this.stillSeconds(signals),
+        // What sits between the patch and the audience. A master faded out and
+        // a blackout left on are each a black canvas with a perfectly healthy
+        // patch behind it, and the director was shown neither — so the question
+        // it is most often asked in the dark, "why is there nothing there?",
+        // was the one it had no way to answer, and it guessed at the graph.
+        master: round(status.master ?? 1),
+        blackedOut: Boolean(status.blackedOut),
       },
       recent: this.log.slice(-12).map((entry) => ({
         at: entry.bar,
@@ -1016,14 +1030,23 @@ export class PerformerEngine {
    * stricter than "when did the last action succeed": registering a drive
    * against a node that is not in the patch succeeds, and it is exactly the
    * case this number exists to expose.
+   *
+   * @param {object} [signals] SignalBus.snapshot(), when the caller already
+   *   has one — describeState() builds this every frame the director is
+   *   offered, and snapshot() walks every signal in the set to produce it.
    */
-  stillSeconds() {
+  stillSeconds(signals = null) {
     const status = this.executor.status();
     if (status.ramps.length) return 0;
 
     const graph = this.executor.graph;
+    // The snapshot matters here as much as the graph does. A drive bound to a
+    // signal that has never arrived resolves its node, writes its parameter
+    // every frame, and moves nothing — counting that as movement is what let a
+    // frozen canvas report itself as a picture still being played.
+    const heard = signals || this.signals.snapshot();
     const live = status.drives.length
-      && status.drives.length > deadDrives(status.drives, graph).length;
+      && status.drives.length > deadDrives(status.drives, graph, heard).length;
     if (live) return 0;
 
     if (this._changedAtSeconds === null) return 0;

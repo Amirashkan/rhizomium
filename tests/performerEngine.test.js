@@ -789,27 +789,29 @@ describe('PerformerEngine', () => {
     });
 
     // Two switches have to agree, and only one of them is on the panel. A show
-    // built by the show builder ships with the scenario's rule off, so turning
-    // the panel switch on used to look like nothing happening at all.
-    it('says which switch is holding the director back', () => {
-      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {} };
+    // built from a manifest ships with the scenario's rule off, so the artist
+    // turns the director on, watches a set go by with nothing from it, and has
+    // no way from the panel to see which switch is holding it.
+    it('says so when the scenario\'s own rule is what is holding the director off', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
       const { engine } = makeEngine(
         { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: false } } },
         { director }
       );
 
       engine.setDirectorEnabled(true);
-      const said = engine.log.map((entry) => entry.message).join('\n');
-      expect(said).toMatch(/rules\.director\.enabled off/);
+      expect(engine.log.some((entry) => /rules\.director\.enabled off/.test(entry.message))).toBe(true);
     });
 
-    it('says nothing when the two agree', () => {
-      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {} };
-      const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] }, { director });
+    it('stays quiet when both switches agree', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
+      const { engine } = makeEngine(
+        { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: true } } },
+        { director }
+      );
 
       engine.setDirectorEnabled(true);
-      const said = engine.log.map((entry) => entry.message).join('\n');
-      expect(said).not.toMatch(/rules\.director\.enabled/);
+      expect(engine.log.some((entry) => /rules\.director\.enabled off/.test(entry.message))).toBe(false);
     });
   });
 

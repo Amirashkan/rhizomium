@@ -37,20 +37,20 @@ import { customNodeName, defaultNodeName } from '../core/nodeName.js';
 import { resolveLookSound } from './ShowFolder.js';
 import { actionCost, actionGate, describeAction } from './actions.js';
 
+/**
+ * How long a drive may fail to resolve before it is called out.
+ *
+ * Short enough that the warning lands while the artist is still looking at the
+ * section that caused it. It does not have to cover a scene change: tick()
+ * holds the clock at zero while one is in flight, so this only ever waits out
+ * the last frames of a transition.
+ */
+const MISSING_GRACE_SECONDS = 2;
+
 /** A result every execute() path returns, so the caller never has to guess. */
 const ok = (detail = '') => ({ ok: true, detail });
 const no = (reason) => ({ ok: false, reason });
 
-/**
- * How long a drive may fail to find its node before it is reported.
- *
- * A drive is installed in the same frame as the scene change it belongs to,
- * and that scene is still loading — so for a moment every drive in a section
- * points at nothing, and warning immediately would warn about every section.
- * The grace runs from the moment the load settles, not from the install, so
- * this is only ever waiting out the last frames of a transition.
- */
-const DRIVE_BIND_GRACE_SECONDS = 2;
 
 export class ActionExecutor {
   /**
@@ -807,7 +807,7 @@ export class ActionExecutor {
    * drives in the same frame it cuts to its look, and that look is still
    * loading — refusing here would refuse every drive in every section. What
    * the drive cannot do is fail quietly forever, which is what it used to do:
-   * `unboundFor` below is how tick() notices a drive that never found its node
+   * `missingSeconds` below is how tick() notices a drive that never found its node
    * and says so once, instead of a set that runs clean and does not move.
    */
   doDrive(action) {
@@ -826,10 +826,14 @@ export class ActionExecutor {
       invert: action.invert,
       smooth: action.smooth,
       current: null,
-      /** Seconds this drive has spent unable to resolve its node. */
-      unboundFor: 0,
-      /** Whether that has already been reported, so it is said once. */
-      reportedUnbound: false,
+      // How long this drive has been writing into nothing. A section declares
+      // its drives while the scene it belongs to is still loading, so a drive
+      // that does not resolve on the frame it is registered is normal and a
+      // refusal here would break every section entry. One that still does not
+      // resolve a moment later is a dead handle, and that is worth saying out
+      // loud exactly once — see tick().
+      missingSeconds: 0,
+      reported: false,
     });
     return ok(describeAction(action));
   }
@@ -949,30 +953,37 @@ export class ActionExecutor {
     for (const drive of this.drives.values()) {
       const node = this.resolveNode(drive.node);
       if (!node) {
-        // The look this drive belongs to is still coming up. Nothing is wrong
-        // yet, and the clock on it should not start until the graph is settled.
+        // Silence here was the whole failure. A drive bound to a name the
+        // patch does not have used to register cleanly, write nothing for the
+        // length of the set, and leave an artist looking at a still frame with
+        // a performance log full of successes.
+        //
+        // The look this drive belongs to may simply still be coming up, and
+        // the grace period is not enough on its own: a slow scene change is a
+        // long stretch of every drive in the section pointing at nothing. So
+        // the clock does not start until the load has settled.
         if (this.sceneChangeInFlight) continue;
 
-        drive.unboundFor += delta;
-        if (!drive.reportedUnbound && drive.unboundFor >= DRIVE_BIND_GRACE_SECONDS) {
-          drive.reportedUnbound = true;
-          // The one line that turns "the visuals barely move" into something
-          // readable: the drive was accepted, the signal is arriving, and it
-          // is being written into a node that is not in the patch.
-          this.log('warn', `${drive.signal} drives ${drive.node}.${drive.param}, but no node "${drive.node}" is in this patch — the drive is doing nothing`, {
-            signal: drive.signal, node: drive.node, param: drive.param,
-          });
+        drive.missingSeconds += delta;
+        if (!drive.reported && drive.missingSeconds >= MISSING_GRACE_SECONDS) {
+          drive.reported = true;
+          this.log('warn',
+            `${drive.signal} drives ${drive.node}.${drive.param}, but no node "${drive.node}" `
+            + 'is in this patch — the drive is doing nothing',
+            { node: drive.node, param: drive.param, signal: drive.signal });
         }
         continue;
       }
 
-      if (drive.reportedUnbound) {
+      if (drive.reported) {
         // A look that arrived late, or a scene change into a patch that does
-        // have the node. Worth saying, because the warning above is alarming.
-        this.log('info', `${drive.node}.${drive.param} found its node — driving again`);
+        // have the node. Worth saying, because the warning above is alarming
+        // and nothing else would ever take it back.
+        this.log('info', `${drive.node}.${drive.param} found its node — driving again`,
+          { node: drive.node, param: drive.param, signal: drive.signal });
+        drive.reported = false;
       }
-      drive.reportedUnbound = false;
-      drive.unboundFor = 0;
+      drive.missingSeconds = 0;
 
       const reading = signals ? signals.value(drive.signal) : 0;
 
@@ -1114,7 +1125,7 @@ export class ActionExecutor {
         // A drive that has been looking for its node for longer than the grace
         // period is not driving anything, and the panel should not draw it as
         // though it were.
-        bound: !d.reportedUnbound,
+        bound: !d.reported,
       })),
       ramps: [...this.ramps.values()].map((r) => ({
         node: r.master ? 'master' : r.node,
@@ -1123,6 +1134,10 @@ export class ActionExecutor {
         remaining: Math.max(0, r.duration - r.elapsed),
       })),
       blackedOut: this.blackedOut,
+      // What the whole output is being multiplied by. Read from MasterOutput
+      // rather than remembered here, because the panel's own fader and a MIDI
+      // controller both write it without going through this executor.
+      master: getMasterOpacity(),
       transition: { ...this.transition },
       sceneChangeInFlight: this.sceneChangeInFlight,
     };
