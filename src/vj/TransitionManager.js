@@ -6,6 +6,16 @@
 
 import { setTransitionOpacity, clearTransitionOpacity } from './MasterOutput.js';
 
+/**
+ * How long a fade will wait for an animation frame before stepping itself.
+ *
+ * Long enough that it never beats rAF on a window that is being painted - the
+ * slowest frame a rig in trouble serves is still well under this - and short
+ * enough that a fade running in an unpainted window finishes in a few steps
+ * rather than hanging. See runFade().
+ */
+const FADE_WATCHDOG_MS = 250;
+
 export class TransitionManager {
   constructor(editor) {
     this.editor = editor;
@@ -127,32 +137,8 @@ export class TransitionManager {
    * the VJ panel keeps its say over the final opacity.
    */
   async fadeOutput(fromOpacity, toOpacity, duration, token = this.transitionToken) {
-    const startTime = performance.now();
-
-    return new Promise(resolve => {
-      const animate = () => {
-        if (token !== this.transitionToken) {
-          resolve();
-          return;
-        }
-
-        const elapsed = (performance.now() - startTime) / 1000;
-        const t = duration > 0 ? Math.min(elapsed / duration, 1) : 1;
-        const eased = this.easeInOutCubic(t);
-
-        const opacity = fromOpacity + (toOpacity - fromOpacity) * eased;
-        setTransitionOpacity(opacity);
-        this.transitionProgress = t;
-
-        if (t < 1) {
-          requestAnimationFrame(animate);
-        } else {
-          setTransitionOpacity(toOpacity);
-          resolve();
-        }
-      };
-
-      animate();
+    return this.runFade(duration, token, (eased, done) => {
+      setTransitionOpacity(done ? toOpacity : fromOpacity + (toOpacity - fromOpacity) * eased);
     });
   }
 
@@ -180,32 +166,96 @@ export class TransitionManager {
 
     overlay.style.backgroundColor = color;
 
+    return this.runFade(duration, token, (eased, done) => {
+      const opacity = done ? toOpacity : fromOpacity + (toOpacity - fromOpacity) * eased;
+      overlay.style.opacity = opacity.toString();
+    });
+  }
+
+  /**
+   * Drive one fade to its end, and *guarantee* it gets there.
+   *
+   * The loop used to be a bare `requestAnimationFrame` recursion, and that is
+   * the one shape of async work in this file that can simply stop. A window the
+   * compositor is no longer painting - the editor behind a full-screen
+   * projector output, a minimised laptop lid, a backgrounded tab - stops being
+   * served frames, so the callback is never called again, the promise never
+   * settles, and everything awaiting it waits for the rest of the night.
+   *
+   * That was not a dropped frame or two. `startTransition` awaits this, so the
+   * await never returns: `completeTransition` in its `finally` never runs, the
+   * output is left pinned at whatever opacity the last frame happened to write
+   * - mid-crossfade, that is near zero - and the scene being faded to is never
+   * imported. Upstream, ActionExecutor.doScene() clears `sceneChangeInFlight`
+   * off this same promise, so a performance that hit it refused every later
+   * scene change with "a scene change is already running" while the previous
+   * look sat on the output, barely visible, still reacting to the music.
+   *
+   * So a timer is armed beside every frame request. Timers are throttled in a
+   * background window but they are not suspended, which makes them the coarse,
+   * reliable clock this needs: whichever of the two arrives first advances the
+   * fade, and the other is cancelled. The visible result is unchanged when
+   * frames are flowing - rAF always wins a race against a 250ms timer - and
+   * when they are not, the fade still completes, just in bigger steps.
+   *
+   * @param {number} duration seconds
+   * @param {number} token the transition this fade belongs to
+   * @param {(eased: number, done: boolean) => void} write applies one step
+   */
+  runFade(duration, token, write) {
     const startTime = performance.now();
 
-    return new Promise(resolve => {
-      const animate = () => {
+    return new Promise((resolve) => {
+      let settled = false;
+      let frame = 0;
+      let timer = 0;
+
+      const cancelPending = () => {
+        if (timer) { clearTimeout(timer); timer = 0; }
+        if (frame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
+        frame = 0;
+      };
+
+      const stop = () => {
+        if (settled) return;
+        settled = true;
+        cancelPending();
+        resolve();
+      };
+
+      const step = () => {
+        if (settled) return;
+        cancelPending();
+
+        // Superseded. Stop writing, and leave the opacity alone - it belongs to
+        // whichever transition took this one's place.
         if (token !== this.transitionToken) {
-          resolve();
+          stop();
           return;
         }
 
         const elapsed = (performance.now() - startTime) / 1000;
         const t = duration > 0 ? Math.min(elapsed / duration, 1) : 1;
-        const eased = this.easeInOutCubic(t);
-
-        const opacity = fromOpacity + (toOpacity - fromOpacity) * eased;
-        overlay.style.opacity = opacity.toString();
         this.transitionProgress = t;
 
         if (t < 1) {
-          requestAnimationFrame(animate);
-        } else {
-          overlay.style.opacity = toOpacity.toString();
-          resolve();
+          write(this.easeInOutCubic(t), false);
+          schedule();
+          return;
         }
+
+        // The end value exactly, rather than the easing's approach to it.
+        write(1, true);
+        stop();
       };
 
-      animate();
+      const schedule = () => {
+        if (settled) return;
+        timer = setTimeout(step, FADE_WATCHDOG_MS);
+        frame = requestAnimationFrame(step);
+      };
+
+      step();
     });
   }
 

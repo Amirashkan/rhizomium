@@ -260,6 +260,13 @@ export class PerformerEngine {
     this._barSpent = 0;
     this._barAtLastReset = 0;
     this.sectionIndex = -1;
+    // Nothing from before the set is allowed to decide what the set can do.
+    // A scene load left in flight by a look preview, or by a run that was
+    // stopped part-way through one, used to carry its latch into this one —
+    // and the first thing a set does is change scene, so the opening look was
+    // refused with "a scene change is already running" and the whole
+    // performance ran against whatever patch happened to be on the canvas.
+    this.executor.abandonSceneChange?.('the set is starting');
     this.write('info', `Performing "${this.scenario.name}"`);
 
     this.enterSection(0, 'start');
@@ -302,6 +309,9 @@ export class PerformerEngine {
     // by hand is left playing — stopSound() only stops what it started.
     this.executor.stopSound?.('the set stopped');
     this.executor.releaseTimeline?.();
+    // Whatever was still loading is not this set's business any more, and
+    // leaving the latch set would be the next set's problem.
+    this.executor.abandonSceneChange?.('the set stopped');
     this.queue = [];
     this._pendingCues = [];
     this._pendingJump = null;
