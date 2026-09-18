@@ -17,6 +17,8 @@ import { validateManifest } from '../src/performer/ShowManifest.js';
 import { scenarioFromManifest } from '../src/performer/ShowBuilder.js';
 import { normalizeScenario } from '../src/performer/Scenario.js';
 import { ActionExecutor } from '../src/performer/ActionExecutor.js';
+import { directLooks } from '../src/performer/ShowBuilder.js';
+import { activeDirection } from '../src/performer/PreDirections.js';
 import { indexShowFolder, resolveLookMedia, resolveLookSound } from '../src/performer/ShowFolder.js';
 
 /** One transmission's manifest, as `transmissions` writes it. */
@@ -439,5 +441,88 @@ describe('a folder of transmissions, end to end', () => {
     // And the section is exactly as long as the bed it plays: the manifest's
     // hold came off the same file.
     expect(scenario.sections[0].hold.seconds).toBe(48);
+  });
+});
+
+// Direction, on a show that came out of a folder rather than off a desk.
+//
+// This is the case pre-directions exist for: generated, ambient, and played by
+// the model with nobody standing over it. A set of transmissions that arrived
+// undirected would be improvised for its whole length, so what matters here is
+// that nothing has to be regenerated or typed for it to arrive directed — the
+// energy every transmission already carries is what it is derived from.
+describe('a transmissions show, directed', () => {
+  it('gives every look a direction the live model can act on', () => {
+    const look = lookFromTransmission(transmission(), { path: 'p/manifest.json' });
+    expect(look.direction).toBeTruthy();
+    // Energy 2 in the fixture: patient, and told not to brighten.
+    expect(look.direction).toMatch(/patient/i);
+  });
+
+  it('says how much to move by the energy the piece was written at', () => {
+    const quiet = lookFromTransmission(
+      transmission({ performance: { energy: 1, texture: 'grain' } }), { path: 'a/manifest.json' });
+    const loud = lookFromTransmission(
+      transmission({ performance: { energy: 5, texture: 'grain' } }), { path: 'b/manifest.json' });
+
+    expect(quiet.direction).toMatch(/hold it/i);
+    expect(loud.direction).toMatch(/let it go/i);
+    expect(quiet.direction).not.toBe(loud.direction);
+  });
+
+  it('carries the arranger\'s transition_out, which nothing else would think about', () => {
+    const look = lookFromTransmission(
+      transmission({ performance: { energy: 3, transition_out: 'Let it seep away' } }),
+      { path: 'p/manifest.json' }
+    );
+    expect(look.direction).toMatch(/let it seep away/);
+  });
+
+  it('does not simply repeat the mood it already sends', () => {
+    // The director is shown both. A direction that restates the mood wastes
+    // the one line it gets.
+    const look = lookFromTransmission(transmission(), { path: 'p/manifest.json' });
+    expect(look.direction).not.toBe(look.mood);
+  });
+
+  it('is written for a piece with no performance block at all', () => {
+    const look = lookFromTransmission({ title: 'Bare' }, { path: 'p/manifest.json' });
+    expect(look.direction).toBeTruthy();
+  });
+
+  it('puts a standing direction on the show, said once', () => {
+    const { manifest } = manifestFromTransmissions([
+      { path: 'a/manifest.json', data: transmission({ slug: 'one' }) },
+      { path: 'b/manifest.json', data: transmission({ slug: 'two' }) },
+    ]);
+    expect(manifest.direction).toMatch(/nobody at the laptop/i);
+  });
+
+  it('no longer warns that the show has no direction in it', () => {
+    // The warning added with pre-directions fires on an undirected show, and a
+    // folder read from another tool is the one nobody could have typed into.
+    const { manifest } = manifestFromTransmissions([
+      { path: 'a/manifest.json', data: transmission() },
+    ]);
+    const report = validateManifest(manifest);
+    expect(report.warnings.some((w) => w.where === 'direction')).toBe(false);
+  });
+
+  it('lands on the built set, one live line per section', () => {
+    // End to end: folder in, and every section of the set that comes out has
+    // something to hand the director.
+    const { manifest } = manifestFromTransmissions([
+      { path: 'a/manifest.json', data: transmission({ slug: 'one', title: 'One' }) },
+      { path: 'b/manifest.json', data: transmission({ slug: 'two', title: 'Two' }) },
+    ]);
+    const scenario = directLooks(scenarioFromManifest(manifest), manifest);
+
+    for (const section of scenario.sections) {
+      const live = activeDirection(scenario.directions, {
+        sectionId: section.id, sectionSeconds: 0,
+      });
+      expect(live, section.id).not.toBe(null);
+      expect(live.text).toBeTruthy();
+    }
   });
 });
