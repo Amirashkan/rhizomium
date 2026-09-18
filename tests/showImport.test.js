@@ -15,7 +15,7 @@ import {
 } from '../src/performer/ShowImport.js';
 import { validateManifest } from '../src/performer/ShowManifest.js';
 import { scenarioFromManifest } from '../src/performer/ShowBuilder.js';
-import { normalizeScenario } from '../src/performer/Scenario.js';
+import { normalizeScenario, validateScenario } from '../src/performer/Scenario.js';
 import { ActionExecutor } from '../src/performer/ActionExecutor.js';
 import { directLooks } from '../src/performer/ShowBuilder.js';
 import { activeDirection } from '../src/performer/PreDirections.js';
@@ -524,5 +524,69 @@ describe('a transmissions show, directed', () => {
       expect(live, section.id).not.toBe(null);
       expect(live.text).toBeTruthy();
     }
+  });
+});
+
+// The other route in: a scenario `transmissions perform` exported, loaded
+// straight into the panel's Scenario tab with no build in between.
+//
+// Reading the project folders as a show folder and exporting them as a scenario
+// have to agree, because they are two ways of playing the same pieces — and
+// this end is the one that can drift without anybody noticing, since the
+// document is written by a program in another repository. The fixture below is
+// what `transmissions/rhizomium.py::_directions()` writes, and its job is to
+// fail here rather than at showtime if that changes shape.
+describe('a scenario transmissions exported', () => {
+  /** SET.rzperf.json, trimmed to the parts direction depends on. */
+  const exported = () => ({
+    version: 1,
+    name: 'Transmissions — 30 minutes',
+    bpm: 120,
+    sections: [
+      { id: 'opening-drone', name: 'Opening drone', enter: 'manual', hold: { seconds: 600 }, look: { scene: 'opening-drone' }, next: 'europa-returns' },
+      { id: 'europa-returns', name: 'Europa returns', enter: 'manual', hold: { seconds: 600 }, look: { scene: 'europa-returns' }, next: 'opening-drone' },
+    ],
+    directions: [
+      { id: 'set', at: { whole: true }, text: 'These are ambient pieces and there is nobody at the laptop: let each one hold.' },
+      { id: 'dir-opening-drone', at: { section: 'opening-drone' }, text: 'Hold it. Almost nothing should move. Towards the end, let it seep away.' },
+      { id: 'dir-europa-returns', at: { section: 'europa-returns' }, text: 'Let it go — full frame, hard. Towards the end, cut it dead.' },
+    ],
+    rules: { director: { enabled: true, everySeconds: 60, freedom: 0.25 } },
+  });
+
+  it('keeps its direction through the load', () => {
+    const scenario = normalizeScenario(exported());
+    expect(scenario.directions).toHaveLength(3);
+    expect(scenario.directions[0].at.whole).toBe(true);
+  });
+
+  it('loads with nothing to report about it', () => {
+    // A warning here is a warning about a document the artist did not write
+    // and cannot fix, which is the failure ShowImport.js exists to avoid.
+    const report = validateScenario(normalizeScenario(exported()));
+    expect(report.errors).toEqual([]);
+    expect(report.warnings.filter((w) => /pre-direction/.test(w.where))).toEqual([]);
+  });
+
+  it('hands the director that section\'s own line, in every section', () => {
+    const scenario = normalizeScenario(exported());
+    for (const section of scenario.sections) {
+      const live = activeDirection(scenario.directions, {
+        sectionId: section.id, sectionSeconds: 0,
+      });
+      expect(live, section.id).not.toBe(null);
+      expect(live.at.section).toBe(section.id);
+    }
+  });
+
+  it('falls back to the standing line in a section the export did not name', () => {
+    // An artist who adds a section of their own to somebody else's set. It is
+    // not left undirected.
+    const raw = exported();
+    raw.sections.push({ id: 'mine', name: 'Mine', enter: 'manual', hold: { seconds: 60 } });
+    const scenario = normalizeScenario(raw);
+
+    const live = activeDirection(scenario.directions, { sectionId: 'mine', sectionSeconds: 0 });
+    expect(live.at.whole).toBe(true);
   });
 });

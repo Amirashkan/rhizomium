@@ -60,14 +60,18 @@
  * nothing. What it has to be big enough for is a spread — putting a handful of
  * lines on the timeline fills every section, so the list that comes back out
  * is as long as the set is, and a cap under that would silently leave the end
- * of a long show undirected. Matched to Scenario.LIMITS.sections for exactly
- * that reason.
+ * of a long show undirected.
+ *
+ * So: one line per section of the longest legal set (Scenario.LIMITS.sections,
+ * 128), the standing lines that sit under them, and room for a few stacked
+ * inside one section. A set exported by `transmissions` writes exactly
+ * sections + 1 and was the case that found the old ceiling.
  *
  * `textChars` is the one that matters, and it is per line: a direction is a
  * sentence, and something longer than this is a brief in the wrong box.
  */
 export const DIRECTION_LIMITS = Object.freeze({
-  count: 128,
+  count: 160,
   textChars: 240,
 });
 

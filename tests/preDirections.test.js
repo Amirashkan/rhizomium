@@ -68,8 +68,9 @@ describe('normalizeDirections', () => {
   it('is big enough to hold a spread over the longest legal set', () => {
     // A spread fills every section, so the list that comes back is as long as
     // the set is. A cap under that would leave the end of a long show
-    // undirected, silently.
-    expect(DIRECTION_LIMITS.count).toBeGreaterThanOrEqual(SCENARIO_LIMITS.sections);
+    // undirected, silently — and one standing line over a full set is exactly
+    // what `transmissions` exports, which is how the old ceiling was found.
+    expect(DIRECTION_LIMITS.count).toBeGreaterThan(SCENARIO_LIMITS.sections);
   });
 
   it('tells a line nobody placed from one the artist called the show\'s', () => {
