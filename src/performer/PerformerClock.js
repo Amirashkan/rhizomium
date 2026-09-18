@@ -24,6 +24,13 @@
  * bar message snaps the phase without moving the count, which is how the
  * visuals stay on the downbeat through a set played by a human rather than a
  * sequencer.
+ *
+ * Accumulating has one cost, and `syncToSeconds()` is the answer to it: time
+ * the clock declines to bank is time it never gets back, so a set run against
+ * a file deck slides off the stem over a long stream. When something else
+ * holds a real position for the music, that is the clock and this one follows
+ * it. Nothing follows anything on a live-input night — the room is the clock
+ * then, and there is no position to read.
  */
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -42,6 +49,17 @@ const defaultNow = () =>
  * than any musical unit.
  */
 const MAX_TICK_SECONDS = 0.5;
+
+/**
+ * How much of a missed gap one `syncToSeconds()` may close, in bars.
+ *
+ * The dropped time is real time and the set does have to cross it, but handing
+ * it over in a single frame leaves the score standing thirty bars on with its
+ * section machinery one section along — the engine advances at most one
+ * section per frame. A couple of bars per frame closes a minute-long gap in a
+ * few hundred milliseconds AND lets the sections walk it in order.
+ */
+const MAX_SYNC_BARS = 2;
 
 export class PerformerClock {
   constructor(options = {}) {
@@ -193,6 +211,57 @@ export class PerformerClock {
   /** The same, on a beat message. */
   syncToBeat() {
     this.beats = Math.round(this.beats);
+  }
+
+  // --- following a machine -----------------------------------------------
+
+  /**
+   * Follow an authoritative external clock.
+   *
+   * `tick()` deliberately drops time it cannot trust — a backgrounded tab's
+   * gap is clamped at MAX_TICK_SECONDS — and what it drops is gone for good.
+   * Over a long stream that IS the set walking off the stem it was written
+   * against: the sections land later and later against the audio, and a
+   * minimised window makes it worse.
+   *
+   * When something else already knows where the music is — a file deck's
+   * playback position is the case this exists for — that reading is the truth
+   * and this clock's accumulation is an estimate of it. So take the reading
+   * and bank the difference. Tempo is not touched: the caller is correcting
+   * WHERE the set is, not how fast it runs.
+   *
+   * Banked rather than assigned, for the reason the whole file integrates:
+   * `beats = seconds * bpm / 60` would re-scale every beat banked before the
+   * last tempo change, and a section eight bars in would stop being eight
+   * bars in the moment the musician rode the tempo.
+   *
+   * Forward only, for the reason tick() clamps at zero — a reading that went
+   * backwards must never rewind a set — and a couple of bars at a time, for
+   * the reason at MAX_SYNC_BARS.
+   *
+   * @param {number} seconds where the external clock says we are, on THIS
+   *   clock's timeline; translating a deck's own origin into this one is the
+   *   caller's job, because only the caller knows when the file looped
+   * @param {number} [timestamp] the frame's timestamp, as tick() takes it
+   * @returns {number} seconds banked by this call, so a caller can feed the
+   *   frame's delta to whatever else runs on it
+   */
+  syncToSeconds(seconds, timestamp) {
+    if (!this.running) return 0;
+
+    const target = Number(seconds);
+    if (!Number.isFinite(target)) return 0;
+
+    const correction = clamp(target - this.seconds, 0, this.secondsPerBar * MAX_SYNC_BARS);
+
+    // Moved even when nothing was banked, so that a later switch back to
+    // tick() — the deck stopped, the musician went live — measures from this
+    // frame rather than from the last one tick() happened to see.
+    this._lastTick = Number.isFinite(timestamp) ? timestamp : this.now();
+
+    this.seconds += correction;
+    this.beats += (correction * this.bpm) / 60;
+    return correction;
   }
 
   /**

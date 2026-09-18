@@ -60,6 +60,7 @@ import { PerformerEngine } from './src/performer/PerformerEngine.js';
 import { PerformerDirector } from './src/performer/PerformerDirector.js';
 import { getPerformerPanel } from './src/ui/PerformerPanel.js';
 import * as audioAnalysisTaps from './src/audio/audioAnalysisTaps.js';
+import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
 import { replaceGraphWithPatch, patchToProjectData } from './src/ai/applyResult.js';
 import { ensureIconSprite } from './src/ui/iconSprite.js';
 import { ComputeShaderTest } from './src/test/ComputeShaderTest.js';
@@ -661,6 +662,10 @@ async function initialize() {
         editor,
         osc: window.oscManager || null,
         audio: audioAnalysisTaps,
+        // The deck the clock follows when the night is played to a file. The
+        // singleton, because it is the same element the analysis and the VJ
+        // panel are already reading — a second one would be a second playhead.
+        deck: getBrowserAudioCapture(),
         vjPanel: vjControlPanel,
         director: performerDirector,
         replaceGraph: replaceGraphWithPatch,

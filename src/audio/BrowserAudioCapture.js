@@ -393,6 +393,28 @@ export class BrowserAudioCapture {
     }
 
     /**
+     * Where the loaded file is, in seconds, or null when there is no file.
+     *
+     * The performer's clock follows this. An element's playback position is a
+     * real clock; a position accumulated from animation frames is an estimate
+     * of one, and an estimate that loses every frame the browser skips.
+     *
+     * Raw, and so it restarts at zero on every loop. Turning that into a
+     * monotonic position belongs to whoever is following it, because only they
+     * know what to do about the wrap.
+     */
+    getPlaybackSeconds() {
+        const at = this.audioElement?.currentTime;
+        return Number.isFinite(at) ? at : null;
+    }
+
+    /** How long the loaded file is, or null before its metadata arrives. */
+    getPlaybackDuration() {
+        const length = this.audioElement?.duration;
+        return Number.isFinite(length) && length > 0 ? length : null;
+    }
+
+    /**
      * Start playing audio
      */
     async play() {

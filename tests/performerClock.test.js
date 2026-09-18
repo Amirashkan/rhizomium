@@ -131,6 +131,79 @@ describe('PerformerClock', () => {
     });
   });
 
+  describe('following a machine', () => {
+    it('banks the difference an authoritative clock reports', () => {
+      rig.clock.start();
+      rig.advance(1); // 2 beats at 120
+      rig.clock.syncToSeconds(2);
+      expect(rig.clock.seconds).toBeCloseTo(2, 5);
+      expect(rig.clock.beats).toBeCloseTo(4, 5);
+    });
+
+    it('recovers time a backgrounded tab dropped, which is the whole point', () => {
+      rig.clock.start();
+      // A minute asleep: tick() banks half a second of it and loses the rest.
+      rig.state.now += 60_000;
+      rig.clock.tick();
+      expect(rig.clock.seconds).toBeCloseTo(0.5, 1);
+
+      // The deck kept playing throughout. Sixty seconds is thirty bars at 120,
+      // and two bars a frame closes it.
+      for (let i = 0; i < 20; i++) rig.clock.syncToSeconds(60);
+      expect(rig.clock.seconds).toBeCloseTo(60, 5);
+      expect(rig.clock.bar).toBe(30);
+    });
+
+    it('closes a gap a couple of bars at a time rather than in one frame', () => {
+      rig.clock.start();
+      rig.clock.syncToSeconds(60);
+      // Two bars at 120 in 4/4 is four seconds, not sixty.
+      expect(rig.clock.seconds).toBeCloseTo(4, 5);
+      expect(rig.clock.beats).toBeCloseTo(8, 5);
+    });
+
+    it('never rewinds the set, whatever the reading says', () => {
+      rig.clock.start();
+      rig.advance(4);
+      const at = rig.clock.beats;
+      rig.clock.syncToSeconds(0);       // a file back at its head
+      rig.clock.syncToSeconds(-10);
+      rig.clock.syncToSeconds(NaN);
+      expect(rig.clock.beats).toBeCloseTo(at, 5);
+    });
+
+    it('leaves the tempo alone, and does not re-scale what was banked at another one', () => {
+      rig.clock.start();
+      rig.advance(2); // 4 beats at 120
+      rig.clock.setBPM(60);
+      rig.clock.syncToSeconds(3); // one more second, now worth one beat
+
+      expect(rig.clock.bpm).toBe(60);
+      // 5, not the 3 that deriving position from seconds at the new tempo gives.
+      expect(rig.clock.beats).toBeCloseTo(5, 5);
+    });
+
+    it('banks nothing while stopped or paused', () => {
+      rig.clock.start();
+      rig.advance(1);
+      const at = rig.clock.beats;
+
+      rig.clock.pause();
+      expect(rig.clock.syncToSeconds(30)).toBe(0);
+      expect(rig.clock.beats).toBeCloseTo(at, 5);
+    });
+
+    it('does not let a plain tick bank the time a sync already covered', () => {
+      rig.clock.start();
+      rig.state.now += 10_000;          // ten seconds of missed frames
+      rig.clock.syncToSeconds(10);      // the deck accounts for four of them
+
+      const banked = rig.clock.seconds;
+      rig.clock.tick();                 // back to the RAF, deck gone
+      expect(rig.clock.seconds).toBeCloseTo(banked, 5);
+    });
+  });
+
   describe('quantisation', () => {
     it('says a boundary is now when it is standing on one', () => {
       rig.clock.start();

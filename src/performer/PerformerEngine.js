@@ -84,6 +84,9 @@ export class PerformerEngine {
    * @param {object} deps.editor
    * @param {object} [deps.osc] OSCManager
    * @param {object} [deps.audio] the audioAnalysisTaps module
+   * @param {object} [deps.deck] BrowserAudioCapture, when a file deck should
+   *   be the clock. Needs getSourceKind/getIsPlaying/getPlaybackSeconds and,
+   *   for a looping file, getPlaybackDuration
    * @param {object} [deps.vjPanel] VJControlPanel
    * @param {ActionExecutor} [deps.executor]
    * @param {object} [deps.director] PerformerDirector
@@ -91,6 +94,7 @@ export class PerformerEngine {
   constructor(deps = {}) {
     this.editor = deps.editor || null;
     this.director = deps.director || null;
+    this.deck = deps.deck || null;
 
     this.clock = deps.clock || new PerformerClock();
     this.signals = deps.signals || new SignalBus({
@@ -110,6 +114,14 @@ export class PerformerEngine {
     this.validation = { ok: true, errors: [], warnings: [] };
 
     this.state = STATE.STOPPED;
+
+    /**
+     * Where the file deck's timeline sits against the clock's: the offset
+     * between the two origins, the last reading seen (a smaller one means the
+     * file looped back to its head) and how many passes it has made. A null
+     * epoch means no deck is being followed and the next reading anchors.
+     */
+    this._deck = { epoch: null, last: 0, passes: 0 };
 
     /** Index into scenario.sections, or -1 before the first one. */
     this.sectionIndex = -1;
@@ -201,6 +213,10 @@ export class PerformerEngine {
 
     if (this.state === STATE.PAUSED) {
       this.clock.resume();
+      // The deck did not necessarily pause with us. Re-anchor on the next
+      // frame so the set carries on from where the musician stopped it rather
+      // than fast-forwarding through however long the pause lasted.
+      this._deck.epoch = null;
       this.state = STATE.RUNNING;
       this.write('info', 'Resumed');
       this.emit();
@@ -213,6 +229,7 @@ export class PerformerEngine {
     }
 
     this.clock.start();
+    this._deck = { epoch: null, last: 0, passes: 0 };
     this.state = STATE.RUNNING;
     this.queue = [];
     this._pendingCues = [];
@@ -248,6 +265,7 @@ export class PerformerEngine {
   stop() {
     if (this.state === STATE.STOPPED) return false;
     this.clock.stop();
+    this._deck = { epoch: null, last: 0, passes: 0 };
     this.state = STATE.STOPPED;
     this.executor.clearDrives();
     this.queue = [];
@@ -351,7 +369,7 @@ export class PerformerEngine {
   tick(timestamp) {
     if (this.state !== STATE.RUNNING) return;
 
-    const delta = this.clock.tick(timestamp);
+    const delta = this.advanceClock(timestamp);
     this.lastTickAt = Date.now();
 
     this.publishEngineSignals();
@@ -368,6 +386,67 @@ export class PerformerEngine {
     this.applyPendingJump();
     this.drainQueue();
     this.consultDirector();
+  }
+
+  /**
+   * Move the clock on by one frame, from the best clock in the room.
+   *
+   * The shared RAF is not an authoritative clock. Frames stop while the tab is
+   * in the background, and the clock's ceiling on a single tick means the gap
+   * is never made up — over a half-hour stream that is the set walking a bar
+   * off the stem it was written against, and a minimised window makes it
+   * worse. A file deck's own playback position has none of that problem, so
+   * when one is playing it is the clock and the accumulation follows it.
+   *
+   * Live input changes nothing: a mic in the room has no position to read, the
+   * musician is the clock, and accumulating is the right thing to be doing.
+   */
+  advanceClock(timestamp) {
+    const seconds = this.deckSeconds();
+    if (seconds === null) return this.clock.tick(timestamp);
+    return this.clock.syncToSeconds(seconds, timestamp);
+  }
+
+  /**
+   * Where the file deck says we are, on the clock's own timeline, or null when
+   * there is nothing authoritative to follow.
+   *
+   * Two translations happen here rather than in the clock, because they are
+   * facts about the deck and not about music: the two clocks start at
+   * different places, and a looping file restarts at zero while a set must
+   * not.
+   */
+  deckSeconds() {
+    const playing = this.deck
+      && this.deck.getSourceKind?.() === 'file'
+      && this.deck.getIsPlaying?.();
+    const at = playing ? this.deck.getPlaybackSeconds?.() : null;
+
+    if (!Number.isFinite(at)) {
+      // The deck is gone — paused, stopped, or the night went live. Drop the
+      // anchor so that picking it up again anchors HERE. Keeping it would
+      // freeze the set on the next sync until playback caught back up to
+      // wherever the set reached while the deck was not playing.
+      this._deck.epoch = null;
+      return null;
+    }
+
+    // A looping file's real position is its offset plus the passes already
+    // made, which takes the file's length. Before the metadata arrives there
+    // is no length, and then the only safe move at a wrap is to re-anchor and
+    // accept the drift that bakes in at that one boundary.
+    const length = this.deck.getPlaybackDuration?.();
+    const measurable = Number.isFinite(length) && length > 0;
+
+    if (at < this._deck.last) {
+      this._deck.passes += 1;
+      if (!measurable) this._deck.epoch = null;
+    }
+    this._deck.last = at;
+
+    const played = measurable ? at + this._deck.passes * length : at;
+    if (this._deck.epoch === null) this._deck.epoch = this.clock.seconds - played;
+    return this._deck.epoch + played;
   }
 
   /**

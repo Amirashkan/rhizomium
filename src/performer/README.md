@@ -81,6 +81,38 @@ convert against.
 The panel's listening readout tells you which of these you are in, and
 separates "hearing nothing" (a routing problem) from "hearing quiet music".
 
+## What the clock follows
+
+`PerformerClock` is monotonic and accumulated: each frame adds
+`elapsed * bpm / 60` beats, which is what makes a tempo change mid-set free —
+beats already banked are never re-scaled, so a section eight bars in stays
+eight bars in.
+
+Accumulating from animation frames has one failure, and it is not the obvious
+one. A backgrounded tab stops delivering frames and hands the whole gap to the
+first frame back, so a single tick is capped at half a second — otherwise
+coming back to a laptop after a minute advances the set by thirty bars at once.
+The cap is right, and the time it drops is dropped for good. Over a half-hour
+stream played to a stem, that is the set walking off the boundaries it was
+written against, a minimised window making it worse each time.
+
+So when a **file deck** is playing, the deck is the clock. The engine reads its
+playback position each frame and banks the difference rather than the frame's
+own elapsed time: the set sits where the audio does, and a gap it slept through
+is real time it still has to cross. It crosses it a couple of bars per frame
+rather than in one jump — a few hundred milliseconds, and the sections walk the
+gap in order instead of the score standing thirty bars on with its section
+machinery one section along.
+
+Two things about a deck that the clock itself is deliberately kept ignorant of,
+because they are facts about an audio element rather than about music: the two
+clocks start at different places, and a looping file restarts at zero while a
+set must not. The engine owns both translations.
+
+On **live input** none of this happens and nothing changed. A mic in the room
+has no position to read, the musician is the clock, and accumulating — cap and
+all — is the right thing to be doing on those nights.
+
 ## Start here
 
 1. Open **View → AI Performer** (`Ctrl/Cmd+Alt+R`).
@@ -533,7 +565,7 @@ downbeat you just played.
 | --- | --- |
 | `Scenario.js` | the document: normalise (never throws) and validate (reports everything at once) |
 | `actions.js` | the vocabulary, and what each action costs |
-| `PerformerClock.js` | a monotonic musical clock that survives a tempo change and a backgrounded tab |
+| `PerformerClock.js` | a monotonic musical clock that survives a tempo change and a backgrounded tab, and follows a file deck when there is one |
 | `SignalBus.js` | named signals: normalisation, frame-rate-independent smoothing, derived readings |
 | `ActionExecutor.js` | the only file that touches the editor |
 | `PerformerEngine.js` | the frame loop and the state machine |
