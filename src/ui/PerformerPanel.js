@@ -938,7 +938,7 @@ export class PerformerPanel {
     this.paintProblems(status.validation);
     this.paintSections();
     this.paintCues();
-    this.paintDirector(status.director);
+    this.paintDirector(status.director, status.directorHeldBy);
     this.paintMeterRows(status.signals);
 
     if (!this.editingScenario && !this.editor.value) this.fillEditor(true);
@@ -1008,7 +1008,7 @@ export class PerformerPanel {
     }
   }
 
-  paintDirector(director) {
+  paintDirector(director, heldBy = null) {
     if (!director) {
       this.directorStatus.textContent = 'not available in this build';
       this.directorToggle.disabled = true;
@@ -1038,14 +1038,21 @@ export class PerformerPanel {
         ? `, allowance spent — next in ${cadence.budgetInSeconds}s`
         : `, next in ${cadence.nextInSeconds}s`;
 
+    // `heldBy` outranks the cadence readout, because while something is
+    // holding the director the cadence is describing a question that will
+    // never be asked. "0 min, next in 0s" against a stopped transport is the
+    // exact readout that made the switch look like it had worked.
     this.directorStatus.textContent = director.lastError
       ? director.lastError
-      : director.thinking
-        ? 'thinking…'
-        : director.enabled
-          ? `${director.minutesSpent || 0} min${why}${next}`
-          : 'off';
+      : !director.enabled
+        ? 'off'
+        : heldBy
+          ? heldBy
+          : director.thinking
+            ? 'thinking…'
+            : `${director.minutesSpent || 0} min${why}${next}`;
     this.directorStatus.dataset.error = director.lastError ? 'true' : 'false';
+    this.directorStatus.dataset.held = heldBy ? 'true' : 'false';
     this.directorNote.textContent = director.lastNote || '';
   }
 
