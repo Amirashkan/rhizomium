@@ -81,6 +81,7 @@ import {
   MANIFEST_VERSION,
 } from './ShowManifest.js';
 import { normalizeScenario, SCENARIO_VERSION } from './Scenario.js';
+import { fillTimelineGaps, normalizeDirections } from './PreDirections.js';
 import { handleFor } from './PatchHandles.js';
 import { defaultNodeName } from '../core/nodeName.js';
 import { mediaSlotName, mediaSlots, readMediaDataUrl, resolveLookMedia } from './ShowFolder.js';
@@ -344,6 +345,11 @@ export class ShowBuilder {
       // --- pass 3: bind ---------------------------------------------------
       const binding = bindLooks(scenario, show, built);
       scenario = binding.scenario;
+
+      // …and the direction the manifest wrote, onto the sections those looks
+      // became. After binding, because it is the binding that knows which
+      // section each look ended up as.
+      scenario = directLooks(scenario, show, binding.bound);
 
       onProgress({
         phase: 'done', status: stopped ? 'failed' : 'ok',
@@ -717,6 +723,125 @@ export function bindLooks(rawScenario, manifest, built = []) {
 }
 
 /**
+ * A set's pre-direction for one section, as one line of prose.
+ *
+ * `''` asks for the standing line — the show's own. Several lines can be
+ * anchored to one section (a change of mind partway through), and a manifest
+ * holds one per look, so they are joined in the order they take effect rather
+ * than having all but the first dropped: a manifest is prose, and two
+ * sentences is prose.
+ *
+ * @param {object} scenario NORMALISED
+ * @param {string} sectionId, or '' for the show's standing line
+ * @returns {string}
+ */
+function directionForSection(scenario, sectionId) {
+  const lines = normalizeDirections(scenario.directions)
+    .filter((entry) => (sectionId ? entry.at.section === sectionId : !entry.at.section))
+    .map((entry) => entry.text);
+  return lines.join(' ');
+}
+
+/**
+ * Put the manifest's direction on the set that was just built.
+ *
+ * A manifest is where a show is planned, and `direction` is part of the plan:
+ * one line for the show, one per look. This is the step that turns those into
+ * the set's own pre-directions (PreDirections.js), so a show built from a
+ * manifest arrives already directed rather than needing the panel's **Set on
+ * the timeline** pressed afterwards — which is the whole point of writing them
+ * at the desk, and the difference between handing a set to the model and
+ * handing it a set with instructions.
+ *
+ * A look's line has to find the section that look became, and that mapping is
+ * not the identity: the model renames things, and a look nothing matched got a
+ * section inserted for it. `bindLooks()` already worked it out, so its `bound`
+ * is used where it reaches; where it does not — a look whose patch was never
+ * built, so it is not in `bound` at all — the same id-then-name-then-position
+ * fallback applies, because the section may well exist anyway.
+ *
+ * Two rules about not trampling the artist:
+ *
+ *   - A set that already carries a pre-direction for a section keeps it. This
+ *     is the `{ scenario }` path — building the missing looks of a set someone
+ *     wrote — and their direction is not the manifest's to overwrite. Same for
+ *     the standing line.
+ *   - The gaps are filled (`fillTimelineGaps`), so the sections the model
+ *     added between the manifest's looks are directed too rather than falling
+ *     through to the show's floor.
+ *
+ * Pure, and exported, because it is the step worth testing on its own.
+ *
+ * @param {object} rawScenario the set, after bindLooks()
+ * @param {object} manifest
+ * @param {Array} [bound] bindLooks()'s report: {lookId, sectionId}
+ * @returns {object} the scenario, with `directions` on it
+ */
+export function directLooks(rawScenario, manifest, bound = []) {
+  const show = normalizeManifest(manifest);
+  const scenario = normalizeScenario(rawScenario);
+
+  const hasDirection = show.direction || show.looks.some((look) => look.direction);
+  if (!hasDirection) return scenario;
+
+  const sections = scenario.sections;
+  const byId = new Map();
+  const byName = new Map();
+  sections.forEach((section, index) => {
+    if (!byId.has(section.id)) byId.set(section.id, index);
+    const name = String(section.name || '').toLowerCase();
+    if (name && !byName.has(name)) byName.set(name, index);
+  });
+  const boundTo = new Map(
+    (Array.isArray(bound) ? bound : []).map((entry) => [entry.lookId, entry.sectionId])
+  );
+
+  // What the set already says, so nothing below overwrites it.
+  const existing = normalizeDirections(scenario.directions);
+  const directed = new Set(existing.map((entry) => entry.at.section).filter(Boolean));
+  const standing = existing.some((entry) => !entry.at.section);
+
+  const added = [];
+
+  // The show's own line first, so it reads as the floor in the document too.
+  if (show.direction && !standing) {
+    added.push({ id: 'show', at: { whole: true }, text: show.direction });
+  }
+
+  const sameLength = sections.length === show.looks.length;
+
+  show.looks.forEach((look, lookIndex) => {
+    if (!look.direction) return;
+
+    const boundId = boundTo.get(look.id);
+    const index = boundId !== undefined && byId.has(boundId)
+      ? byId.get(boundId)
+      : [
+        byId.get(look.id),
+        byName.get(look.name.toLowerCase()),
+        sameLength ? lookIndex : undefined,
+      ].find((value) => value !== undefined);
+
+    const section = index === undefined ? null : sections[index];
+    // No section answers to this look — its patch failed and nothing was
+    // inserted. The line is kept rather than dropped, anchored to the look's
+    // own id: it is inert, it is the artist's, and the panel says so.
+    const id = section ? section.id : look.id;
+    if (directed.has(id)) return;
+
+    added.push({ id: `look-${look.id}`, at: { section: id }, text: look.direction });
+    directed.add(id);
+  });
+
+  if (!added.length) return scenario;
+
+  return {
+    ...scenario,
+    directions: fillTimelineGaps([...existing, ...added], sections),
+  };
+}
+
+/**
  * A look's hold in seconds, whatever unit the manifest wrote it in.
  *
  * Bars are converted against the show's own tempo, which is the only tempo
@@ -1027,6 +1152,12 @@ export function manifestFromScenario(rawScenario, options = {}) {
       name: section.name,
       mood: section.mood,
       notes: section.notes,
+      // The set's own pre-direction for this section, back in the document it
+      // is planned in. Without this the trip out and back would quietly strip
+      // the direction off a set — `manifestFromScenario()` is how "build the
+      // missing looks" reads a set someone already wrote, and that set is
+      // exactly the one whose direction is not ours to lose.
+      direction: directionForSection(scenario, section.id),
       intensity: section.intensity === null ? undefined : section.intensity,
       enter: section.enter,
       hold: section.hold.bars ? { bars: section.hold.bars }
@@ -1096,6 +1227,8 @@ export function manifestFromScenario(rawScenario, options = {}) {
     show: scenario.name,
     brief: options.brief || scenario.notes,
     palette: options.palette,
+    // …and the show's own, which is the set's standing line.
+    direction: directionForSection(scenario, ''),
     notes: scenario.notes,
     bpm: scenario.bpm,
     beatsPerBar: scenario.beatsPerBar,

@@ -362,10 +362,8 @@ export function spreadOverTimeline(directions, sections = []) {
   /** index in `list` -> the section that line lands on, and how many preceded it there. */
   const placement = new Map();
   const countPer = new Map();
-  /** section id -> the last loose line dealt to it, for the repeat below. */
-  const lastPer = new Map();
 
-  loose.forEach(({ entry, index }, nth) => {
+  loose.forEach(({ index }, nth) => {
     // Floor rather than round: four lines over three sections gives 0,0,1,2 —
     // the extra line early, where a build is, rather than stacked on the last
     // section where there is nothing left to say.
@@ -374,7 +372,6 @@ export function spreadOverTimeline(directions, sections = []) {
     const before = countPer.get(id) || 0;
     countPer.set(id, before + 1);
     placement.set(index, { section: id, nth: before });
-    lastPer.set(id, entry);
   });
 
   const anchored = list.map((entry, index) => {
@@ -396,16 +393,52 @@ export function spreadOverTimeline(directions, sections = []) {
     };
   });
 
-  // Every section that ended up with nothing takes the line before it, so no
-  // stretch of the show is left undirected. Walking the sections in order is
-  // what makes "the line before it" mean the right thing on a set where the
-  // artist placed some lines by hand and let the rest be dealt out.
+  return fillTimelineGaps(anchored, sections);
+}
+
+/**
+ * Repeat each line into the sections after it that have none of their own.
+ *
+ * Both ways of getting direction onto a timeline end here: the panel's **Set
+ * on the timeline** (which deals unplaced lines out first) and a show built
+ * from a manifest (where every look already named its own line, and the
+ * sections the model added between them did not).
+ *
+ * The reason it has to be written out rather than inferred is
+ * `activeDirection()`: it deliberately does not carry a section's line into
+ * the next section, because a drop that is over should not still be telling
+ * the model to go hard. That is right for a line written for one section on
+ * purpose and wrong for a line meant to cover a stretch of show, and only the
+ * caller knows which it has. So the callers that are covering a show say so,
+ * here, by materialising it.
+ *
+ * Sections are walked in order, so "the line before it" means the right thing
+ * on a set whose lines were placed by different hands. A section with any line
+ * of its own is left alone. Nothing is repeated before the first line — the
+ * top of a show with no direction until section three has none, rather than
+ * borrowing from the future.
+ *
+ * Pure.
+ *
+ * @param {Array} directions NORMALISED directions, already anchored
+ * @param {Array} sections the scenario's sections, in order
+ * @returns {Array} a new list: the standing lines, then one or more per section
+ */
+export function fillTimelineGaps(directions, sections = []) {
+  const list = normalizeDirections(directions);
+  const ids = (Array.isArray(sections) ? sections : [])
+    .map((section) => slug(section?.id ?? section?.name))
+    .filter(Boolean);
+
+  if (!ids.length) return list;
+
   const filled = [];
   let holding = null;
+
   for (const id of ids) {
     // In this section's own order: the lines that belong to it, then the
     // repeat for any section after it that has none.
-    const mine = anchored.filter((entry) => entry.at.section === id);
+    const mine = list.filter((entry) => entry.at.section === id);
     if (mine.length) {
       filled.push(...mine);
       // The last line of the section is the one still standing when it ends,
@@ -422,9 +455,14 @@ export function spreadOverTimeline(directions, sections = []) {
     });
   }
 
-  // The show's own lines were never dealt out and keep their place at the
-  // front, where they read as the floor everything else sits on.
-  const standing = anchored.filter((entry) => !entry.at.section);
+  // The show's own lines hold across everything and keep their place at the
+  // front, where they read as the floor the rest sits on. A line anchored to a
+  // section that is not in this set comes too: it is the artist's, it is only
+  // inert, and dropping it here would delete it on the next round trip.
+  const known = new Set(ids);
+  const standing = list.filter(
+    (entry) => !entry.at.section || !known.has(entry.at.section)
+  );
   const out = [...standing, ...filled];
 
   // Belt and braces against a set at the section ceiling: the cap is matched

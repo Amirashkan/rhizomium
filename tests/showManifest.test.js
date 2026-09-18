@@ -248,3 +248,68 @@ describe('slugId', () => {
     expect(slugId('a'.repeat(200)).length).toBeLessThanOrEqual(48);
   });
 });
+
+// Direction in the manifest: the plan for what the live AI should be going
+// for, which the build turns into the set's pre-directions.
+describe('direction', () => {
+  it('is read off the show and off each look', () => {
+    const show = normalizeManifest({
+      show: 'x',
+      direction: 'never bright',
+      looks: [{ id: 'drop', brief: 'hard', direction: 'let it go' }],
+    });
+    expect(show.direction).toBe('never bright');
+    expect(show.looks[0].direction).toBe('let it go');
+  });
+
+  it('is empty rather than absent when nothing said', () => {
+    const show = normalizeManifest({ show: 'x', looks: [{ id: 'a', brief: 'y' }] });
+    expect(show.direction).toBe('');
+    expect(show.looks[0].direction).toBe('');
+  });
+
+  it('is capped to a sentence, not a brief', () => {
+    const show = normalizeManifest({
+      show: 'x',
+      direction: 'y'.repeat(MANIFEST_LIMITS.directionChars + 200),
+      looks: [{ id: 'a', brief: 'z', direction: 'y'.repeat(MANIFEST_LIMITS.directionChars + 200) }],
+    });
+    expect(show.direction).toHaveLength(MANIFEST_LIMITS.directionChars);
+    expect(show.looks[0].direction).toHaveLength(MANIFEST_LIMITS.directionChars);
+  });
+
+  it('warns when a show the model will play has no direction anywhere', () => {
+    const report = validateManifest({
+      show: 'x',
+      looks: [{ id: 'a', name: 'A', brief: 'a long enough brief' }],
+    });
+    expect(report.errors).toEqual([]);
+    expect(report.warnings.some((w) => w.where === 'direction')).toBe(true);
+  });
+
+  it('says nothing when the show has direction', () => {
+    const report = validateManifest({
+      show: 'x',
+      direction: 'never bright',
+      looks: [{ id: 'a', name: 'A', brief: 'a long enough brief' }],
+    });
+    expect(report.warnings.some((w) => w.where === 'direction')).toBe(false);
+  });
+
+  it('says nothing about a show nobody is handing to the model', () => {
+    // A set with the director off is a set somebody is performing. Telling
+    // them to write pre-directions for it is telling them to write for nobody.
+    const report = validateManifest({
+      show: 'x',
+      looks: [{ id: 'a', name: 'A', brief: 'a long enough brief' }],
+      rules: { director: { enabled: false } },
+    });
+    expect(report.warnings.some((w) => w.where === 'direction')).toBe(false);
+  });
+
+  it('is in the worked example, on the show and on every look', () => {
+    const show = normalizeManifest(EXAMPLE_MANIFEST);
+    expect(show.direction).toBeTruthy();
+    expect(show.looks.every((look) => look.direction)).toBe(true);
+  });
+});

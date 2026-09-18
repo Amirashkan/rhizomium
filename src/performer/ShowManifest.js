@@ -20,10 +20,13 @@
  *       │
  *       ├── one ai.patch_generator call per look ──> patches ──> scenes
  *       │
- *       └── one ai.performer_scenario call, told about those scenes
- *                                          │
- *                                          ▼
- *                                      a scenario that plays them
+ *       ├── one ai.performer_scenario call, told about those scenes
+ *       │                                  │
+ *       │                                  ▼
+ *       │                              a scenario that plays them
+ *       │
+ *       └── `direction`, on the show and on each look ──> the set's
+ *           pre-directions, so a built show arrives already directed
  *
  * This file is only the document: read it, coerce it, say what is wrong with
  * it, and write the three prompts it implies. It knows nothing about the model,
@@ -63,6 +66,9 @@ export const MANIFEST_LIMITS = Object.freeze({
   briefChars: 1000,
   lookBriefChars: 600,
   requires: 16,
+  // A pre-direction is a sentence, not a brief. Matched to
+  // PreDirections.DIRECTION_LIMITS.textChars, which is what it becomes.
+  directionChars: 240,
 });
 
 const num = (value, fallback = 0) => {
@@ -195,6 +201,12 @@ function normalizeLook(raw, index) {
     brief: trimmed(source.brief ?? source.description ?? source.look, MANIFEST_LIMITS.lookBriefChars),
     scene: trimmed(source.scene, 80),
     mood: trimmed(source.mood, 200),
+    // What the live AI should be going for while this look is up, as opposed
+    // to what the look is made of. `brief` builds the patch once, at a desk;
+    // this is handed to the director every time it asks, for as long as the
+    // section is on. See PreDirections.js — it becomes the section's
+    // pre-direction when the show is built.
+    direction: trimmed(source.direction ?? source.directing, MANIFEST_LIMITS.directionChars),
     intensity: source.intensity === undefined ? null : clamp(num(source.intensity, 0), 0, 1),
     // Audio channels this look should visibly answer. Carried into the patch
     // prompt so the generated graph actually listens, and into the scenario
@@ -277,6 +289,10 @@ export function normalizeManifest(raw) {
     // thing stopping five separately generated patches from looking like five
     // separate shows.
     palette: trimmed(source.palette ?? source.style, 300),
+    // The show's standing direction: what the live AI should be going for
+    // wherever a look does not say otherwise. Becomes the set's whole-show
+    // pre-direction, which is the floor everything else sits on.
+    direction: trimmed(source.direction ?? source.directing, MANIFEST_LIMITS.directionChars),
     bpm,
     beatsPerBar: clamp(Math.round(num(source.beatsPerBar, 4)), 1, 16),
     barsPerPhrase: clamp(Math.round(num(source.barsPerPhrase, 8)), 1, 64),
@@ -388,6 +404,14 @@ export function validateManifest(manifest, folder = null) {
   }
   if (!show.brief && !show.notes) {
     warnings.push(at('brief', 'No show-level brief. Every look is then generated on its own description alone, which is how a set ends up looking like five unrelated pieces.'));
+  }
+
+  // Direction, and only when the set is going to be played by the model. A
+  // show with the director off is a show somebody is performing, and telling
+  // them to write pre-directions for it is telling them to write for nobody.
+  const directed = show.rules?.director?.enabled !== false;
+  if (directed && !show.direction && !show.looks.some((look) => look.direction)) {
+    warnings.push(at('direction', 'No direction anywhere in this show. The live AI will improvise on the looks alone. Add "direction" to the show for what it should be going for throughout, and to a look for its own stretch — that is what directs a set nobody is standing over.'));
   }
 
   return { errors, warnings, generated };
@@ -609,6 +633,10 @@ export const EXAMPLE_MANIFEST = Object.freeze({
   show: 'Example: three-look club set',
   brief: 'A 40-minute support slot. Dark and patient for a long time, one drop I fire by hand, then a long cool-down.',
   palette: 'near-black, cold blue-grey, one white accent that only appears in the drop',
+  // What the live AI should be going for, throughout. Building the show puts
+  // this and the looks' own lines on the set as its pre-directions, so a show
+  // handed to the model arrives directed. See PreDirections.js.
+  direction: 'Patient. Never bright until the drop, and never busy.',
   bpm: 128,
   beatsPerBar: 4,
   barsPerPhrase: 8,
@@ -619,6 +647,7 @@ export const EXAMPLE_MANIFEST = Object.freeze({
       name: 'Opening',
       brief: 'Slow fog drifting across the frame, one cold light source low in the picture, almost black. Nothing sharp.',
       mood: 'patient, cold, barely moving',
+      direction: 'Hold it almost still. One thing moving at a time, no more.',
       intensity: 0.2,
       reactsTo: ['low'],
       drivable: ['how fast the fog drifts', 'how far the light reaches'],
@@ -630,6 +659,7 @@ export const EXAMPLE_MANIFEST = Object.freeze({
       name: 'Build',
       brief: 'The same fog tightening into vertical structure, contrast climbing, one repeating element that gets closer.',
       mood: 'tightening, still dark',
+      direction: 'Tighten it steadily. Let contrast climb but keep it dark.',
       intensity: 0.6,
       reactsTo: ['low', 'mid'],
       drivable: ['how tight the structure is', 'contrast', 'how close the repeating element is'],
@@ -641,6 +671,7 @@ export const EXAMPLE_MANIFEST = Object.freeze({
       name: 'Drop',
       brief: 'Hard, full frame, white on black, kicking on every hit. The first thing in the set that is actually bright.',
       mood: 'hard, strobing, full frame',
+      direction: 'Let it go — hard, full frame, on every hit. Do not hold back.',
       intensity: 1,
       reactsTo: ['low', 'kickTrig'],
       drivable: ['how hard it kicks', 'how much of the frame it fills'],

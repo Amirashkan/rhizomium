@@ -14,6 +14,7 @@ import {
   activeDirection,
   describeDirectionAt,
   directionLines,
+  fillTimelineGaps,
   normalizeDirection,
   normalizeDirectionAt,
   normalizeDirections,
@@ -394,5 +395,63 @@ describe('describeDirectionAt', () => {
     expect(describeDirectionAt({ section: 'drop' })).toBe('"drop"');
     expect(describeDirectionAt({ section: 'drop', bars: 16 })).toBe('"drop", 16 bars in');
     expect(describeDirectionAt({ seconds: 600 })).toBe('the set, 600s in');
+  });
+});
+
+// The fill on its own. Both routes onto a timeline end here — the panel's
+// button after it has dealt the loose lines out, and a show built from a
+// manifest where every look named its own line and the sections the model
+// added between them did not.
+describe('fillTimelineGaps', () => {
+  const at = (section, text) => ({ at: { section }, text });
+
+  it('repeats a line into the sections after it that have none', () => {
+    const out = fillTimelineGaps([at('a', 'one'), at('c', 'two')], [
+      { id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' },
+    ]);
+    const live = ['a', 'b', 'c', 'd'].map((id) =>
+      activeDirection(out, { sectionId: id, sectionBars: 0 }).text);
+    expect(live).toEqual(['one', 'one', 'two', 'two']);
+  });
+
+  it('leaves the top of a show undirected rather than borrowing from the future', () => {
+    const out = fillTimelineGaps([at('c', 'two')], [{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+    expect(activeDirection(out, { sectionId: 'a', sectionBars: 0 })).toBe(null);
+    expect(activeDirection(out, { sectionId: 'c', sectionBars: 0 }).text).toBe('two');
+  });
+
+  it('carries the last line of a section, not its first', () => {
+    const out = fillTimelineGaps([
+      at('a', 'one'),
+      { at: { section: 'a', bars: 16 }, text: 'then this' },
+    ], [{ id: 'a' }, { id: 'b' }]);
+
+    expect(activeDirection(out, { sectionId: 'b', sectionBars: 0 }).text).toBe('then this');
+  });
+
+  it('does not touch a section that has a line of its own', () => {
+    const out = fillTimelineGaps([at('a', 'one'), at('b', 'two')], [{ id: 'a' }, { id: 'b' }]);
+    expect(out.filter((d) => d.at.section === 'b').map((d) => d.text)).toEqual(['two']);
+  });
+
+  it('keeps the standing lines at the front, as the floor', () => {
+    const out = fillTimelineGaps(['never bright', at('a', 'one')], [{ id: 'a' }, { id: 'b' }]);
+    expect(out[0].text).toBe('never bright');
+  });
+
+  it('keeps a line anchored to a section this set does not have', () => {
+    // Inert, but the artist's: dropping it here would delete it on the next
+    // round trip through the document.
+    const out = fillTimelineGaps([at('gone', 'x'), at('a', 'one')], [{ id: 'a' }]);
+    expect(out.some((d) => d.text === 'x')).toBe(true);
+  });
+
+  it('gives every copy its own id, so the panel can key rows off them', () => {
+    const out = fillTimelineGaps([at('a', 'one')], [{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+    expect(new Set(out.map((d) => d.id)).size).toBe(out.length);
+  });
+
+  it('is a no-op with no sections', () => {
+    expect(fillTimelineGaps([at('a', 'one')], []).map((d) => d.text)).toEqual(['one']);
   });
 });

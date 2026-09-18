@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   ShowBuilder,
   bindLooks,
+  directLooks,
+  manifestFromScenario,
   scenarioFromManifest,
   isQuotaRefusal,
 } from '../src/performer/ShowBuilder.js';
@@ -468,5 +470,175 @@ describe('isQuotaRefusal', () => {
     expect(isQuotaRefusal({ name: 'GrantError' })).toBe(true);
     expect(isQuotaRefusal(new Error('the model fell over'))).toBe(false);
     expect(isQuotaRefusal(null)).toBe(false);
+  });
+});
+
+// Direction, carried from the manifest onto the set that was just built.
+//
+// A manifest is where a show is planned and `direction` is part of the plan,
+// so a show built from one should arrive already directed rather than needing
+// the panel's button pressed afterwards. The mapping is the interesting part:
+// a look's line has to find the section that look became, and the model
+// renames things.
+describe('directLooks', () => {
+  const DIRECTED = Object.freeze({
+    show: 'Test set',
+    direction: 'Patient. Never bright.',
+    looks: [
+      { id: 'opening', name: 'Opening', brief: 'slow fog', direction: 'Hold it still.' },
+      { id: 'build', name: 'Build', brief: 'tightening', direction: 'Tighten it.' },
+      { id: 'drop', name: 'Drop', brief: 'hard', direction: 'Let it go.' },
+    ],
+  });
+
+  const sections = (ids) => ({
+    name: 'Test set',
+    sections: ids.map((id) => ({ id, name: id[0].toUpperCase() + id.slice(1) })),
+  });
+
+  const find = (scenario, id) =>
+    scenario.directions.find((d) => d.at.section === id)?.text;
+
+  it('puts the show\'s line on as the standing direction', () => {
+    const out = directLooks(sections(['opening', 'build', 'drop']), DIRECTED);
+    const standing = out.directions.find((d) => !d.at.section);
+    expect(standing.text).toBe('Patient. Never bright.');
+    expect(standing.at.whole).toBe(true);
+  });
+
+  it('puts each look\'s line on the section that look became', () => {
+    const out = directLooks(sections(['opening', 'build', 'drop']), DIRECTED);
+    expect(find(out, 'opening')).toBe('Hold it still.');
+    expect(find(out, 'build')).toBe('Tighten it.');
+    expect(find(out, 'drop')).toBe('Let it go.');
+  });
+
+  it('follows the binding when the model renamed the sections', () => {
+    // The whole reason this runs after bindLooks: "opening" came back as
+    // "intro", and the line has to go where the look actually landed.
+    const scenario = sections(['intro', 'rise', 'peak']);
+    const bound = [
+      { lookId: 'opening', sectionId: 'intro' },
+      { lookId: 'build', sectionId: 'rise' },
+      { lookId: 'drop', sectionId: 'peak' },
+    ];
+    const out = directLooks(scenario, DIRECTED, bound);
+    expect(find(out, 'intro')).toBe('Hold it still.');
+    expect(find(out, 'peak')).toBe('Let it go.');
+  });
+
+  it('matches by name, then by position, when there is no binding', () => {
+    const out = directLooks(sections(['s1', 's2', 's3']), DIRECTED);
+    // Nothing matched by id; the counts line up, so position decides.
+    expect(find(out, 's1')).toBe('Hold it still.');
+    expect(find(out, 's3')).toBe('Let it go.');
+  });
+
+  it('fills the sections the model added between the looks', () => {
+    // The model wrote a bridge nobody asked for. It is part of the show now,
+    // and it is not left undirected.
+    const out = directLooks(
+      sections(['opening', 'bridge', 'build', 'drop']),
+      DIRECTED,
+      [
+        { lookId: 'opening', sectionId: 'opening' },
+        { lookId: 'build', sectionId: 'build' },
+        { lookId: 'drop', sectionId: 'drop' },
+      ]
+    );
+    expect(find(out, 'bridge')).toBe('Hold it still.');
+  });
+
+  it('keeps direction the set already carries rather than overwriting it', () => {
+    // The "build the missing looks" path: the set is the artist's and so is
+    // its direction.
+    const scenario = {
+      ...sections(['opening', 'build', 'drop']),
+      directions: [
+        { text: 'mine, for the whole show' },
+        { at: { section: 'drop' }, text: 'mine, for the drop' },
+      ],
+    };
+    const out = directLooks(scenario, DIRECTED);
+
+    expect(out.directions.find((d) => !d.at.section).text).toBe('mine, for the whole show');
+    expect(find(out, 'drop')).toBe('mine, for the drop');
+    // …and the manifest still fills in the sections the artist said nothing about.
+    expect(find(out, 'build')).toBe('Tighten it.');
+  });
+
+  it('leaves the set alone when the manifest has no direction in it', () => {
+    const out = directLooks(sections(['opening']), { show: 'x', looks: [{ id: 'opening', brief: 'y' }] });
+    expect(out.directions).toEqual([]);
+  });
+
+  it('keeps a line whose look never became a section, inert rather than lost', () => {
+    const out = directLooks(sections(['opening']), DIRECTED);
+    // "drop" has no section here. The line is the artist's; it is kept under
+    // the look's own id and validation is what says it reaches nothing.
+    expect(out.directions.some((d) => d.text === 'Let it go.')).toBe(true);
+  });
+
+  it('is what a real build leaves on the set', async () => {
+    const builder = new ShowBuilder({
+      generatePatch: vi.fn(async () => ({ patch: patch(), title: 'A patch' })),
+      installScene: vi.fn((name) => ({ id: `scene_${name}`, name })),
+      authorScenario: vi.fn(async () => modelScenario()),
+    });
+    const report = await builder.build(DIRECTED);
+
+    expect(report.scenario.directions.find((d) => !d.at.section).text)
+      .toBe('Patient. Never bright.');
+    // Every section of the built set is directed, which is the promise.
+    for (const section of report.scenario.sections) {
+      const live = report.scenario.directions.some((d) => d.at.section === section.id);
+      expect(live, section.id).toBe(true);
+    }
+  });
+});
+
+describe('manifestFromScenario, and direction', () => {
+  it('carries a section\'s pre-direction back onto its look', () => {
+    // The trip out and back must not strip the direction off a set: this is
+    // how "build the missing looks" reads a set someone already wrote.
+    const { manifest } = manifestFromScenario({
+      name: 'Their set',
+      sections: [{ id: 'drop', name: 'Drop' }],
+      directions: [
+        { text: 'never bright' },
+        { at: { section: 'drop' }, text: 'let it go' },
+      ],
+    });
+
+    expect(manifest.direction).toBe('never bright');
+    expect(manifest.looks[0].direction).toBe('let it go');
+  });
+
+  it('joins several lines in one section, in the order they take effect', () => {
+    const { manifest } = manifestFromScenario({
+      name: 'Their set',
+      sections: [{ id: 'drop', name: 'Drop' }],
+      directions: [
+        { at: { section: 'drop' }, text: 'let it go' },
+        { at: { section: 'drop', bars: 16 }, text: 'hold it there' },
+      ],
+    });
+    expect(manifest.looks[0].direction).toBe('let it go hold it there');
+  });
+
+  it('survives the round trip back onto the same set', () => {
+    const before = {
+      name: 'Their set',
+      sections: [{ id: 'drop', name: 'Drop' }],
+      directions: [
+        { text: 'never bright' },
+        { at: { section: 'drop' }, text: 'let it go' },
+      ],
+    };
+    const { manifest } = manifestFromScenario(before);
+    const after = directLooks(before, manifest);
+
+    expect(after.directions.find((d) => !d.at.section).text).toBe('never bright');
+    expect(after.directions.find((d) => d.at.section === 'drop').text).toBe('let it go');
   });
 });

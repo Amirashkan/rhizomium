@@ -991,6 +991,27 @@ export class PerformerPanel {
         );
       }
 
+      // The direction the manifest carried, said once. A build that wrote it
+      // means the Pre-directions box has nothing left to do — which is worth
+      // knowing, because otherwise the obvious next move is to go and write
+      // the same lines again by hand.
+      const directions = report.scenario.directions?.length || 0;
+      if (directions) {
+        this.noteBuild(
+          `${directions} pre-direction${directions === 1 ? '' : 's'} came with the set, from the manifest's `
+            + '"direction" lines. The AI is handed the one for wherever the set has got to — '
+            + 'press Load, then read them under Pre-directions.',
+          'ok'
+        );
+      } else if (!report.stopped) {
+        this.noteBuild(
+          'No direction in this manifest, so the set carries none: the AI will improvise on the '
+            + 'looks alone. Add "direction" to the show and to each look, or write them under '
+            + 'Pre-directions.',
+          'info'
+        );
+      }
+
       for (const entry of report.bound) {
         this.noteBuild(
           `"${entry.sceneName}" plays in section "${entry.sectionId}"${entry.inserted ? ' (a section was added for it)' : ''}.`,
@@ -1495,6 +1516,9 @@ export class PerformerPanel {
     const report = this.engine.loadScenario(parsed, this.knownNames());
     // Loaded: what is in the editor and what is running are the same document.
     this.editorHoldsDraft = false;
+    // …including its direction, which a set built from a manifest arrives
+    // carrying. Forced: nobody is typing in that box while pressing Load here.
+    if (this.preDirectionBox) this.fillPreDirectionEditor(true);
 
     const lines = [
       ...report.errors.map((p) => `error — ${p.where}: ${p.message}`),

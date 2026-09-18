@@ -311,6 +311,10 @@ If you *are* standing there, both travel, and the prompt says which wins: what
 you type live beats the plan. Writing pre-directions does not take the live box
 away.
 
+You may never need the box. A show built from a manifest arrives already
+directed: `direction` on the show and on each look becomes exactly this, in the
+binding pass — see "The manifest" below.
+
 Being direction rather than instruction, none of this is ever executed — like a
 section's `mood` and `notes` it is only what the director is *told*. So a
 pre-direction cannot break a set. The worst a bad one does is never be heard,
@@ -334,7 +338,8 @@ exist*, in prose, and **Build the show** turns it into them:
    look's name.
 2. One scenario call — which can now name those scenes, because by then they
    are on the rig.
-3. A binding pass that makes each section play the scene actually built for it.
+3. A binding pass that makes each section play the scene actually built for it,
+   and puts the manifest's `direction` lines on it as the set's pre-directions.
 
 Step 3 is not a safety net for a bad model. It is the step that makes the
 difference between a document *about* a show and the show: after it, every
@@ -347,6 +352,7 @@ of its own rather than being dropped — you paid for that patch.
   "show": "Night set",
   "brief": "A 40-minute support slot. Dark and patient, one drop I fire by hand.",
   "palette": "near-black, cold blue-grey, one white accent only in the drop",
+  "direction": "Patient. Never bright until the drop.",  // for the live AI, throughout
   "bpm": 128,
   "pulse": "metered",            // or "free" — see "Music with no pulse" above
 
@@ -355,6 +361,7 @@ of its own rather than being dropped — you paid for that patch.
     "name": "Opening",
     "brief": "Slow fog drifting across the frame, one cold light source, almost black.",
     "mood": "patient, cold, barely moving",
+    "direction": "Hold it almost still. One thing moving at a time.",
     "intensity": 0.2,            // where it sits in the shape of the set
     "reactsTo": ["low"],         // audio channels it should visibly answer
     "drivable": ["how fast the fog drifts", "how far the light reaches"],
@@ -372,6 +379,18 @@ of its own rather than being dropped — you paid for that patch.
 A look with a `scene` instead of a `brief` names one you already have: it costs
 nothing and is bound into the set exactly like a generated one, which is how a
 show mixes looks you built by hand with looks you had built for you.
+
+`direction` is the one field that is not about building anything. `brief`
+builds the patch, once, at a desk; `direction` is handed to the **live** AI
+every time it asks, for as long as that look is on screen. Write it on the show
+for what the set should be going for throughout, and on a look for its own
+stretch, and **Build the show** puts them on the set as its pre-directions —
+including the sections the model added between your looks, which take the line
+before them. So a show built from a manifest arrives already directed and you
+never have to open the Pre-directions box at all. (It reads the other way too:
+**Build the missing looks** carries a set's existing pre-directions back onto
+the manifest it derives, and a set that already has a line for a section keeps
+it — the manifest's is not ours to overwrite.)
 
 `palette` and `brief` are what stop five separately generated patches from
 looking like five separate shows — every look call is told the whole set, in
