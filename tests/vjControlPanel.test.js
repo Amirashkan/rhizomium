@@ -210,6 +210,7 @@ describe('VJ transitions', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     resetOutputOpacity();
     document.body.innerHTML = '';
@@ -238,6 +239,42 @@ describe('VJ transitions', () => {
 
     await expect(transitions.startTransition({ nodes: [] }, 'cut', 0)).resolves.toBe(true);
     expect(transitions.isTransitioning).toBe(false);
+  });
+
+  it('finishes a crossfade in a window that is not being painted', async () => {
+    // A window the compositor has stopped serving - the editor sitting behind a
+    // full-screen projector output, a minimised laptop lid - gets no animation
+    // frames at all. The fade was a bare rAF recursion, so its promise simply
+    // never settled: the scene was never imported, `completeTransition` in the
+    // `finally` never ran, and the output stayed pinned at whatever opacity the
+    // last frame it did get happened to write - near zero, mid-crossfade.
+    //
+    // It did not stop at the picture either. ActionExecutor.doScene() clears
+    // `sceneChangeInFlight` off this promise, so the performer refused every
+    // scene change for the rest of the set with "a scene change is already
+    // running" while the previous look sat on the output being driven by the
+    // music.
+    vi.useFakeTimers();
+    let clock = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    globalThis.requestAnimationFrame = () => 0; // never served
+    globalThis.cancelAnimationFrame = () => {};
+
+    const editor = makeEditor();
+    const transitions = new TransitionManager(editor);
+    const running = transitions.startTransition({ nodes: [] }, 'crossfade', 1);
+
+    // Three seconds of wall clock, and not one frame.
+    for (let i = 0; i < 12; i += 1) {
+      clock += 250;
+      await vi.advanceTimersByTimeAsync(250);
+    }
+
+    await expect(running).resolves.toBe(true);
+    expect(editor.saveLoadManager.importProject).toHaveBeenCalled();
+    expect(transitions.isTransitioning).toBe(false);
+    // And the output is handed back, rather than left dark.
+    expect(getOutputOpacity()).toBeCloseTo(1, 5);
   });
 
   it('leaves the master fader intact after a crossfade', async () => {
