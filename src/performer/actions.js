@@ -34,6 +34,41 @@ const num = (value, fallback = 0) => {
 };
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const str = (value, fallback = '') => (typeof value === 'string' ? value : fallback);
+
+/** The first of these that was actually sent, or undefined. */
+const first = (...values) => values.find((value) => value !== undefined && value !== null);
+
+/**
+ * A number the caller MEANT to send, or null.
+ *
+ * `num()` answers "what number is this, or the default", which is right for a
+ * field with a harmless fallback and wrong for the one that decides what the
+ * audience sees. A move whose `to` never arrived is not a move to zero, and a
+ * `blackout` with no `on` is not a decision to kill the output — but read
+ * through a default, both are indistinguishable from having been asked for,
+ * and the log line reads as if they had been.
+ *
+ * So these fields are read on their own terms: the first key that was actually
+ * sent decides, an unusable value is null rather than a number, and null is
+ * refused — dropped with a line in the log by shapePlan(), refused by the
+ * executor for the scenario and OSC paths that do not go through it.
+ *
+ * The aliases are the same admission parameterTarget() makes: a model is
+ * answering a schema, not reading this file. `target` is not among them —
+ * there it carries the node and the parameter, not the value.
+ */
+const number = (raw, keys) => {
+  for (const key of keys) {
+    const value = raw?.[key];
+    if (value === undefined || value === null || value === '') continue;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+};
+
+/** The keys a target value arrives under, in the order they are believed. */
+const TARGET_KEYS = ['to', 'value', 'amount', 'level'];
 const pick = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
 
 /**
@@ -252,12 +287,21 @@ export function normalizeAction(raw) {
       };
 
     case 'param': {
-      const overBars = raw.overBars === undefined ? null : clamp(num(raw.overBars, 0), 0, 256);
-      const overSeconds = raw.overSeconds === undefined ? null : clamp(num(raw.overSeconds, 0), 0, 600);
+      // The same aliases, for the same reason: a fade whose length arrived
+      // under a key this file did not name is a fade that lands at once,
+      // which on a long ramp is the one thing it was not supposed to do.
+      const bars = first(raw.overBars, raw.bars);
+      const seconds = first(raw.overSeconds, raw.seconds, raw.duration);
+      const overBars = bars === undefined ? null : clamp(num(bars, 0), 0, 256);
+      const overSeconds = seconds === undefined ? null : clamp(num(seconds, 0), 0, 600);
+      // `target` may be the object parameterTarget() reads the node and the
+      // parameter out of, so the value is looked for inside it as well.
+      const nested = raw.target && typeof raw.target === 'object' ? raw.target : null;
       return {
         ...common,
         ...parameterTarget(raw),
-        to: num(raw.to ?? raw.value, 0),
+        // Null, not 0, when nothing usable arrived. See number() above.
+        to: number(raw, TARGET_KEYS) ?? (nested ? number(nested, TARGET_KEYS) : null),
         overBars,
         overSeconds,
         curve: str(raw.curve) || 'linear',
@@ -304,20 +348,34 @@ export function normalizeAction(raw) {
         duration: raw.duration === undefined ? null : clamp(num(raw.duration, 1), 0, 60),
       };
 
-    case 'master':
+    case 'master': {
+      // Null rather than 1. A master action with no target used to mean "fader
+      // to the top", so a plan that meant 0.6 over eight seconds — and said so
+      // in its `why` — arrived as a jump to full.
+      const to = number(raw, TARGET_KEYS);
+      const seconds = first(raw.overSeconds, raw.seconds, raw.duration);
       return {
         ...common,
-        to: clamp(num(raw.to ?? raw.value, 1), 0, 1),
-        overSeconds: clamp(num(raw.overSeconds, 0), 0, 60),
+        to: to === null ? null : clamp(to, 0, 1),
+        overSeconds: clamp(num(seconds, 0), 0, 60),
       };
+    }
 
-    case 'speed':
+    case 'speed': {
       // The editor's own speed control tops out well below this; the ceiling
       // here is only to keep a nonsense value out of the render loop.
-      return { ...common, to: clamp(num(raw.to ?? raw.value, 1), 0, 8) };
+      const to = number(raw, TARGET_KEYS);
+      return { ...common, to: to === null ? null : clamp(to, 0, 8) };
+    }
 
     case 'blackout':
-      return { ...common, on: raw.on === undefined ? true : Boolean(raw.on) };
+      // Null rather than true, and this is the one that cost a set. A director
+      // asked to clear a kill — "Clear the kill immediately; the artist has
+      // asked for brightness" — sent an action whose `on` never arrived, and a
+      // default of true turned a request to bring the picture back into a
+      // second blackout. Nothing in this repo sends a blackout without saying
+      // which way it goes, so guessing buys nothing and costs that.
+      return { ...common, on: raw.on === undefined || raw.on === null ? null : Boolean(raw.on) };
 
     case 'section':
       return { ...common, to: str(raw.to ?? raw.section ?? raw.id) };
@@ -379,6 +437,7 @@ export function validateAction(action, context = {}) {
 
     case 'param':
       if (!action.node || !action.param) return error('A param action needs a node and a parameter.');
+      if (action.to === null) return error('A param action needs a value to move to ("to").');
       return null;
 
     case 'drive':
@@ -388,6 +447,20 @@ export function validateAction(action, context = {}) {
 
     case 'undrive':
       if (!action.node || !action.param) return error('An undrive action needs a node and a parameter.');
+      return null;
+
+    case 'master':
+      if (action.to === null) return error('A master action needs a level to move to ("to"), 0 to 1.');
+      return null;
+
+    case 'speed':
+      if (action.to === null) return error('A speed action needs a speed to move to ("to").');
+      return null;
+
+    case 'blackout':
+      if (action.on === null) {
+        return error('A blackout action needs "on": true kills the output, false brings it back.');
+      }
       return null;
 
     case 'section':
@@ -431,6 +504,9 @@ export function validateAction(action, context = {}) {
   }
 }
 
+/** A value that never arrived, as the log should show it. */
+const shown = (value) => (value === null || value === undefined ? '?' : value);
+
 /** A one-line rendering for the performance log and the panel. */
 export function describeAction(action) {
   if (!action) return 'unknown';
@@ -440,14 +516,18 @@ export function describeAction(action) {
     case 'param': {
       const over = action.overBars ? ` over ${action.overBars} bars`
         : action.overSeconds ? ` over ${action.overSeconds}s` : '';
-      return `${action.node}.${action.param} → ${action.to}${over}`;
+      // "→ ?" rather than "→ 0". Read over a mixer in the dark, the two say
+      // very different things about what is about to happen.
+      return `${action.node}.${action.param} → ${shown(action.to)}${over}`;
     }
     case 'drive': return `${action.signal} drives ${action.node}.${action.param}`;
     case 'undrive': return `release ${action.node}.${action.param}`;
     case 'transition': return `transition = ${action.transition || action.duration + 's'}`;
-    case 'master': return `master → ${action.to}`;
-    case 'speed': return `speed → ${action.to}`;
-    case 'blackout': return action.on ? 'blackout' : 'blackout off';
+    case 'master': return `master → ${shown(action.to)}`;
+    case 'speed': return `speed → ${shown(action.to)}`;
+    case 'blackout':
+      if (action.on === null || action.on === undefined) return 'blackout ?';
+      return action.on ? 'blackout' : 'blackout off';
     case 'audio': {
       const where = action.seek === null ? '' : ` from ${action.seek}s`;
       return action.clip ? `${action.transport} ${action.clip}${where}` : `${action.transport} the bed${where}`;

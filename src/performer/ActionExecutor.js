@@ -774,6 +774,12 @@ export class ActionExecutor {
    * bars.
    */
   doParam(action, context) {
+    // A move with no target is not a move to zero. normalizeAction() leaves
+    // `to` null when nothing usable arrived, and writing that as a 0 is how
+    // "lift the haze a little" becomes a black picture with a line in the log
+    // saying it was done.
+    if (!Number.isFinite(action.to)) return no('no value to move to');
+
     const node = this.resolveNode(action.node);
     if (!node) return no(`no node "${action.node}"`);
 
@@ -856,6 +862,9 @@ export class ActionExecutor {
   }
 
   doMaster(action) {
+    // As doParam: a fader move with no level is not a move to the top.
+    if (!Number.isFinite(action.to)) return no('no level to move to');
+
     const rules = this.rules;
     const ceiling = rules ? rules.masterCeiling : 1;
     const floor = rules ? rules.masterFloor : 0;
@@ -886,6 +895,8 @@ export class ActionExecutor {
   }
 
   doSpeed(action) {
+    if (!Number.isFinite(action.to)) return no('no speed to move to');
+
     if (this.vjPanel?.setPlaybackSpeed) {
       this.vjPanel.setPlaybackSpeed(action.to);
       return ok(`${action.to}x`);
@@ -907,6 +918,13 @@ export class ActionExecutor {
    * held the output at 20% would defeat it.
    */
   doBlackout(action) {
+    // Which way it goes is the whole action, and it is never guessed: a plan
+    // that meant "bring it back" and arrived without `on` used to kill the
+    // output instead. Refusing is visible; a wrong guess is a dark room.
+    if (action.on === null || action.on === undefined) {
+      return no('say on: true to kill the output, false to bring it back');
+    }
+
     if (action.on) {
       if (!this.blackedOut) this._preBlackoutMaster = getMasterOpacity();
       this.blackedOut = true;

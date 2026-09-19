@@ -261,6 +261,55 @@ describe('PerformerDirector', () => {
     expect(run.mock.calls[0][1].steer).toBe('keep it dark');
   });
 
+  // What the answer actually carried, when it does not carry enough to play.
+  // Without this line nobody could tell a plan that was played from one whose
+  // move existed only in its `why` — which is how a set spent a night writing
+  // zeros into a grade with a log that read as if it were lifting it.
+  describe('an action it has to drop', () => {
+    async function plan(actions) {
+      const lines = [];
+      const local = new PerformerDirector({
+        run: () => Promise.resolve({ result: { actions, note: '' } }),
+        now: () => clock.now,
+        log: (level, message, meta) => lines.push({ level, message, meta }),
+      });
+      local.setEnabled(true);
+      local.offer(state());
+      await local._inFlight;
+      return { lines, ready: local.take() };
+    }
+
+    it('says which verb, why, and what the model actually sent', async () => {
+      const { lines, ready } = await plan([{
+        type: 'param', node: 'Cool Cloud Grade', param: 'valueMult',
+        why: 'Raise gently to 0.18 over 30 seconds.',
+      }]);
+
+      expect(ready).toBeNull();
+      const dropped = lines.find((line) => /Dropped/.test(line.message));
+      expect(dropped.level).toBe('warn');
+      expect(dropped.message).toMatch(/param/);
+      expect(dropped.message).toMatch(/"to"/);
+      expect(dropped.meta.sent).toBe('type, node, param, why');
+      expect(dropped.meta.why).toMatch(/0\.18/);
+    });
+
+    it('names a verb the performer does not have rather than swallowing it', async () => {
+      const { lines } = await plan([{ type: 'strobe', why: 'Hit it.' }]);
+      expect(lines.find((line) => /strobe/.test(line.message))).toBeTruthy();
+    });
+
+    it('keeps the rest of a plan when one action is dropped', async () => {
+      const { ready } = await plan([
+        { type: 'blackout', why: 'Clear the kill immediately.' },
+        { type: 'param', node: 'Warp', param: 'speed', to: 1.4 },
+      ]);
+
+      expect(ready.actions).toHaveLength(1);
+      expect(ready.actions[0].type).toBe('param');
+    });
+  });
+
   describe('authoring a scenario', () => {
     it('refuses an empty brief before spending a call', async () => {
       await expect(director.authorScenario('  ')).rejects.toThrow(/Describe the set/);

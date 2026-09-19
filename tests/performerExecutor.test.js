@@ -195,6 +195,117 @@ describe('the master fader', () => {
   });
 });
 
+// One set's log, four verbs, one fault: every field the live schema did not
+// name arrived missing, and each verb's default turned that into something
+// nobody asked for. A `param` with no `to` went to zero (its `why` said "raise
+// gently to 0.18 over 30 seconds"), a `master` with no level jumped to full
+// ("restore smoothly, keeping the lift restrained"), and a `blackout` with no
+// `on` killed the output ("clear the kill immediately; the artist has asked
+// for brightness"). The schema names them now; these are what happens when one
+// goes missing anyway.
+describe('an action whose value never arrived', () => {
+  it('refuses a param move rather than writing a zero', () => {
+    const target = node('1', 'Grade', { params: { valueMult: 0.4 } });
+    const executor = makeExecutor({ nodes: [target] });
+
+    const result = executor.execute(act({
+      type: 'param', node: '1', param: 'valueMult',
+      why: 'Raise gently to 0.18 over 30 seconds.',
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/value/);
+    expect(target.params.valueMult).toBe(0.4);
+  });
+
+  it('refuses a param move whose value is not a number', () => {
+    const target = node('1', 'Grade', { params: { valueMult: 0.4 } });
+    const executor = makeExecutor({ nodes: [target] });
+
+    expect(executor.execute(act({ type: 'param', node: '1', param: 'valueMult', to: '18%' })).ok)
+      .toBe(false);
+    expect(target.params.valueMult).toBe(0.4);
+  });
+
+  it('still plays a deliberate zero', () => {
+    const target = node('1', 'Grade', { params: { valueMult: 0.4 } });
+    const executor = makeExecutor({ nodes: [target] });
+
+    expect(executor.execute(act({ type: 'param', node: '1', param: 'valueMult', to: 0 })).ok)
+      .toBe(true);
+    expect(target.params.valueMult).toBe(0);
+  });
+
+  it('reads a value from the other names a model reaches for', () => {
+    const target = node('1', 'Grade', { params: { valueMult: 0 } });
+    const executor = makeExecutor({ nodes: [target] });
+
+    executor.execute(act({ type: 'param', node: '1', param: 'valueMult', value: 0.18 }));
+    expect(target.params.valueMult).toBeCloseTo(0.18, 5);
+
+    executor.execute(act({ type: 'param', node: '1', param: 'valueMult', amount: '0.25' }));
+    expect(target.params.valueMult).toBeCloseTo(0.25, 5);
+  });
+
+  it('finds the value inside the same nested target the name comes from', () => {
+    const target = node('1', 'Grade', { params: { valueMult: 0 } });
+    const executor = makeExecutor({ nodes: [target] });
+
+    // parameterTarget() reads `target` as the node and the parameter, so a
+    // plan that nests the whole move there must not lose its number on the way.
+    executor.execute(act({ type: 'param', target: { node: '1', param: 'valueMult', to: 0.3 } }));
+    expect(target.params.valueMult).toBeCloseTo(0.3, 5);
+  });
+
+  it('takes a fade length sent under another name rather than landing at once', () => {
+    const target = node('1', 'Grade', { params: { valueMult: 0 } });
+    const executor = makeExecutor({ nodes: [target] });
+
+    executor.execute(act({ type: 'param', node: '1', param: 'valueMult', to: 0.2, seconds: 30 }));
+    expect(target.params.valueMult).toBe(0);
+    expect(executor.ramps.size).toBe(1);
+
+    executor.tick(15, null);
+    expect(target.params.valueMult).toBeCloseTo(0.1, 2);
+  });
+
+  it('refuses a master move rather than jumping the fader to the top', () => {
+    const executor = makeExecutor({});
+    executor.execute(act({ type: 'master', to: 0.3 }));
+
+    const result = executor.execute(act({ type: 'master', why: 'Restore smoothly, restrained.' }));
+    expect(result.ok).toBe(false);
+    expect(getMasterOpacity()).toBeCloseTo(0.3, 3);
+  });
+
+  it('refuses a speed change with no speed in it', () => {
+    const executor = makeExecutor({});
+    expect(executor.execute(act({ type: 'speed', why: 'Ease it back.' })).ok).toBe(false);
+  });
+
+  it('refuses a blackout that does not say which way it goes', () => {
+    const executor = makeExecutor({});
+    executor.execute(act({ type: 'master', to: 0.5 }));
+
+    const result = executor.execute(act({ type: 'blackout', why: 'Clear the kill immediately.' }));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/on/);
+    // The output is where it was: not killed, and not restored either.
+    expect(getMasterOpacity()).toBeCloseTo(0.5, 3);
+    expect(executor.blackedOut).toBe(false);
+  });
+
+  it('still kills and restores when the action says which', () => {
+    const executor = makeExecutor({});
+    executor.execute(act({ type: 'master', to: 0.5 }));
+    executor.execute(act({ type: 'blackout', on: true }));
+    expect(getMasterOpacity()).toBe(0);
+
+    executor.execute(act({ type: 'blackout', on: false }));
+    expect(getMasterOpacity()).toBeCloseTo(0.5, 3);
+  });
+});
+
 // A drive is the one action that is accepted without its node existing: the
 // section that installs it is cutting to the look it belongs to in the same
 // frame, and that look is still loading. What it must never do is stay that

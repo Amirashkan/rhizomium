@@ -985,11 +985,11 @@ You are performing visuals live while a musician plays. A scenario — the score
 You are shown where the set is, what the signals read, what the music has been DOING, what is in the patch on screen, what is driving what, how long the picture has been frozen, and the last few things that happened. Answer with a short list of actions. The verbs, and nothing else:
 
 - {"type":"drive","signal":"bass","node":"Warp","param":"amount","min":0,"max":0.6} — bind a signal to a parameter for this section. Your main verb.
-- {"type":"param","node":"Warp","param":"speed","to":1.4,"overBars":8} — move a parameter, over bars or at once.
+- {"type":"param","node":"Warp","param":"speed","to":1.4,"overBars":8} — move a parameter, over bars or at once. A target named only in "why" is dropped, never played as a zero.
 - {"type":"undrive","node":"Warp","param":"amount"} — release one.
 - {"type":"scene","scene":"drop-scene"} / {"type":"preset","preset":"soft"}
-- {"type":"section","to":"build"} — move the set on.
-- {"type":"master","to":0.8,"overSeconds":2} / {"type":"speed","to":1.5} / {"type":"transition","transition":"crossfade","duration":2}
+- {"type":"section","section":"build"} — move the set on.
+- {"type":"master","to":0.8,"overSeconds":2} / {"type":"speed","to":1.5} / {"type":"transition","transition":"crossfade","duration":2} / {"type":"blackout","on":false}
 - {"type":"log","message":"…"} — say something without doing anything.
 
 ## "patch", "dead", "picture": is the set reaching the screen?
@@ -1042,13 +1042,60 @@ The note is one sentence, read over a mixer in the dark: no preamble.`,
                   enum: ['drive', 'param', 'undrive', 'scene', 'preset', 'section',
                          'master', 'speed', 'transition', 'blackout', 'cue', 'log'],
                 },
-                // Named here even though the schema is loose, because these
-                // two are what a plan fails silently without: an action that
-                // describes a parameter in `why` instead of naming it here is
-                // well-formed, costs a slot in the bar's budget, and does
-                // nothing.
+                // Every field of every verb, named, even though the schema is
+                // loose enough not to need them.
+                //
+                // `node` and `param` were named first, when plans came back
+                // describing a parameter in `why` and naming none here. What
+                // that did not fix, it exposed: a set's log showed a `param`
+                // with no `to` ("raise gently to 0.18 over 30 seconds" in the
+                // `why`, a move to zero on the screen), a `master` with no
+                // level or fade ("restore smoothly, keeping the lift
+                // restrained" — it jumped to full), and a `blackout` with no
+                // `on` ("clear the kill immediately" — it killed the output
+                // again). What arrived, in all three, was exactly the fields
+                // named here and nothing else.
+                //
+                // So the answer is only as complete as this list is. The
+                // client no longer defaults any of these three — a missing
+                // one is dropped with a line in the log rather than played
+                // (src/performer/actions.js) — but a dropped action is still
+                // an action the artist did not get, and the fix for that is
+                // here.
+                //
+                // Still additionalProperties: true: a verb that grows a field
+                // in actions.js keeps working before this list catches up.
                 node: { type: 'string', description: 'drive/param/undrive: a name copied exactly from patch.nodes. Without it the action is dropped.' },
                 param: { type: 'string', description: 'drive/param/undrive: a parameter of that node, copied exactly. Without it the action is dropped.' },
+                to: {
+                  type: 'number',
+                  description:
+                    'param: the value to move the parameter to, inside its range in patch.nodes. '
+                    + 'master: 0-1. speed: the multiplier. Required for all three — without it the '
+                    + 'action is dropped, and a target named only in "why" is not a target.',
+                },
+                overBars: { type: 'number', description: 'param/master: take this many bars to get there. Metered music only.' },
+                overSeconds: { type: 'number', description: 'param/master: take this many seconds to get there. Use this when there is no pulse.' },
+                curve: { type: 'string', description: 'param/drive: linear, easeIn, easeOut or easeInOut.' },
+                signal: { type: 'string', description: 'drive: the signal to bind, copied from "signals".' },
+                min: { type: 'number', description: 'drive: the parameter value at signal 0. Give it, or the mapping falls back to 0-1 whatever the range is.' },
+                max: { type: 'number', description: 'drive: the parameter value at signal 1.' },
+                invert: { type: 'boolean', description: 'drive: flip the signal.' },
+                smooth: { type: 'number', description: 'drive: seconds of smoothing on the signal.' },
+                scene: { type: 'string', description: 'scene: which scene, by the name it has in the set.' },
+                preset: { type: 'string', description: 'preset: which preset.' },
+                transition: { type: 'string', description: 'transition/scene: crossfade, cut, wipe…' },
+                duration: { type: 'number', description: 'transition/scene: seconds the transition takes.' },
+                section: { type: 'string', description: 'section: the section to move the set to.' },
+                on: {
+                  type: 'boolean',
+                  description:
+                    'blackout: true kills the output, false brings it back. Required — a blackout '
+                    + 'that does not say which way it goes is dropped, never guessed at.',
+                },
+                name: { type: 'string', description: 'cue: which cue from the scenario to fire.' },
+                message: { type: 'string', description: 'log: the line to write.' },
+                quantize: { type: 'string', description: 'When it lands: "bar", "phrase", "onset" or "off". The bar, if you do not say.' },
                 why: { type: 'string', description: 'A few words. Shown in the performance log.' },
               },
               required: ['type'],

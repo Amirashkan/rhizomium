@@ -166,9 +166,16 @@ describe('the token cost of every AI feature', () => {
     // (~9,400 against the scenario call's ~8,900) and neither is the minimum,
     // so the scenario prompt has room to grow before it is what this measures.
     //
-    // Measured spread today: 1,541, against a bound of 1,600. That is 59
+    // Measured spread today: 1,567, against a bound of 1,600. That is 33
     // tokens of headroom on purpose. The next paragraph that wants room here
     // should displace one, not raise this again.
+    //
+    // 26 of the 59 that were spare went on two things in the live prompt, both
+    // for the same fault: one clause on the `param` line saying a target named
+    // only in "why" is dropped rather than played as a zero, and the shape of
+    // a `blackout` on the output line, which the verb list offered without
+    // ever showing. The rest of that fix is in the schema, where a field
+    // description costs nothing here.
   });
 
   it('keeps the shared prompt under 9,500 tokens', () => {

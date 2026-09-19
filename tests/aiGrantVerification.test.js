@@ -217,6 +217,32 @@ describe('feature configuration', () => {
     expect(violations).toEqual([]);
   });
 
+  it('names every field a live action carries, not only the two that were caught first', () => {
+    // The live schema is loose — an action's fields depend on its verb — but
+    // what the answers actually carry is what it names. `node` and `param`
+    // were named after plans came back describing a parameter in prose; a set
+    // then lost `to` on a param move (played as a zero), `to` and
+    // `overSeconds` on a master move (played as a jump to full) and `on` on a
+    // blackout (played as a kill, when the plan was to clear one). Every verb's
+    // fields are named now, and this is what stops the list drifting behind
+    // actions.js again.
+    const action = featureConfig('ai.performer_live').format.schema
+      .properties.actions.items;
+
+    for (const field of [
+      'node', 'param', 'to', 'overBars', 'overSeconds', 'curve',
+      'signal', 'min', 'max', 'invert', 'smooth',
+      'scene', 'preset', 'transition', 'duration', 'section', 'on', 'name', 'message', 'quantize',
+    ]) {
+      expect(action.properties[field]).toBeTruthy();
+    }
+    expect(action.properties.to.type).toBe('number');
+    expect(action.properties.on.type).toBe('boolean');
+    // Open on purpose: a verb that grows a field in actions.js keeps working
+    // before this list catches up with it.
+    expect(action.additionalProperties).toBe(true);
+  });
+
   it('names every response format in the character set the API allows', () => {
     for (const key of IMPLEMENTED_FEATURES) {
       const { name } = featureConfig(key).format;

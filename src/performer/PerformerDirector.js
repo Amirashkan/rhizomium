@@ -337,7 +337,7 @@ export class PerformerDirector {
         this.lastError = null;
         this._spend(units);
 
-        const plan = shapePlan(result, askedAtBeats, askedAtSeconds);
+        const plan = shapePlan(result, askedAtBeats, askedAtSeconds, this.log);
         if (!plan) return;
 
         this.lastNote = plan.note || '';
@@ -603,6 +603,12 @@ export class PerformerDirector {
   }
 }
 
+/** A verb the vocabulary does not have, as safely as it can be printed. */
+function describeVerb(raw) {
+  const type = raw && typeof raw === 'object' ? raw.type : raw;
+  return typeof type === 'string' && type.trim() ? `"${type.trim().slice(0, 40)}"` : '(no type)';
+}
+
 /**
  * What actually goes in the prompt.
  *
@@ -678,14 +684,34 @@ function compactState(state, listening) {
  * scenario's own actions already get on load; a plan from the model has no
  * more claim to skip it.
  */
-function shapePlan(result, askedAtBeats, askedAtSeconds) {
+function shapePlan(result, askedAtBeats, askedAtSeconds, log = () => {}) {
   if (!result || typeof result !== 'object') return null;
 
-  const actions = (Array.isArray(result.actions) ? result.actions : [])
-    .slice(0, MAX_PLAN_ACTIONS)
-    .map(normalizeAction)
-    .filter(Boolean)
-    .filter((action) => validateAction(action)?.severity !== 'error');
+  const actions = [];
+  for (const raw of (Array.isArray(result.actions) ? result.actions : []).slice(0, MAX_PLAN_ACTIONS)) {
+    const action = normalizeAction(raw);
+    if (!action) {
+      log('warn', `Director sent a verb the performer does not have: ${describeVerb(raw)}`);
+      continue;
+    }
+
+    const fault = validateAction(action);
+    if (fault?.severity === 'error') {
+      // What the answer actually carried, not what it meant to. A plan whose
+      // `why` describes a move the action does not is indistinguishable from a
+      // plan that was played, unless the fields it arrived with are written
+      // down — which is the difference between a night of guessing and a
+      // one-line answer. It goes through the engine's log, so the next call
+      // reads it in "recent" and can correct itself.
+      log('warn', `Dropped the director's ${action.type}: ${fault.message}`, {
+        sent: Object.keys(raw && typeof raw === 'object' ? raw : {}).join(', ') || '(nothing)',
+        why: action.why,
+      });
+      continue;
+    }
+
+    actions.push(action);
+  }
 
   const note = String(result.note || '').slice(0, 300);
   if (!actions.length && !note) return null;

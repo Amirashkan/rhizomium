@@ -232,6 +232,13 @@ outside it:
 | `graph` | replace the patch — recompiles the shader |
 | `log` | say something without doing anything |
 
+The fields that decide what the audience sees are never defaulted. A `param`
+or `master` move with no `to`, and a `blackout` with no `on`, are refused and
+logged — as `→ ?` and `blackout ?` — rather than played as a move to zero, a
+jump to full and a kill. A value named in `why` and nowhere else is not a
+value: the director's own plans are dropped in `PerformerDirector.shapePlan()`,
+which writes the fields the answer did arrive with into the log.
+
 ### Rules
 
 The fence, and it is enforced in exactly one place (`ActionExecutor.refuse`).
