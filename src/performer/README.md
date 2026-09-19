@@ -461,6 +461,25 @@ to be true for it — the registry, the expression system, and the parameter
 path the performer actually writes through — so a renamed channel or a dropped
 identifier is a failed test rather than a show that quietly stops listening.
 
+#### One message, two authors
+
+A look call is written by two hands and it is worth knowing which writes what,
+because for a while both wrote the same things. `ShowManifest.lookPrompt()` has
+the manifest open and writes what only the manifest knows — the brief, the
+mood, the clip filenames, the exact names a set that already exists reaches
+for. `describeShowLook()` in `api/_lib/features.js` has the show payload and
+owns the frame around all of it: the set in order, which look this is, its
+intensity, what it answers and how to reach it, its handles, its two clocks,
+and the two blocks above.
+
+Before that line was drawn, every look call carried the show context twice, the
+look's name twice, its intensity twice in two different roundings and the
+name-every-node rule twice in two different wordings — about 250 tokens a look,
+and worse than the waste, two wordings of one rule is a rule with a seam in it.
+Neither half could see the duplication, so it is asserted where they meet:
+`performerDirector.test.js` builds the real payload, assembles the real
+message, and counts.
+
 ### Names that reach something
 
 A section's look is a scene name; its drives and moves are node and parameter

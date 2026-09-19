@@ -16,8 +16,7 @@ import {
   MANIFEST_LIMITS,
   EXAMPLE_MANIFEST,
 } from '../src/performer/ShowManifest.js';
-import { AUDIO_TAP_CHANNELS } from '../src/audio/audioAnalysisTaps.js';
-import { unifiedExpressionSystem } from '../src/utils/UnifiedExpressionSystem.js';
+import { buildUserMessage } from '../api/_lib/features.js';
 
 describe('normalizeManifest', () => {
   it('survives anything', () => {
@@ -144,112 +143,72 @@ describe('validateManifest', () => {
   });
 });
 
+/**
+ * The message as the model actually receives it.
+ *
+ * lookPrompt() is half of it. The other half is describeShowLook(), which the
+ * builder feeds from the same manifest, and the split between them is
+ * deliberate — the frame is said once, by the backend, and this file's prompt
+ * says only what the payload cannot carry. So the things worth asserting about
+ * a look call are asserted here, on both halves together, which is also what
+ * stops the next paragraph from being added to whichever half its author
+ * happened to have open.
+ */
+function messageFor(show, look, media = []) {
+  return buildUserMessage('ai.patch_generator', {
+    prompt: lookPrompt(show, look, media),
+    show: {
+      context: showContext(show),
+      look: look.name,
+      intensity: look.intensity,
+      reactsTo: look.reactsTo,
+      drivable: look.drivable,
+      requiredHandles: look.requires.length,
+    },
+  });
+}
+
 describe('the prompts', () => {
   it('tells every look about the rest of the show', () => {
     const show = normalizeManifest(EXAMPLE_MANIFEST);
-    const prompt = lookPrompt(show, show.looks[1]);
+    const message = messageFor(show, show.looks[1]);
 
-    expect(prompt).toContain(show.looks[1].brief);
-    expect(prompt).toContain('Opening');
-    expect(prompt).toContain('Drop');
-    expect(prompt).toContain(show.palette);
+    expect(message).toContain(show.looks[1].brief);
+    expect(message).toContain('Opening');
+    expect(message).toContain('Drop');
+    expect(message).toContain(show.palette);
   });
 
   it('asks for a patch that can actually be performed', () => {
     const show = normalizeManifest(EXAMPLE_MANIFEST);
-    const prompt = lookPrompt(show, show.looks[0]);
+    const message = messageFor(show, show.looks[0]);
 
     // The three things that separate a look from an image.
-    expect(prompt).toMatch(/[Nn]ame every node/);
-    expect(prompt).toMatch(/somewhere to travel/);
-    expect(prompt).toMatch(/first frame/i);
-    expect(prompt).toContain('how fast the fog drifts');
+    expect(message).toMatch(/[Nn]ame every node/);
+    expect(message).toMatch(/somewhere left to travel/);
+    expect(message).toMatch(/first frame/i);
+    expect(message).toContain('how fast the fog drifts');
+  });
+
+  it('says the look\'s own material, and leaves the frame to the other half', () => {
+    // The duplication this split removed: the show context, the look's name
+    // and its intensity each arrived twice, in two roundings and two wordings.
+    const show = normalizeManifest(EXAMPLE_MANIFEST);
+    const prompt = lookPrompt(show, show.looks[0]);
+
+    expect(prompt).toContain(show.looks[0].brief);
+    expect(prompt).toContain('patient, cold, barely moving');
+
+    expect(prompt).not.toContain(show.palette);
+    expect(prompt).not.toMatch(/The set, in order/);
+    expect(prompt).not.toMatch(/intensity/);
+    expect(prompt).not.toMatch(/[Nn]ame every node/);
   });
 
   it('says there is no pulse rather than inventing a tempo', () => {
     const text = showContext({ pulse: 'free', looks: [{ brief: 'x' }] });
     expect(text).toMatch(/no steady pulse/);
     expect(text).not.toMatch(/BPM/);
-  });
-
-  // `reactsTo` is written in the tap vocabulary, which is the right vocabulary
-  // for it — the same strings bind the scenario's audio signals. But only some
-  // of those readings reach a parameter expression, they are spelled
-  // differently there, and an expression naming one of the others compiles to
-  // 0.0 and stays there for the length of the show. Nothing warns: the patch
-  // loads, the section runs, and the one thing the look was built to do never
-  // happens. So the prompt routes each channel, and these hold the routing
-  // against the two things that decide it.
-  describe('routing a look to the audio it has to answer', () => {
-    it('gives the expression name for a channel an expression can hear', () => {
-      const show = normalizeManifest({
-        looks: [{ name: 'A', brief: 'fog', reactsTo: ['low', 'mid', 'high', 'level'] }],
-      });
-      const prompt = lookPrompt(show, show.looks[0]);
-
-      expect(prompt).toContain('low is "audioEnvelopeBass"');
-      expect(prompt).toContain('mid is "audioEnvelopeMids"');
-      expect(prompt).toContain('high is "audioEnvelopeHighs"');
-      expect(prompt).toContain('level is "audioEnvelope"');
-      expect(prompt).not.toMatch(/only through an AudioValue node/);
-    });
-
-    it('sends the rest to a node, because no expression can name them', () => {
-      const show = normalizeManifest({
-        looks: [{ name: 'A', brief: 'hits', reactsTo: ['kickTrig', 'centroid'] }],
-      });
-      const prompt = lookPrompt(show, show.looks[0]);
-
-      expect(prompt).toContain('kickTrig, centroid are reachable only through an AudioValue node');
-      expect(prompt).toMatch(/compile to zero/);
-    });
-
-    it('routes a mixed look both ways at once', () => {
-      const show = normalizeManifest(EXAMPLE_MANIFEST);
-      // The drop answers "low" and "kickTrig" — one of each.
-      const prompt = lookPrompt(show, show.looks[2]);
-
-      expect(prompt).toContain('low is "audioEnvelopeBass"');
-      expect(prompt).toContain('kickTrig is reachable only through an AudioValue node');
-    });
-
-    it('is right about which names an expression really resolves', () => {
-      // The claim, checked rather than trusted, against the expression system
-      // and the tap list themselves. A renamed channel or a dropped identifier
-      // fails here rather than in a show.
-      //
-      // Eight at a time, because normalizeLook() caps `reactsTo` at eight and
-      // a look asked for all fifteen is a look told about the first eight.
-      for (let from = 0; from < AUDIO_TAP_CHANNELS.length; from += 8) {
-        const batch = AUDIO_TAP_CHANNELS.slice(from, from + 8);
-        const show = normalizeManifest({ looks: [{ name: 'A', brief: 'x', reactsTo: batch }] });
-        const prompt = lookPrompt(show, show.looks[0]);
-
-        for (const channel of batch) {
-          // Whatever the prompt offered as this channel's expression name, if
-          // it offered one, has to be an identifier the generator resolves.
-          const offered = prompt.match(new RegExp(`\\b${channel} is "([a-zA-Z]+)"`));
-          if (offered) {
-            expect(unifiedExpressionSystem.generateShader(`=${offered[1]}`), offered[1])
-              .not.toBe('0.0');
-          } else {
-            // And a channel sent to a node is named in the prompt as one.
-            expect(prompt).toContain(channel);
-          }
-          // Either way the channel's own name is never an expression: that is
-          // the whole reason the routing has to be spelled out.
-          expect(unifiedExpressionSystem.generateShader(`=${channel}`), channel).toBe('0.0');
-        }
-      }
-    });
-
-    it('says nothing at all when the look answers nothing', () => {
-      const show = normalizeManifest({ looks: [{ name: 'A', brief: 'still' }] });
-      const prompt = lookPrompt(show, show.looks[0]);
-
-      expect(prompt).not.toMatch(/AudioValue/);
-      expect(prompt).not.toMatch(/Inside a parameter expression/);
-    });
   });
 
   it('names the scenes that were actually built, and admits the ones that were not', () => {
@@ -315,10 +274,24 @@ describe('the names a set already reaches for', () => {
 
   it('says nothing about them when a look is being written for no set', () => {
     const manifest = normalizeManifest({ looks: [{ name: 'A', brief: 'fog' }] });
-    const prompt = lookPrompt(manifest, manifest.looks[0]);
 
-    expect(prompt).not.toMatch(/named exactly/);
-    expect(prompt).toMatch(/three or four parameters worth performing/);
+    expect(lookPrompt(manifest, manifest.looks[0])).not.toMatch(/named exactly/);
+    // With no handles named and none required, the ask is for a few of its own.
+    expect(messageFor(manifest, manifest.looks[0]))
+      .toMatch(/three or four parameters worth performing/);
+  });
+
+  it('asks for a couple beyond the ones a set already reaches for', () => {
+    // The third case. A look derived from a scenario carries exact node.param
+    // pairs and usually no prose handles, and "leave three or four" on top of
+    // those is a patch with seven handles and no idea which four matter.
+    const manifest = normalizeManifest({
+      looks: [{ name: 'A', brief: 'fog', requires: ['Warp.amount', 'Warp.speed'] }],
+    });
+    const message = messageFor(manifest, manifest.looks[0]);
+
+    expect(message).toMatch(/Beyond the named parameters this look is required to carry/);
+    expect(message).not.toMatch(/three or four parameters worth performing/);
   });
 });
 

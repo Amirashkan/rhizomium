@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PerformerDirector } from '../src/performer/PerformerDirector.js';
 import { GrantError } from '../src/ai/entitlements.js';
+import { buildUserMessage } from '../api/_lib/features.js';
 
 /** A state object shaped like the engine's describeState(). */
 function state(overrides = {}) {
@@ -526,6 +527,37 @@ describe('building a show', () => {
     expect(input.prompt).toContain('slow fog over near-black');
     expect(input.show.context).toContain('Test set');
     expect(input.show.look).toBe('Opening');
+  });
+
+  // One message, two authors: ShowManifest.lookPrompt() writes the prompt from
+  // the manifest and describeShowLook() writes the block from the payload. For
+  // a while both wrote the frame, and a look call carried the show context
+  // twice, its name twice, its intensity twice in two roundings and the
+  // name-every-node rule twice in two wordings — around 250 tokens a look, and
+  // worse than the waste, two wordings of one rule is a rule with a seam in it.
+  //
+  // It is asserted here rather than on either half because neither half can
+  // see the duplication: this is the only place the real payload and the real
+  // prompt meet, which is also where the next paragraph added to the wrong
+  // half will show up.
+  it('says each thing once, across both halves of the message', async () => {
+    const { run, director } = makeDirector();
+    await director.buildShow(MANIFEST, { installScene: (name) => ({ id: name, name }) });
+
+    const [, input] = run.mock.calls.find(([feature]) => feature === 'ai.patch_generator');
+    const message = buildUserMessage('ai.patch_generator', input);
+    const occurrences = (text) => message.split(text).length - 1;
+
+    // The show frame, the look's identity, and the rules about handles.
+    expect(occurrences('Show: Test set')).toBe(1);
+    expect(occurrences('The set, in order')).toBe(1);
+    expect(occurrences('Opening')).toBe(2); // the set list, and "the look called"
+    expect(occurrences('intensity')).toBe(1);
+    expect(occurrences('Name every node')).toBe(1);
+    expect(occurrences('somewhere left to travel')).toBe(1);
+
+    // And the brief is still there exactly once, from the other half.
+    expect(occurrences('slow fog over near-black')).toBe(1);
   });
 
   it('leaves the plain patch generator exactly as it was', async () => {

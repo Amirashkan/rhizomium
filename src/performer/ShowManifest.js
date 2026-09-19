@@ -447,96 +447,37 @@ export function showContext(manifest) {
 }
 
 /**
- * Which of a look's `reactsTo` channels an expression can hear, and which one
- * needs a node.
+ * The prompt that builds one look's patch: what only the MANIFEST knows.
  *
- * `reactsTo` is written in the tap vocabulary — the channel names an
- * AudioValue node offers (src/audio/audioAnalysisTaps.js), which is the right
- * vocabulary for it: the same strings bind the scenario's audio signals. Only
- * four of those bands have a counterpart a parameter expression can name, and
- * it is spelled differently there. Everything else — the drums, their triggers
- * and meters, brightness, noisiness — exists ONLY as a node, and an expression
- * naming one of them compiles to 0.0 and stays there. Silently: the patch
- * loads, the section runs, and the one thing the look was built to do never
- * happens.
+ * One message is written by two hands. This one has the manifest open — the
+ * brief, the mood, the clip filenames, the names a set that already exists
+ * reaches for — and describeShowLook() in api/_lib/features.js has the show
+ * payload and owns the frame around all of it: the set in order, which look
+ * this is, its intensity, what it answers and how to reach it, its handles,
+ * how long it is up for, what it may be made of, and what makes it playable.
  *
- * Counterpart, not equal. A tap is a scaled band meter out of
- * RealtimeAudioAnalysis; the audioEnvelope* globals are BrowserAudioCapture's
- * own followers over the same part of the spectrum. They rise and fall
- * together and they are not the same number, which is all a look needs — it is
- * choosing where to listen, not matching a reading — so the prompt says both
- * halves rather than implying an equality that is not there.
+ * The split is here because for a while there was none, and both hands wrote
+ * the frame. Every look call carried showContext() twice, its name twice, its
+ * intensity twice in two different roundings, and the name-every-node rule
+ * twice in two different wordings — around 250 tokens a look of a model
+ * reading the same instruction again, and worse than the waste, two wordings
+ * of one rule is a rule with a seam in it. So: anything the payload carries is
+ * said by the backend, once. Anything the payload cannot carry is said here.
  *
- * So the routing is worked out here rather than left to be inferred, because
- * the manifest is the only place that knows which channels this look was asked
- * for. tests/showManifest.test.js checks both halves of this map against the
- * tap list and against the expression system, so a renamed channel is a failed
- * test rather than a look that quietly stops listening.
- */
-const EXPRESSION_AUDIO = Object.freeze({
-  level: 'audioEnvelope',
-  low: 'audioEnvelopeBass',
-  mid: 'audioEnvelopeMids',
-  high: 'audioEnvelopeHighs',
-});
-
-function audioRouting(channels) {
-  const inExpressions = [];
-  const needNodes = [];
-
-  for (const channel of channels) {
-    if (EXPRESSION_AUDIO[channel]) inExpressions.push(`${channel} is "${EXPRESSION_AUDIO[channel]}"`);
-    else needNodes.push(channel);
-  }
-
-  const lines = [];
-  if (inExpressions.length) {
-    lines.push(
-      `Inside a parameter expression ${inExpressions.join(', ')} — those names, not the channel names. `
-        + 'Same part of the spectrum under a different envelope, so it moves with the channel rather than reading the same number as it.'
-    );
-  }
-  if (needNodes.length) {
-    lines.push(
-      `${needNodes.join(', ')} ${needNodes.length === 1 ? 'is reachable' : 'are reachable'} only through an AudioValue node, one node per channel. No expression can name ${needNodes.length === 1 ? 'it' : 'them'}: it would compile to zero and the look would never react.`
-    );
-  }
-  return lines;
-}
-
-/**
- * The prompt that builds one look's patch.
- *
- * Everything in here is the difference between a patch that is a nice image
- * and a patch that can be PERFORMED: named nodes a scenario can address by
- * name, parameters with somewhere to travel, and a first frame that is already
- * the look rather than the look at full tilt.
+ * The consequence to keep in mind is that this is no longer a whole prompt.
+ * ShowBuilder always sends the payload beside it (PerformerDirector
+ * .generatePatch), and performerDirector.test.js assembles the real message
+ * and checks that each of these things is in it exactly once.
  */
 export function lookPrompt(manifest, look, media = []) {
   const show = normalizeManifest(manifest);
   const one = show.looks.find((entry) => entry.id === look?.id) || normalizeLook(look || {}, 0);
   const clips = Array.isArray(media) ? media : [];
 
-  const lines = [
-    `${one.brief || one.name}`,
-    '',
-    showContext(show),
-    '',
-    `This patch is one look in that show: "${one.name}".`,
-  ];
+  const lines = [`${one.brief || one.name}`];
 
   if (one.mood) lines.push(`Its mood: ${one.mood}.`);
-  if (one.intensity !== null) {
-    lines.push(
-      `It plays at intensity ${one.intensity.toFixed(2)} of 1 — ` +
-        `${one.intensity < 0.35 ? 'restrained, with room above it'
-          : one.intensity > 0.75 ? 'the loud end of the show'
-          : 'the middle of the show, with room in both directions'}.`
-    );
-  }
-  if (one.reactsTo.length) {
-    lines.push(`It should visibly answer the music on: ${one.reactsTo.join(', ')}.`, ...audioRouting(one.reactsTo));
-  }
+
 
   // The artist's own footage. Everywhere else in the editor a Texture 2D node
   // is refused in a generated patch, because a model cannot supply the file and
@@ -554,19 +495,6 @@ export function lookPrompt(manifest, look, media = []) {
       'The footage is the material, not a backdrop — treat it the way the brief describes and let the rest of the graph work on it.'
     );
   }
-
-  lines.push(
-    '',
-    'It will be performed, not just rendered, so build it to be driven from outside:',
-    '- Name every node a performer will reach for, with a name that says what turning it does — the scenario addresses nodes by name, and a name is the only handle it has.',
-    one.drivable.length
-      ? `- These have to be reachable as single parameters: ${one.drivable.join('; ')}. Give each one its own named node.`
-      : one.requires.length
-        ? '- Beyond the named parameters below, leave a couple more worth performing.'
-        : '- Leave three or four parameters worth performing: something that moves, something that changes the colour, something that changes the density.',
-    '- Set each of those to a value with somewhere to travel. A parameter already at its maximum on the first frame is a fader with no throw.',
-    '- The first frame must already be this look. It is cut to live, in front of an audience, with no time to warm up.'
-  );
 
   // The set this look is being built INTO, when there already is one. These
   // names are the whole difference between a patch that fits the section and a

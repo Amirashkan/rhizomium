@@ -23,6 +23,7 @@ import { unifiedExpressionSystem } from '../src/utils/UnifiedExpressionSystem.js
 import { externalControlRefMapping } from '../src/utils/paramReferences.js';
 import { applyControlValue } from '../src/parameters/ExternalParameterControl.js';
 import { ActionExecutor } from '../src/performer/ActionExecutor.js';
+import { AUDIO_TAP_CHANNELS } from '../src/audio/audioAnalysisTaps.js';
 
 const show = {
   context: 'Show: Night set\nTempo: 128 BPM, 4 beats to the bar.',
@@ -232,5 +233,68 @@ describe('the two clocks a look is built against', () => {
     // bar invented for a drone is a set timed to a beat nobody is playing.
     expect(blockFor()).not.toMatch(/One bar of this show/);
     expect(blockFor({ ...show, bar: 0 })).not.toMatch(/One bar of this show/);
+  });
+});
+
+describe('routing a look to the audio it has to answer', () => {
+  // `reactsTo` is written in the tap vocabulary, which is the right vocabulary
+  // for it — the same strings bind the scenario's audio signals. But only some
+  // of those readings have a counterpart a parameter expression can name, they
+  // are spelled differently there, and an expression naming one of the others
+  // compiles to 0.0 and stays there for the length of the show. Nothing warns:
+  // the patch loads, the section runs, and the one thing the look was built to
+  // do never happens. So the prompt routes each channel, and these hold the
+  // routing against the two things that decide it.
+  it('gives the expression name for a channel an expression can hear', () => {
+    const message = blockFor({ ...show, reactsTo: ['low', 'mid', 'high', 'level'] });
+
+    expect(message).toContain('low is "audioEnvelopeBass"');
+    expect(message).toContain('mid is "audioEnvelopeMids"');
+    expect(message).toContain('high is "audioEnvelopeHighs"');
+    expect(message).toContain('level is "audioEnvelope"');
+    expect(message).not.toMatch(/only through an AudioValue node/);
+  });
+
+  it('sends the rest to a node, because no expression can name them', () => {
+    const message = blockFor({ ...show, reactsTo: ['kickTrig', 'centroid'] });
+
+    expect(message).toContain('kickTrig, centroid are reachable only through an AudioValue node');
+    expect(message).toMatch(/compile to zero/);
+  });
+
+  it('routes a mixed look both ways at once', () => {
+    const message = blockFor({ ...show, reactsTo: ['low', 'kickTrig'] });
+
+    expect(message).toContain('low is "audioEnvelopeBass"');
+    expect(message).toContain('kickTrig is reachable only through an AudioValue node');
+  });
+
+  it('is right about which names an expression really resolves', () => {
+    // The claim, checked rather than trusted, against the expression system
+    // and the tap list themselves. A renamed channel or a dropped identifier
+    // fails here rather than in a show.
+    const message = blockFor({ ...show, reactsTo: [...AUDIO_TAP_CHANNELS] });
+
+    for (const channel of AUDIO_TAP_CHANNELS) {
+      // Whatever the prompt offered as this channel's expression name, if it
+      // offered one, has to be an identifier the shader generator resolves.
+      const offered = message.match(new RegExp(`\\b${channel} is "([a-zA-Z]+)"`));
+      if (offered) {
+        expect(unifiedExpressionSystem.generateShader(`=${offered[1]}`), offered[1])
+          .not.toBe('0.0');
+      } else {
+        expect(message).toContain(channel);
+      }
+      // Either way the channel's own name is never an expression: that is the
+      // whole reason the routing has to be spelled out.
+      expect(unifiedExpressionSystem.generateShader(`=${channel}`), channel).toBe('0.0');
+    }
+  });
+
+  it('says nothing at all when the look answers nothing', () => {
+    const message = blockFor({ ...show, reactsTo: [] });
+
+    expect(message).not.toMatch(/AudioValue node, one node per channel/);
+    expect(message).not.toMatch(/Inside a parameter expression/);
   });
 });

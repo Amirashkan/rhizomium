@@ -502,6 +502,12 @@ export class PerformerDirector {
             intensity: context.look?.intensity ?? null,
             drivable: (context.look?.drivable || []).slice(0, 8),
             reactsTo: (context.look?.reactsTo || []).slice(0, 8),
+            // How many handles the set already reaches for by name, NOT which
+            // ones: the names are exact node.param pairs and they travel in
+            // the prompt, where the manifest wrote them. The count is all the
+            // backend needs to choose between "leave three or four" and
+            // "leave a couple beyond the ones you are required to carry".
+            requiredHandles: (context.look?.requires || []).length,
             // The clips the builder has already loaded for this look, as the
             // names of the nodes it is about to put them on. It is also what
             // tells the backend a texture node is legal in this answer at all

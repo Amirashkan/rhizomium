@@ -1386,6 +1386,66 @@ function describeRig(input = {}) {
 }
 
 /**
+ * Which of the channels a look answers a parameter expression can hear, and
+ * which one needs a node.
+ *
+ * A look's `reactsTo` is written in the tap vocabulary — the channel names an
+ * AudioValue node offers (src/audio/audioAnalysisTaps.js), which is the right
+ * vocabulary for it: the same strings bind the scenario's audio signals. Only
+ * four of those bands have a counterpart a parameter expression can name, and
+ * it is spelled differently there. Everything else — the drums, their triggers
+ * and meters, brightness, noisiness — exists ONLY as a node, and an expression
+ * naming one of them compiles to 0.0 and stays there. Silently: the patch
+ * loads, the section runs, and the one thing the look was built to do never
+ * happens.
+ *
+ * Counterpart, not equal. A tap is a scaled band meter out of
+ * RealtimeAudioAnalysis; the audioEnvelope* globals are BrowserAudioCapture's
+ * own followers over the same part of the spectrum. They rise and fall
+ * together and they are not the same number, which is all a look needs — it is
+ * choosing where to listen, not matching a reading — so both halves are said
+ * rather than implying an equality that is not there.
+ *
+ * This lives here, beside the other things the features know about the editor,
+ * rather than with the manifest that names the channels: which identifiers the
+ * expression system resolves is a fact about the editor, and saying it here
+ * puts it directly under the channel list it is routing instead of a block
+ * earlier in the message. tests/aiShowLookPrompt.test.js checks both halves of
+ * the map against the tap list and against the shader generator, so a renamed
+ * channel is a failed test rather than a look that quietly stops listening.
+ */
+const EXPRESSION_AUDIO = Object.freeze({
+  level: 'audioEnvelope',
+  low: 'audioEnvelopeBass',
+  mid: 'audioEnvelopeMids',
+  high: 'audioEnvelopeHighs',
+});
+
+function audioRouting(channels) {
+  const inExpressions = [];
+  const needNodes = [];
+
+  for (const channel of channels) {
+    if (EXPRESSION_AUDIO[channel]) inExpressions.push(`${channel} is "${EXPRESSION_AUDIO[channel]}"`);
+    else needNodes.push(channel);
+  }
+
+  const lines = [];
+  if (inExpressions.length) {
+    lines.push(
+      `Inside a parameter expression ${inExpressions.join(', ')} — those names, not the channel names. `
+        + 'Same part of the spectrum under a different envelope, so it moves with the channel rather than reading the same number as it.'
+    );
+  }
+  if (needNodes.length) {
+    lines.push(
+      `${needNodes.join(', ')} ${needNodes.length === 1 ? 'is reachable' : 'are reachable'} only through an AudioValue node, one node per channel. No expression can name ${needNodes.length === 1 ? 'it' : 'them'}: it would compile to zero and the look would never react.`
+    );
+  }
+  return lines;
+}
+
+/**
  * What a look is allowed to be made of.
  *
  * EDITOR_CAPABILITIES, in the cached prefix, already says these nodes exist
@@ -1510,14 +1570,27 @@ function describeShowLook(show) {
   const look = String(show.look || '').trim();
   if (look) lines.push(`This patch is the look called "${look}".`);
 
+  // Said with what the number MEANS, which the client's prompt used to add
+  // from the manifest and this one used to repeat without. A bare "0.2 of 1"
+  // is a figure; "restrained, with room above it" is the instruction, and the
+  // room above it is the half that a look at the quiet end of a set has to
+  // leave for the rest of the set to be louder than.
   const intensity = Number(show.intensity);
   if (Number.isFinite(intensity)) {
-    lines.push(`It plays at intensity ${round2(intensity)} of 1 across the show.`);
+    lines.push(
+      `It plays at intensity ${round2(intensity)} of 1 across the show — `
+        + `${intensity < 0.35 ? 'restrained, with room above it'
+          : intensity > 0.75 ? 'the loud end of the show'
+          : 'the middle of the show, with room in both directions'}.`
+    );
   }
 
   const reactsTo = Array.isArray(show.reactsTo) ? show.reactsTo.filter(Boolean) : [];
   if (reactsTo.length) {
-    lines.push(`It should visibly answer the music on: ${reactsTo.join(', ')}.`);
+    lines.push(
+      `It should visibly answer the music on: ${reactsTo.join(', ')}.`,
+      ...audioRouting(reactsTo)
+    );
   }
 
   // The artist's own footage, already loaded and waiting on named nodes. The
@@ -1568,11 +1641,21 @@ function describeShowLook(show) {
     );
   }
 
+  // Three cases, not two. A look derived from a set that already exists
+  // usually names nothing in `drivable` and still has handles — the exact
+  // node.param pairs the set's drives are already written against, which the
+  // client's prompt lists because only the manifest has them. Told "leave
+  // three or four" on top of those, the answer is a patch with seven handles
+  // on it and no idea which four matter; told nothing, it leaves only the
+  // required ones and the look has no room of its own.
   const drivable = Array.isArray(show.drivable) ? show.drivable.filter(Boolean) : [];
+  const required = Number(show.requiredHandles) > 0;
   lines.push(
     drivable.length
       ? `These must each be reachable as ONE named node's parameter, because that is how the performer will reach them: ${drivable.join('; ')}.`
-      : 'Leave three or four parameters worth performing, each on its own named node.'
+      : required
+        ? 'Beyond the named parameters this look is required to carry, leave a couple more worth performing, each on its own named node.'
+        : 'Leave three or four parameters worth performing, each on its own named node.'
   );
 
   lines.push(
