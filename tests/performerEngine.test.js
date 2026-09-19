@@ -803,7 +803,7 @@ describe('PerformerEngine', () => {
       expect(engine.log.some((entry) => /rules\.director\.enabled off/.test(entry.message))).toBe(true);
     });
 
-    it('stays quiet when both switches agree', () => {
+    it('says nothing about the scenario\'s rule when that rule is on', () => {
       const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
       const { engine } = makeEngine(
         { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: true } } },
@@ -812,6 +812,52 @@ describe('PerformerEngine', () => {
 
       engine.setDirectorEnabled(true);
       expect(engine.log.some((entry) => /rules\.director\.enabled off/.test(entry.message))).toBe(false);
+    });
+
+    // The third switch, and the one nobody thinks of as one. consultDirector()
+    // is only reached from tick(), and tick() returns at once unless the set is
+    // running — so the panel's switch against a stopped transport is the exact
+    // shape of "Let the AI improvise live does nothing".
+    it('says so when the set is not running', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
+      const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] }, { director });
+
+      engine.setDirectorEnabled(true);
+
+      expect(engine.log.some((entry) => /set is not running/.test(entry.message))).toBe(true);
+      expect(engine.directorHeldBy()).toBe('waiting for the set to start');
+      expect(engine.status().directorHeldBy).toBe('waiting for the set to start');
+    });
+
+    it('stops holding it once the set starts', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
+      const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] }, { director });
+
+      engine.start();
+      engine.setDirectorEnabled(true);
+
+      expect(engine.log.some((entry) => /set is not running/.test(entry.message))).toBe(false);
+      expect(engine.directorHeldBy()).toBeNull();
+    });
+
+    // The scenario's rule outranks the transport in the readout: a set you can
+    // press play on is a smaller problem than a field you cannot see.
+    it('names the scenario\'s rule ahead of the transport when both hold', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
+      const { engine } = makeEngine(
+        { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: false } } },
+        { director }
+      );
+
+      engine.setDirectorEnabled(true);
+      expect(engine.directorHeldBy()).toBe('off in this scenario');
+    });
+
+    it('holds nothing while the director is off', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
+      const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] }, { director });
+
+      expect(engine.directorHeldBy()).toBeNull();
     });
   });
 

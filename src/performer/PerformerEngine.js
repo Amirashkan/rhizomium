@@ -1178,17 +1178,39 @@ export class PerformerEngine {
     setMusicalListeningWanted(wanted);
     if (wanted) this.director?.setListener?.(getMusicalListener());
 
-    // Two switches have to agree for the director to run: this one, which is
-    // the artist inviting it, and the scenario's own rule, which is the set
-    // saying it wants one. A show built by the show builder ships with the
-    // rule off, so turning the panel switch on can look like nothing at all
-    // happening. Say which switch is holding it rather than leaving the artist
-    // to find a field they cannot see from the panel.
+    // Three switches have to agree before a model is ever asked, and this is
+    // the only one the artist can see: the scenario's own rule is a field in a
+    // document, and the transport is not thought of as a director switch at
+    // all. Turning this one on against either of the others looks exactly like
+    // a director that has quietly decided it has nothing to say — so say which
+    // one is holding it, here and in the panel.
     if (wanted && !this.scenario.rules.director.enabled) {
       this.write('warn', 'The director is on, but this scenario has rules.director.enabled off — it will not be asked. Turn it on in the scenario to use it.');
+    } else if (wanted && this.state !== STATE.RUNNING) {
+      this.write('warn', 'The director is on, but the set is not running — it is only asked while the set plays. Press play to start it.');
     }
 
     return this.director?.setEnabled?.(wanted) ?? wanted;
+  }
+
+  /**
+   * Why the director is not being asked, in the words the panel prints, or
+   * null when nothing is holding it.
+   *
+   * The third switch is the one that catches people out. consultDirector() is
+   * only reached from tick(), and tick() returns at once unless the set is
+   * RUNNING — so an artist who turns the director on with the transport
+   * stopped gets a readout that says "0 min, next in 0s": a director that
+   * looks like it is counting down to a question it will never ask.
+   *
+   * Answered here rather than in the panel because all three switches live on
+   * this side, and a readout that disagrees with the engine is worse than none.
+   */
+  directorHeldBy() {
+    if (!this.director?.enabled) return null;
+    if (!this.scenario.rules.director.enabled) return 'off in this scenario';
+    if (this.state !== STATE.RUNNING) return 'waiting for the set to start';
+    return null;
   }
 
   // --- conditions --------------------------------------------------------
@@ -1269,6 +1291,7 @@ export class PerformerEngine {
       queued: this.queue.length,
       executor: this.executor.status(),
       director: this.director?.status?.() || null,
+      directorHeldBy: this.directorHeldBy(),
       validation: this.validation,
       lastTickAt: this.lastTickAt,
     };

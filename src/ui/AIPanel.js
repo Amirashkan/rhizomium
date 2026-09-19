@@ -79,6 +79,48 @@ const PROMPTED = {
 };
 
 /**
+ * Features this panel lists but cannot run, and where they are run instead.
+ *
+ * Both performer features take a payload this panel does not have and cannot
+ * build: a scenario call needs the rig — the scenes, presets and OSC addresses
+ * the set will name — and a live call needs a performance, the signals and the
+ * section and the last few things that happened, which only exists while the
+ * engine is running. The backend enforces that (api/_lib/features.js refuses a
+ * live call with no `state`), so a generic Run here could only ever spend a
+ * click on a 400 — which is exactly what it did.
+ *
+ * They stay listed, because the panel's job is to show what the editor can do
+ * and at what tier, and a feature hidden until you already own it is a feature
+ * nobody buys. What changes is the button: it opens the surface that can
+ * actually make the call, on the tab that makes it.
+ */
+const PERFORMED_ELSEWHERE = {
+  'ai.performer_scenario': {
+    action: 'Open coPerformer',
+    tab: 'scenario',
+    note: 'Written from the coPerformer panel, which knows the rig the set will name.',
+  },
+  'ai.performer_live': {
+    action: 'Open coPerformer',
+    tab: 'set',
+    note: 'Runs from the coPerformer panel while a set is playing — turn on "Let the AI improvise live".',
+  },
+};
+
+/**
+ * Open the coPerformer on a given tab. False when this build has no panel,
+ * which is the one case the button has to say something about rather than
+ * silently doing nothing — the failure it was added to fix.
+ */
+function openPerformerPanel(tab) {
+  const panel = window.performerPanel;
+  if (!panel || typeof panel.show !== 'function') return false;
+  panel.show();
+  panel.showTab?.(tab);
+  return true;
+}
+
+/**
  * Features whose result is something to read rather than something applied.
  *
  * Only these are worth remembering. Running one twice on an unchanged canvas
@@ -702,6 +744,9 @@ export class AIPanel {
     const wrap = document.createElement('div');
     wrap.className = 'ai-feature-action';
 
+    const elsewhere = PERFORMED_ELSEWHERE[row.feature];
+    if (elsewhere) return this.renderHandoff(wrap, row, elsewhere);
+
     const prompted = PROMPTED[row.feature];
     let input = null;
 
@@ -764,6 +809,33 @@ export class AIPanel {
     scopeNote.className = 'ai-feature-scope';
     scopeNote.textContent = this.scopeNote(row.feature);
     if (scopeNote.textContent) wrap.appendChild(scopeNote);
+
+    return wrap;
+  }
+
+  /**
+   * The action for a feature that is run from another surface: a button that
+   * opens it, and a line saying why it is not run from here.
+   *
+   * The allowance block above it is unchanged and deliberately so — what is
+   * left of a live allowance is worth reading in the panel that lists every
+   * allowance, even though the call itself is made somewhere else.
+   */
+  renderHandoff(wrap, row, elsewhere) {
+    const open = document.createElement('button');
+    open.className = 'ai-feature-run';
+    open.textContent = elsewhere.action;
+    open.addEventListener('click', () => {
+      if (!openPerformerPanel(elsewhere.tab)) {
+        modalManager.toast('The coPerformer is not available in this build.', 'warning', row.label || row.feature);
+      }
+    });
+    wrap.appendChild(open);
+
+    const note = document.createElement('span');
+    note.className = 'ai-feature-scope';
+    note.textContent = elsewhere.note;
+    wrap.appendChild(note);
 
     return wrap;
   }
@@ -942,6 +1014,16 @@ export class AIPanel {
    */
   async run(feature, payload) {
     if (this.busyFeature) return;
+
+    // Belt and braces for the handoff above: nothing in this panel can build
+    // the payload these two need, so a call from here is a spent action and a
+    // 400 whichever way it was started. Say where it is run instead.
+    const elsewhere = PERFORMED_ELSEWHERE[feature];
+    if (elsewhere) {
+      modalManager.toast(elsewhere.note, 'info', FEATURES[feature]?.label || feature);
+      openPerformerPanel(elsewhere.tab);
+      return;
+    }
 
     // Features that read the canvas need the canvas. Gather before spending a
     // grant, so an empty canvas costs nothing.
@@ -1449,6 +1531,7 @@ const OPERATOR_FAULT_CODES = new Set([
 ]);
 
 function needsPatch(feature) {
+  if (PERFORMED_ELSEWHERE[feature]) return false;
   return feature !== 'ai.patch_generator' && feature !== 'ai.node_generator';
 }
 
