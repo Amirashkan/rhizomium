@@ -230,6 +230,43 @@ describe('normalizeEnter', () => {
     expect(normalizeEnter({ seconds: 8 }).kind).toBe('seconds');
     expect(normalizeEnter({ when: 'energy > 0.5' }).kind).toBe('when');
   });
+
+  // `by` is the ceiling on the two kinds that can wait for something that
+  // never comes. Everything below is about it being carried exactly where it
+  // can change what happens and nowhere else.
+  describe('by, the deadline', () => {
+    it('is carried by a cue and by a condition', () => {
+      expect(normalizeEnter({ cue: 'drop', by: { bars: 24 } }).by).toEqual({ bars: 24, seconds: null });
+      expect(normalizeEnter({ when: 'energy > 0.4', by: { seconds: 90 } }).by).toEqual({ bars: null, seconds: 90 });
+    });
+
+    it('reads a bare number as bars, the way enter itself does', () => {
+      expect(normalizeEnter({ cue: 'drop', by: 16 }).by).toEqual({ bars: 16, seconds: null });
+    });
+
+    it('is dropped on the kinds that are already a length', () => {
+      expect(normalizeEnter({ bars: 8, by: { bars: 16 } }).by).toBeUndefined();
+      expect(normalizeEnter({ seconds: 8, by: { seconds: 16 } }).by).toBeUndefined();
+      expect(normalizeEnter({ by: { bars: 16 } }).by).toBeUndefined();
+    });
+
+    it('is absent as a key rather than null when nothing was written', () => {
+      expect('by' in normalizeEnter({ cue: 'drop' })).toBe(false);
+    });
+
+    // Zero would be a section skipped before it played, which is nobody's
+    // intent and is the value a half-filled form hands over.
+    it('reads zero and nonsense as no deadline at all', () => {
+      expect(normalizeEnter({ cue: 'drop', by: { bars: 0 } }).by).toBeUndefined();
+      expect(normalizeEnter({ cue: 'drop', by: {} }).by).toBeUndefined();
+      expect(normalizeEnter({ cue: 'drop', by: 'soon' }).by).toBeUndefined();
+    });
+
+    it('survives the long-hand {kind} spelling the model sometimes answers in', () => {
+      expect(normalizeEnter({ kind: 'cue', cue: 'drop', by: { bars: 24 } }).by)
+        .toEqual({ bars: 24, seconds: null });
+    });
+  });
 });
 
 describe('validateScenario', () => {
@@ -237,6 +274,99 @@ describe('validateScenario', () => {
     const report = validateScenario(normalizeScenario(EXAMPLE_SCENARIO));
     expect(report.errors).toEqual([]);
     expect(report.ok).toBe(true);
+  });
+
+  // The set that starts, shows one frame and reports itself healthy. This
+  // warning existed for it and could not fire: the `some()` that tested it
+  // excluded the first section inside the same clause that did the test, so it
+  // was satisfied by the first section every time.
+  describe('a set that cannot leave its first section', () => {
+    const stuck = (enter, first = { hold: { bars: 16 } }) => normalizeScenario({
+      sections: [
+        { id: 'intro', name: 'Intro', next: 'build', ...first },
+        { id: 'build', name: 'Build', enter },
+      ],
+    });
+    const said = (scenario) => validateScenario(scenario).warnings
+      .filter((w) => /Nothing moves this set off/.test(w.message));
+
+    it('warns when the only way on is a condition nobody may reach', () => {
+      const [warning] = said(stuck({ when: 'energy > 0.45' }));
+      expect(warning?.message).toMatch(/"Build" waits for energy > 0.45/);
+      expect(warning?.message).toMatch(/hold one frame/);
+    });
+
+    it('warns when the only way on is a cue nobody may fire', () => {
+      expect(said(stuck({ cue: 'drop' }))[0]?.message).toMatch(/waits for the cue "drop"/);
+    });
+
+    it('is quiet once that entry carries a deadline', () => {
+      expect(said(stuck({ when: 'energy > 0.45', by: { bars: 32 } }))).toEqual([]);
+      expect(said(stuck({ cue: 'drop', by: { bars: 24 } }))).toEqual([]);
+    });
+
+    it('is quiet about a clock entry, which is its own deadline', () => {
+      expect(said(stuck({ bars: 32 }))).toEqual([]);
+      expect(said(stuck({ seconds: 45 }))).toEqual([]);
+    });
+
+    // The engine advances into a manual section when the section AHEAD of it
+    // stated a length, so manual strands a set only when it does not.
+    it('reads a manual entry the way the engine does', () => {
+      expect(said(stuck('manual'))).toEqual([]);
+      expect(said(stuck('manual', {}))[0]?.message).toMatch(/is entered by hand/);
+    });
+
+    // resolveNextIndex() follows `next` before it falls through to the section
+    // after this one, and a check that did not would look at the wrong section.
+    it('follows "next" rather than the order on the page', () => {
+      const scenario = normalizeScenario({
+        sections: [
+          { id: 'intro', name: 'Intro', hold: { bars: 16 }, next: 'closer' },
+          { id: 'middle', name: 'Middle', enter: { bars: 8 } },
+          { id: 'closer', name: 'Closer', enter: { cue: 'go' } },
+        ],
+      });
+      expect(said(scenario)[0]?.message).toMatch(/"Closer" waits for the cue "go"/);
+    });
+
+    it('says nothing about a set with one section, which has nowhere to go', () => {
+      expect(said(normalizeScenario({ sections: [{ name: 'Only' }] }))).toEqual([]);
+    });
+  });
+
+  // A deadline inside the previous section's floor is a deadline that always
+  // wins, which makes the cue or condition above it read as live when it is not.
+  describe('a deadline with no window under it', () => {
+    const window = (by, hold) => validateScenario(normalizeScenario({
+      sections: [
+        { id: 'a', name: 'A', hold, next: 'b' },
+        { id: 'b', name: 'B', enter: { when: 'energy > 0.4', by } },
+      ],
+      signals: [{ name: 'energy', source: 'manual' }],
+    })).warnings.filter((w) => /no window/.test(w.message));
+
+    it('warns when the deadline is inside the hold', () => {
+      expect(window({ bars: 16 }, { bars: 32 })[0]?.message).toMatch(/16 bars.*hold of 32 bars/);
+    });
+
+    it('warns when they are equal, which is a window of nothing', () => {
+      expect(window({ bars: 32 }, { bars: 32 })).toHaveLength(1);
+    });
+
+    it('is quiet when the deadline is past the hold', () => {
+      expect(window({ bars: 48 }, { bars: 32 })).toEqual([]);
+    });
+
+    // Bars against seconds needs a tempo, and the tempo at showtime is not the
+    // one in the document.
+    it('does not compare across units', () => {
+      expect(window({ seconds: 5 }, { bars: 32 })).toEqual([]);
+    });
+
+    it('is quiet when the section ahead states no floor at all', () => {
+      expect(window({ bars: 4 }, undefined)).toEqual([]);
+    });
   });
 
   it('refuses a scenario with no sections', () => {

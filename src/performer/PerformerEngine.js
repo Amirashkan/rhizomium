@@ -155,6 +155,9 @@ export class PerformerEngine {
     /** Conditions that threw, so they are not evaluated again. */
     this._brokenConditions = new Set();
 
+    /** Whether this visit has already said it is moving on at `enter.by`. */
+    this._deadlineAnnounced = false;
+
     /** Action budget, reset each bar. */
     this._barSpent = 0;
     this._barAtLastReset = 0;
@@ -631,6 +634,32 @@ export class PerformerEngine {
         ended = false;
     }
 
+    // …unless it was given a deadline. A cue nobody fires and a condition the
+    // room never reaches are the two ways a set strands itself on one section,
+    // and from the front they are indistinguishable from a set that is working:
+    // the scene is up, the drives are live, the log is clean, and the picture
+    // never changes. `enter.by` is the author saying at the desk how long this
+    // is allowed to wait — see Scenario.normalizeEnter().
+    //
+    // Checked after the switch rather than inside it so it reads as what it is:
+    // one rule over both waiting kinds, not two copies of a rule.
+    if (!ended && next.enter.by) {
+      const late = (next.enter.by.bars !== null && bars >= next.enter.by.bars)
+        || (next.enter.by.seconds !== null && this.sectionSeconds >= next.enter.by.seconds);
+
+      if (late) {
+        ended = true;
+        // Said once per visit, because a section held past its deadline is a
+        // fact about the room — the bridge is down, the support act is quiet —
+        // and an artist reading the log afterwards should find the reason the
+        // set moved on by itself rather than infer it.
+        if (!this._deadlineAnnounced) {
+          this._deadlineAnnounced = true;
+          this.write('info', `${next.name}: ${describeWait(next.enter)} did not arrive — entering it at its deadline`);
+        }
+      }
+    }
+
     if (ended) this._pendingJump = { index: nextIndex, source: 'scenario' };
   }
 
@@ -710,6 +739,7 @@ export class PerformerEngine {
     this.sectionEnteredSeconds = this.clock.seconds;
     this._firedMoves.clear();
     this._changedAtSeconds = this.clock.seconds;
+    this._deadlineAnnounced = false;
 
     const section = this.currentSection;
     if (!section) return;
@@ -1291,5 +1321,16 @@ export class PerformerEngine {
 }
 
 const round = (value) => Math.round(value * 1000) / 1000;
+
+/**
+ * What a section was waiting for, for the log line that says it gave up on it.
+ *
+ * Only the two kinds that can wait forever reach this — the deadline is not
+ * carried on the others — so there is no branch here for a clock entry that
+ * cannot miss its own number.
+ */
+function describeWait(enter) {
+  return enter.kind === 'cue' ? `cue "${enter.cue}"` : `"${enter.when}"`;
+}
 
 export default PerformerEngine;

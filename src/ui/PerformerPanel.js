@@ -1882,13 +1882,25 @@ export class PerformerPanel {
   }
 }
 
-/** "on cue drop", "after 32 bars", "when energy > 0.7". */
+/**
+ * "on cue drop", "after 32 bars", "when energy > 0.7", and — where one is
+ * written — the deadline that entry falls back to: "on cue “drop”, or by 24
+ * bars".
+ *
+ * The deadline is shown rather than left in the JSON because it is the
+ * difference between a section that might never be reached and one that will
+ * be, and the section list is where an artist checks whether their set plays.
+ */
 function describeEnter(enter) {
+  const by = enter?.by
+    ? `, or by ${enter.by.bars !== null ? `${enter.by.bars} bars` : `${enter.by.seconds}s`}`
+    : '';
+
   switch (enter?.kind) {
-    case 'cue': return `on cue “${enter.cue}”`;
+    case 'cue': return `on cue “${enter.cue}”${by}`;
     case 'bars': return `after ${enter.bars} bars`;
     case 'seconds': return `after ${enter.seconds}s`;
-    case 'when': return `when ${enter.when}`;
+    case 'when': return `when ${enter.when}${by}`;
     default: return 'by hand';
   }
 }

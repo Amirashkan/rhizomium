@@ -808,6 +808,7 @@ The musician plays and sends signals — OSC from their DAW, plus audio the edit
 
 **sections** — the set, in order. Each names a look (a scene or preset the artist already has), how it is entered, how long it holds, and what moves inside it:
 - "enter": {"cue":"name"} for a moment the musician fires, {"bars":32} or {"seconds":90} for the clock, {"when":"energy > 0.6"} for the music, or "manual".
+- Every "cue" and every "when" MUST carry a "by" — the deadline it falls back to: {"cue":"drop","by":{"bars":24}}, {"when":"energy > 0.6","by":{"seconds":90}}. A cue waits for the musician and a condition waits for the room, and a set whose only way forward is one of those holds a single frame for the whole show on any rig where nobody is playing into it yet. Put the deadline comfortably past the previous section's hold, so the cue or the condition still has a window in which it is the thing that decides. Do not put "by" on a bar count, a second count or "manual" — those are already a length.
 - "hold" is the floor the section cannot end before, in {"bars":N} or {"seconds":N}. Without it a "when" sitting near its threshold flips between two sections every few frames.
 - "drives" bind a signal to one parameter for the section's length. Your main verb: {"signal":"bass","node":"Warp","param":"amount","min":0,"max":0.6,"curve":"linear"}. The node and the parameter are two fields. The rig below lists what you can reach as "Warp.amount" because that is how it reads; written into a drive as one string it reaches nothing.
 - "moves" fire actions a set distance in: {"atBars":16,"do":[…]} on a pulse, {"atSeconds":40,"do":[…]} without one, or {"when":"energy > 0.8","do":[…]} for one that waits on the music. A move with none of those three can never fire.
@@ -875,7 +876,7 @@ Answer with the scenario and one short note: what you assumed, and what the arti
                   properties: {
                     id: { type: 'string' },
                     name: { type: 'string' },
-                    enter: { description: 'A cue, a bar count, a condition, or "manual".' },
+                    enter: { description: 'A cue, a bar count, a condition, or "manual". A cue or a condition also takes "by": {"bars":N} | {"seconds":N}, the deadline it falls back to when nobody fires it and the music never reaches it.' },
                     hold: { type: 'object', additionalProperties: true },
                     look: { type: 'object', additionalProperties: true },
                     transition: { type: 'object', additionalProperties: true },

@@ -127,7 +127,10 @@ full shape and `EXAMPLE_SCENARIO` at the bottom of it is a working set.
   "sections": [{
     "id": "build",
     "name": "Build",
-    "enter": { "when": "energy > 0.45" },   // or { "cue": "drop" } | { "bars": 32 } | { "seconds": 90 } | "manual"
+    "enter": { "when": "energy > 0.45", "by": { "bars": 32 } },
+    //         ^ or { "cue": "drop" } | { "bars": 32 } | { "seconds": 90 } | "manual"
+    //         "by" is the ceiling on a cue or a condition: take it if it comes,
+    //         move on at this point if it does not. See below.
     "hold":  { "bars": 8 },                 // or { "seconds": 30 } — the floor: nothing ends it sooner
     "look":  { "scene": "build-scene" },    // or { "preset": … } | { "patch": … }
     "transition": { "type": "crossfade", "duration": 1, "quantize": "phrase" },
@@ -187,6 +190,36 @@ Every scenario can also read the clock without declaring anything: `bar`,
 one stays up, and a section that states a hold has also said how long it runs —
 which is what lets a closing section point `next` back at an opener that is
 otherwise entered by hand, so a set loops.
+
+#### `by` — the deadline on a section that would otherwise wait
+
+A `cue` waits for the musician and a `when` waits for the room, and neither is
+guaranteed to arrive. The laptop is not patched in yet, the bridge is not
+running, the support act is quieter than the set was written for — and the
+performer sits on section one holding a single frame. From the front that is
+indistinguishable from a set that is working: the scene is up, the drives are
+live, the log is clean, and the picture never changes.
+
+`by` is that decision made at the desk instead of discovered on stage:
+
+```jsonc
+"enter": { "cue": "drop",          "by": { "bars": 24 } }
+"enter": { "when": "energy > 0.4", "by": { "seconds": 90 } }
+```
+
+Take the cue if it is fired, take the condition if the music reaches it, and
+failing both, move on there anyway — with a line in the log saying which it
+gave up on, so the reason is in the record rather than inferred afterwards.
+
+It is a ceiling where `hold` is a floor, so the two together say "not before
+here, not after there" and the condition chooses inside that window. Write the
+deadline comfortably past the previous section's hold: at the floor it leaves no
+window, and the condition becomes ornamental.
+
+Only `cue` and `when` carry one. `bars` and `seconds` *are* a deadline, and a
+`manual` section is already reached by the section ahead of it running out, so a
+`by` on any of the three is dropped. A set whose first section has no way out at
+all is a warning in the panel rather than a discovery at showtime.
 
 Conditions go through the editor's own expression system: an AST interpreter,
 never `eval` (see ARCHITECTURE.md §5). A condition that throws is reported once

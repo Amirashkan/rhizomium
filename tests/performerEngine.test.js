@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { PerformerEngine, STATE } from '../src/performer/PerformerEngine.js';
 import { PerformerClock } from '../src/performer/PerformerClock.js';
 import { audioTapsWanted, setAudioTapsWanted } from '../src/audio/audioAnalysisTaps.js';
+import { EXAMPLE_SCENARIO } from '../src/performer/Scenario.js';
 
 /** Records every action instead of performing it. */
 class FakeExecutor {
@@ -274,6 +275,118 @@ describe('PerformerEngine', () => {
       play(BAR_SECONDS * 2);
       expect(engine.currentSection.name).toBe('Two');
       expect(executor.drivesCleared).toBeGreaterThan(cleared);
+    });
+  });
+
+  // A cue waits to be told and a condition waits for the room. Neither is
+  // guaranteed to arrive, and when neither does the set holds one frame while
+  // reporting a healthy running performance. `enter.by` is the ceiling that
+  // says how long it may wait.
+  describe('enter.by — the deadline on a section that would otherwise wait', () => {
+    const twoSections = (enter) => ({
+      rules: { minSectionBars: 0 },
+      signals: [{ name: 'energy', source: 'manual', default: 0 }],
+      sections: [
+        { name: 'One', transition: { quantize: 'off' }, next: 'two' },
+        { id: 'two', name: 'Two', enter, transition: { quantize: 'off' } },
+      ],
+    });
+
+    it('takes a section whose cue is never fired', () => {
+      const { engine, play } = makeEngine(twoSections({ cue: 'drop', by: { bars: 4 } }));
+      engine.start();
+      play(BAR_SECONDS * 3);
+      expect(engine.currentSection.name).toBe('One');
+      play(BAR_SECONDS * 2);
+      expect(engine.currentSection.name).toBe('Two');
+    });
+
+    it('takes a section whose condition is never true', () => {
+      const { engine, play } = makeEngine(twoSections({ when: 'energy > 0.9', by: { bars: 4 } }));
+      engine.start();
+      play(BAR_SECONDS * 5);
+      expect(engine.currentSection.name).toBe('Two');
+    });
+
+    it('counts a deadline written in seconds', () => {
+      const { engine, play } = makeEngine(twoSections({ cue: 'drop', by: { seconds: 5 } }));
+      engine.start();
+      play(3);
+      expect(engine.currentSection.name).toBe('One');
+      play(3);
+      expect(engine.currentSection.name).toBe('Two');
+    });
+
+    // The deadline is a floor under the set, not the plan for it: whoever is
+    // actually playing still decides, and still decides EARLY.
+    it('does not stop the cue taking it first', () => {
+      const { engine, play } = makeEngine(twoSections({ cue: 'drop', by: { bars: 16 } }));
+      engine.start();
+      play(BAR_SECONDS);
+      engine.fireCue('drop');
+      play(BAR_SECONDS);
+      expect(engine.currentSection.name).toBe('Two');
+      expect(engine.sectionBars).toBeLessThan(16);
+    });
+
+    it('does not stop the condition taking it first', () => {
+      const { engine, play } = makeEngine(twoSections({ when: 'energy > 0.5', by: { bars: 16 } }));
+      engine.start();
+      play(BAR_SECONDS);
+      engine.signals.push('energy', 1);
+      play(BAR_SECONDS);
+      expect(engine.currentSection.name).toBe('Two');
+      expect(engine.sectionBars).toBeLessThan(16);
+    });
+
+    it('leaves a section with no deadline waiting, which is what a cue is for', () => {
+      const { engine, play } = makeEngine(twoSections({ cue: 'drop' }));
+      engine.start();
+      play(BAR_SECONDS * 32);
+      expect(engine.currentSection.name).toBe('One');
+    });
+
+    // The hold is the floor and the deadline is the ceiling; between them is
+    // where the condition gets to be the thing that decides.
+    it('never cuts a section shorter than its own hold', () => {
+      const { engine, play } = makeEngine({
+        rules: { minSectionBars: 0 },
+        sections: [
+          { name: 'One', hold: { bars: 8 }, transition: { quantize: 'off' }, next: 'two' },
+          { id: 'two', name: 'Two', enter: { cue: 'x', by: { bars: 2 } }, transition: { quantize: 'off' } },
+        ],
+      });
+      engine.start();
+      play(BAR_SECONDS * 6);
+      expect(engine.currentSection.name).toBe('One');
+      play(BAR_SECONDS * 4);
+      expect(engine.currentSection.name).toBe('Two');
+    });
+
+    // The regression this whole mechanism exists for. Example -> Load -> Start,
+    // at a desk, with no DAW patched in and no OSC bridge running: the set used
+    // to show intro-scene and hold it for as long as anyone left it, while the
+    // panel reported a healthy running performance.
+    it('plays the shipped example unattended, which it did not', () => {
+      const { engine, executor, play } = makeEngine(EXAMPLE_SCENARIO);
+      engine.start();
+      play(60 * 10);
+
+      const shown = executor.performed
+        .filter((a) => a.type === 'scene' || a.type === 'preset')
+        .map((a) => a.scene || a.preset);
+
+      expect(new Set(shown).size).toBeGreaterThanOrEqual(3);
+      expect(shown.slice(0, 4)).toEqual(['intro-scene', 'build-scene', 'drop-scene', 'soft-preset']);
+    });
+
+    it('says in the log why the set moved on by itself, once', () => {
+      const { engine, play } = makeEngine(twoSections({ cue: 'drop', by: { bars: 2 } }));
+      engine.start();
+      play(BAR_SECONDS * 4);
+      const said = engine.log.filter((entry) => /did not arrive/.test(entry.message));
+      expect(said).toHaveLength(1);
+      expect(said[0].message).toMatch(/cue "drop"/);
     });
   });
 
