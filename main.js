@@ -3699,6 +3699,13 @@ async function processFieldMapperNodes() {
 
 async function updateShaderFromGraph() {
   try {
+    // Every rebuild, counted. This is the expensive path of the two the
+    // renderer has (ARCHITECTURE.md, and the one performance rule in
+    // CLAUDE.md), and a rebuild happening per frame rather than per edit is
+    // the single likeliest reason the editor is slow — so window.perfReport()
+    // now says how many ran in the window it covers.
+    getPerfProbe().count('shaderRebuilds', 1);
+
     // Every graph edit funnels through here - flag it so the 30s
     // autosave/backup loop has something to pick up (no-op during imports)
     saveLoadManager?.markUnsaved?.();

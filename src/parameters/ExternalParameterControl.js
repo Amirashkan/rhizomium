@@ -181,10 +181,17 @@ export function applyControlValue(node, paramName, value, source = null) {
  * animated graph — including one whose shader never reads the mapped parameter
  * at all. The loop already re-writes these uniforms and draws every frame, so
  * the value is on screen within a frame anyway.
+ *
+ * @returns {boolean} true when the value went into a slot the compiler had
+ *   reserved — the uniform path was enough and nothing needs rebuilding. False
+ *   says the opposite: there is no slot, so a caller that needs this change on
+ *   screen has to take the slow path. TimelineManager reads it for exactly
+ *   that, which is what stops a moving playhead recompiling the shader on
+ *   every frame.
  */
 export function writeParameterUniform(nodeId, paramName, value) {
   const uniformManager = window.nodeCompiler?.uniformManager;
-  if (!uniformManager) return;
+  if (!uniformManager) return false;
 
   // Only into a slot the compiler actually reserved. A parameter that never reaches the shader —
   // the Audio node's thresholds are read on the CPU, and its node emits no code at all — has no
@@ -193,24 +200,25 @@ export function writeParameterUniform(nodeId, paramName, value) {
   // rejected outright. The controller still reaches such a parameter, through node.params and the
   // recorded reading.
   const key = `${nodeId}.${paramName}`;
-  if (!uniformManager.uniformValues.has(key)) return;
+  if (!uniformManager.uniformValues.has(key)) return false;
 
   uniformManager.uniformValues.set(key, value);
 
   const renderer = window.gpuRenderer;
-  if (!renderer) return;
+  if (!renderer) return true;
 
   renderer._updateParameterUniforms?.();
 
   // A running loop — paused included, it still draws every frame — will present
   // this on its next frame, at the right time.
-  if (window.renderLoop?.getState?.()?.running) return;
+  if (window.renderLoop?.getState?.()?.running) return true;
 
   // Nothing else is drawing, so draw one frame here. Hold the loop's clock
   // where there is one: a stopped loop keeps the sim time it stopped at, and
   // that is the frame the canvas is showing.
   const simTime = window.renderLoop?.getState?.()?.simTime;
   renderer.render?.(Number.isFinite(simTime) ? { timeSec: simTime } : {});
+  return true;
 }
 
 /**

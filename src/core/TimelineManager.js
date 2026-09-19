@@ -8,6 +8,7 @@
 import { Timeline } from '../data/Timeline.js';
 import { InterpolationSystem } from '../utils/InterpolationSystem.js';
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
+import { writeParameterUniform } from '../parameters/ExternalParameterControl.js';
 
 /**
  * TimelineManager - manages timeline state and keyframe evaluation
@@ -639,6 +640,10 @@ export class TimelineManager {
 
     let anyChanged = false;
     let changedNodeId = null;
+    // A parameter the compiler reserved no uniform for — a discrete value that
+    // decides what the shader IS, a vector, something read only on the CPU.
+    // Only those need the graph rebuilding; see below.
+    let needsRebuild = false;
 
     for (const [key, value] of this.evaluatedValues) {
       const [nodeId, paramName] = key.split('.');
@@ -654,15 +659,26 @@ export class TimelineManager {
           node.params[paramName] = value;
           anyChanged = true;
           changedNodeId = nodeId;
+          // The one performance rule (CLAUDE.md): a value change is a buffer
+          // write, not a recompile. This used to call editor.onChange() for
+          // any change at all, which is buildWGSL() and a new pipeline — once
+          // per keyframed parameter per frame. At the desk, scrubbing, that
+          // reads as a sticky playhead. Under the performer, which drives this
+          // playhead from the frame loop for the length of a set, it was a
+          // rebuild every frame and a show at single-figure fps.
+          if (!writeParameterUniform(nodeId, paramName, value)) needsRebuild = true;
         }
       }
     }
 
 
-    // Trigger shader rebuild if any values changed
     if (anyChanged) {
-      if (this.editor.onChange) {
+      // Only what the fast path could not carry. The canvas still redraws
+      // either way, so the node's own readout follows the playhead as it did.
+      if (needsRebuild && this.editor.onChange) {
         this.editor.onChange('timeline-update');
+      } else if (this.editor.markDirty) {
+        this.editor.markDirty('timeline-update');
       }
 
       // Update parameter panel if the changed node is currently selected (throttled)

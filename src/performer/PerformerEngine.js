@@ -41,6 +41,7 @@ import { SignalBus } from './SignalBus.js';
 import { ActionExecutor } from './ActionExecutor.js';
 import { emptyScenario, normalizeScenario, validateScenario } from './Scenario.js';
 import { describeAction } from './actions.js';
+import { getPerfProbe } from '../utils/PerfProbe.js';
 import { deadDrives, patchHandles } from './PatchHandles.js';
 import { activeDirection } from './PreDirections.js';
 import {
@@ -411,6 +412,12 @@ export class PerformerEngine {
   tick(timestamp) {
     if (this.state !== STATE.RUNNING) return;
 
+    // Attributed, because "the set is running and the editor is slow" had no
+    // way of being answered: window.perfReport() knew about the renderer and
+    // the compute pass and nothing about the thing driving them.
+    const probe = getPerfProbe();
+    const probeToken = probe.begin('performerTick');
+
     const delta = this.clock.tick(timestamp);
     this.lastTickAt = Date.now();
 
@@ -432,6 +439,8 @@ export class PerformerEngine {
     this.applyPendingJump();
     this.drainQueue();
     this.consultDirector();
+
+    probe.end(probeToken);
   }
 
   /**

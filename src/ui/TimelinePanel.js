@@ -1,4 +1,5 @@
 import { setIcon } from './iconSprite.js';
+import { getPerfProbe } from '../utils/PerfProbe.js';
 import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
 /**
  * TimelinePanel.js
@@ -698,6 +699,11 @@ export class TimelinePanel {
   render() {
     if (!this.visible) return;
 
+    // The performer moves the playhead from the frame loop, so this repaints
+    // once a frame for the length of a set. Attributed so that shows up.
+    const probe = getPerfProbe();
+    const probeToken = probe.begin('timelinePanelRender');
+
     const width = this.canvas.width / (window.devicePixelRatio || 1);
     const height = this.canvas.height / (window.devicePixelRatio || 1);
 
@@ -715,6 +721,8 @@ export class TimelinePanel {
 
     // Draw playhead
     this.drawPlayhead();
+
+    probe.end(probeToken);
   }
 
   /**
