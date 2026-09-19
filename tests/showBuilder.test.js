@@ -16,6 +16,7 @@ import {
   manifestFromScenario,
   scenarioFromManifest,
   isQuotaRefusal,
+  barSecondsOf,
 } from '../src/performer/ShowBuilder.js';
 import { normalizeManifest } from '../src/performer/ShowManifest.js';
 import { GrantError } from '../src/ai/entitlements.js';
@@ -89,6 +90,40 @@ describe('ShowBuilder', () => {
     // the length the set was written to.
     expect(installScene.mock.calls[0][2].holdSeconds).toBe(60);
     expect(installScene.mock.calls[1][2].holdSeconds).toBe(30);
+  });
+
+  // The same two numbers, one step earlier. A generated expression's RATE is
+  // the one thing a model cannot guess, and getting it wrong is not a wrong
+  // picture — it is a look whose motion the audience never sees a whole cycle
+  // of, or one that drifts across the music instead of moving with it.
+  it('tells each look how long it is up for and what a bar is worth', async () => {
+    await builder().build(MANIFEST);
+
+    // 32 bars at 128 in 4/4, then 16, and one bar of that show is 1.88s.
+    expect(generatePatch.mock.calls[0][1].secondsUp).toBe(60);
+    expect(generatePatch.mock.calls[1][1].secondsUp).toBe(30);
+    for (const call of generatePatch.mock.calls) expect(call[1].bar).toBe(1.88);
+  });
+
+  it('offers no bar at all for music that has no pulse', async () => {
+    // Every other tempo fallback in the builder exists so a conversion still
+    // produces a number. This one is shown to the model as the rate to move
+    // at, and a bar invented for a drone is a set timed to a beat nobody is
+    // playing — so it is zero, and PerformerDirector drops it rather than
+    // sending a guess.
+    await builder().build({ ...MANIFEST, pulse: 'free' });
+
+    for (const call of generatePatch.mock.calls) expect(call[1].bar).toBe(0);
+  });
+
+  it('works a bar out from the tempo the show was written at', () => {
+    expect(barSecondsOf({ bpm: 120, beatsPerBar: 4 })).toBe(2);
+    expect(barSecondsOf({ bpm: 128, beatsPerBar: 4 })).toBe(1.88);
+    expect(barSecondsOf({ bpm: 90, beatsPerBar: 3 })).toBe(2);
+    // No tempo and no pulse are both "no answer", not "120".
+    expect(barSecondsOf({ pulse: 'free', bpm: 128 })).toBe(0);
+    expect(barSecondsOf({})).toBe(0);
+    expect(barSecondsOf(null)).toBe(0);
   });
 
   // The gap this closes: pass 2 used to be told the scene NAMES and nothing

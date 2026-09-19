@@ -447,6 +447,64 @@ export function showContext(manifest) {
 }
 
 /**
+ * Which of a look's `reactsTo` channels an expression can hear, and which one
+ * needs a node.
+ *
+ * `reactsTo` is written in the tap vocabulary — the channel names an
+ * AudioValue node offers (src/audio/audioAnalysisTaps.js), which is the right
+ * vocabulary for it: the same strings bind the scenario's audio signals. Only
+ * four of those bands have a counterpart a parameter expression can name, and
+ * it is spelled differently there. Everything else — the drums, their triggers
+ * and meters, brightness, noisiness — exists ONLY as a node, and an expression
+ * naming one of them compiles to 0.0 and stays there. Silently: the patch
+ * loads, the section runs, and the one thing the look was built to do never
+ * happens.
+ *
+ * Counterpart, not equal. A tap is a scaled band meter out of
+ * RealtimeAudioAnalysis; the audioEnvelope* globals are BrowserAudioCapture's
+ * own followers over the same part of the spectrum. They rise and fall
+ * together and they are not the same number, which is all a look needs — it is
+ * choosing where to listen, not matching a reading — so the prompt says both
+ * halves rather than implying an equality that is not there.
+ *
+ * So the routing is worked out here rather than left to be inferred, because
+ * the manifest is the only place that knows which channels this look was asked
+ * for. tests/showManifest.test.js checks both halves of this map against the
+ * tap list and against the expression system, so a renamed channel is a failed
+ * test rather than a look that quietly stops listening.
+ */
+const EXPRESSION_AUDIO = Object.freeze({
+  level: 'audioEnvelope',
+  low: 'audioEnvelopeBass',
+  mid: 'audioEnvelopeMids',
+  high: 'audioEnvelopeHighs',
+});
+
+function audioRouting(channels) {
+  const inExpressions = [];
+  const needNodes = [];
+
+  for (const channel of channels) {
+    if (EXPRESSION_AUDIO[channel]) inExpressions.push(`${channel} is "${EXPRESSION_AUDIO[channel]}"`);
+    else needNodes.push(channel);
+  }
+
+  const lines = [];
+  if (inExpressions.length) {
+    lines.push(
+      `Inside a parameter expression ${inExpressions.join(', ')} — those names, not the channel names. `
+        + 'Same part of the spectrum under a different envelope, so it moves with the channel rather than reading the same number as it.'
+    );
+  }
+  if (needNodes.length) {
+    lines.push(
+      `${needNodes.join(', ')} ${needNodes.length === 1 ? 'is reachable' : 'are reachable'} only through an AudioValue node, one node per channel. No expression can name ${needNodes.length === 1 ? 'it' : 'them'}: it would compile to zero and the look would never react.`
+    );
+  }
+  return lines;
+}
+
+/**
  * The prompt that builds one look's patch.
  *
  * Everything in here is the difference between a patch that is a nice image
@@ -477,7 +535,7 @@ export function lookPrompt(manifest, look, media = []) {
     );
   }
   if (one.reactsTo.length) {
-    lines.push(`It should visibly answer the music on: ${one.reactsTo.join(', ')}.`);
+    lines.push(`It should visibly answer the music on: ${one.reactsTo.join(', ')}.`, ...audioRouting(one.reactsTo));
   }
 
   // The artist's own footage. Everywhere else in the editor a Texture 2D node

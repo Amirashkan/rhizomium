@@ -537,6 +537,24 @@ describe('building a show', () => {
     expect(input).toEqual({ prompt: 'just a patch', show: undefined });
   });
 
+  it('carries the two clocks a look is built against, and omits either it lacks', async () => {
+    const { run, director } = makeDirector();
+
+    await director.generatePatch('a look', {
+      show: 'Show: x', look: { name: 'A' }, secondsUp: 45, bar: 1.88,
+    });
+    expect(run.mock.calls[0][1].show).toMatchObject({ secondsUp: 45, bar: 1.88 });
+
+    // A manifest need not say how long a look holds, and a show with no pulse
+    // has no bar worth a number of seconds. Neither is sent as a guess: an
+    // expression rate invented from a default tempo is motion timed to a beat
+    // nobody is playing.
+    await director.generatePatch('a look', { show: 'Show: x', look: { name: 'A' } });
+    const { show } = run.mock.calls[1][1];
+    expect(show).not.toHaveProperty('secondsUp');
+    expect(show).not.toHaveProperty('bar');
+  });
+
   it('hands back a scenario that names the scenes it just installed', async () => {
     const { director } = makeDirector();
     const report = await director.buildShow(MANIFEST, {

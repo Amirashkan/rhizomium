@@ -206,6 +206,14 @@ export class ShowBuilder {
             show: showContext(show),
             look,
             media: mediaSlots(clips),
+            // The same seconds the scene's own timeline is set to below, sent
+            // one step earlier so the patch is BUILT to that length rather
+            // than cut off at it, and the bar the show counts in so a
+            // generated expression can cycle with the music instead of near
+            // it. barSecondsOf() is zero for a show with no pulse, which is
+            // the honest answer and is dropped rather than sent as a guess.
+            secondsUp: holdSecondsOf(look, show),
+            bar: barSecondsOf(show),
           });
 
           const patch = generated?.patch;
@@ -859,6 +867,25 @@ export function holdSecondsOf(look, show) {
     return Math.round(look.hold.bars * (60 / bpm) * beats * 100) / 100;
   }
   return 0;
+}
+
+/**
+ * One bar of this show, in seconds — or zero when there is no pulse to
+ * measure one against.
+ *
+ * Zero rather than a default is the whole point. Every other tempo fallback in
+ * this file exists so that a conversion still produces a number; this one is
+ * shown to the model as the rate its expressions should move at, and a bar
+ * invented for ambient music is a set timed to a beat nobody is playing. The
+ * caller drops it when it is zero, and the look is built with no rate
+ * suggested rather than with the wrong one.
+ */
+export function barSecondsOf(show) {
+  if (show?.pulse === 'free') return 0;
+  const bpm = show?.bpm > 0 ? show.bpm : 0;
+  if (!bpm) return 0;
+  const beats = show?.beatsPerBar > 0 ? show.beatsPerBar : 4;
+  return Math.round((60 / bpm) * beats * 100) / 100;
 }
 
 /** One section, straight off a look, for when nothing wrote one. */

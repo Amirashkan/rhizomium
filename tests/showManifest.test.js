@@ -16,6 +16,8 @@ import {
   MANIFEST_LIMITS,
   EXAMPLE_MANIFEST,
 } from '../src/performer/ShowManifest.js';
+import { AUDIO_TAP_CHANNELS } from '../src/audio/audioAnalysisTaps.js';
+import { unifiedExpressionSystem } from '../src/utils/UnifiedExpressionSystem.js';
 
 describe('normalizeManifest', () => {
   it('survives anything', () => {
@@ -168,6 +170,86 @@ describe('the prompts', () => {
     const text = showContext({ pulse: 'free', looks: [{ brief: 'x' }] });
     expect(text).toMatch(/no steady pulse/);
     expect(text).not.toMatch(/BPM/);
+  });
+
+  // `reactsTo` is written in the tap vocabulary, which is the right vocabulary
+  // for it — the same strings bind the scenario's audio signals. But only some
+  // of those readings reach a parameter expression, they are spelled
+  // differently there, and an expression naming one of the others compiles to
+  // 0.0 and stays there for the length of the show. Nothing warns: the patch
+  // loads, the section runs, and the one thing the look was built to do never
+  // happens. So the prompt routes each channel, and these hold the routing
+  // against the two things that decide it.
+  describe('routing a look to the audio it has to answer', () => {
+    it('gives the expression name for a channel an expression can hear', () => {
+      const show = normalizeManifest({
+        looks: [{ name: 'A', brief: 'fog', reactsTo: ['low', 'mid', 'high', 'level'] }],
+      });
+      const prompt = lookPrompt(show, show.looks[0]);
+
+      expect(prompt).toContain('low is "audioEnvelopeBass"');
+      expect(prompt).toContain('mid is "audioEnvelopeMids"');
+      expect(prompt).toContain('high is "audioEnvelopeHighs"');
+      expect(prompt).toContain('level is "audioEnvelope"');
+      expect(prompt).not.toMatch(/only through an AudioValue node/);
+    });
+
+    it('sends the rest to a node, because no expression can name them', () => {
+      const show = normalizeManifest({
+        looks: [{ name: 'A', brief: 'hits', reactsTo: ['kickTrig', 'centroid'] }],
+      });
+      const prompt = lookPrompt(show, show.looks[0]);
+
+      expect(prompt).toContain('kickTrig, centroid are reachable only through an AudioValue node');
+      expect(prompt).toMatch(/compile to zero/);
+    });
+
+    it('routes a mixed look both ways at once', () => {
+      const show = normalizeManifest(EXAMPLE_MANIFEST);
+      // The drop answers "low" and "kickTrig" — one of each.
+      const prompt = lookPrompt(show, show.looks[2]);
+
+      expect(prompt).toContain('low is "audioEnvelopeBass"');
+      expect(prompt).toContain('kickTrig is reachable only through an AudioValue node');
+    });
+
+    it('is right about which names an expression really resolves', () => {
+      // The claim, checked rather than trusted, against the expression system
+      // and the tap list themselves. A renamed channel or a dropped identifier
+      // fails here rather than in a show.
+      //
+      // Eight at a time, because normalizeLook() caps `reactsTo` at eight and
+      // a look asked for all fifteen is a look told about the first eight.
+      for (let from = 0; from < AUDIO_TAP_CHANNELS.length; from += 8) {
+        const batch = AUDIO_TAP_CHANNELS.slice(from, from + 8);
+        const show = normalizeManifest({ looks: [{ name: 'A', brief: 'x', reactsTo: batch }] });
+        const prompt = lookPrompt(show, show.looks[0]);
+
+        for (const channel of batch) {
+          // Whatever the prompt offered as this channel's expression name, if
+          // it offered one, has to be an identifier the generator resolves.
+          const offered = prompt.match(new RegExp(`\\b${channel} is "([a-zA-Z]+)"`));
+          if (offered) {
+            expect(unifiedExpressionSystem.generateShader(`=${offered[1]}`), offered[1])
+              .not.toBe('0.0');
+          } else {
+            // And a channel sent to a node is named in the prompt as one.
+            expect(prompt).toContain(channel);
+          }
+          // Either way the channel's own name is never an expression: that is
+          // the whole reason the routing has to be spelled out.
+          expect(unifiedExpressionSystem.generateShader(`=${channel}`), channel).toBe('0.0');
+        }
+      }
+    });
+
+    it('says nothing at all when the look answers nothing', () => {
+      const show = normalizeManifest({ looks: [{ name: 'A', brief: 'still' }] });
+      const prompt = lookPrompt(show, show.looks[0]);
+
+      expect(prompt).not.toMatch(/AudioValue/);
+      expect(prompt).not.toMatch(/Inside a parameter expression/);
+    });
   });
 
   it('names the scenes that were actually built, and admits the ones that were not', () => {

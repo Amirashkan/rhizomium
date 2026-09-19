@@ -1386,6 +1386,82 @@ function describeRig(input = {}) {
 }
 
 /**
+ * What a look is allowed to be made of.
+ *
+ * EDITOR_CAPABILITIES, in the cached prefix, already says these nodes exist
+ * and what they do. This is the sentence after that one: which of them a LOOK
+ * wants. The two are not the same question, and the answer to the second is
+ * what a show build was missing — asked for "slow fog tightening into vertical
+ * structure" with only the general prompt behind it, the model reaches for the
+ * safe thing it can reason about end to end, which is noise into a colour ramp
+ * into the output. Correct every time, and five of those in a row is one look
+ * played five times in different tints.
+ *
+ * So this names the families by what they ARE rather than by what they are
+ * called, because the brief is written in the artist's words and the bridge
+ * from "smoke" to ComputeFluidSim is the bridge that was missing. Every kind
+ * named here is in the registry; aiShowLookPrompt.test.js checks that against
+ * NodeDefs rather than trusting the prose, which is the check the general
+ * prompt needed once and did not have when the audio nodes were renamed.
+ */
+const SHOW_LOOK_MATERIAL = `
+# What this look may be made of
+
+A look is a whole patch and the whole editor is open to it. Decide what this one is actually MADE of before wiring anything, and build it out of that:
+
+- Simulation. Smoke, fluid, ink, growth, swarms, erosion and feedback are not effects to approximate with noise and Math nodes. They are ComputeFluidSim, ComputeReactionDiffusion, ComputeParticles, ComputeCellular and ComputeFeedbackField, and the one node that does the thing beats the eight that imitate it.
+- Depth. ComputeFieldMapper renders real geometry from any texture-producing chain, and one look with real depth in it is most of what stops a set reading flat. Wire its output on to OutputFinal so the main screen carries it and not only the floating viewport, and put its standing motion on rotateY, rotateZ or translateZ, which take expressions.
+- Whole-image moves. ComputeKaleidoscope, ComputeWarp, ComputeGlitch, ComputeBlur, ComputeEdgeDetect and ComputeMorphology read neighbouring pixels, which no per-pixel chain can. A look that turns one of those on is a different look, not a shaded version of the last one.
+- Code, where no node does it. Expr for one line, CustomGLSL for a body. Never to rebuild a node that already exists.
+
+Two or three compute nodes is this look's budget. It runs every frame, beside everything else in the set.`;
+
+/**
+ * The difference between a look and a good image.
+ *
+ * Four rules, and the third is the one that is not guessable from anywhere
+ * else in the prompt: an expression and a performer are not mutually
+ * exclusive. applyControlValue() leaves a parameter holding an expression
+ * alone and records the incoming value where the compiled formula reads it as
+ * `osc` (parameters/ExternalParameterControl.js, utils/paramReferences.js), so
+ * "=0.15+osc*0.7" is a parameter that keeps its own floor and shape while the
+ * set drives it at 60fps with no recompile. The same mechanism is why the
+ * failure mode is silent and total: a handle written "=time*0.3" has no `osc`
+ * in it, so the drive writes a reading nothing reads back, and the section
+ * loads clean, warns once, and holds a still frame for as long as it is up.
+ * Nothing downstream can detect that — unmetRequirements() in ShowBuilder.js
+ * checks the node and the parameter exist, which they do.
+ *
+ * The fourth is the other half of the same thing: ActionExecutor.writeParam()
+ * refuses a value that is not finite, so a select, bool, colour or text
+ * parameter is not a handle however interesting it is to turn by hand.
+ */
+const SHOW_LOOK_PLAYABLE = `
+# What makes it playable rather than watchable
+
+## Answer the music inside the patch
+The set's drives move at the cadence a person or the director works at — seconds, bars — which is not the cadence a kick happens at. Anything that has to land ON the music is the patch's own work, and there are two ways in, which are not interchangeable:
+- An AudioValue node, one per channel, wired into the graph. This is the ONLY way to reach the named channels — level, low, mid, high, kick, snare, hat, their Trig and Meter forms, centroid, density.
+- The audioEnvelope, audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs and audioEnvelopeFull names inside an expression. These five are the whole of what an expression can hear: "=audioEnvelopeBass" works and "=low" and "=kickTrig" compile to zero, silently, for the length of the show.
+So a look told to answer a kick ON the hit needs the AudioValue node; a look told to answer the low end can do it with an expression and one fewer node. Either way write it as a base plus the audio and never as the audio alone — "=0.35+audioEnvelopeBass*0.5" — because the analysis reads zero until someone plays into it, and a look that is black at soundcheck is a look nobody puts in a set.
+
+## Put standing motion on expressions
+A parameter carrying "=" moves every frame with nothing wired into it. That keeps the graph small, and it leaves the nodes that ARE on the canvas worth reaching for.
+
+## An expression does not lock the performer out
+A parameter holding an expression is not overwritten when the set drives it. The incoming value arrives INSIDE the formula, as "osc", and the rest of the formula keeps running:
+- "=0.15+osc*0.7" — a handle with a floor of its own that still answers the fader across its whole throw.
+- "=0.2+osc*0.5+audioEnvelopeBass*0.3" — performed, breathing and kicking at once.
+- "=time*0.3" on a parameter the set reaches for — a handle NOTHING CAN MOVE. The drive loads, warns once, and does nothing for the length of the show.
+So anything the set drives is a plain number, or an expression with "osc" in it. Never an expression without one.
+
+## A handle is a numeric parameter
+The performer writes numbers, so only a float, int or slider can be driven. A select, bool, colour or text parameter cannot be, which makes a look whose one interesting control is a mode dropdown a look with no controls on it.
+
+## It is cut to, not faded up into
+The first frame has to already be this look. That rules nothing out, but it does mean a simulation is seeded rather than started from nothing: enough dye, density, feedback or particle count that the opening frames already read as the look — or something under it that does, while the field fills.`;
+
+/**
  * When this patch is one look in a show rather than a patch on its own.
  *
  * Absent for the editor's own generator button, which is the overwhelming
@@ -1393,18 +1469,36 @@ function describeRig(input = {}) {
  * it was, so nothing about that feature changed.
  *
  * Present when the show builder is running (src/performer/ShowBuilder.js), and
- * what it adds is the two things that separate a look from an image. First,
- * the rest of the set: five patches generated from five descriptions with no
- * knowledge of each other look like five different shows spliced together,
- * however good each one is. Second, that it will be PERFORMED — a scenario
- * addresses nodes by name and moves single parameters, so a look whose nodes
- * are called Blur_3 and whose interesting parameter is already at its maximum
- * is a look nothing can play.
+ * what it adds is the three things that separate a look from an image.
+ *
+ * First, the rest of the set: five patches generated from five descriptions
+ * with no knowledge of each other look like five different shows spliced
+ * together, however good each one is.
+ *
+ * Second, that it will be PERFORMED — a scenario addresses nodes by name and
+ * moves single parameters, so a look whose nodes are called Blur_3 and whose
+ * interesting parameter is already at its maximum is a look nothing can play.
+ *
+ * Third, what it may be BUILT OUT OF. EDITOR_CAPABILITIES says what the editor
+ * can do; this says which of it a look wants, and that is not the same
+ * question. A look is cut to live in front of an audience, it answers music at
+ * frame rate rather than at the cadence a person types at, and it sits beside
+ * four or five others that must not all be the same graph in a different
+ * colour. Without that said, a show built out of the general prompt comes back
+ * as five noise-into-colour chains: every one correct, none of them reaching
+ * past the fragment nodes to the simulations, the 3D or the feedback fields
+ * that are most of what this editor is, and none of them keeping its own
+ * motion under the performer's hand. Every claim in that block is checkable —
+ * the `osc` rule is parameters/ExternalParameterControl.js and
+ * utils/paramReferences.js, the node kinds are the registry — and
+ * tests/aiShowLookPrompt.test.js holds it against them.
  *
  * It goes in the user turn rather than the system prompt on purpose: the
  * system turn is the cache prefix every call for this feature shares (see
  * prompt_cache_key in api/ai/run.js), and a paragraph that varies per look
- * would cost that cache for every artist using the plain generator.
+ * would cost that cache for every artist using the plain generator. The two
+ * blocks below are the same bytes on every look of every show, but they are
+ * bytes no plain generator call should pay for at all.
  */
 function describeShowLook(show) {
   if (!show || typeof show !== 'object') return '';
@@ -1445,6 +1539,35 @@ function describeShowLook(show) {
     );
   }
 
+  // How long the look is up for, and what a bar of this show is worth in
+  // seconds. Both are here for the same reason: an expression is the cheapest
+  // motion in the editor and its RATE is the one thing a model cannot guess.
+  // "=sin(time*0.6)" is a two-minute breath under a look that is cut away from
+  // after twenty seconds — movement the audience never sees a whole cycle of —
+  // and a cycle that is some fraction of a bar is movement that reads as part
+  // of the music rather than as something happening near it.
+  const secondsUp = Number(show.secondsUp);
+  if (Number.isFinite(secondsUp) && secondsUp > 0) {
+    lines.push(
+      `It is up for about ${round2(secondsUp)} seconds at a time, so anything that moves on its own should show a whole cycle of itself inside that.`
+    );
+  }
+
+  const bar = Number(show.bar);
+  if (Number.isFinite(bar) && bar > 0) {
+    // Three decimals on the rate rather than the two everything else here
+    // rounds to. A rate is a reciprocal, so the rounding lands on the PERIOD
+    // multiplied out: at two decimals a bar-length cycle is off by a third of
+    // a percent, which is a fifth of a bar adrift by the end of a thirty-two
+    // bar section — visible, and the exact failure the line is here to avoid.
+    const rate = (seconds) => Number(((2 * Math.PI) / seconds).toFixed(3));
+    lines.push(
+      `One bar of this show is ${round2(bar)}s and four bars ${round2(bar * 4)}s. `
+        + `An expression cycles once per bar at "=sin(time*${rate(bar)})" and once every four bars at `
+        + `"=sin(time*${rate(bar * 4)})" — motion on those rates lands with the music instead of drifting across it.`
+    );
+  }
+
   const drivable = Array.isArray(show.drivable) ? show.drivable.filter(Boolean) : [];
   lines.push(
     drivable.length
@@ -1457,7 +1580,7 @@ function describeShowLook(show) {
     'Set those parameters to values with somewhere left to travel: one already at its maximum is a fader with no throw.'
   );
 
-  return `\n\n# This patch is part of a show\n${lines.join('\n')}`;
+  return `\n\n# This patch is part of a show\n${lines.join('\n')}\n${SHOW_LOOK_MATERIAL}\n${SHOW_LOOK_PLAYABLE}`;
 }
 
 /** Seconds and tempi, at the precision anyone reads them: two decimals, no trailing zeros. */

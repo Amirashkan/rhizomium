@@ -170,7 +170,12 @@ export function sampleInputs(feature) {
       return { min: { patch: smallestPatch() }, max: { patch: largestPatch() } };
 
     case 'ai.patch_generator':
-      return { min: { prompt: SHORT_PROMPT }, max: { prompt: LONG_PROMPT } };
+      // The minimum is the editor's own button: a typed line and nothing else.
+      // The maximum is a look in a show, which is the same call carrying the
+      // rest of the set, the clips it is built on and the blocks that say what
+      // a look may be made of and what makes it playable — and it is the call
+      // a build makes once PER LOOK, so it is the one worth costing.
+      return { min: { prompt: SHORT_PROMPT }, max: { prompt: LONG_PROMPT, show: busiestShowLook() } };
 
     case 'ai.node_generator':
       return { min: { description: 'mix two colours by a curve' }, max: { description: LONG_PROMPT } };
@@ -209,6 +214,29 @@ export function sampleInputs(feature) {
     default:
       return { min: {}, max: {} };
   }
+}
+
+/**
+ * The most show a look can be built inside, at the caps PerformerDirector
+ * .generatePatch() slices everything down to: 2,000 characters of context,
+ * eight clips, eight drivable handles, eight channels.
+ *
+ * Costed because a build spends this once per look and a manifest may hold
+ * twelve of them — so a paragraph added to the show blocks is paid twelve
+ * times before an artist sees a single patch, which is the thing this file
+ * exists to make visible.
+ */
+function busiestShowLook() {
+  return {
+    context: 'x'.repeat(2000),
+    look: 'The longest look name anyone would type into a manifest',
+    intensity: 0.6,
+    drivable: Array.from({ length: 8 }, (_, i) => `the thing that turns, number ${i}`),
+    reactsTo: ['level', 'low', 'mid', 'high', 'kick', 'kickTrig', 'centroid', 'density'],
+    media: Array.from({ length: 8 }, (_, i) => ({ node: `Clip ${i}`, kind: 'video' })),
+    secondsUp: 60,
+    bar: 1.88,
+  };
 }
 
 /** The most rig the panel will ever send: its lists are capped at these sizes. */

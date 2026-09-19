@@ -481,8 +481,9 @@ export class PerformerDirector {
    * is empty.
    *
    * @param {string} prompt what to build, from ShowManifest.lookPrompt()
-   * @param {object} [context] { show, look, media } — the rest of the set, and
-   *   the clips already loaded for this look
+   * @param {object} [context] { show, look, media, secondsUp, bar } — the rest
+   *   of the set, the clips already loaded for this look, and the two clocks
+   *   the look is built against
    * @returns {Promise<{patch: object, title: string, notes: string}>}
    */
   async generatePatch(prompt, context = {}) {
@@ -510,6 +511,16 @@ export class PerformerDirector {
               node: String(slot?.node || '').slice(0, 80),
               kind: slot?.kind === 'video' ? 'video' : 'image',
             })),
+            // The two clocks a look is built against, and the only two numbers
+            // in this payload that decide how fast a generated expression
+            // runs. Without them "=sin(time*0.6)" is as likely an answer as
+            // "=sin(time*3.3)" — one is a breath the audience never sees a
+            // whole cycle of in a section that is up for twenty seconds, the
+            // other is in step with the bar. Both are dropped when they are
+            // not known: a manifest need not say how long a look holds, and a
+            // show with no pulse has no bar to be worth anything in seconds.
+            ...(Number(context.secondsUp) > 0 ? { secondsUp: Number(context.secondsUp) } : {}),
+            ...(Number(context.bar) > 0 ? { bar: Number(context.bar) } : {}),
           }
         : undefined,
     });

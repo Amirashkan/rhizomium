@@ -406,6 +406,61 @@ being built to be *performed*, so each of those becomes a named node whose
 parameter a drive can reach, set to a value with somewhere left to travel. A
 parameter already at its maximum on the first frame is a fader with no throw.
 
+### What a look is allowed to be made of
+
+The generator knows the node registry — every kind, every pin, every parameter
+and its range. That is enough to wire nodes together and it is not enough to
+know which of them a *look* wants, and the difference showed: asked for "slow
+fog tightening into vertical structure", a model with only the registry behind
+it reaches for the graph it can reason about end to end, which is noise into a
+colour ramp into the output. Correct, every time, and five of those in a row is
+one look played five times in different tints.
+
+So a look call now also carries what the patch may be **made of** and what
+makes one **playable**, on top of everything above:
+
+- **The families, by what they are rather than what they are called.** Smoke,
+  fluid, growth, swarms and feedback are `ComputeFluidSim`,
+  `ComputeReactionDiffusion`, `ComputeParticles`, `ComputeCellular` and
+  `ComputeFeedbackField`; depth is `ComputeFieldMapper`, whose output is wired
+  on to the main canvas so a 3D look is not only in the floating viewport; a
+  kaleidoscope, a glitch, a blur and an edge detect are whole-image nodes no
+  per-pixel chain can imitate. Two or three compute nodes is a look's budget.
+- **Which audio a parameter can hear, and which needs a node.** `reactsTo` is
+  written in the tap vocabulary (`low`, `kickTrig`, `centroid`…), and only
+  four of those bands have a counterpart an expression can name — under a
+  different name, and as the same part of the spectrum under a different
+  envelope rather than as the same number.
+  A look told to answer `low` can do it with `"=0.35+audioEnvelopeBass*0.5"`;
+  a look told to answer `kickTrig` needs an Audio Value node, because
+  `"=kickTrig"` compiles to zero and holds there all night without a warning.
+  So the prompt routes each channel the manifest named instead of leaving it
+  to be inferred.
+- **That an expression and a fader are not a choice.** A parameter holding a
+  formula is *not* overwritten when a drive writes to it: the incoming value
+  arrives inside the formula as `osc` and the rest of it keeps running. So
+  `"=0.15+osc*0.7"` is a handle with a floor of its own that still answers the
+  drive across its whole throw, and `"=0.2+osc*0.5+audioEnvelopeBass*0.3"` is
+  one that is performed, breathing and kicking at once. The other side of the
+  same rule is the trap: `"=time*0.3"` on a parameter the set reaches for is a
+  handle **nothing can move**, and it fails the way every name failure here
+  fails — the drive loads, warns once, and does nothing for the length of the
+  show. Anything the set drives is a plain number or an expression with `osc`
+  in it, and it is a float, int or slider, because the performer writes
+  numbers and a select or a colour is not a handle.
+- **The two clocks.** How long the look is up for, from its `hold`, and what a
+  bar of this show is worth in seconds — with the expression rates that cycle
+  once per bar and once per four. A rate is the one thing a model cannot guess,
+  and the difference between motion that moves *with* the music and motion
+  that happens near it. A show with no pulse is sent no bar at all rather than
+  one invented from a default tempo.
+
+None of it is new machinery: every claim is something the editor already does,
+and `tests/aiShowLookPrompt.test.js` holds each one against the code that has
+to be true for it — the registry, the expression system, and the parameter
+path the performer actually writes through — so a renamed channel or a dropped
+identifier is a failed test rather than a show that quietly stops listening.
+
 ### Names that reach something
 
 A section's look is a scene name; its drives and moves are node and parameter
