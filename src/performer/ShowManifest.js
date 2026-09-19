@@ -193,6 +193,12 @@ function normalizeLook(raw, index) {
     name,
     brief: trimmed(source.brief ?? source.description ?? source.look, MANIFEST_LIMITS.lookBriefChars),
     scene: trimmed(source.scene, 80),
+    // Words to put on the screen, for a look that is words. The two ends of an
+    // episode are the case: the show speaks its opening over black, and the
+    // same text drawn is what a muted room, or one reading along, gets instead
+    // of nothing. It is not a brief - nothing is generated from it. The patch
+    // is built from the string, which is why an end costs no model call.
+    card: trimmed(source.card, MANIFEST_LIMITS.lookBriefChars),
     mood: trimmed(source.mood, 200),
     intensity: source.intensity === undefined ? null : clamp(num(source.intensity, 0), 0, 1),
     // Audio channels this look should visibly answer. Carried into the patch
@@ -275,6 +281,13 @@ export function normalizeManifest(raw) {
     beatsPerBar: clamp(Math.round(num(source.beatsPerBar, 4)), 1, 16),
     barsPerPhrase: clamp(Math.round(num(source.barsPerPhrase, 8)), 1, 64),
     pulse: pick(str(source.pulse), PULSE_KINDS, 'metered'),
+    // Whether this show stops after its last look instead of wrapping round to
+    // the first. False by default, and that default is the important half: a
+    // set in a room that is open all afternoon has no last look, which is why
+    // the engine wraps in the first place. A show that ends is the exception
+    // and has to ask - an episode with an opening and a sign-off does, because
+    // handing the sign-off back to the opening is not an ending.
+    runsOnce: source.runsOnce === true || source.loop === false,
     looks,
     signals: list(source.signals).slice(0, MANIFEST_LIMITS.signals).map(normalizeSignal),
     cues: list(source.cues)
@@ -329,10 +342,13 @@ export function validateManifest(manifest, folder = null) {
   show.looks.forEach((look, index) => {
     const where = `looks[${index}] "${look.name}"`;
 
-    if (!look.brief && !look.scene) {
-      errors.push(at(where, 'Needs either a "brief" describing what it should look like, or a "scene" naming one you already have.'));
+    if (!look.brief && !look.scene && !look.card) {
+      errors.push(at(where, 'Needs a "brief" describing what it should look like, a "scene" naming one you already have, or a "card" of words to put on the screen.'));
     }
-    if (look.brief && !look.scene) generated++;
+    // What a build will actually spend. A card is drawn from its own string and
+    // a scene already exists, so neither is a call - which is the point of
+    // both: an episode's two ends cost nothing to put up.
+    if (look.brief && !look.scene && !look.card) generated++;
 
     if (look.brief && look.brief.length < 12 && !look.scene) {
       warnings.push(at(where, 'A brief this short gives the model almost nothing to build from. A sentence beats three words.'));

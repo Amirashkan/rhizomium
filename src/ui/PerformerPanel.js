@@ -89,6 +89,23 @@ function el(tag, className, text) {
   return node;
 }
 
+/**
+ * An episode, in the width of a label: which one it is and how long it runs.
+ *
+ * "Ep 1 · 4 cues · 12 min" rather than the filename, because an episode folder
+ * always holds the same filename and the number is the thing the artist is
+ * looking for when they have built four of them this week.
+ */
+function episodeLabel(read) {
+  const ep = read?.episode || {};
+  const cues = ep.cues || 0;
+
+  const bits = [ep.number ? `Ep ${ep.number}` : 'Episode'];
+  bits.push(`${cues} cue${cues === 1 ? '' : 's'}`);
+  if (ep.minutes) bits.push(`${ep.minutes} min`);
+  return bits.join(' · ');
+}
+
 function button(label, title, onClick, className = 'rz-perf-btn') {
   const node = el('button', className, label);
   node.title = title;
@@ -564,6 +581,19 @@ export class PerformerPanel {
         'warn'
       );
     }
+    if (loaded && read.kind === 'episode') {
+      // The one thing worth saying out loud about an episode, because it is the
+      // one way it differs from every other show the panel opens: it stops.
+      const cues = read.episode?.cues || 0;
+      this.noteBuild(
+        `${episodeLabel(read)} read out of this folder into the manifest above: an opening, `
+          + `${cues} transmission${cues === 1 ? '' : 's'}, and a sign-off. The two ends are the show's `
+          + 'own words drawn on black — nothing is generated for them, so a build costs '
+          + `${cues} call${cues === 1 ? '' : 's'}, not ${cues + 2}. It runs once and stops on the `
+          + 'sign-off rather than returning to the top.',
+        'ok'
+      );
+    }
     if (loaded && read.kind === 'transmissions') {
       // A manifest nobody wrote, so it says where it came from and what to do
       // with it. The briefs are the prompts each piece was generated from and
@@ -605,7 +635,8 @@ export class PerformerPanel {
 
     const bits = [folder.name];
     bits.push(
-      read?.kind === 'transmissions' ? `${projects} transmission${projects === 1 ? '' : 's'}`
+      read?.kind === 'episode' ? episodeLabel(read)
+        : read?.kind === 'transmissions' ? `${projects} transmission${projects === 1 ? '' : 's'}`
         : read?.kind === 'show' ? read.path
         // Two different answers: nothing here to open, or something here that
         // is not a show. The second one is the one with something to fix.

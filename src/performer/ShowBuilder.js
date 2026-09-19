@@ -80,6 +80,7 @@ import {
   MANIFEST_VERSION,
 } from './ShowManifest.js';
 import { normalizeScenario, SCENARIO_VERSION } from './Scenario.js';
+import { endCardPatch } from './EndCard.js';
 import { mediaSlotName, mediaSlots, readMediaDataUrl, resolveLookMedia } from './ShowFolder.js';
 
 /** The node kinds a clip can arrive on. */
@@ -152,8 +153,6 @@ export class ShowBuilder {
         `This manifest cannot be built yet: ${report.errors[0].where} — ${report.errors[0].message}`
       );
     }
-    if (!this.generatePatch) throw new Error('The AI is not available in this build.');
-
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
     const shouldStop = typeof options.shouldStop === 'function' ? options.shouldStop : () => false;
 
@@ -164,13 +163,67 @@ export class ShowBuilder {
       let stopped = '';
 
       // --- pass 1: the looks ---------------------------------------------
-      const needed = show.looks.filter((look) => look.brief && !look.scene);
+      //
+      // Three kinds, and only the first costs anything. A look with a brief is
+      // generated. A look naming a scene the artist already has is free. A look
+      // that is words - the two ends of an episode - is drawn from its own
+      // string, which is why an episode arrives with its opening on screen
+      // without a call being spent on it.
+      const needed = show.looks.filter((look) => look.brief && !look.scene && !look.card);
+
+      // Checked here rather than at the top of build(): a show made entirely of
+      // scenes and cards has nothing to generate, and asking it for an API key
+      // it will never use is a door locked in front of an empty room.
+      if (needed.length && !this.generatePatch) {
+        throw new Error('The AI is not available in this build.');
+      }
 
       // A look that names a scene the artist already has is part of the show
       // without costing anything. It goes into the same list so pass 3 binds
       // it exactly like a generated one.
       for (const look of show.looks) {
         if (look.scene) built.push({ lookId: look.id, sceneName: look.scene, generated: false });
+      }
+
+      // The cards. A look carrying both a scene and a card keeps the scene -
+      // the artist's own picture beats ours, the same way a scene already beats
+      // a brief - so only the ones with nowhere else to go are drawn.
+      for (const look of show.looks) {
+        if (look.scene || !look.card) continue;
+
+        const patch = endCardPatch(look.card);
+        if (!patch) continue;
+
+        try {
+          const scene = await this.installScene(look.name, patch, {
+            notes: `The show's own words, drawn on black: "${look.card}"`,
+            title: look.name,
+            lookId: look.id,
+            textures: {},
+          });
+          built.push({
+            lookId: look.id,
+            sceneName: scene?.name || look.name,
+            sceneId: scene?.id || null,
+            title: look.name,
+            notes: '',
+            nodes: patch.nodes.length,
+            media: [],
+            generated: false,
+          });
+          onProgress({
+            phase: 'look', status: 'ok', index: 0, total: needed.length,
+            lookId: look.id, name: look.name,
+            message: `"${look.name}" — the show's own words, drawn rather than generated.`,
+          });
+        } catch (error) {
+          // A card that will not install is a dark end, which is what the ends
+          // were before this existed. Not worth losing the show over.
+          problems.push({
+            where: `look "${look.name}"`,
+            message: `its card could not be installed (${error?.message || error}), so it plays dark.`,
+          });
+        }
       }
 
       for (const [index, look] of needed.entries()) {
@@ -677,6 +730,10 @@ export function scenarioFromManifest(manifest, built = []) {
     bpm: show.bpm,
     beatsPerBar: show.beatsPerBar,
     barsPerPhrase: show.barsPerPhrase,
+    // A show that ends makes a set that ends. Without this the two ends are
+    // decoration: the sign-off holds its thirty seconds and then hands back to
+    // the opening, which is a loop with a preamble.
+    runsOnce: show.runsOnce,
     signals: show.signals,
     sections,
     cues,

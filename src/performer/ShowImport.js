@@ -75,14 +75,39 @@ const MIN_HOLD_SECONDS = 30;
 const NARRATION_AIR_SECONDS = 8;
 const WORDS_PER_SECOND = 2.5;
 
+/**
+ * How long the two ends of an episode hold when they say nothing, again from
+ * the exporter (transmissions/setlist.py). They are floors rather than lengths:
+ * an end that speaks holds long enough to finish, which is what stops a
+ * fifty-word opening being cut off on its last word.
+ */
+const INTRO_SECONDS = 20;
+const OUTRO_SECONDS = 30;
+
+/** The ids the exporter gives the two ends, so a cue reaches the same section. */
+const INTRO_ID = 'intro';
+const OUTRO_ID = 'outro';
+
 /** The tempo a set falls back to when no bed in it stated one. */
 const FALLBACK_BPM = 120;
 
 /** Asset kinds that are a look's footage. The rest are sound, or a preview. */
 const CLIP_KINDS = Object.freeze(['video', 'image']);
 
-/** Asset kinds worth naming in a look's notes: what plays, and is not played here. */
-const SOUND_KINDS = Object.freeze(['music', 'sfx', 'voiceover']);
+/**
+ * Asset kinds worth naming in a look's notes: what plays, and is not played here.
+ *
+ * `voiceover` is what a single combined read was called before the narration
+ * was split in two. A transmission now speaks twice, in two voices and two
+ * files, and an episode's ends speak once more in a third - so all five are
+ * listed. Missing the new names meant a look's notes quietly stopped saying
+ * where its narration was.
+ */
+const SOUND_KINDS = Object.freeze([
+  'music', 'sfx', 'voiceover',
+  'voiceover-brief', 'voiceover-vignette',
+  'voiceover-opening', 'voiceover-signoff',
+]);
 
 const obj = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : null);
 
@@ -124,6 +149,16 @@ export function manifestKind(data) {
   if (source.manifest_version !== undefined && (obj(source.media_briefs) || obj(source.performance))) {
     return 'transmission';
   }
+  // An episode names its own format version and carries at least one of the
+  // three things only an episode has: a running order, or something to say at
+  // one of its ends. Both tests, for the same reason the transmission branch
+  // makes both - a lone version field is a field any tool might write.
+  if (
+    source.episode_version !== undefined
+    && (Array.isArray(source.order) || obj(source.opening) || obj(source.signoff))
+  ) {
+    return 'episode';
+  }
   return 'unknown';
 }
 
@@ -155,6 +190,25 @@ function assetsOf(data, base) {
 }
 
 /**
+ * How many words are spoken, whichever shape the narration arrives in.
+ *
+ * It used to be one string. A transmission now speaks twice - the reported read
+ * and the scene read, in different voices - and writes `{brief, vignette}`,
+ * which `text()` turns into an empty string. That went unnoticed because
+ * nothing failed: the hold simply stopped counting the narration and collapsed
+ * to the bed's own length, and a section that cut off mid-sentence looked like
+ * a judgement call rather than a bug. Both shapes are read here, and an object
+ * counts every read in it, because the section has to hold for all of them.
+ */
+function countWords(narration) {
+  const pieces = obj(narration)
+    ? Object.values(narration).map((one) => text(one))
+    : [text(narration)];
+
+  return pieces.join(' ').split(/\s+/).filter(Boolean).length;
+}
+
+/**
  * How long a transmission holds.
  *
  * The bed's own length, never under half a minute, and always long enough for
@@ -164,9 +218,8 @@ function assetsOf(data, base) {
  */
 function holdOf(data) {
   const music = obj(data?.media_briefs)?.music || {};
-  const narration = text(obj(data?.copy)?.narration);
 
-  const words = narration ? narration.split(/\s+/).filter(Boolean).length : 0;
+  const words = countWords(obj(data?.copy)?.narration);
   const spoken = words ? Math.round(words / WORDS_PER_SECOND) + NARRATION_AIR_SECONDS : 0;
 
   return { seconds: clamp(Math.max(MIN_HOLD_SECONDS, int(music.duration_seconds, 0), spoken), 1, 3600) };
@@ -310,6 +363,86 @@ function bpmOf(projects) {
 }
 
 /**
+ * Give the cues the running time the episode was written for.
+ *
+ * Read cue by cue, a hold is only as long as that cue needs: its bed, or its
+ * narration with air after it. That is the right answer for a pool of project
+ * folders, where nobody said how long the show is. An episode did say - it
+ * records the minutes it was written for - and without this a twelve-minute
+ * episode comes back as four, which is not the show.
+ *
+ * The two ends keep their own lengths and are taken off the top first, the same
+ * split the exporter makes. A cue is only ever lengthened: whatever it needs to
+ * finish speaking is a floor, never something an even share is allowed to cut.
+ */
+function spreadOverRunningTime(looks, minutes) {
+  const target = minutes * 60;
+  if (target <= 0) return;
+
+  const cues = looks.filter((look) => !look.card);
+  if (!cues.length) return;
+
+  const ends = looks
+    .filter((look) => look.card)
+    .reduce((total, look) => total + (look.hold?.seconds || 0), 0);
+
+  const share = Math.floor(Math.max(0, target - ends) / cues.length);
+  for (const look of cues) {
+    look.hold = { seconds: clamp(Math.max(look.hold?.seconds || 0, share), 1, 3600) };
+  }
+}
+
+/**
+ * How the cues are sequenced.
+ *
+ * Folder order by default, which is alphabetical and, because every project
+ * folder is date-stamped, is the order they were built in. An episode overrides
+ * it: its running order is editorial, decided when the show was written, and
+ * the opening names the stories in that order. A folder the order has never
+ * heard of sorts to the end rather than being dropped — a cue built into an
+ * episode after its manifest was written still belongs in the show.
+ */
+function orderBy(episode) {
+  const order = list(episode?.order).map((name) => text(name)).filter(Boolean);
+  if (!order.length) return (a, b) => a.path.localeCompare(b.path);
+
+  const rank = (entry) => {
+    const folder = String(entry.path).split('/')[0];
+    const at = order.indexOf(folder);
+    return at < 0 ? order.length : at;
+  };
+  return (a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path);
+}
+
+/**
+ * One end of an episode, as a look.
+ *
+ * There is no project folder behind it and nothing to generate from: an end is
+ * the show speaking in its own voice over a dark screen. What it gets is a
+ * `card` - the words themselves - which ShowBuilder draws into a patch without
+ * spending a call, and a hold long enough to finish saying them.
+ */
+function endLook(kind, block, floor) {
+  const words = text(obj(block)?.text);
+  const spoken = words
+    ? Math.round(words.split(/\s+/).filter(Boolean).length / WORDS_PER_SECOND) + NARRATION_AIR_SECONDS
+    : 0;
+
+  return {
+    id: kind === 'intro' ? INTRO_ID : OUTRO_ID,
+    name: kind === 'intro' ? 'Opening' : 'Sign-off',
+    card: words,
+    hold: { seconds: clamp(Math.max(floor, spoken), 1, 3600) },
+    notes: words
+      ? `The show's own voice, spoken over this section. ${
+        kind === 'intro'
+          ? 'Nothing is playing under it yet.'
+          : 'Nothing follows it.'}`
+      : `${kind === 'intro' ? 'The way in' : 'The way out'} — nothing written for it.`,
+  };
+}
+
+/**
  * A show manifest for a folder of transmissions.
  *
  * @param {Array<{path: string, data: object}>} entries the manifests, as read.
@@ -320,27 +453,51 @@ function bpmOf(projects) {
  *   transmissions than one build can hold.
  */
 export function manifestFromTransmissions(entries, options = {}) {
+  // An episode brings its own running order, its own two ends and its own name.
+  // Without one this is a pool of project folders and the folder decides
+  // everything, which is what it did before episodes existed.
+  const episode = obj(options.episode);
+
   const projects = list(entries)
     .map((entry) => ({ path: String(entry?.path || ''), data: obj(entry?.data) }))
     .filter((entry) => entry.data)
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .sort(orderBy(episode));
 
   const problems = [];
-  const kept = projects.slice(0, MANIFEST_LIMITS.looks);
+
+  // The two ends take two of the twelve. They cost nothing to build - a card is
+  // drawn, not generated - but a look is a look, and quietly dropping a cue to
+  // make room for them would be the worst way to find that out.
+  const room = MANIFEST_LIMITS.looks - (episode ? 2 : 0);
+  const kept = projects.slice(0, room);
   const dropped = projects.length - kept.length;
 
   if (dropped > 0) {
     problems.push({
       where: 'the folder',
       level: 'warn',
-      message: `${projects.length} transmissions here and a show holds ${MANIFEST_LIMITS.looks}. `
-        + `The first ${MANIFEST_LIMITS.looks} are in the manifest — every look is a patch call, so the rest `
-        + 'are better as a second show than as a build that runs out halfway.',
+      message: episode
+        ? `${projects.length} transmissions in this episode and a show holds ${MANIFEST_LIMITS.looks} looks, `
+          + `two of them the opening and the sign-off. The first ${room} are in the manifest — `
+          + 'the rest are better as a second episode than as a build that runs out halfway.'
+        : `${projects.length} transmissions here and a show holds ${MANIFEST_LIMITS.looks}. `
+          + `The first ${MANIFEST_LIMITS.looks} are in the manifest — every look is a patch call, so the rest `
+          + 'are better as a second show than as a build that runs out halfway.',
     });
   }
 
   const looks = kept.map((entry, index) =>
     lookFromTransmission(entry.data, { path: entry.path, index }));
+
+  // The ends, once the cues are in: an episode opens and closes on the show's
+  // own voice, and those two sections are the reason it is an episode rather
+  // than a pool. They go through the dedup and the chaining below with
+  // everything else - they are looks, they are just looks made of words.
+  if (episode) {
+    looks.unshift(endLook('intro', episode.opening, INTRO_SECONDS));
+    looks.push(endLook('outro', episode.signoff, OUTRO_SECONDS));
+    spreadOverRunningTime(looks, int(episode.minutes, 0));
+  }
 
   // Two pieces that slug to the same id are still two pieces, and the second
   // one silently inheriting the first's scene is a mystery at showtime. Done
@@ -358,20 +515,40 @@ export function manifestFromTransmissions(entries, options = {}) {
   // the first, so a set that outlasts its material loops instead of sitting on
   // the last piece. A show of one look is left alone — a section pointing at
   // itself is a section that re-enters itself every time its hold is up.
+  //
+  // An episode is the exception and chains straight through. It has a last
+  // look on purpose — the sign-off — and handing that back to the opening
+  // would be a loop with a preamble rather than a show that ends.
   if (looks.length > 1) {
     looks.forEach((look, index) => {
-      look.next = looks[(index + 1) % looks.length].id;
+      const last = index === looks.length - 1;
+      look.next = last && episode ? '' : looks[(index + 1) % looks.length].id;
     });
   }
 
   const titles = looks.map((look) => look.name).join(' → ');
   const one = looks.length === 1;
 
+  const cues = episode ? looks.filter((look) => !look.card).length : looks.length;
+  const single = cues === 1;
+
   const manifest = normalizeManifest({
     version: MANIFEST_VERSION,
-    show: text(options.name) || (one ? looks[0].name : 'Transmissions'),
-    brief:
-      `${looks.length} transmission${one ? '' : 's'}, played in order: ${titles}. `
+    show: episode
+      ? text(episode.title) || text(options.name) || 'Episode'
+      : text(options.name) || (one ? looks[0].name : 'Transmissions'),
+    // An episode ends. Everything else keeps looping, which is what a rig in a
+    // room that is open all afternoon wants.
+    runsOnce: Boolean(episode),
+    brief: episode
+      ? `${cues} transmission${single ? '' : 's'}, played in order: ${titles}. `
+        + 'It opens and closes on the show\'s own voice over a dark screen — those two '
+        + 'sections are words, not looks, and nothing is generated for them. '
+        + 'Every look between them is abstract material — grain, fibre, fluid, frost, '
+        + 'interference, caustics, dust in a beam — carrying the atmosphere of its piece '
+        + 'and nothing of its subject: no figures, no objects, no architecture, no text. '
+        + 'Dark ground, clear contrast, built to hold when it is projected large.'
+      : `${looks.length} transmission${one ? '' : 's'}, played in order: ${titles}. `
       + 'Every look is abstract material — grain, fibre, fluid, frost, interference, caustics, '
       + 'dust in a beam — carrying the atmosphere of its piece and nothing of its subject: no '
       + 'figures, no objects, no architecture, no text. Dark ground, clear contrast, built to '
@@ -432,6 +609,7 @@ export async function readFolderShow(folder) {
   if (!candidates.length) return none;
 
   const shows = [];
+  const episodes = [];
   const transmissions = [];
   const foreign = [];
 
@@ -461,6 +639,7 @@ export async function readFolderShow(folder) {
     const kind = manifestKind(data);
     if (kind === 'show') shows.push({ path: candidate.path, raw });
     else if (kind === 'transmission') transmissions.push({ path: candidate.path, data });
+    else if (kind === 'episode') episodes.push({ path: candidate.path, data });
     else foreign.push(candidate.path);
   }
 
@@ -486,6 +665,43 @@ export async function readFolderShow(folder) {
       manifest: null,
       path: shows[0].path,
       projects: [],
+      problems,
+    };
+  }
+
+  // An episode: a running order, two ends of its own, and the cue folders
+  // beside it. Above the transmissions branch because those same cue folders
+  // would otherwise be read as a pool - in folder order, with nothing at either
+  // end and a set that loops rather than ends.
+  if (episodes.length) {
+    const episode = episodes[0].data;
+    const built = manifestFromTransmissions(transmissions, {
+      name: folder?.name,
+      episode,
+    });
+    problems.push(...built.problems);
+
+    if (!transmissions.length) {
+      problems.push({
+        where: episodes[0].path,
+        level: 'warn',
+        message: 'an episode with no transmissions in it, so the show is its opening and its '
+          + 'sign-off and nothing in between. The cue folders belong beside it.',
+      });
+    }
+
+    return {
+      kind: 'episode',
+      text: `${JSON.stringify(built.manifest, null, 2)}\n`,
+      manifest: built.manifest,
+      path: episodes[0].path,
+      projects: built.projects,
+      episode: {
+        number: int(episode.number, 0),
+        title: text(episode.title),
+        minutes: int(episode.minutes, 0),
+        cues: built.projects.length,
+      },
       problems,
     };
   }

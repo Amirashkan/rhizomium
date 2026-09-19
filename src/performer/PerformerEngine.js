@@ -339,6 +339,17 @@ export class PerformerEngine {
 
     // Wrapping rather than stopping: a VJ set loops, and a performance that
     // falls off the end of its own scenario is a black screen.
+    //
+    // Unless the set says it runs once. Then the last section is the end of the
+    // show and there is nothing after it - an episode that handed its sign-off
+    // back to its opening would never stop, which is the whole reason the two
+    // ends exist. -1 is already what both callers read as "stay where you are":
+    // `nextSection()` returns false and the automatic advance finds no section
+    // to move to, so the last look holds and the set comes to rest on it. A
+    // jump by name still goes anywhere, because that is somebody deciding.
+    const last = this.sectionIndex >= this.sections.length - 1;
+    if (this.scenario?.runsOnce && last) return -1;
+
     return this.sections.length ? (this.sectionIndex + 1) % this.sections.length : -1;
   }
 

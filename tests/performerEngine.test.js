@@ -638,3 +638,67 @@ describe('PerformerEngine', () => {
     });
   });
 });
+
+describe('a set that ends', () => {
+  // A VJ set loops, and the engine is right to wrap: a room open all afternoon
+  // has no last section, and a performance that falls off the end of its own
+  // scenario is a black screen. An episode is the exception — it opens on a
+  // spoken introduction and closes on a sign-off, and a sign-off that hands
+  // back to the introduction is a loop with a preamble rather than a show.
+
+  const episode = (runsOnce) => ({
+    name: 'Ep 1',
+    runsOnce,
+    sections: [
+      { id: 'intro', name: 'Opening', enter: 'manual', hold: { seconds: 2 } },
+      { id: 'one', name: 'One', hold: { seconds: 2 } },
+      { id: 'outro', name: 'Sign-off', hold: { seconds: 2 } },
+    ],
+  });
+
+  it('comes to rest on its last section instead of returning to the top', () => {
+    const { engine, play } = makeEngine(episode(true));
+    engine.start();
+
+    play(20);
+
+    // Long past the point where three two-second sections would have wrapped
+    // twice over. The set holds where it ended.
+    expect(engine.currentSection.id).toBe('outro');
+  });
+
+  it('still wraps when the set never said it ends', () => {
+    const { engine } = makeEngine(episode(false));
+    engine.start();
+    engine.jumpToSection('outro');
+
+    // Sitting on the last section of an ordinary set, there is always somewhere
+    // to go: round to the top. Nothing has changed for every show that came
+    // before this one.
+    expect(engine.nextSection('manual')).toBe(true);
+  });
+
+  it('will not advance past the end by hand either', () => {
+    const { engine, play } = makeEngine(episode(true));
+    engine.start();
+    play(20);
+
+    // The show is over. `next` has nowhere to go, and says so rather than
+    // quietly starting it again.
+    expect(engine.nextSection('manual')).toBe(false);
+    expect(engine.currentSection.id).toBe('outro');
+  });
+
+  it('still goes anywhere it is sent', () => {
+    const { engine, play } = makeEngine(episode(true));
+    engine.start();
+    play(20);
+    expect(engine.currentSection.id).toBe('outro');
+
+    // Ending is not being stuck: a jump by name is somebody deciding, and the
+    // performer can always put the opening back up.
+    expect(engine.jumpToSection('intro')).toBe(true);
+    play(2);
+    expect(engine.currentSection.id).toBe('intro');
+  });
+});

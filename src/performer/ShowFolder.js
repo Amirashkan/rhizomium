@@ -50,8 +50,19 @@ const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|bmp|avif|ktx2?|hdr)$/i;
 const VIDEO_EXTENSIONS = /\.(mp4|m4v|webm|ogv|mov)$/i;
 const AUDIO_EXTENSIONS = /\.(wav|mp3|flac|aiff?|m4a|opus)$/i;
 
-/** Files that are a manifest, most specific first — see pickManifest(). */
-const MANIFEST_PATTERNS = [/\.rzshow\.json$/i, /^show\.json$/i, /^manifest\.json$/i];
+/**
+ * Files that are a manifest, most specific first — see pickManifest().
+ *
+ * `episode.json` is last on purpose. An episode folder written by the other
+ * tool holds both it and a `.rzshow.json`, and the `.rzshow.json` is the better
+ * document: its look briefs are written from each cue's own material, and its
+ * holds are counted against the running time the episode was written for.
+ * Reading the episode is the fallback for a folder that has no show manifest in
+ * it, not a replacement for one.
+ */
+const MANIFEST_PATTERNS = [
+  /\.rzshow\.json$/i, /^show\.json$/i, /^manifest\.json$/i, /^episode\.json$/i,
+];
 
 /** Directories never walked into: build output and version control, not media. */
 const SKIPPED_DIRECTORIES = new Set([

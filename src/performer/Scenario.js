@@ -443,6 +443,11 @@ export function normalizeScenario(raw) {
     // A phrase is how many bars the performer treats as one musical unit. It
     // is what 'phrase' quantisation lands on, and what the director plans in.
     barsPerPhrase: clamp(Math.trunc(num(input.barsPerPhrase, 8)), 1, 64),
+    // Whether the set stops after its last section rather than wrapping to the
+    // first. Off by default: a VJ set loops, and a room open all afternoon has
+    // no last section. A show with an opening and a sign-off is the exception,
+    // and says so - see PerformerEngine.resolveNextIndex().
+    runsOnce: input.runsOnce === true || input.loop === false,
     signals: dedupedSignals,
     sections,
     cues,
