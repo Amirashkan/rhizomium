@@ -14,6 +14,7 @@
 
 import { entitlements, GrantError } from './entitlements.js';
 import { isTauri } from '../utils/isTauri.js';
+import { isDevServerOrigin } from '../utils/galleryEndpoint.js';
 
 /**
  * The editor's own deployment, which is where the AI backend lives.
@@ -28,15 +29,31 @@ export const STUDIO_ORIGIN = 'https://studio.tenderworld.org';
  * On the web the backend ships with the page, so a relative path is the right
  * answer and follows preview deployments and local servers without being told.
  *
- * The desktop app is the exception. Its pages are bundled files served from
- * `tauri://localhost` (`http://tauri.localhost` on Windows), where there is no
- * `/api` at all — the relative path resolved to a missing asset, which is why
+ * The packaged desktop app is the exception. Its pages are bundled files served
+ * from `tauri://localhost` (`http://tauri.localhost` on Windows), where there is
+ * no `/api` at all — the relative path resolved to a missing asset, which is why
  * every AI feature failed in the desktop build the moment its grant succeeded.
  * There the deployment has to be named. `src-tauri/tauri.conf.json` lists this
  * origin in `connect-src`; the two have to move together.
+ *
+ * `tauri dev` is NOT that case, and testing isTauri() alone got it wrong. The
+ * dev window loads `devUrl` — the Vite dev server on DEV_SERVER_PORT — so it is
+ * an ordinary same-origin page with a working `/api` proxy in front of it, and
+ * naming the deployment there sends every call to production instead. Which is
+ * the whole point of running it locally: `scripts/local-ai-dev-server.mjs`
+ * exists to serve `/api/ai/run` from this checkout, and `API_PROXY` points Vite
+ * at it. Neither can be reached through an absolute URL to studio, so a feature
+ * this checkout serves and production does not answered
+ * "<feature> is not available in this editor yet" no matter what was running
+ * locally.
+ *
+ * So the origin decides, not the runtime: a page served by the dev server uses
+ * the relative path whether or not it is inside Tauri.
  */
-function aiEndpoint() {
-  return isTauri() ? `${STUDIO_ORIGIN}/api/ai/run` : '/api/ai/run';
+export function aiEndpoint() {
+  const origin = typeof window !== 'undefined' ? window.location?.origin : undefined;
+  if (isTauri() && !isDevServerOrigin(origin)) return `${STUDIO_ORIGIN}/api/ai/run`;
+  return '/api/ai/run';
 }
 
 /**

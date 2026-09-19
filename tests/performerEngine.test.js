@@ -7,6 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import { PerformerEngine, STATE } from '../src/performer/PerformerEngine.js';
 import { PerformerClock } from '../src/performer/PerformerClock.js';
+import { audioTapsWanted, setAudioTapsWanted } from '../src/audio/audioAnalysisTaps.js';
+import { EXAMPLE_SCENARIO } from '../src/performer/Scenario.js';
 
 /** Records every action instead of performing it. */
 class FakeExecutor {
@@ -15,6 +17,13 @@ class FakeExecutor {
     this.performed = [];
     this.drivesCleared = 0;
     this.refuseNext = null;
+    this.armed = [];
+    this.synced = [];
+    this.released = 0;
+    this.soundStopped = [];
+    this.soundPaused = 0;
+    this.soundResumed = 0;
+    this.graph = { nodes: [{ id: 'n0', kind: 'Blur', params: { amount: 0.5 } }] };
   }
   execute(action) {
     if (this.refuseNext) {
@@ -27,6 +36,14 @@ class FakeExecutor {
   }
   tick() {}
   clearDrives() { this.drivesCleared++; }
+  // The two things the performer drives that are not the graph: the editor's
+  // timeline, and the bed a look came with. Recorded rather than done.
+  armTimeline(seconds) { this.armed.push(seconds); return { ok: true }; }
+  syncTimeline(seconds) { this.synced.push(seconds); return true; }
+  releaseTimeline() { this.released++; return true; }
+  stopSound(why) { this.soundStopped.push(why || ''); return true; }
+  pauseSound() { this.soundPaused++; return true; }
+  resumeSound() { this.soundResumed++; return true; }
   status() { return { drives: [], ramps: [], blackedOut: false, transition: {}, sceneChangeInFlight: false }; }
   /** Every action of a type, for readable assertions. */
   ofType(type) { return this.performed.filter((a) => a.type === type); }
@@ -258,6 +275,118 @@ describe('PerformerEngine', () => {
       play(BAR_SECONDS * 2);
       expect(engine.currentSection.name).toBe('Two');
       expect(executor.drivesCleared).toBeGreaterThan(cleared);
+    });
+  });
+
+  // A cue waits to be told and a condition waits for the room. Neither is
+  // guaranteed to arrive, and when neither does the set holds one frame while
+  // reporting a healthy running performance. `enter.by` is the ceiling that
+  // says how long it may wait.
+  describe('enter.by — the deadline on a section that would otherwise wait', () => {
+    const twoSections = (enter) => ({
+      rules: { minSectionBars: 0 },
+      signals: [{ name: 'energy', source: 'manual', default: 0 }],
+      sections: [
+        { name: 'One', transition: { quantize: 'off' }, next: 'two' },
+        { id: 'two', name: 'Two', enter, transition: { quantize: 'off' } },
+      ],
+    });
+
+    it('takes a section whose cue is never fired', () => {
+      const { engine, play } = makeEngine(twoSections({ cue: 'drop', by: { bars: 4 } }));
+      engine.start();
+      play(BAR_SECONDS * 3);
+      expect(engine.currentSection.name).toBe('One');
+      play(BAR_SECONDS * 2);
+      expect(engine.currentSection.name).toBe('Two');
+    });
+
+    it('takes a section whose condition is never true', () => {
+      const { engine, play } = makeEngine(twoSections({ when: 'energy > 0.9', by: { bars: 4 } }));
+      engine.start();
+      play(BAR_SECONDS * 5);
+      expect(engine.currentSection.name).toBe('Two');
+    });
+
+    it('counts a deadline written in seconds', () => {
+      const { engine, play } = makeEngine(twoSections({ cue: 'drop', by: { seconds: 5 } }));
+      engine.start();
+      play(3);
+      expect(engine.currentSection.name).toBe('One');
+      play(3);
+      expect(engine.currentSection.name).toBe('Two');
+    });
+
+    // The deadline is a floor under the set, not the plan for it: whoever is
+    // actually playing still decides, and still decides EARLY.
+    it('does not stop the cue taking it first', () => {
+      const { engine, play } = makeEngine(twoSections({ cue: 'drop', by: { bars: 16 } }));
+      engine.start();
+      play(BAR_SECONDS);
+      engine.fireCue('drop');
+      play(BAR_SECONDS);
+      expect(engine.currentSection.name).toBe('Two');
+      expect(engine.sectionBars).toBeLessThan(16);
+    });
+
+    it('does not stop the condition taking it first', () => {
+      const { engine, play } = makeEngine(twoSections({ when: 'energy > 0.5', by: { bars: 16 } }));
+      engine.start();
+      play(BAR_SECONDS);
+      engine.signals.push('energy', 1);
+      play(BAR_SECONDS);
+      expect(engine.currentSection.name).toBe('Two');
+      expect(engine.sectionBars).toBeLessThan(16);
+    });
+
+    it('leaves a section with no deadline waiting, which is what a cue is for', () => {
+      const { engine, play } = makeEngine(twoSections({ cue: 'drop' }));
+      engine.start();
+      play(BAR_SECONDS * 32);
+      expect(engine.currentSection.name).toBe('One');
+    });
+
+    // The hold is the floor and the deadline is the ceiling; between them is
+    // where the condition gets to be the thing that decides.
+    it('never cuts a section shorter than its own hold', () => {
+      const { engine, play } = makeEngine({
+        rules: { minSectionBars: 0 },
+        sections: [
+          { name: 'One', hold: { bars: 8 }, transition: { quantize: 'off' }, next: 'two' },
+          { id: 'two', name: 'Two', enter: { cue: 'x', by: { bars: 2 } }, transition: { quantize: 'off' } },
+        ],
+      });
+      engine.start();
+      play(BAR_SECONDS * 6);
+      expect(engine.currentSection.name).toBe('One');
+      play(BAR_SECONDS * 4);
+      expect(engine.currentSection.name).toBe('Two');
+    });
+
+    // The regression this whole mechanism exists for. Example -> Load -> Start,
+    // at a desk, with no DAW patched in and no OSC bridge running: the set used
+    // to show intro-scene and hold it for as long as anyone left it, while the
+    // panel reported a healthy running performance.
+    it('plays the shipped example unattended, which it did not', () => {
+      const { engine, executor, play } = makeEngine(EXAMPLE_SCENARIO);
+      engine.start();
+      play(60 * 10);
+
+      const shown = executor.performed
+        .filter((a) => a.type === 'scene' || a.type === 'preset')
+        .map((a) => a.scene || a.preset);
+
+      expect(new Set(shown).size).toBeGreaterThanOrEqual(3);
+      expect(shown.slice(0, 4)).toEqual(['intro-scene', 'build-scene', 'drop-scene', 'soft-preset']);
+    });
+
+    it('says in the log why the set moved on by itself, once', () => {
+      const { engine, play } = makeEngine(twoSections({ cue: 'drop', by: { bars: 2 } }));
+      engine.start();
+      play(BAR_SECONDS * 4);
+      const said = engine.log.filter((entry) => /did not arrive/.test(entry.message));
+      expect(said).toHaveLength(1);
+      expect(said[0].message).toMatch(/cue "drop"/);
     });
   });
 
@@ -617,6 +746,141 @@ describe('PerformerEngine', () => {
     });
   });
 
+  describe('the timeline and the sound', () => {
+    const SET = {
+      bpm: 120,
+      sections: [
+        { id: 'a', name: 'A', hold: { seconds: 40 }, onEnter: [{ type: 'audio', clip: 'music.mp3' }] },
+        { id: 'b', name: 'B', hold: { bars: 8 } },
+      ],
+    };
+
+    it('sets the timeline to the section it has just entered', () => {
+      const { engine, executor } = makeEngine(SET);
+      engine.start();
+      expect(executor.armed).toEqual([40]);
+    });
+
+    it('counts a hold in bars against the tempo the set is being played at', () => {
+      // A musician who has pulled the tempo down has made every bar longer,
+      // and a transport still measuring the old one runs out early every time.
+      const { engine, executor, clock } = makeEngine(SET);
+      clock.setBPM(60);
+      engine.start();
+      engine.jumpToSection('b');
+      engine.tick();
+      // 8 bars of 4 beats at 60 BPM is 32 seconds.
+      expect(executor.armed[executor.armed.length - 1]).toBe(32);
+    });
+
+    it('leaves a section with no length of its own to whatever the scene brought', () => {
+      const { engine, executor } = makeEngine({ sections: [{ id: 'a', name: 'A' }] });
+      engine.start();
+      expect(executor.armed).toEqual([0]);
+    });
+
+    it('moves the playhead with the section, every frame', () => {
+      const { engine, executor, play } = makeEngine(SET);
+      engine.start();
+      play(2);
+
+      expect(executor.synced.length).toBeGreaterThan(100);
+      expect(executor.synced[executor.synced.length - 1]).toBeCloseTo(2, 1);
+    });
+
+    it('starts the section\'s own bed on the way in', () => {
+      const { engine, executor } = makeEngine(SET);
+      engine.start();
+      expect(executor.ofType('audio')[0].clip).toBe('music.mp3');
+    });
+
+    it('gives the timeline back and stops the bed when the set stops', () => {
+      const { engine, executor, play } = makeEngine(SET);
+      engine.start();
+      play(1);
+      engine.stop();
+
+      expect(executor.released).toBe(1);
+      expect(executor.soundStopped).toEqual(['the set stopped']);
+      // And the playhead stops moving with it: nothing ticks once stopped.
+      const after = executor.synced.length;
+      play(1);
+      expect(executor.synced.length).toBe(after);
+    });
+
+    it('holds the bed where it is while the set is paused, and picks it up there', () => {
+      const { engine, executor, play } = makeEngine(SET);
+      engine.start();
+      play(1);
+      engine.pause();
+      expect(executor.soundPaused).toBe(1);
+
+      engine.start();
+      expect(executor.soundResumed).toBe(1);
+    });
+
+    it('stops the bed on panic, because the bed is coming out of this machine too', () => {
+      const { engine, executor } = makeEngine(SET);
+      engine.start();
+      engine.panic();
+      expect(executor.soundStopped).toEqual(['panic']);
+    });
+  });
+
+  describe('the analysis, for a set that listens to it', () => {
+    const withAudio = {
+      signals: [{ name: 'level', source: 'audio', channel: 'level' }],
+      sections: [{ id: 'a', name: 'A' }],
+    };
+
+    it('asks for the taps while a set whose signals are audio channels runs', () => {
+      // Computing them costs an engine tick a frame, so nothing does it unless
+      // something is reading them. A set declaring `level` is reading them —
+      // and used to read zero on it unless the director happened to be on.
+      const { engine } = makeEngine(withAudio);
+      expect(audioTapsWanted()).toBe(false);
+
+      engine.start();
+      expect(audioTapsWanted()).toBe(true);
+
+      engine.stop();
+      expect(audioTapsWanted()).toBe(false);
+    });
+
+    it('does not ask for a set that listens to nothing', () => {
+      const { engine } = makeEngine({
+        signals: [{ name: 'energy', source: 'osc', address: '/x' }],
+        sections: [{ id: 'a', name: 'A' }],
+      });
+      engine.start();
+      expect(audioTapsWanted()).toBe(false);
+      engine.stop();
+    });
+
+    it('follows a scenario edited mid-rehearsal', () => {
+      const { engine } = makeEngine(withAudio);
+      engine.start();
+      expect(audioTapsWanted()).toBe(true);
+
+      engine.loadScenario({ sections: [{ id: 'a', name: 'A' }] });
+      expect(audioTapsWanted()).toBe(false);
+      engine.stop();
+    });
+
+    it('never switches the taps off under the Audio panel', () => {
+      // One flag, two askers. With a boolean, whichever of them stopped last
+      // won — and a set stopping would leave an open panel showing dead meters.
+      const { engine } = makeEngine(withAudio);
+      setAudioTapsWanted(true, 'panel');
+      engine.start();
+      engine.stop();
+      expect(audioTapsWanted()).toBe(true);
+
+      setAudioTapsWanted(false, 'panel');
+      expect(audioTapsWanted()).toBe(false);
+    });
+  });
+
   describe('listening', () => {
     it('does not ask the analysis to listen until the director is on', () => {
       const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] });
@@ -635,6 +899,145 @@ describe('PerformerEngine', () => {
       engine.setDirectorEnabled(false);
       expect(director.enabled).toBe(false);
       expect(engine.listening()).toBeNull();
+    });
+
+    // Two switches have to agree, and only one of them is on the panel. A show
+    // built from a manifest ships with the scenario's rule off, so the artist
+    // turns the director on, watches a set go by with nothing from it, and has
+    // no way from the panel to see which switch is holding it.
+    it('says so when the scenario\'s own rule is what is holding the director off', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
+      const { engine } = makeEngine(
+        { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: false } } },
+        { director }
+      );
+
+      engine.setDirectorEnabled(true);
+      expect(engine.log.some((entry) => /rules\.director\.enabled off/.test(entry.message))).toBe(true);
+    });
+
+    it('stays quiet when both switches agree', () => {
+      const director = { enabled: false, setEnabled(v) { this.enabled = v; return v; }, setListener() {}, status: () => ({}) };
+      const { engine } = makeEngine(
+        { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: true } } },
+        { director }
+      );
+
+      engine.setDirectorEnabled(true);
+      expect(engine.log.some((entry) => /rules\.director\.enabled off/.test(entry.message))).toBe(false);
+    });
+  });
+
+  describe('what the director is shown', () => {
+    it('includes the patch, so a plan can name a node that exists', () => {
+      const { engine } = makeEngine({ sections: [{ id: 'a', name: 'A' }] });
+      expect(engine.describeState().patch).toEqual({
+        nodes: [{ name: 'Blur', kind: 'Blur', named: false, params: [{ name: 'amount', at: 0.5 }] }],
+        total: 1,
+        ambiguous: [],
+      });
+    });
+  });
+
+  // The show's own direction, handed over as the set moves.
+  //
+  // Resolving WHICH line is live is the engine's job because it is the only
+  // thing that knows where the set is (PreDirections.js has the rule and its
+  // own tests); what these pin down is the handover — that it happens as the
+  // set moves, that it is said in the log once rather than per frame, and that
+  // a set carrying none hands over nothing rather than last night's line.
+  describe('pre-directions', () => {
+    /** A director that only records what it is told. */
+    const fake = () => ({
+      enabled: true,
+      preDirection: '',
+      offered: 0,
+      setEnabled(v) { this.enabled = v; return v; },
+      setListener() {},
+      setPreDirection(text) {
+        if (text === this.preDirection) return false;
+        this.preDirection = text;
+        return true;
+      },
+      offer() { this.offered++; },
+      take() { return null; },
+      discard() {},
+      status: () => ({}),
+    });
+
+    const SET = {
+      sections: [
+        { id: 'intro', name: 'Intro', hold: { bars: 4 }, enter: { bars: 0 } },
+        { id: 'drop', name: 'Drop', hold: { bars: 8 }, enter: { bars: 4 } },
+      ],
+      directions: [
+        { text: 'patient and cold' },
+        { at: { section: 'drop' }, text: 'let it go' },
+      ],
+      rules: { director: { enabled: true }, minSectionBars: 0 },
+    };
+
+    it('hands over the standing line, then the section\'s own', () => {
+      const director = fake();
+      const { engine, play } = makeEngine(SET, { director });
+      engine.start();
+
+      play(0.5);
+      expect(director.preDirection).toBe('patient and cold');
+
+      // Into the drop. Four bars at 120bpm is 8 seconds, and the change is
+      // quantised to the next bar line after that, so give it a bar's slack.
+      play(12);
+      expect(engine.currentSection.id).toBe('drop');
+      expect(director.preDirection).toBe('let it go');
+    });
+
+    it('writes each new direction to the log once, not once a frame', () => {
+      const director = fake();
+      const { engine, play } = makeEngine(SET, { director });
+      engine.start();
+      play(2);
+
+      const lines = engine.log.filter((entry) => /^Direction: patient and cold$/.test(entry.message));
+      expect(lines).toHaveLength(1);
+      // …and the frames really did go by, so this is not a loop that never ran.
+      expect(director.offered).toBeGreaterThan(60);
+    });
+
+    it('hands over nothing when the set carries no direction', () => {
+      const director = fake();
+      const { engine, play } = makeEngine(
+        { sections: [{ id: 'a', name: 'A' }], rules: { director: { enabled: true } } },
+        { director }
+      );
+      engine.start();
+      play(1);
+      expect(director.preDirection).toBe('');
+    });
+
+    it('takes the direction back when the set stops', () => {
+      // Nothing consults the director while stopped, so a line left in place
+      // would sit in the panel reading as the direction for a set that is not
+      // running.
+      const director = fake();
+      const { engine, play } = makeEngine(SET, { director });
+      engine.start();
+      play(0.5);
+      expect(director.preDirection).toBe('patient and cold');
+
+      engine.stop();
+      expect(director.preDirection).toBe('');
+    });
+
+    it('does not resolve a direction for a set whose rules have the director off', () => {
+      const director = fake();
+      const { engine, play } = makeEngine(
+        { ...SET, rules: { director: { enabled: false } } },
+        { director }
+      );
+      engine.start();
+      play(1);
+      expect(director.preDirection).toBe('');
     });
   });
 });

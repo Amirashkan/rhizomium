@@ -16,12 +16,18 @@
  *       media/
  *         fog-loop.mp4            the footage the show is made of
  *         grain.png
- *         set.wav                 the track — listed, not loaded; see below
+ *         set.wav                 the bed a look can play under itself
  *
  * Pick the folder and both halves arrive together: the manifest fills the Show
  * tab, and every clip beside it becomes something a look can name. A look that
  * names one is built with the clip already on a texture node, so the model is
  * composing *with* the footage instead of being told it cannot have any.
+ *
+ * The sound in the folder is named the same way and resolved by the same
+ * matching, as a look's `sound` rather than its `media`: one file, which the
+ * performer plays into the analysis while that look is up. The live input is
+ * still what a musician plays into; a bed is for the set that arrived with its
+ * own, and the two cannot run at once — see ActionExecutor.doAudio().
  *
  * ## What this file is, and is not
  *
@@ -233,10 +239,10 @@ export function indexShowFolder(entries, options = {}) {
 
   const audio = media.filter((item) => item.kind === 'audio').length;
   if (audio) {
-    // Worth one line rather than silence. The track being in the folder is
-    // correct — it is the show — but nothing in the editor plays a file: the
-    // performer listens to what is coming out of the room, which is the
-    // musician. See src/audio/README.md.
+    // Worth one line rather than silence: what happens to these files depends
+    // on whether a look claims one. A look with `"sound": "set.wav"` plays it
+    // while that look is up and the analysis hears it; a folder nothing claims
+    // is a folder whose sound is the musician's to play into the room.
     //
     // A note rather than a warning: nothing is wrong, and a line that reads
     // like a fault in a list of faults is a line that costs the artist a
@@ -244,7 +250,7 @@ export function indexShowFolder(entries, options = {}) {
     problems.push({
       where: 'the folder',
       level: 'note',
-      message: `${audio} audio file${audio === 1 ? '' : 's'} listed but not used: the performer listens to your live input, not to a file. Play the track into the editor and it will hear it.`,
+      message: `${audio} audio file${audio === 1 ? '' : 's'} here. Add "sound": "${media.find((item) => item.kind === 'audio').name}" to a look and the performer plays it under that look; otherwise it listens to your live input and these are yours to play into the room.`,
     });
   }
 
@@ -330,6 +336,27 @@ export function resolveLookMedia(folder, look) {
   const dropped = Math.max(0, items.length - MEDIA_LIMITS.perLook);
 
   return { items: items.slice(0, MEDIA_LIMITS.perLook), missing, dropped };
+}
+
+/**
+ * The one sound a look plays under itself.
+ *
+ * The same loose matching as the clips, against the audio in the folder rather
+ * than the footage, and the first match rather than all of them: there is one
+ * analysis engine and one element behind it, so a look has one bed or none.
+ *
+ * @param {object} folder the index, from indexShowFolder()
+ * @param {object|string} look a look, or the reference straight off one
+ * @returns {object|null} the media item, or null when nothing answers to it
+ */
+export function resolveLookSound(folder, look) {
+  const reference = String(
+    (typeof look === 'string' ? look : look?.sound) || ''
+  ).trim();
+  if (!reference) return null;
+
+  const all = Array.isArray(folder?.media) ? folder.media.filter((item) => item.kind === 'audio') : [];
+  return matchMedia(all, reference)[0] || null;
 }
 
 /** Everything in `media` that one reference names. */

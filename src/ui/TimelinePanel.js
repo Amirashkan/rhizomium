@@ -1,4 +1,5 @@
 import { setIcon } from './iconSprite.js';
+import { getPerfProbe } from '../utils/PerfProbe.js';
 import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
 /**
  * TimelinePanel.js
@@ -698,6 +699,11 @@ export class TimelinePanel {
   render() {
     if (!this.visible) return;
 
+    // The performer moves the playhead from the frame loop, so this repaints
+    // once a frame for the length of a set. Attributed so that shows up.
+    const probe = getPerfProbe();
+    const probeToken = probe.begin('timelinePanelRender');
+
     const width = this.canvas.width / (window.devicePixelRatio || 1);
     const height = this.canvas.height / (window.devicePixelRatio || 1);
 
@@ -715,6 +721,8 @@ export class TimelinePanel {
 
     // Draw playhead
     this.drawPlayhead();
+
+    probe.end(probeToken);
   }
 
   /**
@@ -913,8 +921,25 @@ export class TimelinePanel {
    * Update timeline panel (called each frame)
    */
   update() {
-    if (this.visible && this.timelineManager.isPlaying()) {
-      this.render();
+    if (!this.visible) return;
+
+    // Playing is not the only thing that moves a playhead any more: the AI
+    // performer drives the time itself, frame by frame, while a set runs
+    // (ActionExecutor.syncTimeline). Redrawing on a changed time rather than
+    // on the transport's own flag is what makes that visible — and it also
+    // stops a stopped timeline repainting sixty times a second for nothing.
+    const time = this.timelineManager.getCurrentTime();
+    const enabled = this.timelineManager.isEnabled();
+    if (time === this._drawnTime && enabled === this._drawnEnabled) return;
+
+    this._drawnTime = time;
+    // The switch can be thrown from outside this panel, and a button still
+    // reading "Enable Timeline" over a running timeline is a lie.
+    if (enabled !== this._drawnEnabled) {
+      this._drawnEnabled = enabled;
+      this.enableToggle.textContent = enabled ? 'Disable Timeline' : 'Enable Timeline';
+      this.enableToggle.style.opacity = enabled ? '1' : '0.7';
     }
+    this.render();
   }
 }

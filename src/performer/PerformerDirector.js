@@ -40,7 +40,7 @@
 import { runFeature, AIRequestError, GrantError } from '../ai/aiClient.js';
 import { DirectorCadence } from './DirectorCadence.js';
 import { normalizeScenario } from './Scenario.js';
-import { normalizeAction } from './actions.js';
+import { normalizeAction, validateAction } from './actions.js';
 import { ShowBuilder } from './ShowBuilder.js';
 import { normalizeManifest, validateManifest } from './ShowManifest.js';
 
@@ -139,6 +139,23 @@ export class PerformerDirector {
     /** Free text from the artist: "keep it dark", "more strobe". Sent with every ask. */
     this.steer = '';
 
+    /**
+     * The line the SHOW has for this moment, as opposed to the one the artist
+     * just typed.
+     *
+     * Written at the desk and anchored to a point on the timeline
+     * (PreDirections.js); the engine hands over whichever one is live each
+     * time it offers a state. It exists because the steer above only works
+     * while somebody is standing at the laptop — hand the whole set to the
+     * model and that box holds whatever was in it when the doors opened, for
+     * forty minutes.
+     *
+     * Both travel, and the prompt keeps them apart: one was decided hours ago
+     * and one is a person in the room changing their mind, and collapsing the
+     * two would make the plan argue with the artist in a single sentence.
+     */
+    this.preDirection = '';
+
     /** Minutes of performance charged for so far, for the panel's readout. */
     this.minutesSpent = 0;
 
@@ -191,6 +208,24 @@ export class PerformerDirector {
   /** A line of direction from the artist, carried into the next ask. */
   setSteer(text) {
     this.steer = typeof text === 'string' ? text.slice(0, 500) : '';
+  }
+
+  /**
+   * The show's own direction for where the set is now.
+   *
+   * Called by the engine every time it offers a state, so it has to be a plain
+   * assignment — resolving WHICH line is live is the engine's job, because it
+   * is the only thing that knows where the set is. Returns whether it changed,
+   * which is what lets the engine log a new direction once rather than every
+   * frame.
+   *
+   * @returns {boolean} true if this is a different line from the last one
+   */
+  setPreDirection(text) {
+    const next = typeof text === 'string' ? text.slice(0, 500) : '';
+    if (next === this.preDirection) return false;
+    this.preDirection = next;
+    return true;
   }
 
   // --- the live loop -----------------------------------------------------
@@ -253,6 +288,14 @@ export class PerformerDirector {
    */
   onSectionChange(state) {
     if (!this.enabled) return;
+    // The same gate consultDirector() applies, and for the same reason.
+    // Without it this is a second door into ask() that the scenario's own
+    // switch does not cover: a set with the director turned off in its rules
+    // would still spend a call at every section boundary, and — because the
+    // engine is not consulting a director its rules have off — nothing would
+    // ever collect the answer or time the request out. It surfaces much later,
+    // as a plan dropped for arriving half a minute after it was asked for.
+    if (!state?.scenario?.rules?.director?.enabled) return;
     if (this._inFlight || this.now() < this._nextAllowedAt) return;
     this.ask(state, 'section');
   }
@@ -282,6 +325,7 @@ export class PerformerDirector {
     const request = this.run(LIVE_FEATURE, {
       state: compactState(state, heard),
       steer: this.steer,
+      preDirection: this.preDirection,
       freedom: state.scenario.rules.director.freedom,
     }, { units })
       .then(({ result }) => {
@@ -293,7 +337,7 @@ export class PerformerDirector {
         this.lastError = null;
         this._spend(units);
 
-        const plan = shapePlan(result, askedAtBeats, askedAtSeconds);
+        const plan = shapePlan(result, askedAtBeats, askedAtSeconds, this.log);
         if (!plan) return;
 
         this.lastNote = plan.note || '';
@@ -398,6 +442,14 @@ export class PerformerDirector {
         id: String(scene.id),
         name: String(scene.name),
         notes: String(scene.notes || ''),
+        // What a drive can reach inside THIS scene, when the caller knows —
+        // a show build does, because it just made the patch. Dropping it here
+        // is what left the backend rendering "the parameters of the patch that
+        // is open right now" as the only list a scenario was ever given, and
+        // during a build the open patch is nobody's section.
+        ...(scene.parameters?.length
+          ? { parameters: scene.parameters.slice(0, 24).map(String) }
+          : {}),
       })),
       presets: (context.presets || []).slice(0, 40).map((preset) => ({
         id: String(preset.id),
@@ -429,8 +481,9 @@ export class PerformerDirector {
    * is empty.
    *
    * @param {string} prompt what to build, from ShowManifest.lookPrompt()
-   * @param {object} [context] { show, look, media } — the rest of the set, and
-   *   the clips already loaded for this look
+   * @param {object} [context] { show, look, media, secondsUp, bar } — the rest
+   *   of the set, the clips already loaded for this look, and the two clocks
+   *   the look is built against
    * @returns {Promise<{patch: object, title: string, notes: string}>}
    */
   async generatePatch(prompt, context = {}) {
@@ -449,6 +502,12 @@ export class PerformerDirector {
             intensity: context.look?.intensity ?? null,
             drivable: (context.look?.drivable || []).slice(0, 8),
             reactsTo: (context.look?.reactsTo || []).slice(0, 8),
+            // How many handles the set already reaches for by name, NOT which
+            // ones: the names are exact node.param pairs and they travel in
+            // the prompt, where the manifest wrote them. The count is all the
+            // backend needs to choose between "leave three or four" and
+            // "leave a couple beyond the ones you are required to carry".
+            requiredHandles: (context.look?.requires || []).length,
             // The clips the builder has already loaded for this look, as the
             // names of the nodes it is about to put them on. It is also what
             // tells the backend a texture node is legal in this answer at all
@@ -458,6 +517,16 @@ export class PerformerDirector {
               node: String(slot?.node || '').slice(0, 80),
               kind: slot?.kind === 'video' ? 'video' : 'image',
             })),
+            // The two clocks a look is built against, and the only two numbers
+            // in this payload that decide how fast a generated expression
+            // runs. Without them "=sin(time*0.6)" is as likely an answer as
+            // "=sin(time*3.3)" — one is a breath the audience never sees a
+            // whole cycle of in a section that is up for twenty seconds, the
+            // other is in step with the bar. Both are dropped when they are
+            // not known: a manifest need not say how long a look holds, and a
+            // show with no pulse has no bar to be worth anything in seconds.
+            ...(Number(context.secondsUp) > 0 ? { secondsUp: Number(context.secondsUp) } : {}),
+            ...(Number(context.bar) > 0 ? { bar: Number(context.bar) } : {}),
           }
         : undefined,
     });
@@ -544,10 +613,17 @@ export class PerformerDirector {
       lastError: this.lastError,
       lastNote: this.lastNote,
       steer: this.steer,
+      preDirection: this.preDirection,
       cadence: this.cadence.status(),
       nextAllowedInMs: Math.max(0, this._nextAllowedAt - this.now()),
     };
   }
+}
+
+/** A verb the vocabulary does not have, as safely as it can be printed. */
+function describeVerb(raw) {
+  const type = raw && typeof raw === 'object' ? raw.type : raw;
+  return typeof type === 'string' && type.trim() ? `"${type.trim().slice(0, 40)}"` : '(no type)';
 }
 
 /**
@@ -592,24 +668,67 @@ function compactState(state, listening) {
     listening: listening || null,
     signals,
     driving: state.driving,
+    // The nodes and parameters in the patch that is actually on screen, and
+    // where each one currently sits. This is not context, it is the
+    // vocabulary: without it a live plan can only name things it invented, and
+    // ActionExecutor resolves a name it does not have to nothing.
+    patch: state.patch || null,
+    // Drives the set declared that resolve to nothing, and how long the
+    // picture has been frozen. Both are here for the same reason: a model
+    // reading only the music cannot tell a texture being held deliberately
+    // from a show whose every handle misses.
+    dead: state.dead?.length ? state.dead : undefined,
+    picture: state.picture,
     recent: state.recent,
   };
 }
 
 /**
- * Turn an answer into a plan, dropping anything that is not a verb we know.
+ * Turn an answer into a plan, dropping anything that is not a verb we know or
+ * that names nothing to act on.
  *
  * A model that invented an action loses that line, not the whole plan — the
  * same rule normalizeAction() applies to a hand-written scenario, for the same
  * reason: most of a good answer is still worth playing.
+ *
+ * The second filter is newer and it is about the bar budget rather than about
+ * tidiness. normalizeAction() coerces: a drive whose node arrived as a
+ * sentence of intent rather than a name becomes a drive with an empty node,
+ * which is a well-formed action that cannot do anything. Those were being
+ * queued, quantised, charged against `maxActionsPerBar` and logged as
+ * `drives .` — three of them in a row in one set — while the real actions
+ * behind them were dropped for want of budget. validateAction() is the check a
+ * scenario's own actions already get on load; a plan from the model has no
+ * more claim to skip it.
  */
-function shapePlan(result, askedAtBeats, askedAtSeconds) {
+function shapePlan(result, askedAtBeats, askedAtSeconds, log = () => {}) {
   if (!result || typeof result !== 'object') return null;
 
-  const actions = (Array.isArray(result.actions) ? result.actions : [])
-    .slice(0, MAX_PLAN_ACTIONS)
-    .map(normalizeAction)
-    .filter(Boolean);
+  const actions = [];
+  for (const raw of (Array.isArray(result.actions) ? result.actions : []).slice(0, MAX_PLAN_ACTIONS)) {
+    const action = normalizeAction(raw);
+    if (!action) {
+      log('warn', `Director sent a verb the performer does not have: ${describeVerb(raw)}`);
+      continue;
+    }
+
+    const fault = validateAction(action);
+    if (fault?.severity === 'error') {
+      // What the answer actually carried, not what it meant to. A plan whose
+      // `why` describes a move the action does not is indistinguishable from a
+      // plan that was played, unless the fields it arrived with are written
+      // down — which is the difference between a night of guessing and a
+      // one-line answer. It goes through the engine's log, so the next call
+      // reads it in "recent" and can correct itself.
+      log('warn', `Dropped the director's ${action.type}: ${fault.message}`, {
+        sent: Object.keys(raw && typeof raw === 'object' ? raw : {}).join(', ') || '(nothing)',
+        why: action.why,
+      });
+      continue;
+    }
+
+    actions.push(action);
+  }
 
   const note = String(result.note || '').slice(0, 300);
   if (!actions.length && !note) return null;

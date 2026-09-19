@@ -1,4 +1,4 @@
-# The AI Performer
+# coPerformer
 
 You play the music. It plays the visuals.
 
@@ -83,7 +83,7 @@ separates "hearing nothing" (a routing problem) from "hearing quiet music".
 
 ## Start here
 
-1. Open **View → AI Performer** (`Ctrl/Cmd+Alt+R`).
+1. Open **View → coPerformer** (`Ctrl/Cmd+Alt+R`).
 2. **Scenario** tab → **Example**, then **Load**. Or write a brief and press
    **Write a scenario** to have the model draft one, which lands in the editor
    for you to read before anything plays it.
@@ -108,7 +108,7 @@ panel is closed until you open it.
 
 ## The scenario
 
-A plain JSON document with four parts. [`Scenario.js`](Scenario.js) has the
+A plain JSON document with five parts. [`Scenario.js`](Scenario.js) has the
 full shape and `EXAMPLE_SCENARIO` at the bottom of it is a working set.
 
 ```jsonc
@@ -127,7 +127,10 @@ full shape and `EXAMPLE_SCENARIO` at the bottom of it is a working set.
   "sections": [{
     "id": "build",
     "name": "Build",
-    "enter": { "when": "energy > 0.45" },   // or { "cue": "drop" } | { "bars": 32 } | { "seconds": 90 } | "manual"
+    "enter": { "when": "energy > 0.45", "by": { "bars": 32 } },
+    //         ^ or { "cue": "drop" } | { "bars": 32 } | { "seconds": 90 } | "manual"
+    //         "by" is the ceiling on a cue or a condition: take it if it comes,
+    //         move on at this point if it does not. See below.
     "hold":  { "bars": 8 },                 // or { "seconds": 30 } — the floor: nothing ends it sooner
     "look":  { "scene": "build-scene" },    // or { "preset": … } | { "patch": … }
     "transition": { "type": "crossfade", "duration": 1, "quantize": "phrase" },
@@ -146,6 +149,13 @@ full shape and `EXAMPLE_SCENARIO` at the bottom of it is a working set.
 
   // Moments you fire by hand, out of order.
   "cues": [{ "name": "drop", "do": [{ "type": "section", "to": "drop" }] }],
+
+  // What the AI should be going for, written before the show. Never executed.
+  "directions": [
+    { "text": "Patient and cold. Never bright until the drop." },
+    { "at": { "section": "drop" }, "text": "Let it go — hard, white, full frame." },
+    { "at": { "section": "drop", "bars": 16 }, "text": "Hold it there." }
+  ],
 
   // The fence.
   "rules": { "minSectionBars": 4, "allowGraphEdits": false,
@@ -181,6 +191,36 @@ one stays up, and a section that states a hold has also said how long it runs �
 which is what lets a closing section point `next` back at an opener that is
 otherwise entered by hand, so a set loops.
 
+#### `by` — the deadline on a section that would otherwise wait
+
+A `cue` waits for the musician and a `when` waits for the room, and neither is
+guaranteed to arrive. The laptop is not patched in yet, the bridge is not
+running, the support act is quieter than the set was written for — and the
+performer sits on section one holding a single frame. From the front that is
+indistinguishable from a set that is working: the scene is up, the drives are
+live, the log is clean, and the picture never changes.
+
+`by` is that decision made at the desk instead of discovered on stage:
+
+```jsonc
+"enter": { "cue": "drop",          "by": { "bars": 24 } }
+"enter": { "when": "energy > 0.4", "by": { "seconds": 90 } }
+```
+
+Take the cue if it is fired, take the condition if the music reaches it, and
+failing both, move on there anyway — with a line in the log saying which it
+gave up on, so the reason is in the record rather than inferred afterwards.
+
+It is a ceiling where `hold` is a floor, so the two together say "not before
+here, not after there" and the condition chooses inside that window. Write the
+deadline comfortably past the previous section's hold: at the floor it leaves no
+window, and the condition becomes ornamental.
+
+Only `cue` and `when` carry one. `bars` and `seconds` *are* a deadline, and a
+`manual` section is already reached by the section ahead of it running out, so a
+`by` on any of the three is dropped. A set whose first section has no way out at
+all is a warning in the panel rather than a discovery at showtime.
+
 Conditions go through the editor's own expression system: an AST interpreter,
 never `eval` (see ARCHITECTURE.md §5). A condition that throws is reported once
 and then retired, rather than filling the log sixty times a second.
@@ -189,6 +229,23 @@ Section changes are quantised by `transition.quantize` — `beat`, `half`, `bar`
 `phrase` or `off`. A change decided at bar 3.2 lands on bar 4, and it *still*
 lands even if the condition that decided it has since stopped being true: a
 decision already made should not be un-made by the wait.
+
+A **drive** addresses a parameter as two fields, `node` and `param`, because a
+node is matched by id, then name, then kind, and the parameter is a key on
+whatever that found. Everything that lists parameters — the rig block the model
+is given, the panel's own readout — prints them as `Warp.amount`, so a drive
+that arrives carrying the pair in one field is split at the last dot rather than
+thrown away. The same goes for the actions: `{ "target": "Warp.amount" }` is
+read exactly like `{ "node": "Warp", "param": "amount" }`.
+
+A **move** says when with `atBars`, `atSeconds` or `when`, and a move with none
+of the three is reported — it can never fire. `{ "at": { "bars": 8 } }`,
+`{ "bars": 8 }`, `{ "at": "8 bars" }` and `{ "at": "1:30" }` all say it too. A
+bare number with no unit on it (`{ "at": 30 }`) is read in the unit its section
+is written in: seconds in a section entered and held in seconds, bars
+everywhere else — on material with no pulse there is nothing to count bars
+against, so reading it as bars would be a move that fires at a time nobody
+chose.
 
 ### Actions
 
@@ -203,9 +260,17 @@ outside it:
 | `drive` / `undrive` | bind a signal to a parameter, or release it |
 | `transition` | set the transition the next change uses |
 | `master` / `speed` / `blackout` | the output |
+| `audio` | play, pause or stop the set's own bed — see [the sound in the folder](#the-sound-in-the-folder) |
 | `section` / `cue` | move the set |
 | `graph` | replace the patch — recompiles the shader |
 | `log` | say something without doing anything |
+
+The fields that decide what the audience sees are never defaulted. A `param`
+or `master` move with no `to`, and a `blackout` with no `on`, are refused and
+logged — as `→ ?` and `blackout ?` — rather than played as a move to zero, a
+jump to full and a kill. A value named in `why` and nowhere else is not a
+value: the director's own plans are dropped in `PerformerDirector.shapePlan()`,
+which writes the fields the answer did arrive with into the log.
 
 ### Rules
 
@@ -219,8 +284,82 @@ it is doing the right thing forty times a second.
 | `minSceneChangeSeconds` | 4 | scene loads rebuild the graph |
 | `maxActionsPerBar` | 12 | a budget, weighted by what each action costs |
 | `allowGraphEdits` | **false** | a graph edit recompiles the shader and can drop frames |
+| `allowAudio` | true | the set may play the beds its looks name; off leaves the sound to you |
 | `masterCeiling` / `masterFloor` | 1 / 0 | a house limit the performer cannot undo |
 | `director.freedom` | 0.4 | 0 = play it as written, 1 = treat it as a starting point |
+
+### Pre-directions: putting the whole show on the AI
+
+There are two boxes you can put a line of direction in, and which one you want
+depends on whether you are going to be standing there.
+
+The box on the **Set** tab is live: type "keep it dark" mid-set and it goes
+into the next question the director asks. It works because you are at the
+laptop, changing your mind as the room changes.
+
+Hand the whole show to the model and there is nobody to type into it. That box
+then holds whatever was in it when the doors opened, for the length of the set.
+**Pre-directions** are the same sentences, written at the desk and anchored to a
+moment of the show — so the set carries its own direction the way it already
+carries its own sections.
+
+Write them on the **Show** tab, beside **Open folder…**, one per line, and
+press **Set on the timeline**:
+
+```
+set: Patient and cold. Never bright until the drop.
+Open on almost nothing.
+Tighten it, contrast climbing.
+drop: let it go — hard, white, full frame
+drop +16: hold it there, do not add anything
+```
+
+Four kinds of line:
+
+| | |
+| --- | --- |
+| `set: …` | the **show's own** direction. Holds everywhere, under everything else, and **Set on the timeline** leaves it where it is |
+| `section: …` | belongs to that section |
+| `section +16: …` | an offset into it — bars, or `+30s` for seconds — so one long section can be directed in stages |
+| a plain line | not placed yet. This is the one the button deals out |
+| `# …` | a comment, never sent |
+
+You do not have to write any of that. **Set on the timeline** deals the plain
+lines out across the sections you have, in the order you wrote them, and
+**fills every section**: three lines over six sections is three stretches of
+show, each line holding until the next takes over. Then it writes the anchors it
+chose back into the box, so you can see where each one went. A line you
+anchored by hand is left exactly where you put it, and no repeat is written over
+it.
+
+At showtime exactly one line is live, under one rule:
+
+> the show's standing direction, overridden by the section's own
+
+and within a section, the last one reached. That rule deliberately does *not*
+carry a section's line into the next section — a drop that is over should not
+still be telling the model to go hard — which is exactly why **Set on the
+timeline** writes the coverage out rather than leaving it to be inferred.
+
+Never two at once: "keep it dark"
+and "let it go" handed to a model as one instruction is a contradiction it has
+to guess its way out of, and it guesses differently every call. The line that
+is live shows up under the steer box on the Set tab and in the log, so you can
+see what an unattended set is being told.
+
+If you *are* standing there, both travel, and the prompt says which wins: what
+you type live beats the plan. Writing pre-directions does not take the live box
+away.
+
+You may never need the box. A show built from a manifest arrives already
+directed: `direction` on the show and on each look becomes exactly this, in the
+binding pass — see "The manifest" below.
+
+Being direction rather than instruction, none of this is ever executed — like a
+section's `mood` and `notes` it is only what the director is *told*. So a
+pre-direction cannot break a set. The worst a bad one does is never be heard,
+and a line anchored to a section that no longer exists is a warning at the desk,
+not a show that stops. [`PreDirections.js`](PreDirections.js) has the rule.
 
 ## The manifest: building a show that does not exist yet
 
@@ -239,7 +378,8 @@ exist*, in prose, and **Build the show** turns it into them:
    look's name.
 2. One scenario call — which can now name those scenes, because by then they
    are on the rig.
-3. A binding pass that makes each section play the scene actually built for it.
+3. A binding pass that makes each section play the scene actually built for it,
+   and puts the manifest's `direction` lines on it as the set's pre-directions.
 
 Step 3 is not a safety net for a bad model. It is the step that makes the
 difference between a document *about* a show and the show: after it, every
@@ -252,6 +392,7 @@ of its own rather than being dropped — you paid for that patch.
   "show": "Night set",
   "brief": "A 40-minute support slot. Dark and patient, one drop I fire by hand.",
   "palette": "near-black, cold blue-grey, one white accent only in the drop",
+  "direction": "Patient. Never bright until the drop.",  // for the live AI, throughout
   "bpm": 128,
   "pulse": "metered",            // or "free" — see "Music with no pulse" above
 
@@ -260,6 +401,7 @@ of its own rather than being dropped — you paid for that patch.
     "name": "Opening",
     "brief": "Slow fog drifting across the frame, one cold light source, almost black.",
     "mood": "patient, cold, barely moving",
+    "direction": "Hold it almost still. One thing moving at a time.",
     "intensity": 0.2,            // where it sits in the shape of the set
     "reactsTo": ["low"],         // audio channels it should visibly answer
     "drivable": ["how fast the fog drifts", "how far the light reaches"],
@@ -278,12 +420,159 @@ A look with a `scene` instead of a `brief` names one you already have: it costs
 nothing and is bound into the set exactly like a generated one, which is how a
 show mixes looks you built by hand with looks you had built for you.
 
+`direction` is the one field that is not about building anything. `brief`
+builds the patch, once, at a desk; `direction` is handed to the **live** AI
+every time it asks, for as long as that look is on screen. Write it on the show
+for what the set should be going for throughout, and on a look for its own
+stretch, and **Build the show** puts them on the set as its pre-directions —
+including the sections the model added between your looks, which take the line
+before them. So a show built from a manifest arrives already directed and you
+never have to open the Pre-directions box at all. (It reads the other way too:
+**Build the missing looks** carries a set's existing pre-directions back onto
+the manifest it derives, and a set that already has a line for a section keeps
+it — the manifest's is not ours to overwrite.)
+
 `palette` and `brief` are what stop five separately generated patches from
 looking like five separate shows — every look call is told the whole set, in
 order, and where in it this one sits. `drivable` is the other half: a patch is
 being built to be *performed*, so each of those becomes a named node whose
 parameter a drive can reach, set to a value with somewhere left to travel. A
 parameter already at its maximum on the first frame is a fader with no throw.
+
+### What a look is allowed to be made of
+
+The generator knows the node registry — every kind, every pin, every parameter
+and its range. That is enough to wire nodes together and it is not enough to
+know which of them a *look* wants, and the difference showed: asked for "slow
+fog tightening into vertical structure", a model with only the registry behind
+it reaches for the graph it can reason about end to end, which is noise into a
+colour ramp into the output. Correct, every time, and five of those in a row is
+one look played five times in different tints.
+
+So a look call now also carries what the patch may be **made of** and what
+makes one **playable**, on top of everything above:
+
+- **The families, by what they are rather than what they are called.** Smoke,
+  fluid, growth, swarms and feedback are `ComputeFluidSim`,
+  `ComputeReactionDiffusion`, `ComputeParticles`, `ComputeCellular` and
+  `ComputeFeedbackField`; depth is `ComputeFieldMapper`, whose output is wired
+  on to the main canvas so a 3D look is not only in the floating viewport; a
+  kaleidoscope, a glitch, a blur and an edge detect are whole-image nodes no
+  per-pixel chain can imitate. Two or three compute nodes is a look's budget.
+- **Which audio a parameter can hear, and which needs a node.** `reactsTo` is
+  written in the tap vocabulary (`low`, `kickTrig`, `centroid`…), and only
+  four of those bands have a counterpart an expression can name — under a
+  different name, and as the same part of the spectrum under a different
+  envelope rather than as the same number.
+  A look told to answer `low` can do it with `"=0.35+audioEnvelopeBass*0.5"`;
+  a look told to answer `kickTrig` needs an Audio Value node, because
+  `"=kickTrig"` compiles to zero and holds there all night without a warning.
+  So the prompt routes each channel the manifest named instead of leaving it
+  to be inferred.
+- **That an expression and a fader are not a choice.** A parameter holding a
+  formula is *not* overwritten when a drive writes to it: the incoming value
+  arrives inside the formula as `osc` and the rest of it keeps running. So
+  `"=0.15+osc*0.7"` is a handle with a floor of its own that still answers the
+  drive across its whole throw, and `"=0.2+osc*0.5+audioEnvelopeBass*0.3"` is
+  one that is performed, breathing and kicking at once. The other side of the
+  same rule is the trap: `"=time*0.3"` on a parameter the set reaches for is a
+  handle **nothing can move**, and it fails the way every name failure here
+  fails — the drive loads, warns once, and does nothing for the length of the
+  show. Anything the set drives is a plain number or an expression with `osc`
+  in it, and it is a float, int or slider, because the performer writes
+  numbers and a select or a colour is not a handle.
+- **The two clocks.** How long the look is up for, from its `hold`, and what a
+  bar of this show is worth in seconds — with the expression rates that cycle
+  once per bar and once per four. A rate is the one thing a model cannot guess,
+  and the difference between motion that moves *with* the music and motion
+  that happens near it. A show with no pulse is sent no bar at all rather than
+  one invented from a default tempo.
+
+None of it is new machinery: every claim is something the editor already does,
+and `tests/aiShowLookPrompt.test.js` holds each one against the code that has
+to be true for it — the registry, the expression system, and the parameter
+path the performer actually writes through — so a renamed channel or a dropped
+identifier is a failed test rather than a show that quietly stops listening.
+
+#### One message, two authors
+
+A look call is written by two hands and it is worth knowing which writes what,
+because for a while both wrote the same things. `ShowManifest.lookPrompt()` has
+the manifest open and writes what only the manifest knows — the brief, the
+mood, the clip filenames, the exact names a set that already exists reaches
+for. `describeShowLook()` in `api/_lib/features.js` has the show payload and
+owns the frame around all of it: the set in order, which look this is, its
+intensity, what it answers and how to reach it, its handles, its two clocks,
+and the two blocks above.
+
+Before that line was drawn, every look call carried the show context twice, the
+look's name twice, its intensity twice in two different roundings and the
+name-every-node rule twice in two different wordings — about 250 tokens a look,
+and worse than the waste, two wordings of one rule is a rule with a seam in it.
+Neither half could see the duplication, so it is asserted where they meet:
+`performerDirector.test.js` builds the real payload, assembles the real
+message, and counts.
+
+### Names that reach something
+
+A section's look is a scene name; its drives and moves are node and parameter
+names *inside* that scene. Both have to be real, and they fail differently: a
+scene that is not loaded is a section that shows the wrong picture, which you
+see at once, while a node that is not in the patch is a drive that registers
+cleanly, writes nothing, and leaves you watching a still frame over a
+performance log full of successes.
+
+So the build carries them across. Each look's patch is read for what it
+actually called the things it left to be turned — every node a drive can
+address, its parameters and their ranges — and the scenario call is given that
+list, per section, before it writes a line. It is told to use those names and
+no others. Pass 3 then binds the scene names the same way it always did.
+
+The live director is given the same list for the patch that is on screen, plus
+two things the engine works out for it: which of the set's drives are currently
+moving nothing, and how long it has been since anything changed what is
+visible. The second matters more than it sounds. Ambient material holds for
+minutes at a time, and every instinct a director has says hold with it — so
+without a way to tell a held texture from a frozen one, a set whose drives had
+all missed read as a set that was being played patiently.
+
+Drives that miss are reported either way. The first one that has been writing
+into nothing for a couple of seconds says so in the log, by name, once.
+
+#### Why the screen is black
+
+Three things black a canvas, and for a long time the director could see none of
+them — so asked what was wrong with a dark stage, it reasoned about the only
+thing it had ever been told existed, the node registry, and reported a missing
+output connection it had no way to observe. It then held every call for the rest
+of the set, because graph edits were off and a graph fault was not its to fix.
+Nothing in its prompt could have contradicted it.
+
+All three are in `picture` and `dead` now:
+
+- **The master fader**, and **the blackout**. Either is a black screen with a
+  perfectly healthy patch behind it. Both are read from `MasterOutput` rather
+  than remembered by the executor, because the panel's own fader and a MIDI
+  controller write them without going through it.
+- **A drive whose signal has never arrived.** This is the one that hides. Its
+  node resolves, its parameter resolves, and it writes every single frame — it
+  writes `mapNormalizedValue(0, …)`, the bottom of its own range, because
+  `SignalBus.value()` reads 0 for a signal nothing has sent. On a scale, an
+  opacity or a density that bottom is 0. Meanwhile `compactState()` drops a
+  signal with `seen: false` from the prompt entirely (correctly — a missing
+  signal is not "the bass is at zero"), and `driving` lists the binding as
+  though it were working. So: the picture is black, the prompt says the set is
+  running, and a `param` move cannot lift the parameter because the drive
+  overwrites it on the next frame. `deadDrives()` now takes the signal snapshot
+  and reports these with the value they are pinning, and `stillSeconds()` stops
+  counting such a drive as movement.
+
+The prompt also says plainly that `patch.nodes` is a list of *handles* and not
+the graph. A node with nothing numeric on it is not in that list — the output
+node above all — so a model reading it as the graph correctly finds no output
+node in it. Absence from the handle list is not evidence of anything, and the
+director is told not to stop performing on a theory about something it cannot
+see.
 
 ### What it costs, and what happens when it runs out
 
@@ -326,7 +615,7 @@ Night set/
     fog-loop.mp4            the footage the show is made of
     grain.png
     plates/room.jpg
-  set.wav                   the track — listed, not loaded
+  set.wav                   the bed a look can play under itself
 ```
 
 **Open folder…** on the Show tab takes both halves at once: the manifest fills
@@ -367,9 +656,47 @@ Two limits, both the editor's own rather than this feature's: a video over
 listed as skipped with the size in the reason. And **four clips to a look**,
 because every one of them is decoded on every frame that look is up.
 
-Audio in the folder is listed and not used. The performer listens to your live
-input — play the track into the editor and it hears it, which is the same thing
-it does on the night.
+### The sound in the folder
+
+A look can name one file in the folder as its **bed** — the track that plays
+under it — and the performer loads it into the Audio panel on the way into that
+section, starts it at the top, and stops it when the set stops.
+
+```jsonc
+"looks": [{
+  "id": "opening",
+  "name": "Opening",
+  "sound": "set.wav",
+  "hold": { "seconds": 96 }
+}]
+```
+
+Named the same way a clip is, and matched the same way: the filename, the name
+without its extension, the path. One file, not a list — there is one analysis
+engine and one element behind it, so a second would only be the first one's
+silence. A name the folder cannot answer is a warning at the desk.
+
+This is the same transport the Audio panel's own buttons drive, so **it is
+exclusive with your live input**: starting a bed stops the microphone, and the
+log says so when it happens. A set played to a musician in the room wants no
+beds in it at all; a set that arrived with its own — a folder another tool
+generated, a fixed piece — wants them, and the sections were written to their
+lengths.
+
+A set that names audio signals also keeps the analysis running for as long as
+it plays, whether or not the director is on. It used to be kept alive only by
+the director or by the Audio panel being open — so a set written against
+`level` and `low`, played with the director off, read zero on both and never
+moved.
+
+Three ways to turn it off, in descending order of bluntness: leave `sound` out
+of the looks, write `"rules": { "allowAudio": false }` in the scenario, or press
+stop. The live director is never given the verb at all — a model that decides to
+stop the music is a worse night than any parameter it could get wrong.
+
+Whatever happens, it is the performer's own bed that stops: a track you loaded
+into the Audio panel yourself is left playing, because you are the one playing
+it.
 
 Nothing about a build without a folder changes: no folder open means no clips,
 means the prompt, the backend and the installed scenes are exactly what they
@@ -394,8 +721,8 @@ Transmissions/
     media/
       video.mp4             the look's footage
       image.png
-      music.mp3             the bed — listed, not loaded
-      narration.mp3
+      music.mp3             the bed — played under this look
+      narration.mp3         named in the notes; the mix is yours
   2026-09-15-salt-clock/
     ...
 ```
@@ -409,6 +736,7 @@ with the manifest those pieces imply. One project is one look:
 | whatever was actually generated | its **media**, so the patch is built on the footage |
 | energy 1–5 | its **intensity** |
 | the bed's length, and the narration's | its **hold**, in seconds |
+| the bed itself | its **sound**, played under it — the same file the hold was measured from |
 | every palette in the folder | the show's **palette**, so the looks read as one set |
 | the beds that stated a tempo | the show's **bpm** (the median) |
 
@@ -515,6 +843,29 @@ it realigns the grid to you without losing count, forward to the nearest bar
 line rather than back, so a section waiting on bar 32 is released by the
 downbeat you just played.
 
+## The timeline, while a set runs
+
+The editor's timeline is the transport at the bottom of the window, and until
+a set is playing it is yours. While one is, the performer drives it:
+
+- **Entering a section sets it** to that section's own length — the `hold`,
+  counted against the tempo actually being played — and rewinds it.
+- **Every frame moves the playhead** to where the section is. A section that
+  outlasts its hold wraps rather than parking at the end, the way the bed under
+  it loops.
+- **Stopping gives it back**: the duration, the loop region and the playhead
+  you had before the set borrowed them, and the enable switch as you left it.
+
+So the transport, the bed and the section are one clock rather than three, and
+keyframes you wrote on a look play in time with it every time that look is up.
+The scenes carry this too: a look built from a manifest is installed with a
+timeline set to its hold, so the VJ panel lists the length the set was written
+to rather than a default ten seconds, and cutting to a look outside a
+performance sets the transport to that look.
+
+Starting a set that has any lengths in it opens the timeline panel, once. It is
+never closed for you.
+
 ## Safety
 
 - **The musician always wins.** A cue clears anything the director has queued.
@@ -523,7 +874,9 @@ downbeat you just played.
   control you reach for when what is on screen *is* the problem.
 - **Stop leaves the output where it was.** If the performer faded to 40% for a
   breakdown, stopping does not slam it back to full in front of an audience.
-  It does release every standing drive, so your parameters are yours again.
+  It does release every standing drive, so your parameters are yours again —
+  and it stops the bed it started and gives the timeline back, because neither
+  of those is the output and both of them are yours.
 - The director is **off until you switch it on**, and switches itself off
   rather than spending a set on refusals if the answer is "no quota".
 
@@ -532,6 +885,7 @@ downbeat you just played.
 | | |
 | --- | --- |
 | `Scenario.js` | the document: normalise (never throws) and validate (reports everything at once) |
+| `PreDirections.js` | the direction written before the show: the anchors, and which single line is live at a moment |
 | `actions.js` | the vocabulary, and what each action costs |
 | `PerformerClock.js` | a monotonic musical clock that survives a tempo change and a backgrounded tab |
 | `SignalBus.js` | named signals: normalisation, frame-rate-independent smoothing, derived readings |
@@ -539,8 +893,8 @@ downbeat you just played.
 | `PerformerEngine.js` | the frame loop and the state machine |
 | `PerformerDirector.js` | the model, kept off the frame loop |
 | `ShowManifest.js` | the manifest: the show as a plan, and the prompts it implies |
-| `ShowFolder.js` | the show as a directory: which file is the manifest, which are media, and what a look's `media` list resolves to |
-| `ShowBuilder.js` | manifest in, a set that plays the looks it just built out |
+| `ShowFolder.js` | the show as a directory: which file is the manifest, which are media, and what a look's `media` and `sound` resolve to |
+| `../audio/audioDeck.js` | the Audio panel's transport, addressed by name: how a set plays its own bed |
 | `ShowBuilder.js` | manifest in, a set that plays the looks it just built out — and `manifestFromScenario()`, the same trip backwards |
 | `PerformerOSC.js` | the `/rhizo/perf/*` namespace |
 | `../ui/PerformerPanel.js` | the panel |
@@ -559,8 +913,10 @@ lit-up button and a 401):
   build. Deliberately not a feature key of its own: a look is a patch, your
   allowance already counts patches, and a separate key would be the same call
   billed under a name that hides what it is.
-- **`ai.performer_live`** improvises inside one while you play. Its quota is
-  **per hour**, not per day: it is the one feature whose spend tracks how long
+- **`ai.performer_live`** improvises inside one while you play, or in place of
+  you when the set is unattended — it is handed the show's pre-direction for
+  whatever moment the set has reached, and anything you type live on top of it.
+  Its quota is **per hour**, not per day: it is the one feature whose spend tracks how long
   you perform for rather than how many times you press a button. Each call
   carries the minutes of set since the last one, so a cadence that reacts to
   the music does not make the bill unpredictable. (The gallery's grant issuer

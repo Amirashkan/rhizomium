@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PerformerDirector } from '../src/performer/PerformerDirector.js';
 import { GrantError } from '../src/ai/entitlements.js';
+import { buildUserMessage } from '../api/_lib/features.js';
 
 /** A state object shaped like the engine's describeState(). */
 function state(overrides = {}) {
@@ -53,6 +54,39 @@ describe('PerformerDirector', () => {
   it('does nothing at all until it is turned on', () => {
     director.offer(state());
     expect(run).not.toHaveBeenCalled();
+  });
+
+  // A section change is the second door into ask(). It used to be the only one
+  // that did not check the scenario's own switch, so a set with the director
+  // off in its rules still spent a call at every boundary — and because the
+  // engine does not consult a director its rules have off, nothing collected
+  // the answer or timed the request out. It surfaced much later, as a plan
+  // dropped for arriving half a minute after it was asked for.
+  it('does not ask at a section change when the scenario has the director off', () => {
+    director.setEnabled(true);
+    const off = state();
+    off.scenario.rules.director.enabled = false;
+
+    director.onSectionChange(off);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('still asks at a section change when the scenario wants one', () => {
+    director.setEnabled(true);
+    director.onSectionChange(state());
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the model the patch, so a plan can name a node that exists', () => {
+    director.setEnabled(true);
+    director.offer(state({
+      patch: [{ node: 'ComputeNoise', kind: 'ComputeNoise', params: ['scale', 'speed'] }],
+    }));
+
+    const [, input] = run.mock.calls[0];
+    expect(input.state.patch).toEqual([
+      { node: 'ComputeNoise', kind: 'ComputeNoise', params: ['scale', 'speed'] },
+    ]);
   });
 
   it('asks once when enabled, and not again until the cadence has passed', () => {
@@ -196,6 +230,18 @@ describe('PerformerDirector', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it('does not ask on a section change the scenario\'s own rules have off', () => {
+    // The engine consults the director only when rules.director.enabled is on,
+    // so without this gate a section boundary is a second door into ask(): the
+    // call is made and charged, and nothing ever collects the answer or times
+    // it out. It surfaces much later as a plan dropped for arriving late.
+    director.setEnabled(true);
+    director.onSectionChange(state({
+      scenario: { ...state().scenario, rules: { ...state().scenario.rules, director: { enabled: false, freedom: 0.4 } } },
+    }));
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it('keeps a signal nothing has sent out of the prompt', () => {
     director.setEnabled(true);
     director.offer(state({
@@ -214,6 +260,55 @@ describe('PerformerDirector', () => {
     director.setSteer('keep it dark');
     director.offer(state());
     expect(run.mock.calls[0][1].steer).toBe('keep it dark');
+  });
+
+  // What the answer actually carried, when it does not carry enough to play.
+  // Without this line nobody could tell a plan that was played from one whose
+  // move existed only in its `why` — which is how a set spent a night writing
+  // zeros into a grade with a log that read as if it were lifting it.
+  describe('an action it has to drop', () => {
+    async function plan(actions) {
+      const lines = [];
+      const local = new PerformerDirector({
+        run: () => Promise.resolve({ result: { actions, note: '' } }),
+        now: () => clock.now,
+        log: (level, message, meta) => lines.push({ level, message, meta }),
+      });
+      local.setEnabled(true);
+      local.offer(state());
+      await local._inFlight;
+      return { lines, ready: local.take() };
+    }
+
+    it('says which verb, why, and what the model actually sent', async () => {
+      const { lines, ready } = await plan([{
+        type: 'param', node: 'Cool Cloud Grade', param: 'valueMult',
+        why: 'Raise gently to 0.18 over 30 seconds.',
+      }]);
+
+      expect(ready).toBeNull();
+      const dropped = lines.find((line) => /Dropped/.test(line.message));
+      expect(dropped.level).toBe('warn');
+      expect(dropped.message).toMatch(/param/);
+      expect(dropped.message).toMatch(/"to"/);
+      expect(dropped.meta.sent).toBe('type, node, param, why');
+      expect(dropped.meta.why).toMatch(/0\.18/);
+    });
+
+    it('names a verb the performer does not have rather than swallowing it', async () => {
+      const { lines } = await plan([{ type: 'strobe', why: 'Hit it.' }]);
+      expect(lines.find((line) => /strobe/.test(line.message))).toBeTruthy();
+    });
+
+    it('keeps the rest of a plan when one action is dropped', async () => {
+      const { ready } = await plan([
+        { type: 'blackout', why: 'Clear the kill immediately.' },
+        { type: 'param', node: 'Warp', param: 'speed', to: 1.4 },
+      ]);
+
+      expect(ready.actions).toHaveLength(1);
+      expect(ready.actions[0].type).toBe('param');
+    });
   });
 
   describe('authoring a scenario', () => {
@@ -434,6 +529,37 @@ describe('building a show', () => {
     expect(input.show.look).toBe('Opening');
   });
 
+  // One message, two authors: ShowManifest.lookPrompt() writes the prompt from
+  // the manifest and describeShowLook() writes the block from the payload. For
+  // a while both wrote the frame, and a look call carried the show context
+  // twice, its name twice, its intensity twice in two roundings and the
+  // name-every-node rule twice in two wordings — around 250 tokens a look, and
+  // worse than the waste, two wordings of one rule is a rule with a seam in it.
+  //
+  // It is asserted here rather than on either half because neither half can
+  // see the duplication: this is the only place the real payload and the real
+  // prompt meet, which is also where the next paragraph added to the wrong
+  // half will show up.
+  it('says each thing once, across both halves of the message', async () => {
+    const { run, director } = makeDirector();
+    await director.buildShow(MANIFEST, { installScene: (name) => ({ id: name, name }) });
+
+    const [, input] = run.mock.calls.find(([feature]) => feature === 'ai.patch_generator');
+    const message = buildUserMessage('ai.patch_generator', input);
+    const occurrences = (text) => message.split(text).length - 1;
+
+    // The show frame, the look's identity, and the rules about handles.
+    expect(occurrences('Show: Test set')).toBe(1);
+    expect(occurrences('The set, in order')).toBe(1);
+    expect(occurrences('Opening')).toBe(2); // the set list, and "the look called"
+    expect(occurrences('intensity')).toBe(1);
+    expect(occurrences('Name every node')).toBe(1);
+    expect(occurrences('somewhere left to travel')).toBe(1);
+
+    // And the brief is still there exactly once, from the other half.
+    expect(occurrences('slow fog over near-black')).toBe(1);
+  });
+
   it('leaves the plain patch generator exactly as it was', async () => {
     const { run, director } = makeDirector();
     await director.generatePatch('just a patch');
@@ -441,6 +567,24 @@ describe('building a show', () => {
     const [feature, input] = run.mock.calls[0];
     expect(feature).toBe('ai.patch_generator');
     expect(input).toEqual({ prompt: 'just a patch', show: undefined });
+  });
+
+  it('carries the two clocks a look is built against, and omits either it lacks', async () => {
+    const { run, director } = makeDirector();
+
+    await director.generatePatch('a look', {
+      show: 'Show: x', look: { name: 'A' }, secondsUp: 45, bar: 1.88,
+    });
+    expect(run.mock.calls[0][1].show).toMatchObject({ secondsUp: 45, bar: 1.88 });
+
+    // A manifest need not say how long a look holds, and a show with no pulse
+    // has no bar worth a number of seconds. Neither is sent as a guess: an
+    // expression rate invented from a default tempo is motion timed to a beat
+    // nobody is playing.
+    await director.generatePatch('a look', { show: 'Show: x', look: { name: 'A' } });
+    const { show } = run.mock.calls[1][1];
+    expect(show).not.toHaveProperty('secondsUp');
+    expect(show).not.toHaveProperty('bar');
   });
 
   it('hands back a scenario that names the scenes it just installed', async () => {
@@ -497,5 +641,55 @@ describe('building a show', () => {
 
     await building;
     expect(director.status().building).toBe(false);
+  });
+});
+
+// The show's own direction, as opposed to the artist's.
+//
+// The director does not decide which pre-direction is live — the engine does,
+// because it is the only thing that knows where the set is. What the director
+// owes is that the line reaches the call, that it stays apart from the steer,
+// and that it reports a change so the engine can log it once.
+describe('the pre-direction', () => {
+  it('travels with the ask, beside the steer rather than instead of it', async () => {
+    const run = vi.fn().mockResolvedValue({ result: { actions: [] } });
+    const director = new PerformerDirector({ run });
+
+    director.setSteer('bring it up now');
+    director.setPreDirection('keep it dark');
+    director.ask(state(), 'interval');
+
+    const [, input] = run.mock.calls[0];
+    expect(input.preDirection).toBe('keep it dark');
+    expect(input.steer).toBe('bring it up now');
+  });
+
+  it('sends an empty line when the set carries no direction', () => {
+    const run = vi.fn().mockResolvedValue({ result: { actions: [] } });
+    const director = new PerformerDirector({ run });
+    director.ask(state(), 'interval');
+    expect(run.mock.calls[0][1].preDirection).toBe('');
+  });
+
+  it('reports only a change, so the engine logs a new line once', () => {
+    const director = new PerformerDirector({ run: vi.fn() });
+
+    expect(director.setPreDirection('keep it dark')).toBe(true);
+    expect(director.setPreDirection('keep it dark')).toBe(false);
+    expect(director.setPreDirection('let it go')).toBe(true);
+    expect(director.setPreDirection('')).toBe(true);
+    expect(director.setPreDirection('')).toBe(false);
+  });
+
+  it('holds nothing when handed something that is not a string', () => {
+    const director = new PerformerDirector({ run: vi.fn() });
+    director.setPreDirection({ text: 'keep it dark' });
+    expect(director.preDirection).toBe('');
+  });
+
+  it('shows it in status, for the panel\'s readout', () => {
+    const director = new PerformerDirector({ run: vi.fn() });
+    director.setPreDirection('keep it dark');
+    expect(director.status().preDirection).toBe('keep it dark');
   });
 });

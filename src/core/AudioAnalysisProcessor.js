@@ -167,9 +167,10 @@ export class AudioAnalysisProcessor {
     const setup = all.find((n) => n?.kind === 'Audio') || null;
     // The panel keeps the analysis running while it is on screen so its meters move before anything
     // has been added — otherwise a threshold would have to be set against a dead readout.
-    // The performer's director keeps it running too: it is listening to the room
-    // rather than reading a node, and a patch with no Audio node in it is the
-    // normal case for a set driven entirely by a scenario.
+    // The performer keeps it running too, for both of its halves: the director
+    // is listening to the room rather than reading a node, and a running set
+    // whose signals are audio channels is reading them straight off these taps.
+    // A patch with no Audio node in it is the normal case for either.
     if (nodes.length === 0 && !setup && !audioTapsWanted() && !musicalListeningWanted()) {
       this._tapState = null;
       resetMusicalListening();

@@ -16,6 +16,7 @@ import {
   MANIFEST_LIMITS,
   EXAMPLE_MANIFEST,
 } from '../src/performer/ShowManifest.js';
+import { buildUserMessage } from '../api/_lib/features.js';
 
 describe('normalizeManifest', () => {
   it('survives anything', () => {
@@ -142,26 +143,66 @@ describe('validateManifest', () => {
   });
 });
 
+/**
+ * The message as the model actually receives it.
+ *
+ * lookPrompt() is half of it. The other half is describeShowLook(), which the
+ * builder feeds from the same manifest, and the split between them is
+ * deliberate — the frame is said once, by the backend, and this file's prompt
+ * says only what the payload cannot carry. So the things worth asserting about
+ * a look call are asserted here, on both halves together, which is also what
+ * stops the next paragraph from being added to whichever half its author
+ * happened to have open.
+ */
+function messageFor(show, look, media = []) {
+  return buildUserMessage('ai.patch_generator', {
+    prompt: lookPrompt(show, look, media),
+    show: {
+      context: showContext(show),
+      look: look.name,
+      intensity: look.intensity,
+      reactsTo: look.reactsTo,
+      drivable: look.drivable,
+      requiredHandles: look.requires.length,
+    },
+  });
+}
+
 describe('the prompts', () => {
   it('tells every look about the rest of the show', () => {
     const show = normalizeManifest(EXAMPLE_MANIFEST);
-    const prompt = lookPrompt(show, show.looks[1]);
+    const message = messageFor(show, show.looks[1]);
 
-    expect(prompt).toContain(show.looks[1].brief);
-    expect(prompt).toContain('Opening');
-    expect(prompt).toContain('Drop');
-    expect(prompt).toContain(show.palette);
+    expect(message).toContain(show.looks[1].brief);
+    expect(message).toContain('Opening');
+    expect(message).toContain('Drop');
+    expect(message).toContain(show.palette);
   });
 
   it('asks for a patch that can actually be performed', () => {
     const show = normalizeManifest(EXAMPLE_MANIFEST);
-    const prompt = lookPrompt(show, show.looks[0]);
+    const message = messageFor(show, show.looks[0]);
 
     // The three things that separate a look from an image.
-    expect(prompt).toMatch(/[Nn]ame every node/);
-    expect(prompt).toMatch(/somewhere to travel/);
-    expect(prompt).toMatch(/first frame/i);
-    expect(prompt).toContain('how fast the fog drifts');
+    expect(message).toMatch(/[Nn]ame every node/);
+    expect(message).toMatch(/somewhere left to travel/);
+    expect(message).toMatch(/first frame/i);
+    expect(message).toContain('how fast the fog drifts');
+  });
+
+  it('says the look\'s own material, and leaves the frame to the other half', () => {
+    // The duplication this split removed: the show context, the look's name
+    // and its intensity each arrived twice, in two roundings and two wordings.
+    const show = normalizeManifest(EXAMPLE_MANIFEST);
+    const prompt = lookPrompt(show, show.looks[0]);
+
+    expect(prompt).toContain(show.looks[0].brief);
+    expect(prompt).toContain('patient, cold, barely moving');
+
+    expect(prompt).not.toContain(show.palette);
+    expect(prompt).not.toMatch(/The set, in order/);
+    expect(prompt).not.toMatch(/intensity/);
+    expect(prompt).not.toMatch(/[Nn]ame every node/);
   });
 
   it('says there is no pulse rather than inventing a tempo', () => {
@@ -233,10 +274,24 @@ describe('the names a set already reaches for', () => {
 
   it('says nothing about them when a look is being written for no set', () => {
     const manifest = normalizeManifest({ looks: [{ name: 'A', brief: 'fog' }] });
-    const prompt = lookPrompt(manifest, manifest.looks[0]);
 
-    expect(prompt).not.toMatch(/named exactly/);
-    expect(prompt).toMatch(/three or four parameters worth performing/);
+    expect(lookPrompt(manifest, manifest.looks[0])).not.toMatch(/named exactly/);
+    // With no handles named and none required, the ask is for a few of its own.
+    expect(messageFor(manifest, manifest.looks[0]))
+      .toMatch(/three or four parameters worth performing/);
+  });
+
+  it('asks for a couple beyond the ones a set already reaches for', () => {
+    // The third case. A look derived from a scenario carries exact node.param
+    // pairs and usually no prose handles, and "leave three or four" on top of
+    // those is a patch with seven handles and no idea which four matter.
+    const manifest = normalizeManifest({
+      looks: [{ name: 'A', brief: 'fog', requires: ['Warp.amount', 'Warp.speed'] }],
+    });
+    const message = messageFor(manifest, manifest.looks[0]);
+
+    expect(message).toMatch(/Beyond the named parameters this look is required to carry/);
+    expect(message).not.toMatch(/three or four parameters worth performing/);
   });
 });
 
@@ -246,5 +301,70 @@ describe('slugId', () => {
     expect(slugId('  ')).toBe('look');
     expect(slugId('***', 'fallback')).toBe('fallback');
     expect(slugId('a'.repeat(200)).length).toBeLessThanOrEqual(48);
+  });
+});
+
+// Direction in the manifest: the plan for what the live AI should be going
+// for, which the build turns into the set's pre-directions.
+describe('direction', () => {
+  it('is read off the show and off each look', () => {
+    const show = normalizeManifest({
+      show: 'x',
+      direction: 'never bright',
+      looks: [{ id: 'drop', brief: 'hard', direction: 'let it go' }],
+    });
+    expect(show.direction).toBe('never bright');
+    expect(show.looks[0].direction).toBe('let it go');
+  });
+
+  it('is empty rather than absent when nothing said', () => {
+    const show = normalizeManifest({ show: 'x', looks: [{ id: 'a', brief: 'y' }] });
+    expect(show.direction).toBe('');
+    expect(show.looks[0].direction).toBe('');
+  });
+
+  it('is capped to a sentence, not a brief', () => {
+    const show = normalizeManifest({
+      show: 'x',
+      direction: 'y'.repeat(MANIFEST_LIMITS.directionChars + 200),
+      looks: [{ id: 'a', brief: 'z', direction: 'y'.repeat(MANIFEST_LIMITS.directionChars + 200) }],
+    });
+    expect(show.direction).toHaveLength(MANIFEST_LIMITS.directionChars);
+    expect(show.looks[0].direction).toHaveLength(MANIFEST_LIMITS.directionChars);
+  });
+
+  it('warns when a show the model will play has no direction anywhere', () => {
+    const report = validateManifest({
+      show: 'x',
+      looks: [{ id: 'a', name: 'A', brief: 'a long enough brief' }],
+    });
+    expect(report.errors).toEqual([]);
+    expect(report.warnings.some((w) => w.where === 'direction')).toBe(true);
+  });
+
+  it('says nothing when the show has direction', () => {
+    const report = validateManifest({
+      show: 'x',
+      direction: 'never bright',
+      looks: [{ id: 'a', name: 'A', brief: 'a long enough brief' }],
+    });
+    expect(report.warnings.some((w) => w.where === 'direction')).toBe(false);
+  });
+
+  it('says nothing about a show nobody is handing to the model', () => {
+    // A set with the director off is a set somebody is performing. Telling
+    // them to write pre-directions for it is telling them to write for nobody.
+    const report = validateManifest({
+      show: 'x',
+      looks: [{ id: 'a', name: 'A', brief: 'a long enough brief' }],
+      rules: { director: { enabled: false } },
+    });
+    expect(report.warnings.some((w) => w.where === 'direction')).toBe(false);
+  });
+
+  it('is in the worked example, on the show and on every look', () => {
+    const show = normalizeManifest(EXAMPLE_MANIFEST);
+    expect(show.direction).toBeTruthy();
+    expect(show.looks.every((look) => look.direction)).toBe(true);
   });
 });

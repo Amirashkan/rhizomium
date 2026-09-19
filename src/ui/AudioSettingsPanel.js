@@ -698,6 +698,21 @@ export class AudioSettingsPanel {
             this.audioClient?.on?.(event, () => this._syncTransport());
         }
 
+        // A file can also arrive without the panel: the AI performer loads the bed a look came
+        // with (src/audio/audioDeck.js). The tab has to follow it, or the panel sits on Mic
+        // showing "Not listening" while a track it loaded is what every meter below is reading.
+        // The name comes with the event: the element's dataset is written by whoever loaded the
+        // file, and this fires from inside loadFile() before that has happened.
+        this.audioClient?.on?.('loaded', (name) => {
+            if (this._sourceMode !== 'file') {
+                this._sourceMode = 'file';
+                this._loadError = null;
+            }
+            const filenameEl = this.panel.querySelector('#audio-filename');
+            if (filenameEl && name) filenameEl.textContent = name;
+            this._syncTransport();
+        });
+
         // Update display periodically. Only while on screen: the taps behind it are computed on the
         // render loop and cost an engine tick per frame, which nothing should pay for a closed panel.
         setInterval(() => {

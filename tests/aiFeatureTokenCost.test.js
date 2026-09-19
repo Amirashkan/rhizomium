@@ -119,20 +119,79 @@ describe('the token cost of every AI feature', () => {
     // formality: every token here is paid on each of a live director's calls,
     // and a set asks a lot of them. Anything that grows this further wants to
     // justify itself the same way or move into sharedContext().
+    //
+    // It was raised again, to 1,300, for the live performer's ~500 tokens on
+    // "patch", "dead" and "picture.stillSeconds" — the blocks that tell it what
+    // it may name and whether the set is reaching the screen at all. The set
+    // that paid for them ran a whole scenario whose every drive was bound to a
+    // node the patch did not contain: the director could see the music, the
+    // sections and the log, and nothing it could address, so it answered with
+    // drives that named nothing and notes about holding a texture that had in
+    // fact been a frozen frame since the first bar. Five hundred tokens a call
+    // is the wrong side of that trade to economise on, and there is no cheaper
+    // place to put them — this is the only prompt shown a running performance.
+    //
+    // And again, to 1,600, for ~240 tokens that answer the other half of the
+    // same set: what to do when the screen is black. Three of them.
+    //
+    // "patch" is a list of HANDLES — a node with nothing numeric on it is not
+    // in it, the output node above all — so a model reading it as the graph
+    // finds no output node in it and is right. The set that paid for this then
+    // spent forty bars reporting a missing output connection it had inferred,
+    // holding every call because graph edits were off. It could not have
+    // checked: the master fader, the blackout and the fact that a drive on a
+    // signal nothing has sent pins its parameter to the bottom of its range
+    // every frame were all absent from the prompt, and those are the three
+    // things that actually black a canvas. So: the three are in "picture" and
+    // "dead" now, and the prompt says plainly that the handle list is not the
+    // graph and that an absence inferred from it is not a finding.
+    //
+    // The trade is the same one as above and it is worth taking at a worse
+    // rate: a quarter of a call's tokens against a director that can tell a
+    // dark stage from a still one. What must not follow is a third raise for
+    // prose — the next thing that wants room here should displace something.
     const system = ranges.map((range) => range.input.system);
     const spread = Math.max(...system) - Math.min(...system);
-    expect(spread).toBeLessThan(750);
+    expect(spread).toBeLessThan(1600);
+    //
+    // The scenario call then grew too, for the mirror-image reason: the shape
+    // of a drive and of a move, and the list of verbs an action may use, were
+    // described in prose and nowhere demonstrated, so the model invented field
+    // names for the one part of a scenario that addresses the rig by name.
+    // That paragraph is paid once before a show, where the same words in the
+    // live prompt would be paid every half-minute all night — which is why the
+    // two are allowed to diverge and why this is a spread, not a ceiling.
+    //
+    // It did not move this number. The live performer still owns the maximum
+    // (~9,400 against the scenario call's ~8,900) and neither is the minimum,
+    // so the scenario prompt has room to grow before it is what this measures.
+    //
+    // Measured spread today: 1,567, against a bound of 1,600. That is 33
+    // tokens of headroom on purpose. The next paragraph that wants room here
+    // should displace one, not raise this again.
+    //
+    // 26 of the 59 that were spare went on two things in the live prompt, both
+    // for the same fault: one clause on the `param` line saying a target named
+    // only in "why" is dropped rather than played as a zero, and the shape of
+    // a `blackout` on the output line, which the verb list offered without
+    // ever showing. The rest of that fix is in the schema, where a field
+    // description costs nothing here.
   });
 
-  it('keeps the shared prompt under 9,000 tokens', () => {
+  it('keeps the shared prompt under 9,500 tokens', () => {
     // Paid in full on a cold call, and on every call for a feature nobody has
     // run recently. Two things make it up today: the registry at ~5,400 tokens
     // and EDITOR_CAPABILITIES at ~1,200, which is what the features know about
     // expressions, audio, 3D and compute nodes — none of which is visible in
     // the registry's pin lists. This is the line at which adding to either
     // stops being free.
+    //
+    // 9,000 held until the live performer crossed it; the spread test above
+    // says what it bought. The number is a guard rather than a boundary —
+    // nothing in the pricing or the cache blocks changes at it — so it moves
+    // on the same reasoning, and is still worth having at 9,500.
     for (const range of ranges) {
-      expect(range.input.system).toBeLessThan(9000);
+      expect(range.input.system).toBeLessThan(9500);
     }
   });
 

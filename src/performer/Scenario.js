@@ -1,14 +1,16 @@
 /**
- * Scenario.js - the score the AI performer plays.
+ * Scenario.js - the score coPerformer plays.
  *
  * A scenario is the one document a performance is written in. It says what the
  * musician is sending, what the set is made of, and what the performer is
  * allowed to do with it:
  *
- *   signals   named live values - an OSC address, an audio band, the clock
- *   sections  the set, in order: what each one looks like and when it ends
- *   cues      named moments the musician fires by hand, out of order
- *   rules     the fence: what the performer may touch and how often
+ *   signals     named live values - an OSC address, an audio band, the clock
+ *   sections    the set, in order: what each one looks like and when it ends
+ *   cues        named moments the musician fires by hand, out of order
+ *   directions  what the AI should be going for, written before the show and
+ *               anchored to a moment of it - see PreDirections.js
+ *   rules       the fence: what the performer may touch and how often
  *
  * It is deliberately a plain object. It is written by hand in the panel, saved
  * next to a patch, drafted by the model (ai.performer_scenario), and read back
@@ -25,7 +27,11 @@
  * warning, never a refusal to start.
  */
 
-import { ACTION_TYPES, normalizeAction, validateAction } from './actions.js';
+import { ACTION_TYPES, normalizeAction, parameterTarget, validateAction } from './actions.js';
+import {
+  normalizeDirections,
+  validateDirections,
+} from './PreDirections.js';
 
 /** The format version this build writes. Readers accept anything <= this. */
 export const SCENARIO_VERSION = 1;
@@ -181,6 +187,31 @@ export function normalizeSignal(raw, index = 0) {
  * A section with none of these is `manual`, which is the safe reading: an
  * entry condition that was meant to be written and was not should leave the
  * section sitting there, not fire it at bar zero.
+ *
+ * ## `by`: the deadline on the two that can wait forever
+ *
+ *   { cue: 'drop', by: { bars: 24 } }
+ *   { when: 'energy > 0.45', by: { bars: 32 } }
+ *
+ * A cue waits to be told and a condition waits for the room, and neither is
+ * guaranteed to arrive. The musician's laptop is not patched in yet, the OSC
+ * bridge is not running, the support act is quieter than the set was written
+ * for — and the performer sits on section one holding a single frame, with
+ * every drive in it working perfectly against a picture that never changes.
+ * That is not a hypothetical: it is what the example set in this file did to
+ * anyone who loaded it and pressed start without a DAW attached.
+ *
+ * `by` is the answer written at the desk rather than discovered on stage: take
+ * the cue if it comes, take the condition if the music reaches it, and failing
+ * both, move on at this point anyway. It is a ceiling, where `hold` is a floor,
+ * so the two together say "not before here, not after there" and the condition
+ * is what chooses inside that window. A `by` at or under the previous section's
+ * hold leaves no window at all and is reported as such.
+ *
+ * Only `cue` and `when` carry one. `bars` and `seconds` ARE a deadline, and
+ * `manual` already yields to the previous section's own stated length
+ * (PerformerEngine.checkSectionEnd), so a `by` on any of the three is a line
+ * that would do nothing, and is dropped.
  */
 export function normalizeEnter(raw) {
   if (raw === undefined || raw === null) return { kind: 'manual' };
@@ -194,15 +225,106 @@ export function normalizeEnter(raw) {
   if (typeof raw === 'number') return { kind: 'bars', bars: Math.max(0, num(raw, 0)) };
   if (typeof raw !== 'object') return { kind: 'manual' };
 
-  if (raw.cue !== undefined) return { kind: 'cue', cue: str(raw.cue) };
+  // Carried only by the two kinds that can wait for something that never
+  // comes. See the note above: on the other three it would be a line that
+  // does nothing, so it is dropped here and reported by validateScenario().
+  const by = normalizeDeadline(raw.by);
+
+  if (raw.cue !== undefined) return withDeadline({ kind: 'cue', cue: str(raw.cue) }, by);
   if (raw.bars !== undefined) return { kind: 'bars', bars: Math.max(0, num(raw.bars, 0)) };
   if (raw.seconds !== undefined) return { kind: 'seconds', seconds: Math.max(0, num(raw.seconds, 0)) };
-  if (raw.when !== undefined) return { kind: 'when', when: str(raw.when) };
+  if (raw.when !== undefined) return withDeadline({ kind: 'when', when: str(raw.when) }, by);
   if (raw.kind !== undefined) {
     const kind = pick(str(raw.kind), ENTER_KINDS, 'manual');
-    return normalizeEnter(kind === 'manual' ? null : { [kind]: raw[kind] ?? raw.value });
+    return normalizeEnter(kind === 'manual' ? null : { [kind]: raw[kind] ?? raw.value, by: raw.by });
   }
   return { kind: 'manual' };
+}
+
+/**
+ * The ceiling on a `cue` or a `when`, in whichever unit it was written.
+ *
+ * Shaped like `hold` — `{bars, seconds}`, either of them null — because it is
+ * the same measurement from the other side, and a section that reads its floor
+ * and its ceiling out of two differently shaped objects is a section whose two
+ * halves drift apart. A bare number is bars, for the same reason `enter: 32`
+ * is.
+ *
+ * Zero is not a deadline, it is a section that would be skipped before it
+ * played; it normalises away, so `by: {bars: 0}` reads as "no deadline" rather
+ * than "immediately".
+ */
+function normalizeDeadline(raw) {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === 'number') {
+    const bars = Math.max(0, num(raw, 0));
+    return bars > 0 ? { bars, seconds: null } : null;
+  }
+  if (typeof raw !== 'object') return null;
+
+  const bars = raw.bars === undefined ? null : Math.max(0, num(raw.bars, 0));
+  const seconds = raw.seconds === undefined ? null : Math.max(0, num(raw.seconds, 0));
+  const deadline = {
+    bars: bars !== null && bars > 0 ? bars : null,
+    seconds: seconds !== null && seconds > 0 ? seconds : null,
+  };
+  return deadline.bars === null && deadline.seconds === null ? null : deadline;
+}
+
+/** `enter`, with its deadline on it — and without the key at all when it has none. */
+function withDeadline(enter, by) {
+  return by ? { ...enter, by } : enter;
+}
+
+/**
+ * Where the engine goes when the section at `index` ends by itself.
+ *
+ * PerformerEngine.resolveNextIndex(), to the letter — `next` by id then by
+ * name, and failing that the section after this one, wrapping. A check that
+ * guessed differently from the engine would report a set that plays, or miss
+ * one that does not.
+ */
+function followFrom(sections, index) {
+  const wanted = String(sections[index].next ?? '').toLowerCase();
+  if (wanted) {
+    let found = sections.findIndex((s) => s.id.toLowerCase() === wanted);
+    if (found < 0) found = sections.findIndex((s) => s.name.toLowerCase() === wanted);
+    if (found >= 0) return found;
+  }
+  return (index + 1) % sections.length;
+}
+
+/**
+ * The section whose running out is what enters this one.
+ *
+ * The inverse of followFrom(): `enter` is a statement about the section BEFORE
+ * this one, so anything comparing the two has to find it, and the set is not
+ * necessarily in page order. Null when more than one section leads here, or
+ * none does — there is no single hold to compare against then.
+ */
+function previousTo(sections, section) {
+  const index = sections.indexOf(section);
+  const leads = sections.filter((_, from) => followFrom(sections, from) === index);
+  return leads.length === 1 ? leads[0] : null;
+}
+
+/**
+ * Whether the set gets from `previous` into this section with nobody in the
+ * room — PerformerEngine.checkSectionEnd()'s rules, read from the outside.
+ *
+ * The `manual` case is the one worth spelling out: a manual section is still
+ * reached by the section BEFORE it running out, because a scenario that writes
+ * `hold: {bars: 32}` has stated a length and the engine honours it. So manual
+ * strands a set only when the section ahead of it never says how long it is up
+ * for.
+ */
+function canEnterUnattended(enter, previous) {
+  if (enter.kind === 'bars' || enter.kind === 'seconds') return true;
+  if (enter.by) return true;
+  if (enter.kind === 'manual') {
+    return previous.hold.bars !== null || previous.hold.seconds !== null;
+  }
+  return false;
 }
 
 /** What a section looks like: an existing scene, a preset, or a literal patch. */
@@ -246,8 +368,12 @@ export function normalizeDrive(raw, index = 0) {
     // Node is matched by id first, then by name, then by kind - see
     // ActionExecutor.resolveNode. A scenario written against last week's patch
     // should still find "the Warp node".
-    node: str(input.node ?? input.nodeId),
-    param: str(input.param ?? input.parameter),
+    //
+    // The pair is read by the same function the actions use, so a drive that
+    // arrived as one dotted "ComputeNoise.scale" - the form the rig's own
+    // parameter list is printed in - is the drive it was meant to be rather
+    // than an error at the bottom of the Scenario tab.
+    ...parameterTarget(input),
     min: num(input.min, 0),
     max: num(input.max, 1),
     curve: pick(str(input.curve, 'linear'), CURVES, 'linear'),
@@ -258,18 +384,94 @@ export function normalizeDrive(raw, index = 0) {
   };
 }
 
-/** A timed move inside a section: do this, this far in. */
-function normalizeMove(raw, index = 0) {
-  const input = raw && typeof raw === 'object' ? raw : {};
+/**
+ * How far into a section a move fires, out of whatever shape it arrived in.
+ *
+ * `{"atBars":8}` and `{"at":{"seconds":30}}` are the written forms, but a move
+ * is the one part of a scenario with no worked example in front of whoever is
+ * writing it, so the unit lands beside `at` about as often as inside it:
+ * `{"seconds":30}`, `{"at":30}`, `{"at":"30s"}`. All of them say when, and a
+ * move with no when at all can never fire — so they are read here rather than
+ * reported at the bottom of the Scenario tab.
+ *
+ * A bare number has no unit on it, so it is read in the unit the section
+ * around it is written in: seconds in a section entered and held in seconds,
+ * bars everywhere else. That is the same question `enter` answers with bars,
+ * and the difference is that `enter` is documented and demonstrated — a set
+ * with no pulse in it has nothing to count bars against, so reading "30" as
+ * bars there is a move that fires at a time nobody chose.
+ *
+ * @param {object} input the raw move
+ * @param {'bars'|'seconds'} units what a bare number means here
+ * @returns {{bars: number|null, seconds: number|null}}
+ */
+function moveTime(input, units) {
   const at = input.at && typeof input.at === 'object' ? input.at : {};
-  const bars = input.atBars ?? at.bars;
-  const seconds = input.atSeconds ?? at.seconds;
+  let bars = input.atBars ?? at.bars ?? input.bars;
+  let seconds = input.atSeconds ?? at.seconds ?? input.seconds;
+
+  if (bars === undefined && seconds === undefined) {
+    // A bare `at`: a number, or the way a musician writes one down.
+    const bare = typeof input.at === 'object' ? undefined : input.at;
+    const written = readTime(bare, units);
+    if (written) ({ bars, seconds } = written);
+  }
+
+  return {
+    // Bars win when both are given: a set on a grid is written in bars.
+    bars: bars === undefined ? null : Math.max(0, num(bars, 0)),
+    seconds: seconds === undefined ? null : Math.max(0, num(seconds, 0)),
+  };
+}
+
+const BAR_UNITS = new Set(['b', 'bar', 'bars']);
+const SECOND_UNITS = new Set(['s', 'sec', 'secs', 'second', 'seconds']);
+const MINUTE_UNITS = new Set(['m', 'min', 'mins', 'minute', 'minutes']);
+
+/**
+ * One written time - 12, "12", "30s", "8 bars", "1:30" - as bars or seconds.
+ * Null when there is nothing there to read.
+ */
+function readTime(value, units) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return units === 'seconds' ? { seconds: value } : { bars: value };
+  }
+  if (typeof value !== 'string') return null;
+
+  const text = value.trim().toLowerCase();
+  if (!text) return null;
+
+  // "1:30" - minutes and seconds, which is never a bar count.
+  const clock = text.match(/^(\d+):([0-5]?\d(?:\.\d+)?)$/);
+  if (clock) return { seconds: Number(clock[1]) * 60 + Number(clock[2]) };
+
+  const written = text.match(/^(-?\d+(?:\.\d+)?)\s*([a-z]*)$/);
+  if (!written) return null;
+
+  const amount = Number(written[1]);
+  if (!Number.isFinite(amount)) return null;
+
+  const unit = written[2];
+  if (BAR_UNITS.has(unit)) return { bars: amount };
+  if (SECOND_UNITS.has(unit)) return { seconds: amount };
+  if (MINUTE_UNITS.has(unit)) return { seconds: amount * 60 };
+  // A unit nobody here recognises - "8 beats", "2 phrases" - is not guessed
+  // at: the number is taken in the section's own unit, which is the same
+  // answer a bare number gets.
+  return units === 'seconds' ? { seconds: amount } : { bars: amount };
+}
+
+/** A timed move inside a section: do this, this far in. */
+function normalizeMove(raw, index = 0, units = 'bars') {
+  const input = raw && typeof raw === 'object' ? raw : {};
+  const when = moveTime(input, units);
 
   return {
     id: str(input.id) || `move${index + 1}`,
-    // Bars win when both are given: a set on a grid is written in bars.
-    atBars: bars === undefined ? null : Math.max(0, num(bars, 0)),
-    atSeconds: seconds === undefined ? null : Math.max(0, num(seconds, 0)),
+    atBars: when.bars,
+    atSeconds: when.seconds,
     when: str(input.when),
     // A move fires once per visit to its section unless it says otherwise.
     repeat: Boolean(input.repeat),
@@ -285,23 +487,33 @@ export function normalizeActionList(raw) {
 export function normalizeSection(raw, index = 0) {
   const input = raw && typeof raw === 'object' ? raw : {};
   const name = str(input.name) || str(input.id) || `Section ${index + 1}`;
+  const enter = normalizeEnter(input.enter);
+  const hold = {
+    bars: input.hold?.bars === undefined ? null : Math.max(0, num(input.hold.bars, 0)),
+    seconds: input.hold?.seconds === undefined ? null : Math.max(0, num(input.hold.seconds, 0)),
+  };
+
+  // What a move in this section means by a number with no unit on it. A
+  // section entered and held in seconds is a section off the grid, and a bar
+  // count inside one is a time nobody chose - see moveTime().
+  const inSeconds = (enter.kind === 'seconds' || hold.seconds !== null)
+    && enter.kind !== 'bars' && hold.bars === null;
 
   return {
     id: slugify(input.id ?? input.name, index, 'section'),
     name,
-    enter: normalizeEnter(input.enter),
+    enter,
     // The floor on how long this section stays up once entered. It is what
     // stops a `when` condition that is true at the boundary from strobing
     // between two sections, and it is checked before every exit including a
     // director's.
-    hold: {
-      bars: input.hold?.bars === undefined ? null : Math.max(0, num(input.hold.bars, 0)),
-      seconds: input.hold?.seconds === undefined ? null : Math.max(0, num(input.hold.seconds, 0)),
-    },
+    hold,
     look: normalizeLook(input.look ?? input.scene),
     transition: normalizeTransition(input.transition),
     drives: arr(input.drives).slice(0, LIMITS.drivesPerSection).map(normalizeDrive),
-    moves: arr(input.moves).slice(0, LIMITS.movesPerSection).map(normalizeMove),
+    moves: arr(input.moves)
+      .slice(0, LIMITS.movesPerSection)
+      .map((move, position) => normalizeMove(move, position, inSeconds ? 'seconds' : 'bars')),
     onEnter: normalizeActionList(input.onEnter),
     onExit: normalizeActionList(input.onExit),
     // Where to go when nothing else says. Empty means the next in the list.
@@ -351,6 +563,11 @@ export function normalizeRules(raw) {
     allowSceneChanges: input.allowSceneChanges !== false,
     allowPresets: input.allowPresets !== false,
     allowParameterMoves: input.allowParameterMoves !== false,
+    // The set's own sound. On by default, because a set that arrived with its
+    // beds is a set whose sections were written to their lengths — and off is
+    // the switch for the night the musician is playing the sound themselves
+    // and nothing should touch the Audio panel.
+    allowAudio: input.allowAudio !== false,
     // Off by default, and the only one that is: a graph edit recompiles the
     // shader, which can drop frames on stage. A scenario that wants it says so.
     allowGraphEdits: Boolean(input.allowGraphEdits),
@@ -451,6 +668,10 @@ export function normalizeScenario(raw) {
     signals: dedupedSignals,
     sections,
     cues,
+    // The direction the show carries for itself. Never executed - like a
+    // section's `mood` and `notes` these are what the director is TOLD, which
+    // is why a bad one is a warning and never stops a set.
+    directions: normalizeDirections(input.directions ?? input.preDirections),
     rules: normalizeRules(input.rules),
   };
 }
@@ -513,6 +734,22 @@ export function validateScenario(scenario, known = {}) {
       // scenario that lists only the ones with actions attached is normal.
       warnings.push(at(where, `Waits for cue "${section.enter.cue}", which no cue in this scenario declares. Firing it over OSC still works.`));
     }
+    // A deadline at or under the previous section's floor leaves nothing
+    // between them, so the cue or the condition can never be the thing that
+    // decides — the set moves on at the same point every time and the entry
+    // reads as live when it is not. Only compared where both were written in
+    // the same unit: bars against seconds needs a tempo, and the tempo at
+    // showtime is not the one in this document.
+    const previous = previousTo(scenario.sections, section);
+    if (section.enter.by && previous) {
+      const floor = section.enter.by.bars !== null ? previous.hold.bars : previous.hold.seconds;
+      const ceiling = section.enter.by.bars !== null ? section.enter.by.bars : section.enter.by.seconds;
+      const unit = section.enter.by.bars !== null ? 'bars' : 'seconds';
+      if (floor !== null && floor >= ceiling) {
+        warnings.push(at(where, `Its deadline (${ceiling} ${unit}) is not past "${previous.name}"'s hold of ${floor} ${unit}, so there is no window for ${section.enter.kind === 'cue' ? `the cue "${section.enter.cue}"` : 'the condition'} to decide in — this section will always be entered at the deadline. Move it further out.`));
+      }
+    }
+
     if (section.enter.kind === 'when') {
       const problem = checkCondition(section.enter.when, signalNames);
       if (problem) errors.push(at(where, `Entry condition: ${problem}`));
@@ -533,10 +770,16 @@ export function validateScenario(scenario, known = {}) {
 
     for (const drive of section.drives) {
       if (!signalNames.has(drive.signal)) {
-        errors.push(at(where, `Drive reads signal "${drive.signal}", which is not declared.`));
+        errors.push(at(where, `Drive "${drive.id}" reads signal "${drive.signal}", which is not declared.`));
       }
       if (!drive.node || !drive.param) {
-        errors.push(at(where, 'A drive needs both a node and a parameter.'));
+        // Named, and with what it did have in it: five drives in a section and
+        // five identical lines saying one of them is wrong is a report an
+        // artist has to go and diff the document against.
+        const got = drive.node ? `node "${drive.node}" and no parameter`
+          : drive.param ? `parameter "${drive.param}" and no node`
+          : 'neither';
+        errors.push(at(where, `Drive "${drive.id}" (signal "${drive.signal}") needs both a node and a parameter — it has ${got}. Write them as two fields: "node": "Warp", "param": "amount".`));
       }
       if (drive.min === drive.max) {
         warnings.push(at(where, `Drive on ${drive.node}.${drive.param} has min === max, so it will hold still.`));
@@ -545,7 +788,7 @@ export function validateScenario(scenario, known = {}) {
 
     for (const move of section.moves) {
       if (move.atBars === null && move.atSeconds === null && !move.when) {
-        errors.push(at(where, `Move "${move.id}" has no time and no condition, so it can never fire.`));
+        errors.push(at(where, `Move "${move.id}" has no time and no condition, so it can never fire. Give it "atSeconds", "atBars" or "when".`));
       }
       if (move.when) {
         const problem = checkCondition(move.when, signalNames);
@@ -562,13 +805,40 @@ export function validateScenario(scenario, known = {}) {
     checkActions(cue.do, `cue "${cue.name}"`);
   }
 
-  // A set nothing can start is the one configuration worth calling an error:
-  // every section waiting on something means the performer sits dark.
-  const reachable = scenario.sections.some(
-    (s) => s.enter.kind !== 'manual' || s === scenario.sections[0]
-  );
-  if (scenario.sections.length && !reachable) {
-    warnings.push(at('sections', 'Every section is manual. The set will start on the first one and go nowhere on its own.'));
+  // The pre-directions, against the sections they name. Reported here rather
+  // than only in the panel so a set opened from someone else's machine says
+  // "this line is anchored to a section you do not have" at the desk, instead
+  // of holding one sentence for the whole show and never saying why.
+  const directions = validateDirections(scenario.directions, {
+    sectionIds: [...sectionIds],
+  });
+  errors.push(...directions.errors);
+  warnings.push(...directions.warnings);
+
+  // A set that cannot leave its first section on its own. This is the failure
+  // that looks exactly like a working performance from the front — the scene is
+  // up, the drives are live, the log is clean — so it is worth saying at the
+  // desk, where it is one line to fix.
+  //
+  // The first section is excluded because it is where the set starts: it does
+  // not need reaching. That exclusion used to be written into the same `some()`
+  // that did the test — `s.enter.kind !== 'manual' || s === sections[0]` — and
+  // since the first section always satisfies its own clause, the `some()`
+  // returned true for every scenario with anything in it and this warning could
+  // not fire at all. It is spelled as a slice now so the two ideas cannot be
+  // read as one.
+  //
+  // "On its own" is the whole test, so a cue and an unreachable condition count
+  // as waiting even though something could in principle release them: the
+  // musician who would fire that cue is exactly who is not there when this
+  // goes wrong. A deadline (`enter.by`) is what turns either back into a way
+  // through.
+  if (scenario.sections.length > 1) {
+    const first = scenario.sections[0];
+    const next = scenario.sections[followFrom(scenario.sections, 0)];
+    if (next && next !== first && !canEnterUnattended(next.enter, first)) {
+      warnings.push(at('sections', `Nothing moves this set off "${first.name}" by itself: "${next.name}" ${next.enter.kind === 'cue' ? `waits for the cue "${next.enter.cue}"` : next.enter.kind === 'when' ? `waits for ${next.enter.when}` : 'is entered by hand'}, and nothing else can end "${first.name}". Started with nobody playing into it, the set will hold one frame. Add a deadline — "by": {"bars": 32} — or give it a clock entry.`));
+    }
   }
 
   return { ok: errors.length === 0, errors, warnings };
@@ -637,6 +907,23 @@ export function emptyScenario() {
  * A worked example, shown in the panel and handed to the model as the shape to
  * answer in. It is a real set: OSC from the musician, two audio bands, four
  * sections on a cue-and-clock mix, and a drop the musician fires by hand.
+ *
+ * Every waiting section carries a `by`, and that is not decoration. This set is
+ * the first thing anyone presses — Example, Load, Start — and for most of them
+ * it is pressed at a desk with no DAW patched in and no OSC bridge running. Its
+ * second section used to be entered by `energy > 0.45` off `/rhizo/perf/energy`
+ * and its third by a cue fired by hand, so on that desk nothing entered
+ * anything: the set showed `intro-scene` and held it, indefinitely, while the
+ * panel reported a healthy running performance. Twenty minutes of it is one
+ * frame.
+ *
+ * With the deadlines it plays the whole arc by itself — intro, build, drop,
+ * breakdown, and back round — and every one of them still yields to the
+ * musician the moment there is one: energy over 0.45 takes the build early, and
+ * the `drop` cue cuts to the drop from wherever the set has got to, because a
+ * declared cue runs its own actions whatever any section's `enter` says
+ * (PerformerEngine.drainCues). The deadline is the floor under the set, not the
+ * plan for it.
  */
 export const EXAMPLE_SCENARIO = Object.freeze({
   version: SCENARIO_VERSION,
@@ -668,7 +955,11 @@ export const EXAMPLE_SCENARIO = Object.freeze({
     {
       id: 'build',
       name: 'Build',
-      enter: { when: 'energy > 0.45' },
+      // The musician's energy takes it early; 32 bars takes it anyway. Intro
+      // holds 16, so there is a real window between the two for the condition
+      // to be the thing that decides — a deadline at the floor would make the
+      // condition ornamental.
+      enter: { when: 'energy > 0.45', by: { bars: 32 } },
       hold: { bars: 8 },
       look: { scene: 'build-scene' },
       transition: { type: 'crossfade', duration: 1, quantize: 'phrase' },
@@ -684,7 +975,9 @@ export const EXAMPLE_SCENARIO = Object.freeze({
     {
       id: 'drop',
       name: 'Drop',
-      enter: { cue: 'drop' },
+      // Still the musician's to fire, and still fired by hand over OSC. The
+      // deadline only decides what happens on the desk where nobody does.
+      enter: { cue: 'drop', by: { bars: 24 } },
       hold: { bars: 32 },
       look: { scene: 'drop-scene' },
       transition: { type: 'cut', duration: 0, quantize: 'beat' },
@@ -712,6 +1005,16 @@ export const EXAMPLE_SCENARIO = Object.freeze({
     { name: 'drop', do: [{ type: 'section', to: 'drop' }] },
     { name: 'panic', do: [{ type: 'blackout', on: true }] },
     { name: 'lift', do: [{ type: 'master', to: 1, overSeconds: 1 }] },
+  ],
+  // What to be going for, written before the show. The first has no section,
+  // so it stands for the whole set and holds wherever nothing else is said;
+  // the rest take over in the sections they name. See PreDirections.js.
+  directions: [
+    { text: 'Patient and cold. Never bright until the drop.' },
+    { at: { section: 'build' }, text: 'Tighten it. Contrast climbing, still dark.' },
+    { at: { section: 'drop' }, text: 'Let it go — hard, white, full frame.' },
+    { at: { section: 'drop', bars: 16 }, text: 'Hold it there. Do not add anything else.' },
+    { at: { section: 'breakdown' }, text: 'Take it all the way down and leave it alone.' },
   ],
   rules: {
     minSectionBars: 4,

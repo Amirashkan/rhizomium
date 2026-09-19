@@ -47,6 +47,7 @@
  * patch may not contain a texture node at all, for the good reason that a model
  * cannot supply a file — here the file exists before the call is made, which is
  * the whole difference.
+ *
  * ## The set that already exists
  *
  * The same three passes answer the opposite case, and it is the more common
@@ -81,7 +82,11 @@ import {
 } from './ShowManifest.js';
 import { normalizeScenario, SCENARIO_VERSION } from './Scenario.js';
 import { endCardPatch } from './EndCard.js';
+import { fillTimelineGaps, normalizeDirections } from './PreDirections.js';
+import { handleFor } from './PatchHandles.js';
+import { defaultNodeName } from '../core/nodeName.js';
 import { mediaSlotName, mediaSlots, readMediaDataUrl, resolveLookMedia } from './ShowFolder.js';
+import { patchHandles } from './PatchHandles.js';
 
 /** The node kinds a clip can arrive on. */
 const TEXTURE_KINDS = new Set(['Texture2D', 'TextureCube']);
@@ -254,6 +259,14 @@ export class ShowBuilder {
             show: showContext(show),
             look,
             media: mediaSlots(clips),
+            // The same seconds the scene's own timeline is set to below, sent
+            // one step earlier so the patch is BUILT to that length rather
+            // than cut off at it, and the bar the show counts in so a
+            // generated expression can cycle with the music instead of near
+            // it. barSecondsOf() is zero for a show with no pulse, which is
+            // the honest answer and is dropped rather than sent as a guess.
+            secondsUp: holdSecondsOf(look, show),
+            bar: barSecondsOf(show),
           });
 
           const patch = generated?.patch;
@@ -270,6 +283,19 @@ export class ShowBuilder {
             problems.push({ where: `look "${look.name}"`, message: note });
           }
 
+          // The look is still installed: a patch that is missing a parameter
+          // the set reaches for is a look with a hole in it, not a failure,
+          // and it is better on the rig than not built at all. But it is said
+          // here, once, while the artist is watching a build — rather than
+          // discovered at showtime as visuals that do not move.
+          const unmet = unmetRequirements(media.patch, look.requires);
+          if (unmet.length) {
+            problems.push({
+              where: `look "${look.name}"`,
+              message: `came back without ${unmet.map((one) => `"${one}"`).join(', ')}, which the set drives — ${unmet.length === 1 ? 'that drive will do' : 'those drives will do'} nothing until the patch or the scenario is changed to agree`,
+            });
+          }
+
           // The scene is named after the look, not after the title the model
           // chose for its patch: the scenario is about to name it, and it can
           // only name what the manifest said.
@@ -277,6 +303,11 @@ export class ShowBuilder {
             notes: generated?.notes || look.mood || look.brief,
             title: generated?.title || look.name,
             lookId: look.id,
+            // What the manifest says this look is up for, in seconds. It
+            // becomes the scene's own duration and the timeline it carries,
+            // so cutting to it sets the transport to the length the set was
+            // written to rather than leaving the last look's.
+            holdSeconds: holdSecondsOf(look, show),
             // Keyed by node id, exactly as a saved project's textures are:
             // installScene hands it straight to the scene's project data and
             // the ordinary loader puts it back on the GPU.
@@ -290,6 +321,20 @@ export class ShowBuilder {
             title: generated?.title || look.name,
             notes: generated?.notes || '',
             nodes: patch.nodes.length,
+            // What the patch actually called the things it left to be turned.
+            // Pass 2 is about to write drives against this look, and until
+            // this was carried across it was writing them against node names
+            // it had guessed — which load, warn once, and then do nothing for
+            // the length of the set.
+            //
+            // Both sides of this merge carried the same fix and this is the
+            // richer shape: patchHandles() resolves a name the way showtime
+            // will, keeps each parameter's range and where it sits, and says
+            // when one handle answers for two nodes. A flat "Node.param" list
+            // could say none of that, and a range is the difference between a
+            // drive that reads and one mapped into the top tenth of a span it
+            // was already sitting in.
+            handles: patchHandles(media.patch),
             media: media.bound.map((one) => one.path),
             generated: true,
           });
@@ -361,6 +406,11 @@ export class ShowBuilder {
       // --- pass 3: bind ---------------------------------------------------
       const binding = bindLooks(scenario, show, built);
       scenario = binding.scenario;
+
+      // …and the direction the manifest wrote, onto the sections those looks
+      // became. After binding, because it is the binding that knows which
+      // section each look ended up as.
+      scenario = directLooks(scenario, show, binding.bound);
 
       onProgress({
         phase: 'done', status: stopped ? 'failed' : 'ok',
@@ -513,6 +563,89 @@ export async function attachMedia(patch, clips = []) {
 }
 
 /**
+ * What the look was asked for and did not come back with.
+ *
+ * A look's `requires` is every node and parameter the set already reaches for
+ * — the drives, the moves, the enter and exit actions of the section about to
+ * play it. The prompt asks for them by name. Nothing used to check that they
+ * arrived, and a look that came back without them installs, plays, and looks
+ * exactly like a look that worked: the section cuts to it, its drives are
+ * accepted, its signals arrive, and every one of them writes into a node that
+ * is not there. The set runs clean and barely moves.
+ *
+ * This is the earliest the whole failure can be caught — at the desk, during a
+ * build, with the artist watching — rather than as a `dead` entry in the live
+ * director's prompt with an audience already in the room.
+ *
+ * Resolved the way ActionExecutor.resolveNode() resolves one at showtime — id,
+ * then the artist's own name, then the kind, then the registry's label for it —
+ * so a name that passes here is a name that will bind on stage, and one that
+ * fails here would have failed there silently. The label matters: it is the
+ * name the node draws under when nobody has renamed it, so it is the name a
+ * model is most likely to send back, and checking without it would report a
+ * hole in a look that plays perfectly well.
+ *
+ * @param {object} patch a generated patch
+ * @param {Array<{node: string, param: string}>} requires
+ * @returns {Array<string>} "Node.param" for each one missing, in order
+ */
+export function unmetRequirements(patch, requires) {
+  const list = Array.isArray(requires) ? requires : [];
+  if (!list.length) return [];
+
+  const nodes = Array.isArray(patch?.nodes) ? patch.nodes : [];
+  const missing = [];
+
+  for (const entry of list) {
+    const wanted = String(entry?.node ?? '').trim();
+    const param = String(entry?.param ?? '').trim();
+    if (!wanted || !param) continue;
+
+    const key = wanted.toLowerCase();
+    const node = nodes.find((one) => String(one?.id) === wanted)
+      || nodes.find((one) => handleFor(one).toLowerCase() === key)
+      || nodes.find((one) => String(one?.kind).toLowerCase() === key
+        || defaultNodeName(one).toLowerCase() === key);
+
+    // The parameter matters as much as the node: a Blur that arrived without
+    // `amount` is a drive that resolves its node and writes nowhere.
+    if (!node || !(param in (node.params || {}))) missing.push(`${wanted}.${param}`);
+  }
+
+  return missing;
+}
+
+/**
+ * The parameters a drive can reach in one built look, as "node.param".
+ *
+ * Flattened from the look's handles rather than walked out of the patch a
+ * second time, so the names here and the names in the scenario brief cannot
+ * drift: both are what ActionExecutor.resolveNode() will find on stage.
+ * Reading the patch directly — the shape this replaced — saw only parameters
+ * the patch carried a value for, and missed every one still sitting at its
+ * registry default, which is most of a freshly generated look.
+ *
+ * Capped, because this is prompt text and a forty-node patch has a few
+ * hundred of them: a list long enough to bury the ones an artist would reach
+ * for first is not more useful for being complete.
+ */
+export function handleParameters(handles, limit = 24) {
+  const nodes = Array.isArray(handles?.nodes) ? handles.nodes : [];
+  const out = [];
+  for (const node of nodes) {
+    const label = String(node?.name || '').trim();
+    if (!label) continue;
+    for (const param of node.params || []) {
+      const name = String(param?.name || '').trim();
+      if (!name) continue;
+      out.push(`${label}.${name}`);
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
+/**
  * Whether this clip can go on this node.
  *
  * A cube map is six faces of a still image in one file; a video on one is a
@@ -543,6 +676,11 @@ function mergeContext(context, show, built) {
         id: entry.sceneId || entry.lookId,
         name: entry.sceneName,
         notes: look?.mood || entry.notes || '',
+        // The parameters of THIS scene, so a drive in its section names
+        // something the section will actually have loaded. The flat list
+        // beside it is the patch that is open in the editor, which during a
+        // show build is nobody's section.
+        parameters: handleParameters(entry.handles),
       };
     });
 
@@ -625,6 +763,13 @@ export function bindLooks(rawScenario, manifest, built = []) {
       ...section,
       id: section.id || look.id,
       look: { kind: 'scene', scene: entry.sceneName },
+      // The bed, the same way and for the same reason: the file is a fact
+      // about the folder, not a decision for the model. Any audio action
+      // already on the section is replaced rather than added to — two beds on
+      // one entry is one bed and a decode nobody hears.
+      onEnter: look.sound
+        ? [soundAction(look), ...section.onEnter.filter((action) => !isSoundAction(action))]
+        : section.onEnter,
     };
 
     bound.push({
@@ -636,6 +781,164 @@ export function bindLooks(rawScenario, manifest, built = []) {
   }
 
   return { scenario: { ...scenario, sections }, bound, unbound };
+}
+
+/**
+ * A set's pre-direction for one section, as one line of prose.
+ *
+ * `''` asks for the standing line — the show's own. Several lines can be
+ * anchored to one section (a change of mind partway through), and a manifest
+ * holds one per look, so they are joined in the order they take effect rather
+ * than having all but the first dropped: a manifest is prose, and two
+ * sentences is prose.
+ *
+ * @param {object} scenario NORMALISED
+ * @param {string} sectionId, or '' for the show's standing line
+ * @returns {string}
+ */
+function directionForSection(scenario, sectionId) {
+  const lines = normalizeDirections(scenario.directions)
+    .filter((entry) => (sectionId ? entry.at.section === sectionId : !entry.at.section))
+    .map((entry) => entry.text);
+  return lines.join(' ');
+}
+
+/**
+ * Put the manifest's direction on the set that was just built.
+ *
+ * A manifest is where a show is planned, and `direction` is part of the plan:
+ * one line for the show, one per look. This is the step that turns those into
+ * the set's own pre-directions (PreDirections.js), so a show built from a
+ * manifest arrives already directed rather than needing the panel's **Set on
+ * the timeline** pressed afterwards — which is the whole point of writing them
+ * at the desk, and the difference between handing a set to the model and
+ * handing it a set with instructions.
+ *
+ * A look's line has to find the section that look became, and that mapping is
+ * not the identity: the model renames things, and a look nothing matched got a
+ * section inserted for it. `bindLooks()` already worked it out, so its `bound`
+ * is used where it reaches; where it does not — a look whose patch was never
+ * built, so it is not in `bound` at all — the same id-then-name-then-position
+ * fallback applies, because the section may well exist anyway.
+ *
+ * Two rules about not trampling the artist:
+ *
+ *   - A set that already carries a pre-direction for a section keeps it. This
+ *     is the `{ scenario }` path — building the missing looks of a set someone
+ *     wrote — and their direction is not the manifest's to overwrite. Same for
+ *     the standing line.
+ *   - The gaps are filled (`fillTimelineGaps`), so the sections the model
+ *     added between the manifest's looks are directed too rather than falling
+ *     through to the show's floor.
+ *
+ * Pure, and exported, because it is the step worth testing on its own.
+ *
+ * @param {object} rawScenario the set, after bindLooks()
+ * @param {object} manifest
+ * @param {Array} [bound] bindLooks()'s report: {lookId, sectionId}
+ * @returns {object} the scenario, with `directions` on it
+ */
+export function directLooks(rawScenario, manifest, bound = []) {
+  const show = normalizeManifest(manifest);
+  const scenario = normalizeScenario(rawScenario);
+
+  const hasDirection = show.direction || show.looks.some((look) => look.direction);
+  if (!hasDirection) return scenario;
+
+  const sections = scenario.sections;
+  const byId = new Map();
+  const byName = new Map();
+  sections.forEach((section, index) => {
+    if (!byId.has(section.id)) byId.set(section.id, index);
+    const name = String(section.name || '').toLowerCase();
+    if (name && !byName.has(name)) byName.set(name, index);
+  });
+  const boundTo = new Map(
+    (Array.isArray(bound) ? bound : []).map((entry) => [entry.lookId, entry.sectionId])
+  );
+
+  // What the set already says, so nothing below overwrites it.
+  const existing = normalizeDirections(scenario.directions);
+  const directed = new Set(existing.map((entry) => entry.at.section).filter(Boolean));
+  const standing = existing.some((entry) => !entry.at.section);
+
+  const added = [];
+
+  // The show's own line first, so it reads as the floor in the document too.
+  if (show.direction && !standing) {
+    added.push({ id: 'show', at: { whole: true }, text: show.direction });
+  }
+
+  const sameLength = sections.length === show.looks.length;
+
+  show.looks.forEach((look, lookIndex) => {
+    if (!look.direction) return;
+
+    const boundId = boundTo.get(look.id);
+    const index = boundId !== undefined && byId.has(boundId)
+      ? byId.get(boundId)
+      : [
+        byId.get(look.id),
+        byName.get(look.name.toLowerCase()),
+        sameLength ? lookIndex : undefined,
+      ].find((value) => value !== undefined);
+
+    const section = index === undefined ? null : sections[index];
+    // No section answers to this look — its patch failed and nothing was
+    // inserted. The line is kept rather than dropped, anchored to the look's
+    // own id: it is inert, it is the artist's, and the panel says so.
+    const id = section ? section.id : look.id;
+    if (directed.has(id)) return;
+
+    added.push({ id: `look-${look.id}`, at: { section: id }, text: look.direction });
+    directed.add(id);
+  });
+
+  if (!added.length) return scenario;
+
+  return {
+    ...scenario,
+    directions: fillTimelineGaps([...existing, ...added], sections),
+  };
+}
+
+/**
+ * A look's hold in seconds, whatever unit the manifest wrote it in.
+ *
+ * Bars are converted against the show's own tempo, which is the only tempo
+ * this side of the build knows — the clock at showtime may have been pulled
+ * somewhere else by then, and the engine converts again from that when it arms
+ * the timeline (PerformerEngine.sectionLengthSeconds). What is written into
+ * the scene here is the length the set was designed to, which is the right
+ * answer for a scene loaded on its own, outside any performance.
+ */
+export function holdSecondsOf(look, show) {
+  if (look?.hold?.seconds > 0) return look.hold.seconds;
+  if (look?.hold?.bars > 0) {
+    const bpm = show?.bpm > 0 ? show.bpm : 120;
+    const beats = show?.beatsPerBar > 0 ? show.beatsPerBar : 4;
+    return Math.round(look.hold.bars * (60 / bpm) * beats * 100) / 100;
+  }
+  return 0;
+}
+
+/**
+ * One bar of this show, in seconds — or zero when there is no pulse to
+ * measure one against.
+ *
+ * Zero rather than a default is the whole point. Every other tempo fallback in
+ * this file exists so that a conversion still produces a number; this one is
+ * shown to the model as the rate its expressions should move at, and a bar
+ * invented for ambient music is a set timed to a beat nobody is playing. The
+ * caller drops it when it is zero, and the look is built with no rate
+ * suggested rather than with the wrong one.
+ */
+export function barSecondsOf(show) {
+  if (show?.pulse === 'free') return 0;
+  const bpm = show?.bpm > 0 ? show.bpm : 0;
+  if (!bpm) return 0;
+  const beats = show?.beatsPerBar > 0 ? show.beatsPerBar : 4;
+  return Math.round((60 / bpm) * beats * 100) / 100;
 }
 
 /** One section, straight off a look, for when nothing wrote one. */
@@ -651,8 +954,34 @@ function sectionFromLook(look, show, first) {
     next: look.next || undefined,
   };
   if (look.hold) section.hold = look.hold;
+  if (look.sound) section.onEnter = [soundAction(look)];
   return section;
 }
+
+/**
+ * The action that starts a look's own bed.
+ *
+ * Written here rather than left to whoever writes the scenario, because it is
+ * not a decision: the manifest said this look has this sound, the hold was
+ * measured from that file, and a set that describes a bed it never plays is
+ * the mismatch this whole path exists to close.
+ *
+ * `quantize: 'off'` on purpose. Everything else a section does on entry can
+ * wait for a boundary; the sound cannot, because the boundary it would wait
+ * for is measured against the track that has not started.
+ */
+function soundAction(look) {
+  return {
+    type: 'audio',
+    clip: look.sound,
+    transport: 'play',
+    quantize: 'off',
+    why: `the bed "${look.sound}" belongs to ${look.name}`,
+  };
+}
+
+/** Is this an `audio` action the builder wrote, rather than the artist? */
+const isSoundAction = (action) => action?.type === 'audio';
 
 /**
  * What ends the section before this one.
@@ -907,6 +1236,12 @@ export function manifestFromScenario(rawScenario, options = {}) {
       name: section.name,
       mood: section.mood,
       notes: section.notes,
+      // The set's own pre-direction for this section, back in the document it
+      // is planned in. Without this the trip out and back would quietly strip
+      // the direction off a set — `manifestFromScenario()` is how "build the
+      // missing looks" reads a set someone already wrote, and that set is
+      // exactly the one whose direction is not ours to lose.
+      direction: directionForSection(scenario, section.id),
       intensity: section.intensity === null ? undefined : section.intensity,
       enter: section.enter,
       hold: section.hold.bars ? { bars: section.hold.bars }
@@ -976,6 +1311,8 @@ export function manifestFromScenario(rawScenario, options = {}) {
     show: scenario.name,
     brief: options.brief || scenario.notes,
     palette: options.palette,
+    // …and the show's own, which is the set's standing line.
+    direction: directionForSection(scenario, ''),
     notes: scenario.notes,
     bpm: scenario.bpm,
     beatsPerBar: scenario.beatsPerBar,

@@ -14,7 +14,12 @@ import {
   readFolderShow,
 } from '../src/performer/ShowImport.js';
 import { validateManifest } from '../src/performer/ShowManifest.js';
-import { indexShowFolder, resolveLookMedia } from '../src/performer/ShowFolder.js';
+import { scenarioFromManifest } from '../src/performer/ShowBuilder.js';
+import { normalizeScenario, validateScenario } from '../src/performer/Scenario.js';
+import { ActionExecutor } from '../src/performer/ActionExecutor.js';
+import { directLooks } from '../src/performer/ShowBuilder.js';
+import { activeDirection } from '../src/performer/PreDirections.js';
+import { indexShowFolder, resolveLookMedia, resolveLookSound } from '../src/performer/ShowFolder.js';
 
 /** One transmission's manifest, as `transmissions` writes it. */
 const transmission = (overrides = {}) => ({
@@ -162,6 +167,25 @@ describe('lookFromTransmission', () => {
     expect(talky.hold.seconds).toBeGreaterThan(80);
   });
 
+  it('plays the piece its own bed, and leaves the narration to the artist', () => {
+    const look = lookFromTransmission(transmission(), { path: 'one/manifest.json' });
+
+    // The bed is the file holdOf() measured this look's length from, so the
+    // section and the track under it are the same length by construction.
+    expect(look.sound).toBe('one/media/music.mp3');
+    // One element behind the analysis: a voice over the bed is a mix the
+    // artist makes in their own software, not a second file chosen for them.
+    expect(look.notes).toContain('voiceover: one/media/narration.mp3');
+  });
+
+  it('has no bed when the piece never generated one', () => {
+    const silent = transmission({
+      assets: [{ kind: 'image', provider: 'stability', path: 'image.png', status: 'ok' }],
+    });
+
+    expect(lookFromTransmission(silent, { path: 'one/manifest.json' }).sound).toBe('');
+  });
+
   it('is still a look when the piece says almost nothing about itself', () => {
     const look = lookFromTransmission({ manifest_version: 1, title: 'Bare' }, { path: 'bare/manifest.json' });
 
@@ -281,6 +305,9 @@ describe('manifestFromTransmissions', () => {
     const { items, missing } = resolveLookMedia(folder, manifest.looks[0]);
     expect(missing).toEqual([]);
     expect(items.map((item) => item.name)).toEqual(['video.mp4', 'image.png']);
+
+    // And the bed, by the same path, out of the same index.
+    expect(resolveLookSound(folder, manifest.looks[0]).name).toBe('music.mp3');
   });
 });
 
@@ -364,5 +391,216 @@ describe('readFolderShow', () => {
 
     expect(result.kind).toBe('none');
     expect(result.problems).toEqual([]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// The whole trip, for the case this file exists for: a folder another tool
+// wrote, opened, built into a set, and played. Every step is the real one
+// except the model that would write the patches — what is under test is that a
+// bed in that folder is a bed coming out of the machine, which is a chain of
+// five files agreeing on one filename.
+// --------------------------------------------------------------------------
+
+describe('a folder of transmissions, end to end', () => {
+  it('plays the piece its own bed when the section it belongs to starts', async () => {
+    const entries = [
+      manifestFile('2026-09-16-cortex-vacancy/manifest.json', transmission({ slug: 'cortex-vacancy', title: 'The Cortex Vacancy' })),
+      { path: '2026-09-16-cortex-vacancy/media/video.mp4', file: file('video.mp4', '', { type: 'video/mp4' }) },
+      { path: '2026-09-16-cortex-vacancy/media/music.mp3', file: file('music.mp3', '', { type: 'audio/mpeg' }) },
+      { path: '2026-09-16-cortex-vacancy/media/narration.mp3', file: file('narration.mp3', '', { type: 'audio/mpeg' }) },
+    ];
+    const folder = indexShowFolder(entries, { name: 'Transmissions' });
+    const show = await readFolderShow(folder);
+
+    // The set the panel would write from that manifest, with the scene the
+    // build would have installed.
+    const scenario = normalizeScenario(
+      scenarioFromManifest(show.manifest, [{ lookId: show.manifest.looks[0].id, sceneName: 'The Cortex Vacancy' }])
+    );
+
+    const loaded = [];
+    const executor = new ActionExecutor({
+      editor: { graph: { nodes: [] } },
+      audioDeck: {
+        describe: () => ({ file: '', loaded: false, playing: false, live: null, position: 0 }),
+        load: async (f, name) => { loaded.push(name); },
+        play: async () => ({ ok: true }),
+        pause() {}, stop() {}, seek() {},
+      },
+    });
+    executor.setSounds(folder.media);
+
+    const enter = scenario.sections[0].onEnter.find((action) => action.type === 'audio');
+    expect(enter.clip).toBe('2026-09-16-cortex-vacancy/media/music.mp3');
+    expect(executor.execute(enter, { now: 0 }).ok).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loaded).toEqual(['music.mp3']);
+
+    // And the section is exactly as long as the bed it plays: the manifest's
+    // hold came off the same file.
+    expect(scenario.sections[0].hold.seconds).toBe(48);
+  });
+});
+
+// Direction, on a show that came out of a folder rather than off a desk.
+//
+// This is the case pre-directions exist for: generated, ambient, and played by
+// the model with nobody standing over it. A set of transmissions that arrived
+// undirected would be improvised for its whole length, so what matters here is
+// that nothing has to be regenerated or typed for it to arrive directed — the
+// energy every transmission already carries is what it is derived from.
+describe('a transmissions show, directed', () => {
+  it('gives every look a direction the live model can act on', () => {
+    const look = lookFromTransmission(transmission(), { path: 'p/manifest.json' });
+    expect(look.direction).toBeTruthy();
+    // Energy 2 in the fixture: patient, and told not to brighten.
+    expect(look.direction).toMatch(/patient/i);
+  });
+
+  it('says how much to move by the energy the piece was written at', () => {
+    const quiet = lookFromTransmission(
+      transmission({ performance: { energy: 1, texture: 'grain' } }), { path: 'a/manifest.json' });
+    const loud = lookFromTransmission(
+      transmission({ performance: { energy: 5, texture: 'grain' } }), { path: 'b/manifest.json' });
+
+    expect(quiet.direction).toMatch(/hold it/i);
+    expect(loud.direction).toMatch(/densest point/i);
+    expect(quiet.direction).not.toBe(loud.direction);
+  });
+
+  it('does not tell the loudest piece to do what this material will not do', () => {
+    // Half an hour in a dark room. A strobe or a full-white frame is not a set
+    // going hard, it is a set breaking — and the top of the energy scale is the
+    // one line most likely to cross that, so it carries the rule itself.
+    const loud = lookFromTransmission(
+      transmission({ performance: { energy: 5, texture: 'grain' } }), { path: 'b/manifest.json' });
+    expect(loud.direction).toMatch(/no strobe/i);
+    expect(loud.direction).toMatch(/no white frame/i);
+  });
+
+  it('carries the arranger\'s transition_out, which nothing else would think about', () => {
+    const look = lookFromTransmission(
+      transmission({ performance: { energy: 3, transition_out: 'Let it seep away' } }),
+      { path: 'p/manifest.json' }
+    );
+    expect(look.direction).toMatch(/let it seep away/);
+  });
+
+  it('does not simply repeat the mood it already sends', () => {
+    // The director is shown both. A direction that restates the mood wastes
+    // the one line it gets.
+    const look = lookFromTransmission(transmission(), { path: 'p/manifest.json' });
+    expect(look.direction).not.toBe(look.mood);
+  });
+
+  it('is written for a piece with no performance block at all', () => {
+    const look = lookFromTransmission({ title: 'Bare' }, { path: 'p/manifest.json' });
+    expect(look.direction).toBeTruthy();
+  });
+
+  it('puts a standing direction on the show, said once', () => {
+    const { manifest } = manifestFromTransmissions([
+      { path: 'a/manifest.json', data: transmission({ slug: 'one' }) },
+      { path: 'b/manifest.json', data: transmission({ slug: 'two' }) },
+    ]);
+    expect(manifest.direction).toMatch(/dark room/i);
+    // The two rules the material will not break, said where the model is
+    // deciding rather than in a brief it was shown once.
+    expect(manifest.direction).toMatch(/never let a look become an object/i);
+    expect(manifest.direction).toMatch(/never strobe or go white/i);
+  });
+
+  it('no longer warns that the show has no direction in it', () => {
+    // The warning added with pre-directions fires on an undirected show, and a
+    // folder read from another tool is the one nobody could have typed into.
+    const { manifest } = manifestFromTransmissions([
+      { path: 'a/manifest.json', data: transmission() },
+    ]);
+    const report = validateManifest(manifest);
+    expect(report.warnings.some((w) => w.where === 'direction')).toBe(false);
+  });
+
+  it('lands on the built set, one live line per section', () => {
+    // End to end: folder in, and every section of the set that comes out has
+    // something to hand the director.
+    const { manifest } = manifestFromTransmissions([
+      { path: 'a/manifest.json', data: transmission({ slug: 'one', title: 'One' }) },
+      { path: 'b/manifest.json', data: transmission({ slug: 'two', title: 'Two' }) },
+    ]);
+    const scenario = directLooks(scenarioFromManifest(manifest), manifest);
+
+    for (const section of scenario.sections) {
+      const live = activeDirection(scenario.directions, {
+        sectionId: section.id, sectionSeconds: 0,
+      });
+      expect(live, section.id).not.toBe(null);
+      expect(live.text).toBeTruthy();
+    }
+  });
+});
+
+// The other route in: a scenario `transmissions perform` exported, loaded
+// straight into the panel's Scenario tab with no build in between.
+//
+// Reading the project folders as a show folder and exporting them as a scenario
+// have to agree, because they are two ways of playing the same pieces — and
+// this end is the one that can drift without anybody noticing, since the
+// document is written by a program in another repository. The fixture below is
+// what `transmissions/rhizomium.py::_directions()` writes, and its job is to
+// fail here rather than at showtime if that changes shape.
+describe('a scenario transmissions exported', () => {
+  /** SET.rzperf.json, trimmed to the parts direction depends on. */
+  const exported = () => ({
+    version: 1,
+    name: 'Transmissions — 30 minutes',
+    bpm: 120,
+    sections: [
+      { id: 'opening-drone', name: 'Opening drone', enter: 'manual', hold: { seconds: 600 }, look: { scene: 'opening-drone' }, next: 'europa-returns' },
+      { id: 'europa-returns', name: 'Europa returns', enter: 'manual', hold: { seconds: 600 }, look: { scene: 'europa-returns' }, next: 'opening-drone' },
+    ],
+    directions: [
+      { id: 'set', at: { whole: true }, text: 'These are ambient pieces and there is nobody at the laptop: let each one hold.' },
+      { id: 'dir-opening-drone', at: { section: 'opening-drone' }, text: 'Hold it. Almost nothing should move. Towards the end, let it seep away.' },
+      { id: 'dir-europa-returns', at: { section: 'europa-returns' }, text: 'Let it go — full frame, hard. Towards the end, cut it dead.' },
+    ],
+    rules: { director: { enabled: true, everySeconds: 60, freedom: 0.25 } },
+  });
+
+  it('keeps its direction through the load', () => {
+    const scenario = normalizeScenario(exported());
+    expect(scenario.directions).toHaveLength(3);
+    expect(scenario.directions[0].at.whole).toBe(true);
+  });
+
+  it('loads with nothing to report about it', () => {
+    // A warning here is a warning about a document the artist did not write
+    // and cannot fix, which is the failure ShowImport.js exists to avoid.
+    const report = validateScenario(normalizeScenario(exported()));
+    expect(report.errors).toEqual([]);
+    expect(report.warnings.filter((w) => /pre-direction/.test(w.where))).toEqual([]);
+  });
+
+  it('hands the director that section\'s own line, in every section', () => {
+    const scenario = normalizeScenario(exported());
+    for (const section of scenario.sections) {
+      const live = activeDirection(scenario.directions, {
+        sectionId: section.id, sectionSeconds: 0,
+      });
+      expect(live, section.id).not.toBe(null);
+      expect(live.at.section).toBe(section.id);
+    }
+  });
+
+  it('falls back to the standing line in a section the export did not name', () => {
+    // An artist who adds a section of their own to somebody else's set. It is
+    // not left undirected.
+    const raw = exported();
+    raw.sections.push({ id: 'mine', name: 'Mine', enter: 'manual', hold: { seconds: 60 } });
+    const scenario = normalizeScenario(raw);
+
+    const live = activeDirection(scenario.directions, { sectionId: 'mine', sectionSeconds: 0 });
+    expect(live.at.whole).toBe(true);
   });
 });

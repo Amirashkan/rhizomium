@@ -12,8 +12,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   ShowBuilder,
   bindLooks,
+  directLooks,
+  manifestFromScenario,
   scenarioFromManifest,
   isQuotaRefusal,
+  barSecondsOf,
 } from '../src/performer/ShowBuilder.js';
 import { normalizeManifest } from '../src/performer/ShowManifest.js';
 import { GrantError } from '../src/ai/entitlements.js';
@@ -79,6 +82,90 @@ describe('ShowBuilder', () => {
     expect(report.built.filter((entry) => entry.generated)).toHaveLength(3);
   });
 
+  it('installs each look with the length the manifest gave it', async () => {
+    await builder().build(MANIFEST);
+
+    // 32 bars at 128 in 4/4 is 60s. It becomes the scene's own duration and
+    // the timeline the scene carries, so cutting to it sets the transport to
+    // the length the set was written to.
+    expect(installScene.mock.calls[0][2].holdSeconds).toBe(60);
+    expect(installScene.mock.calls[1][2].holdSeconds).toBe(30);
+  });
+
+  // The same two numbers, one step earlier. A generated expression's RATE is
+  // the one thing a model cannot guess, and getting it wrong is not a wrong
+  // picture — it is a look whose motion the audience never sees a whole cycle
+  // of, or one that drifts across the music instead of moving with it.
+  it('tells each look how long it is up for and what a bar is worth', async () => {
+    await builder().build(MANIFEST);
+
+    // 32 bars at 128 in 4/4, then 16, and one bar of that show is 1.88s.
+    expect(generatePatch.mock.calls[0][1].secondsUp).toBe(60);
+    expect(generatePatch.mock.calls[1][1].secondsUp).toBe(30);
+    for (const call of generatePatch.mock.calls) expect(call[1].bar).toBe(1.88);
+  });
+
+  it('offers no bar at all for music that has no pulse', async () => {
+    // Every other tempo fallback in the builder exists so a conversion still
+    // produces a number. This one is shown to the model as the rate to move
+    // at, and a bar invented for a drone is a set timed to a beat nobody is
+    // playing — so it is zero, and PerformerDirector drops it rather than
+    // sending a guess.
+    await builder().build({ ...MANIFEST, pulse: 'free' });
+
+    for (const call of generatePatch.mock.calls) expect(call[1].bar).toBe(0);
+  });
+
+  it('works a bar out from the tempo the show was written at', () => {
+    expect(barSecondsOf({ bpm: 120, beatsPerBar: 4 })).toBe(2);
+    expect(barSecondsOf({ bpm: 128, beatsPerBar: 4 })).toBe(1.88);
+    expect(barSecondsOf({ bpm: 90, beatsPerBar: 3 })).toBe(2);
+    // No tempo and no pulse are both "no answer", not "120".
+    expect(barSecondsOf({ pulse: 'free', bpm: 128 })).toBe(0);
+    expect(barSecondsOf({})).toBe(0);
+    expect(barSecondsOf(null)).toBe(0);
+  });
+
+  // The gap this closes: pass 2 used to be told the scene NAMES and nothing
+  // about what was inside them, so every drive it wrote named a node it had
+  // guessed at. A scenario full of guessed names loads clean and then holds one
+  // frame for the length of the show.
+  it('tells the scenario call what the patches it just built call their nodes', async () => {
+    generatePatch = vi.fn(async () => ({
+      patch: {
+        nodes: [
+          { id: 'n0', kind: 'ComputeNoise', name: 'membrane', params: { scale: 4 } },
+          { id: 'n1', kind: 'ComputeGradient', name: 'ground', params: { inputMix: 0.2 } },
+        ],
+        connections: [],
+      },
+      title: 'A patch',
+      notes: '',
+    }));
+
+    await builder().build(MANIFEST);
+
+    const [brief] = authorScenario.mock.calls[0];
+    expect(brief).toContain('"membrane" (ComputeNoise)');
+    expect(brief).toContain('scale');
+    expect(brief).toContain('"ground" (ComputeGradient)');
+    expect(brief).toContain('inputMix 0..1, now 0.2');
+    expect(brief).toContain('spelled exactly as they are listed');
+  });
+
+  it('carries the handles on the report, per look', async () => {
+    generatePatch = vi.fn(async () => ({
+      patch: { nodes: [{ id: 'n0', kind: 'ComputeNoise', params: { scale: 4 } }], connections: [] },
+      title: 'A patch',
+      notes: '',
+    }));
+
+    const report = await builder().build(MANIFEST);
+    for (const entry of report.built) {
+      expect(entry.handles.nodes.map((one) => one.name)).toEqual(['ComputeNoise']);
+    }
+  });
+
   it('tells each patch call about the show as well as the look', async () => {
     await builder().build(MANIFEST);
 
@@ -97,6 +184,39 @@ describe('ShowBuilder', () => {
     const [brief, context] = authorScenario.mock.calls[0];
     expect(brief).toContain('the scene "Opening"');
     expect(context.scenes.map((scene) => scene.name)).toEqual(['Opening', 'Build', 'Drop']);
+  });
+
+  it('tells the model what each built scene can be driven on', async () => {
+    generatePatch = vi.fn(async () => ({
+      patch: {
+        nodes: [
+          { id: 'n0', kind: 'ComputeNoise', name: 'ComputeNoise', params: { scale: 8, mode: 'fbm' } },
+          { id: 'n1', kind: 'Blur', name: 'Blur', params: { radius: 4, tint: '#fff' } },
+        ],
+        connections: [],
+      },
+    }));
+
+    await builder().build(MANIFEST);
+
+    // Without this the only parameters the scenario call has ever been given
+    // are the ones in whatever patch is open in the editor — which during a
+    // build is not the graph any of these sections will load. The model does
+    // as it is told, names those, and every drive in the set addresses a node
+    // that is not there.
+    //
+    // The list is the look's handles flattened, not a walk of the values the
+    // patch happens to carry. That difference is `octaves`, `speed` and `seed`:
+    // real drivable parameters sitting at their registry defaults, which a
+    // freshly generated patch does not write out — so walking the patch hid
+    // exactly the parameters a new look leaves to be turned. A scenario writer
+    // that cannot name ComputeNoise.speed cannot write the most obvious drive
+    // on a noise node.
+    const [, context] = authorScenario.mock.calls[0];
+    expect(context.scenes[0].parameters).toEqual([
+      'ComputeNoise.scale', 'ComputeNoise.octaves', 'ComputeNoise.speed', 'ComputeNoise.seed',
+      'Blur.radius',
+    ]);
   });
 
   it('binds every section to the scene that was actually built for it', async () => {
@@ -275,6 +395,45 @@ describe('bindLooks', () => {
     expect(new Set(scenes).size).toBe(scenes.length);
   });
 
+  it('attaches the bed the manifest named, whoever wrote the set', () => {
+    // The file is a fact about the folder, not a decision for the model: the
+    // hold was measured from it, and a set that describes a bed it never plays
+    // is the mismatch this path exists to close.
+    const withSound = normalizeManifest({
+      ...MANIFEST,
+      looks: MANIFEST.looks.map((look, index) => (index === 0 ? { ...look, sound: 'media/music.mp3' } : look)),
+    });
+    const { scenario } = bindLooks(modelScenario().scenario, withSound, built);
+
+    expect(scenario.sections[0].onEnter[0]).toMatchObject({
+      type: 'audio', clip: 'media/music.mp3', transport: 'play', quantize: 'off',
+    });
+    // Only that section: nothing is put under a look that named no sound.
+    expect(scenario.sections[1].onEnter.some((action) => action.type === 'audio')).toBe(false);
+  });
+
+  it('never leaves two beds on one entry', () => {
+    const withSound = normalizeManifest({
+      ...MANIFEST,
+      looks: MANIFEST.looks.map((look, index) => (index === 0 ? { ...look, sound: 'media/music.mp3' } : look)),
+    });
+    const scenario = {
+      sections: [{
+        id: 'opening',
+        name: 'Opening',
+        enter: 'manual',
+        onEnter: [{ type: 'audio', clip: 'something-else.mp3' }, { type: 'master', to: 0.8 }],
+      }],
+    };
+    const { scenario: bound } = bindLooks(scenario, withSound, [built[0]]);
+
+    const audio = bound.sections[0].onEnter.filter((action) => action.type === 'audio');
+    expect(audio).toHaveLength(1);
+    expect(audio[0].clip).toBe('media/music.mp3');
+    // Everything else the section did on entry is still there.
+    expect(bound.sections[0].onEnter.some((action) => action.type === 'master')).toBe(true);
+  });
+
   it('leaves a section the show says nothing about alone', () => {
     const scenario = {
       sections: [
@@ -327,11 +486,194 @@ describe('scenarioFromManifest', () => {
   });
 });
 
+describe('a look with its own sound, written straight from the manifest', () => {
+  it('plays it on the way into the section', () => {
+    const scenario = scenarioFromManifest({
+      ...MANIFEST,
+      looks: [{ ...MANIFEST.looks[0], sound: 'media/music.mp3' }],
+    }, [{ lookId: 'opening', sceneName: 'Opening' }]);
+
+    expect(scenario.sections[0].onEnter[0]).toMatchObject({
+      type: 'audio', clip: 'media/music.mp3', transport: 'play',
+    });
+  });
+});
+
 describe('isQuotaRefusal', () => {
   it('knows a grant refusal from anything else', () => {
     expect(isQuotaRefusal(new GrantError('no'))).toBe(true);
     expect(isQuotaRefusal({ name: 'GrantError' })).toBe(true);
     expect(isQuotaRefusal(new Error('the model fell over'))).toBe(false);
     expect(isQuotaRefusal(null)).toBe(false);
+  });
+});
+
+// Direction, carried from the manifest onto the set that was just built.
+//
+// A manifest is where a show is planned and `direction` is part of the plan,
+// so a show built from one should arrive already directed rather than needing
+// the panel's button pressed afterwards. The mapping is the interesting part:
+// a look's line has to find the section that look became, and the model
+// renames things.
+describe('directLooks', () => {
+  const DIRECTED = Object.freeze({
+    show: 'Test set',
+    direction: 'Patient. Never bright.',
+    looks: [
+      { id: 'opening', name: 'Opening', brief: 'slow fog', direction: 'Hold it still.' },
+      { id: 'build', name: 'Build', brief: 'tightening', direction: 'Tighten it.' },
+      { id: 'drop', name: 'Drop', brief: 'hard', direction: 'Let it go.' },
+    ],
+  });
+
+  const sections = (ids) => ({
+    name: 'Test set',
+    sections: ids.map((id) => ({ id, name: id[0].toUpperCase() + id.slice(1) })),
+  });
+
+  const find = (scenario, id) =>
+    scenario.directions.find((d) => d.at.section === id)?.text;
+
+  it('puts the show\'s line on as the standing direction', () => {
+    const out = directLooks(sections(['opening', 'build', 'drop']), DIRECTED);
+    const standing = out.directions.find((d) => !d.at.section);
+    expect(standing.text).toBe('Patient. Never bright.');
+    expect(standing.at.whole).toBe(true);
+  });
+
+  it('puts each look\'s line on the section that look became', () => {
+    const out = directLooks(sections(['opening', 'build', 'drop']), DIRECTED);
+    expect(find(out, 'opening')).toBe('Hold it still.');
+    expect(find(out, 'build')).toBe('Tighten it.');
+    expect(find(out, 'drop')).toBe('Let it go.');
+  });
+
+  it('follows the binding when the model renamed the sections', () => {
+    // The whole reason this runs after bindLooks: "opening" came back as
+    // "intro", and the line has to go where the look actually landed.
+    const scenario = sections(['intro', 'rise', 'peak']);
+    const bound = [
+      { lookId: 'opening', sectionId: 'intro' },
+      { lookId: 'build', sectionId: 'rise' },
+      { lookId: 'drop', sectionId: 'peak' },
+    ];
+    const out = directLooks(scenario, DIRECTED, bound);
+    expect(find(out, 'intro')).toBe('Hold it still.');
+    expect(find(out, 'peak')).toBe('Let it go.');
+  });
+
+  it('matches by name, then by position, when there is no binding', () => {
+    const out = directLooks(sections(['s1', 's2', 's3']), DIRECTED);
+    // Nothing matched by id; the counts line up, so position decides.
+    expect(find(out, 's1')).toBe('Hold it still.');
+    expect(find(out, 's3')).toBe('Let it go.');
+  });
+
+  it('fills the sections the model added between the looks', () => {
+    // The model wrote a bridge nobody asked for. It is part of the show now,
+    // and it is not left undirected.
+    const out = directLooks(
+      sections(['opening', 'bridge', 'build', 'drop']),
+      DIRECTED,
+      [
+        { lookId: 'opening', sectionId: 'opening' },
+        { lookId: 'build', sectionId: 'build' },
+        { lookId: 'drop', sectionId: 'drop' },
+      ]
+    );
+    expect(find(out, 'bridge')).toBe('Hold it still.');
+  });
+
+  it('keeps direction the set already carries rather than overwriting it', () => {
+    // The "build the missing looks" path: the set is the artist's and so is
+    // its direction.
+    const scenario = {
+      ...sections(['opening', 'build', 'drop']),
+      directions: [
+        { text: 'mine, for the whole show' },
+        { at: { section: 'drop' }, text: 'mine, for the drop' },
+      ],
+    };
+    const out = directLooks(scenario, DIRECTED);
+
+    expect(out.directions.find((d) => !d.at.section).text).toBe('mine, for the whole show');
+    expect(find(out, 'drop')).toBe('mine, for the drop');
+    // …and the manifest still fills in the sections the artist said nothing about.
+    expect(find(out, 'build')).toBe('Tighten it.');
+  });
+
+  it('leaves the set alone when the manifest has no direction in it', () => {
+    const out = directLooks(sections(['opening']), { show: 'x', looks: [{ id: 'opening', brief: 'y' }] });
+    expect(out.directions).toEqual([]);
+  });
+
+  it('keeps a line whose look never became a section, inert rather than lost', () => {
+    const out = directLooks(sections(['opening']), DIRECTED);
+    // "drop" has no section here. The line is the artist's; it is kept under
+    // the look's own id and validation is what says it reaches nothing.
+    expect(out.directions.some((d) => d.text === 'Let it go.')).toBe(true);
+  });
+
+  it('is what a real build leaves on the set', async () => {
+    const builder = new ShowBuilder({
+      generatePatch: vi.fn(async () => ({ patch: patch(), title: 'A patch' })),
+      installScene: vi.fn((name) => ({ id: `scene_${name}`, name })),
+      authorScenario: vi.fn(async () => modelScenario()),
+    });
+    const report = await builder.build(DIRECTED);
+
+    expect(report.scenario.directions.find((d) => !d.at.section).text)
+      .toBe('Patient. Never bright.');
+    // Every section of the built set is directed, which is the promise.
+    for (const section of report.scenario.sections) {
+      const live = report.scenario.directions.some((d) => d.at.section === section.id);
+      expect(live, section.id).toBe(true);
+    }
+  });
+});
+
+describe('manifestFromScenario, and direction', () => {
+  it('carries a section\'s pre-direction back onto its look', () => {
+    // The trip out and back must not strip the direction off a set: this is
+    // how "build the missing looks" reads a set someone already wrote.
+    const { manifest } = manifestFromScenario({
+      name: 'Their set',
+      sections: [{ id: 'drop', name: 'Drop' }],
+      directions: [
+        { text: 'never bright' },
+        { at: { section: 'drop' }, text: 'let it go' },
+      ],
+    });
+
+    expect(manifest.direction).toBe('never bright');
+    expect(manifest.looks[0].direction).toBe('let it go');
+  });
+
+  it('joins several lines in one section, in the order they take effect', () => {
+    const { manifest } = manifestFromScenario({
+      name: 'Their set',
+      sections: [{ id: 'drop', name: 'Drop' }],
+      directions: [
+        { at: { section: 'drop' }, text: 'let it go' },
+        { at: { section: 'drop', bars: 16 }, text: 'hold it there' },
+      ],
+    });
+    expect(manifest.looks[0].direction).toBe('let it go hold it there');
+  });
+
+  it('survives the round trip back onto the same set', () => {
+    const before = {
+      name: 'Their set',
+      sections: [{ id: 'drop', name: 'Drop' }],
+      directions: [
+        { text: 'never bright' },
+        { at: { section: 'drop' }, text: 'let it go' },
+      ],
+    };
+    const { manifest } = manifestFromScenario(before);
+    const after = directLooks(before, manifest);
+
+    expect(after.directions.find((d) => !d.at.section).text).toBe('never bright');
+    expect(after.directions.find((d) => d.at.section === 'drop').text).toBe('let it go');
   });
 });

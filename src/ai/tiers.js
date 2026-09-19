@@ -223,7 +223,7 @@ export const FEATURES = {
     tier: 'cloude',
     surface: 'editor',
     label: 'Performance scenario',
-    description: 'Writes a scenario for the AI performer from a brief: sections, cues, and the signals that drive them.',
+    description: 'Writes a scenario for coPerformer from a brief: sections, cues, and the signals that drive them.',
     metered: true,
   },
   'ai.performer_live': {

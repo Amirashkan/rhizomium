@@ -20,10 +20,13 @@
  *       │
  *       ├── one ai.patch_generator call per look ──> patches ──> scenes
  *       │
- *       └── one ai.performer_scenario call, told about those scenes
- *                                          │
- *                                          ▼
- *                                      a scenario that plays them
+ *       ├── one ai.performer_scenario call, told about those scenes
+ *       │                                  │
+ *       │                                  ▼
+ *       │                              a scenario that plays them
+ *       │
+ *       └── `direction`, on the show and on each look ──> the set's
+ *           pre-directions, so a built show arrives already directed
  *
  * This file is only the document: read it, coerce it, say what is wrong with
  * it, and write the three prompts it implies. It knows nothing about the model,
@@ -38,7 +41,8 @@
  * one-error-at-a-time loop wastes the one thing that desk has.
  */
 
-import { MEDIA_LIMITS, mediaSlotName, resolveLookMedia } from './ShowFolder.js';
+import { MEDIA_LIMITS, mediaSlotName, resolveLookMedia, resolveLookSound } from './ShowFolder.js';
+import { handlesText } from './PatchHandles.js';
 
 /** The format version this build writes. Readers accept anything <= this. */
 export const MANIFEST_VERSION = 1;
@@ -62,6 +66,9 @@ export const MANIFEST_LIMITS = Object.freeze({
   briefChars: 1000,
   lookBriefChars: 600,
   requires: 16,
+  // A pre-direction is a sentence, not a brief. Matched to
+  // PreDirections.DIRECTION_LIMITS.textChars, which is what it becomes.
+  directionChars: 240,
 });
 
 const num = (value, fallback = 0) => {
@@ -200,6 +207,12 @@ function normalizeLook(raw, index) {
     // is built from the string, which is why an end costs no model call.
     card: trimmed(source.card, MANIFEST_LIMITS.lookBriefChars),
     mood: trimmed(source.mood, 200),
+    // What the live AI should be going for while this look is up, as opposed
+    // to what the look is made of. `brief` builds the patch once, at a desk;
+    // this is handed to the director every time it asks, for as long as the
+    // section is on. See PreDirections.js — it becomes the section's
+    // pre-direction when the show is built.
+    direction: trimmed(source.direction ?? source.directing, MANIFEST_LIMITS.directionChars),
     intensity: source.intensity === undefined ? null : clamp(num(source.intensity, 0), 0, 1),
     // Audio channels this look should visibly answer. Carried into the patch
     // prompt so the generated graph actually listens, and into the scenario
@@ -215,6 +228,11 @@ function normalizeLook(raw, index) {
     // without one, which is why nothing here tries to validate the strings.
     media: list(source.media ?? source.footage ?? source.clips)
       .map((c) => trimmed(c, 200)).filter(Boolean).slice(0, 16),
+    // The bed this look plays under itself, named the same way a clip is and
+    // resolved against the folder's audio by ShowFolder.resolveLookSound().
+    // One, not a list: there is one analysis engine and one element behind it,
+    // so a second file would only be the first one's silence.
+    sound: trimmed(source.sound ?? source.bed ?? source.track, 200),
     // Parameters the set already addresses by name, when this look was derived
     // from a scenario rather than written for one. See normalizeRequires().
     requires: normalizeRequires(source.requires ?? source.reaches),
@@ -277,6 +295,10 @@ export function normalizeManifest(raw) {
     // thing stopping five separately generated patches from looking like five
     // separate shows.
     palette: trimmed(source.palette ?? source.style, 300),
+    // The show's standing direction: what the live AI should be going for
+    // wherever a look does not say otherwise. Becomes the set's whole-show
+    // pre-direction, which is the floor everything else sits on.
+    direction: trimmed(source.direction ?? source.directing, MANIFEST_LIMITS.directionChars),
     bpm,
     beatsPerBar: clamp(Math.round(num(source.beatsPerBar, 4)), 1, 16),
     barsPerPhrase: clamp(Math.round(num(source.barsPerPhrase, 8)), 1, 64),
@@ -371,6 +393,12 @@ export function validateManifest(manifest, folder = null) {
         warnings.push(at(where, `More clips than one look can hold. The first ${MEDIA_LIMITS.perLook} are used and ${dropped} more ${dropped === 1 ? 'is' : 'are'} left out — every clip in a look is decoded on every frame it is up.`));
       }
     }
+
+    if (look.sound && !folder) {
+      warnings.push(at(where, `Plays "${look.sound}" under itself, but no show folder is open. Open the folder it is in — press "Open folder…" — or this look is played in silence.`));
+    } else if (look.sound && folder && !resolveLookSound(folder, look)) {
+      warnings.push(at(where, `No sound in the folder is called "${look.sound}". The look still plays, with whatever the room is giving it.`));
+    }
   });
 
   const clips = (folder?.media || []).filter((item) => item.kind !== 'audio');
@@ -392,6 +420,14 @@ export function validateManifest(manifest, folder = null) {
   }
   if (!show.brief && !show.notes) {
     warnings.push(at('brief', 'No show-level brief. Every look is then generated on its own description alone, which is how a set ends up looking like five unrelated pieces.'));
+  }
+
+  // Direction, and only when the set is going to be played by the model. A
+  // show with the director off is a show somebody is performing, and telling
+  // them to write pre-directions for it is telling them to write for nobody.
+  const directed = show.rules?.director?.enabled !== false;
+  if (directed && !show.direction && !show.looks.some((look) => look.direction)) {
+    warnings.push(at('direction', 'No direction anywhere in this show. The live AI will improvise on the looks alone. Add "direction" to the show for what it should be going for throughout, and to a look for its own stretch — that is what directs a set nobody is standing over.'));
   }
 
   return { errors, warnings, generated };
@@ -427,38 +463,37 @@ export function showContext(manifest) {
 }
 
 /**
- * The prompt that builds one look's patch.
+ * The prompt that builds one look's patch: what only the MANIFEST knows.
  *
- * Everything in here is the difference between a patch that is a nice image
- * and a patch that can be PERFORMED: named nodes a scenario can address by
- * name, parameters with somewhere to travel, and a first frame that is already
- * the look rather than the look at full tilt.
+ * One message is written by two hands. This one has the manifest open — the
+ * brief, the mood, the clip filenames, the names a set that already exists
+ * reaches for — and describeShowLook() in api/_lib/features.js has the show
+ * payload and owns the frame around all of it: the set in order, which look
+ * this is, its intensity, what it answers and how to reach it, its handles,
+ * how long it is up for, what it may be made of, and what makes it playable.
+ *
+ * The split is here because for a while there was none, and both hands wrote
+ * the frame. Every look call carried showContext() twice, its name twice, its
+ * intensity twice in two different roundings, and the name-every-node rule
+ * twice in two different wordings — around 250 tokens a look of a model
+ * reading the same instruction again, and worse than the waste, two wordings
+ * of one rule is a rule with a seam in it. So: anything the payload carries is
+ * said by the backend, once. Anything the payload cannot carry is said here.
+ *
+ * The consequence to keep in mind is that this is no longer a whole prompt.
+ * ShowBuilder always sends the payload beside it (PerformerDirector
+ * .generatePatch), and performerDirector.test.js assembles the real message
+ * and checks that each of these things is in it exactly once.
  */
 export function lookPrompt(manifest, look, media = []) {
   const show = normalizeManifest(manifest);
   const one = show.looks.find((entry) => entry.id === look?.id) || normalizeLook(look || {}, 0);
   const clips = Array.isArray(media) ? media : [];
 
-  const lines = [
-    `${one.brief || one.name}`,
-    '',
-    showContext(show),
-    '',
-    `This patch is one look in that show: "${one.name}".`,
-  ];
+  const lines = [`${one.brief || one.name}`];
 
   if (one.mood) lines.push(`Its mood: ${one.mood}.`);
-  if (one.intensity !== null) {
-    lines.push(
-      `It plays at intensity ${one.intensity.toFixed(2)} of 1 — ` +
-        `${one.intensity < 0.35 ? 'restrained, with room above it'
-          : one.intensity > 0.75 ? 'the loud end of the show'
-          : 'the middle of the show, with room in both directions'}.`
-    );
-  }
-  if (one.reactsTo.length) {
-    lines.push(`It should visibly answer the music on: ${one.reactsTo.join(', ')}.`);
-  }
+
 
   // The artist's own footage. Everywhere else in the editor a Texture 2D node
   // is refused in a generated patch, because a model cannot supply the file and
@@ -476,19 +511,6 @@ export function lookPrompt(manifest, look, media = []) {
       'The footage is the material, not a backdrop — treat it the way the brief describes and let the rest of the graph work on it.'
     );
   }
-
-  lines.push(
-    '',
-    'It will be performed, not just rendered, so build it to be driven from outside:',
-    '- Name every node a performer will reach for, with a name that says what turning it does — the scenario addresses nodes by name, and a name is the only handle it has.',
-    one.drivable.length
-      ? `- These have to be reachable as single parameters: ${one.drivable.join('; ')}. Give each one its own named node.`
-      : one.requires.length
-        ? '- Beyond the named parameters below, leave a couple more worth performing.'
-        : '- Leave three or four parameters worth performing: something that moves, something that changes the colour, something that changes the density.',
-    '- Set each of those to a value with somewhere to travel. A parameter already at its maximum on the first frame is a fader with no throw.',
-    '- The first frame must already be this look. It is cut to live, in front of an audience, with no time to warm up.'
-  );
 
   // The set this look is being built INTO, when there already is one. These
   // names are the whole difference between a patch that fits the section and a
@@ -513,15 +535,34 @@ export function lookPrompt(manifest, look, media = []) {
  * the scenario call is no longer being told "no scenes are loaded, do not
  * invent any". It is told the set, in order, by the names it can actually use.
  *
+ * That went one level deeper than it needed to. A scene name is enough to make
+ * a section play the right picture, and it is not enough to make the section
+ * DO anything: a drive and a param move name a node and a parameter inside
+ * that scene, and until the build carried those across, the only thing the
+ * model had to write them from was the editor's general vocabulary. It wrote
+ * plausible ones — "ComputeGradient.brightness", "ComputeNoise.scale" — and a
+ * patch that happened not to contain them turned every drive in the set into a
+ * line that warns once on load and then does nothing for the rest of the show.
+ * A set whose handles all miss is a still picture, and it fails silently: the
+ * scenes load, the sections advance, the log fills, and nothing moves.
+ *
+ * So each built look now arrives with what its patch actually called the
+ * things it left to be turned, and the brief lists them under the scene. The
+ * instruction that follows them is the one that matters — these names, or no
+ * drive at all.
+ *
  * @param {object} manifest
- * @param {Array<{lookId: string, sceneName: string}>} built what the patch
- *   half of the build actually produced — which is not always every look.
+ * @param {Array<{lookId: string, sceneName: string, handles?: object}>} built
+ *   what the patch half of the build actually produced — which is not always
+ *   every look.
  */
 export function scenarioBrief(manifest, built = []) {
   const show = normalizeManifest(manifest);
   const scenes = new Map(built.map((entry) => [entry.lookId, entry.sceneName]));
+  const handles = new Map(built.map((entry) => [entry.lookId, entry.handles]));
 
   const lines = [showContext(show), '', 'Write the set as these sections, in this order:'];
+  let anyHandles = false;
 
   show.looks.forEach((look, index) => {
     const bits = [`${index + 1}. id "${look.id}", name "${look.name}"`];
@@ -536,15 +577,37 @@ export function scenarioBrief(manifest, built = []) {
     if (look.enter) bits.push(`entered by: ${JSON.stringify(look.enter)}`);
     if (look.next) bits.push(`then "${look.next}"`);
     if (look.reactsTo.length) bits.push(`answers: ${look.reactsTo.join(', ')}`);
+    // Said so the set reads right — a section with its own bed is a section
+    // whose length is that bed's — and said as already handled, because the
+    // audio action is attached after this call by ShowBuilder.bindLooks().
+    if (look.sound) bits.push(`plays its own sound (${look.sound}); it is attached for you, do not write an audio action`);
     if (look.notes) bits.push(look.notes);
 
     lines.push(`  ${bits.join('; ')}`);
+
+    // The handles inside that scene. Indented under the section rather than
+    // gathered at the end: a drive belongs to one section, and the model has
+    // to be able to see which names are in reach from where it is writing.
+    const text = handlesText(handles.get(look.id));
+    if (text) {
+      anyHandles = true;
+      lines.push(`    what is in "${scene}", and what each parameter's range is:`);
+      lines.push(text.replace(/^ {2}/gm, '      '));
+    }
   });
 
   lines.push(
     '',
     'Use those ids and those scene names exactly. They are the sections of this show and the scenes are already loaded under those names.'
   );
+
+  if (anyHandles) {
+    lines.push(
+      '',
+      'Drive and move ONLY the nodes and parameters listed under each section, spelled exactly as they are listed, and only in the section they are listed under. A drive finds its node by name; a name that is not in that list finds nothing, and a set written out of names that find nothing loads clean, warns once, and then holds one still frame for the length of the show.',
+      'Give every section at least one drive on a parameter that changes what is SEEN — brightness, density, scale, amount — mapped across a real part of its range rather than the top of it, and something that moves over the section on its own besides. A section that only holds is a section the audience watches nothing happen in.'
+    );
+  }
 
   if (show.cues.length) {
     lines.push(`The musician fires these by hand: ${show.cues.join(', ')}. Write a cue for each.`);
@@ -572,6 +635,10 @@ export const EXAMPLE_MANIFEST = Object.freeze({
   show: 'Example: three-look club set',
   brief: 'A 40-minute support slot. Dark and patient for a long time, one drop I fire by hand, then a long cool-down.',
   palette: 'near-black, cold blue-grey, one white accent that only appears in the drop',
+  // What the live AI should be going for, throughout. Building the show puts
+  // this and the looks' own lines on the set as its pre-directions, so a show
+  // handed to the model arrives directed. See PreDirections.js.
+  direction: 'Patient. Never bright until the drop, and never busy.',
   bpm: 128,
   beatsPerBar: 4,
   barsPerPhrase: 8,
@@ -582,6 +649,7 @@ export const EXAMPLE_MANIFEST = Object.freeze({
       name: 'Opening',
       brief: 'Slow fog drifting across the frame, one cold light source low in the picture, almost black. Nothing sharp.',
       mood: 'patient, cold, barely moving',
+      direction: 'Hold it almost still. One thing moving at a time, no more.',
       intensity: 0.2,
       reactsTo: ['low'],
       drivable: ['how fast the fog drifts', 'how far the light reaches'],
@@ -593,6 +661,7 @@ export const EXAMPLE_MANIFEST = Object.freeze({
       name: 'Build',
       brief: 'The same fog tightening into vertical structure, contrast climbing, one repeating element that gets closer.',
       mood: 'tightening, still dark',
+      direction: 'Tighten it steadily. Let contrast climb but keep it dark.',
       intensity: 0.6,
       reactsTo: ['low', 'mid'],
       drivable: ['how tight the structure is', 'contrast', 'how close the repeating element is'],
@@ -604,6 +673,7 @@ export const EXAMPLE_MANIFEST = Object.freeze({
       name: 'Drop',
       brief: 'Hard, full frame, white on black, kicking on every hit. The first thing in the set that is actually bright.',
       mood: 'hard, strobing, full frame',
+      direction: 'Let it go — hard, full frame, on every hit. Do not hold back.',
       intensity: 1,
       reactsTo: ['low', 'kickTrig'],
       drivable: ['how hard it kicks', 'how much of the frame it fills'],

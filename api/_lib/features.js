@@ -765,7 +765,7 @@ If this patch needs work before it needs an arc, return no moves and say so in t
   },
 
   /**
-   * The AI performer's two features. See src/performer/ for what plays them.
+   * coPerformer's two features. See src/performer/ for what plays them.
    *
    * They are a pair on purpose: the first writes a score at a desk, the second
    * improvises inside it on stage. Splitting them is what lets the expensive,
@@ -800,7 +800,7 @@ If this patch needs work before it needs an arc, return no moves and say so in t
     singleUse: false,
     system: () => `${sharedContext()}
 
-Write a SCENARIO: the score an AI performer plays from while a musician plays live.
+Write a SCENARIO: the score a coPerformer plays from while a musician plays live.
 
 The musician plays and sends signals — OSC from their DAW, plus audio the editor analyses. The performer reads them and drives the visuals. Four parts.
 
@@ -808,9 +808,14 @@ The musician plays and sends signals — OSC from their DAW, plus audio the edit
 
 **sections** — the set, in order. Each names a look (a scene or preset the artist already has), how it is entered, how long it holds, and what moves inside it:
 - "enter": {"cue":"name"} for a moment the musician fires, {"bars":32} or {"seconds":90} for the clock, {"when":"energy > 0.6"} for the music, or "manual".
+- Every "cue" and every "when" MUST carry a "by" — the deadline it falls back to: {"cue":"drop","by":{"bars":24}}, {"when":"energy > 0.6","by":{"seconds":90}}. A cue waits for the musician and a condition waits for the room, and a set whose only way forward is one of those holds a single frame for the whole show on any rig where nobody is playing into it yet. Put the deadline comfortably past the previous section's hold, so the cue or the condition still has a window in which it is the thing that decides. Do not put "by" on a bar count, a second count or "manual" — those are already a length.
 - "hold" is the floor the section cannot end before, in {"bars":N} or {"seconds":N}. Without it a "when" sitting near its threshold flips between two sections every few frames.
-- "drives" bind a signal to one parameter for the section's length. Your main verb.
-- "moves" fire actions a set distance in.
+- "drives" bind a signal to one parameter for the section's length. Your main verb: {"signal":"bass","node":"Warp","param":"amount","min":0,"max":0.6,"curve":"linear"}. The node and the parameter are two fields. The rig below lists what you can reach as "Warp.amount" because that is how it reads; written into a drive as one string it reaches nothing.
+- "moves" fire actions a set distance in: {"atBars":16,"do":[…]} on a pulse, {"atSeconds":40,"do":[…]} without one, or {"when":"energy > 0.8","do":[…]} for one that waits on the music. A move with none of those three can never fire.
+
+The actions inside "moves", "cues" and "onEnter" are these verbs and no others — an invented one is dropped on the way in:
+{"type":"param","node":"Warp","param":"speed","to":1.4,"overBars":8} (or "overSeconds") · {"type":"drive",…} as above · {"type":"undrive","node":"Warp","param":"amount"} · {"type":"scene","scene":"…"} · {"type":"preset","preset":"…"} · {"type":"transition","transition":"crossfade","duration":2} · {"type":"master","to":0.8,"overSeconds":2} · {"type":"speed","to":1.5} · {"type":"blackout","on":true} · {"type":"section","to":"drop"} · {"type":"cue","name":"lift"} · {"type":"log","message":"…"}
+Any of them also takes "quantize" ("off", "onset", "beat", "half", "bar", "phrase") and "why", the line the artist reads in the log when it fires.
 
 **cues** — moments the musician fires out of order: the drop, a blackout, a lift.
 
@@ -824,13 +829,15 @@ Write it like someone who has played a set:
 - **With no pulse, conditions carry what bars carry elsewhere.** A section holding until the music actually changes beats one holding for a length you guessed.
 - **Movement is drives, not moves.** A parameter following the bass is alive; one stepped every eight bars is a slideshow.
 - **Build to the drop.** Intensity is a shape across the set, not a value per section chosen alone.
-- **Name only what you were given** — scenes, presets, nodes, parameters. An invented name is a section that silently does nothing. Given none, write against signals only and say so in the note.
+- **Name only what you were given** — scenes, presets, nodes, parameters, spelled exactly as they were listed, and only in the section they were listed under. An invented name is a section that silently does nothing: it loads without complaint, warns once, and holds one frame for as long as the section runs. Given none, write against signals only and say so in the note.
+- **Map across a range, not across the top of one.** Where you were given a parameter's range and where it sits, a drive that only covers the gap to its ceiling is one nobody in the room can see.
+- **A section of minutes needs more than one idea in it.** Give a long section a drive that answers the music AND something travelling underneath it: a slow move over most of the section, a second parameter brought in partway, a drive released and replaced. One drive and nothing else is a still image with a flicker on it.
 - **Leave the musician the moments that matter.** The drop is a cue, not a threshold: a machine guessing when the drop is will eventually guess wrong in front of an audience.
 
 Answer with the scenario and one short note: what you assumed, and what the artist should check.`,
     format: {
       name: 'performance_scenario',
-      description: 'A scenario for the AI performer.',
+      description: 'A scenario for coPerformer.',
       schema: {
         type: 'object',
         properties: {
@@ -869,12 +876,50 @@ Answer with the scenario and one short note: what you assumed, and what the arti
                   properties: {
                     id: { type: 'string' },
                     name: { type: 'string' },
-                    enter: { description: 'A cue, a bar count, a condition, or "manual".' },
+                    enter: { description: 'A cue, a bar count, a condition, or "manual". A cue or a condition also takes "by": {"bars":N} | {"seconds":N}, the deadline it falls back to when nobody fires it and the music never reaches it.' },
                     hold: { type: 'object', additionalProperties: true },
                     look: { type: 'object', additionalProperties: true },
                     transition: { type: 'object', additionalProperties: true },
-                    drives: { type: 'array', items: { type: 'object', additionalProperties: true } },
-                    moves: { type: 'array', items: { type: 'object', additionalProperties: true } },
+                    // Spelled out rather than left as bare objects, unlike
+                    // the action lists either side of them: a drive's node and
+                    // parameter are two fields and the rig is described to the
+                    // model as one dotted string ("Warp.amount"), so this is
+                    // the one place a plausible answer was landing in a
+                    // section that silently did nothing. The client repairs a
+                    // dotted pair anyway (Scenario.normalizeDrive), but the
+                    // repair is the net, not the plan.
+                    drives: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          signal: { type: 'string', description: 'A signal declared above.' },
+                          node: { type: 'string', description: 'The node, by name. Never "node.param" in one field.' },
+                          param: { type: 'string', description: 'The parameter on that node, on its own.' },
+                          min: { type: 'number' },
+                          max: { type: 'number' },
+                          curve: { type: 'string', enum: ['linear', 'exponential', 'logarithmic'] },
+                          smooth: { type: 'number', description: 'Extra lag, in seconds.' },
+                        },
+                        required: ['signal', 'node', 'param'],
+                        additionalProperties: true,
+                      },
+                    },
+                    moves: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          atBars: { type: 'number', description: 'Bars into the section. On a pulse only.' },
+                          atSeconds: { type: 'number', description: 'Seconds into the section. Use this off a pulse.' },
+                          when: { type: 'string', description: 'A condition instead of a time.' },
+                          do: { type: 'array', items: { type: 'object', additionalProperties: true } },
+                        },
+                        required: ['do'],
+                        additionalProperties: true,
+                      },
+                    },
                     onEnter: { type: 'array', items: { type: 'object', additionalProperties: true } },
                     next: { type: 'string' },
                     intensity: { type: 'number', description: '0-1, what this section plays at.' },
@@ -938,17 +983,29 @@ Answer with the scenario and one short note: what you assumed, and what the arti
 
 You are performing visuals live while a musician plays. A scenario — the score — is running, and you are asked what to do over the next stretch of it.
 
-You are shown where the set is, what the signals read, what the music has been DOING, what is driving what, and the last few things that happened. Answer with a short list of actions. The verbs, and nothing else:
+You are shown where the set is, what the signals read, what the music has been DOING, what is in the patch on screen, what is driving what, how long the picture has been frozen, and the last few things that happened. Answer with a short list of actions. The verbs, and nothing else:
 
 - {"type":"drive","signal":"bass","node":"Warp","param":"amount","min":0,"max":0.6} — bind a signal to a parameter for this section. Your main verb.
-- {"type":"param","node":"Warp","param":"speed","to":1.4,"overBars":8} — move a parameter, over bars or at once.
+- {"type":"param","node":"Warp","param":"speed","to":1.4,"overBars":8} — move a parameter, over bars or at once. A target named only in "why" is dropped, never played as a zero.
 - {"type":"undrive","node":"Warp","param":"amount"} — release one.
 - {"type":"scene","scene":"drop-scene"} / {"type":"preset","preset":"soft"}
-- {"type":"section","to":"build"} — move the set on.
-- {"type":"master","to":0.8,"overSeconds":2} / {"type":"speed","to":1.5} / {"type":"transition","transition":"crossfade","duration":2}
+- {"type":"section","section":"build"} — move the set on.
+- {"type":"master","to":0.8,"overSeconds":2} / {"type":"speed","to":1.5} / {"type":"transition","transition":"crossfade","duration":2} / {"type":"blackout","on":false}
 - {"type":"log","message":"…"} — say something without doing anything.
 
-Name only nodes, parameters, scenes, presets, signals and sections that appear in what you were shown. Anything else is skipped.
+## "patch", "dead", "picture": is the set reaching the screen?
+
+"patch.nodes" is what you can turn: every node with a parameter a performer can move, each parameter's range, and where it sits now. It is your whole vocabulary — name only what appears there, in "scenario", or in "signals". Copy names exactly, never describe a parameter in words, never leave "node" or "param" empty: an unknown or missing name resolves to nothing, and the action is still accepted and still charged against the bar's budget. Map a drive across the part of a range the change will read in; one mapped into the top tenth of a range is one nobody can see.
+
+It is a list of handles, not the graph: nodes with nothing to turn — the output node above all — and every wire between them are working and simply not listed. So never diagnose the graph from it and never call a node missing or unwired. You cannot see that from here, the artist can, and a set spent explaining an absence you inferred is a set you did not play.
+
+"dead" lists drives that are moving nothing, with "why". A node or parameter the patch does not have: re-bind onto the nearest thing in "patch" that does what it reached for, and release the dead one. A signal that has never arrived: the drive writes "pinnedAt" into that parameter every frame, so a "pinnedAt" of 0 on a scale, an opacity or a density IS your black picture — and a "param" move cannot lift it, because the drive overwrites it on the next frame. "undrive" first, then set the parameter, then re-bind onto a signal that is actually in "signals". Repair all of this ahead of every rule below about restraint.
+
+"picture.stillSeconds" is how long since anything changed on screen; a live drive or a running ramp reads 0. Read it WITH "listening". A held texture with the picture answering it is being held, and you leave it; a held texture with "stillSeconds" past a minute is a frozen frame, and no stillness in the music makes that a choice.
+
+"picture.master" multiplies the whole output and "picture.blackedOut" is whether the kill is on. Either explains a black screen on its own, with a healthy patch behind it, so check both before concluding anything about the patch: raise a master near 0 with "master" over a couple of seconds, clear a kill with {"type":"blackout","on":false}. Either may be the artist's own hand, so say what you did in the note.
+
+A section holds one scene for minutes, and the scene is material, not performance: make the same patch read differently across that stretch or it is spent in twenty seconds. Change which parameter carries the movement, which signal drives what, how deep a drive is mapped; let something drift underneath on a long "overSeconds" ramp. Vary what you reach for instead of nudging the same parameter each time.
 
 ## "listening": the memory
 
@@ -958,10 +1015,11 @@ The signals are readings of this instant; "listening" is what the music has been
 
 How to play:
 
+- **Check the set is playing at all, first.** A "picture.master" near 0, "picture.blackedOut", anything in "dead", or "stillSeconds" past forty: the show is not reaching the audience. Fix that before taste; every rule below assumes a set that works. If nothing you were shown explains it, say so in one line and go on playing — never stop performing on a theory about something you cannot see.
 - **Usually, do almost nothing.** One or two actions. The scenario is the performance; you adjust it. Changing something every time you are asked makes visuals that never settle, which an audience reads as noise.
-- **No actions is the commonest right answer.** "freedom" is not a quota to spend.
+- **No actions is the commonest right answer**, on a set that is moving. "freedom" is not a quota to spend. On a set that is not moving it is the wrong answer however still the music is.
 - **Answer the music, not the clock.** The signals say how fast each is rising and what it has averaged; "listening" says where that sits in the shape of the set. Something building is worth answering; something merely loud is not.
-- **Stillness is an answer.** A texture held a long time is being held deliberately, and the seconds after a change are already carrying it through the scenario's own signals. Both want you to wait. Filling them is the commonest way to sound like software rather than a player.
+- **Stillness is an answer; a freeze is not.** A texture held a long time is being held deliberately, and the seconds after a change are already carrying it through the scenario's own signals. Both want you to wait — while the picture is still answering the room. Check "stillSeconds" first: holding a picture that has already stopped is not restraint, it is the performance having ended without anyone saying so.
 - **Never take a moment from the musician.** They fire the drop. Prepare for what is coming; do not pre-empt it.
 - **Respect what is off.** The "allowed" block says what you may touch. Anything outside it is dropped.
 
@@ -985,6 +1043,60 @@ The note is one sentence, read over a mixer in the dark: no preamble.`,
                   enum: ['drive', 'param', 'undrive', 'scene', 'preset', 'section',
                          'master', 'speed', 'transition', 'blackout', 'cue', 'log'],
                 },
+                // Every field of every verb, named, even though the schema is
+                // loose enough not to need them.
+                //
+                // `node` and `param` were named first, when plans came back
+                // describing a parameter in `why` and naming none here. What
+                // that did not fix, it exposed: a set's log showed a `param`
+                // with no `to` ("raise gently to 0.18 over 30 seconds" in the
+                // `why`, a move to zero on the screen), a `master` with no
+                // level or fade ("restore smoothly, keeping the lift
+                // restrained" — it jumped to full), and a `blackout` with no
+                // `on` ("clear the kill immediately" — it killed the output
+                // again). What arrived, in all three, was exactly the fields
+                // named here and nothing else.
+                //
+                // So the answer is only as complete as this list is. The
+                // client no longer defaults any of these three — a missing
+                // one is dropped with a line in the log rather than played
+                // (src/performer/actions.js) — but a dropped action is still
+                // an action the artist did not get, and the fix for that is
+                // here.
+                //
+                // Still additionalProperties: true: a verb that grows a field
+                // in actions.js keeps working before this list catches up.
+                node: { type: 'string', description: 'drive/param/undrive: a name copied exactly from patch.nodes. Without it the action is dropped.' },
+                param: { type: 'string', description: 'drive/param/undrive: a parameter of that node, copied exactly. Without it the action is dropped.' },
+                to: {
+                  type: 'number',
+                  description:
+                    'param: the value to move the parameter to, inside its range in patch.nodes. '
+                    + 'master: 0-1. speed: the multiplier. Required for all three — without it the '
+                    + 'action is dropped, and a target named only in "why" is not a target.',
+                },
+                overBars: { type: 'number', description: 'param/master: take this many bars to get there. Metered music only.' },
+                overSeconds: { type: 'number', description: 'param/master: take this many seconds to get there. Use this when there is no pulse.' },
+                curve: { type: 'string', description: 'param/drive: linear, easeIn, easeOut or easeInOut.' },
+                signal: { type: 'string', description: 'drive: the signal to bind, copied from "signals".' },
+                min: { type: 'number', description: 'drive: the parameter value at signal 0. Give it, or the mapping falls back to 0-1 whatever the range is.' },
+                max: { type: 'number', description: 'drive: the parameter value at signal 1.' },
+                invert: { type: 'boolean', description: 'drive: flip the signal.' },
+                smooth: { type: 'number', description: 'drive: seconds of smoothing on the signal.' },
+                scene: { type: 'string', description: 'scene: which scene, by the name it has in the set.' },
+                preset: { type: 'string', description: 'preset: which preset.' },
+                transition: { type: 'string', description: 'transition/scene: crossfade, cut, wipe…' },
+                duration: { type: 'number', description: 'transition/scene: seconds the transition takes.' },
+                section: { type: 'string', description: 'section: the section to move the set to.' },
+                on: {
+                  type: 'boolean',
+                  description:
+                    'blackout: true kills the output, false brings it back. Required — a blackout '
+                    + 'that does not say which way it goes is dropped, never guessed at.',
+                },
+                name: { type: 'string', description: 'cue: which cue from the scenario to fire.' },
+                message: { type: 'string', description: 'log: the line to write.' },
+                quantize: { type: 'string', description: 'When it lands: "bar", "phrase", "onset" or "off". The bar, if you do not say.' },
                 why: { type: 'string', description: 'A few words. Shown in the performance log.' },
               },
               required: ['type'],
@@ -1120,7 +1232,31 @@ export function buildUserMessage(feature, input = {}) {
         throw new BadInputError('No performance state to act on.');
       }
       const steer = String(input.steer || '').trim();
-      const steerText = steer ? `\nThe artist says: ${steer}\n` : '';
+      // Two kinds of direction, kept apart on purpose.
+      //
+      // The pre-direction was written at the desk and anchored to this moment
+      // of the show (src/performer/PreDirections.js): it is the plan, and on
+      // an unattended set it is the only direction there is. The steer is a
+      // person at the laptop who has just changed their mind, so it outranks
+      // the plan and is said last and said so.
+      //
+      // Collapsing the two into one line was the other option and it is the
+      // wrong one: "keep it dark" and "bring it up now" arriving as one
+      // instruction is a contradiction the model has to guess its way out of,
+      // and it guesses differently every call.
+      const planned = String(input.preDirection || '').trim();
+      const plannedText = planned
+        ? `\nThe show's plan for this moment: ${planned}\n`
+        : '';
+      // Which wins is only worth saying when there are two of them. On a set
+      // with no pre-directions this is the line it has always been, because
+      // naming a plan that is not there is an instruction to weigh the steer
+      // against nothing.
+      const steerText = steer
+        ? planned
+          ? `\nThe artist, live, right now — this wins where it disagrees with the plan: ${steer}\n`
+          : `\nThe artist says: ${steer}\n`
+        : '';
       const freedom = Number(input.freedom);
       const freedomText = Number.isFinite(freedom) ? `\nfreedom: ${freedom.toFixed(2)}\n` : '';
       // The state travels as JSON rather than as prose. It is read by a model
@@ -1132,7 +1268,7 @@ export function buildUserMessage(feature, input = {}) {
       // that does not exist here.
       const free = state?.listening && state.listening.pulse?.state !== 'metered';
       const horizon = free ? 'over the next half-minute' : 'over the next few bars';
-      return `Here is the performance right now.\n\n${JSON.stringify(state)}\n${steerText}${freedomText}\nWhat do you do ${horizon}?`;
+      return `Here is the performance right now.\n\n${JSON.stringify(state)}\n${plannedText}${steerText}${freedomText}\nWhat do you do ${horizon}?`;
     }
 
     default:
@@ -1210,7 +1346,17 @@ function describeRig(input = {}) {
   lines.push(
     scenes.length
       ? `Scenes loaded (name — id, and the artist's own cue note where there is one):\n${scenes
-          .map((s) => `  ${s?.name} — ${s?.id}${s?.notes ? ` — ${s.notes}` : ''}`)
+          .map((s) => {
+            const head = `  ${s?.name} — ${s?.id}${s?.notes ? ` — ${s.notes}` : ''}`;
+            // A scene that came with its own parameters is one this build just
+            // made, and these are the only parameters a section looking at it
+            // can drive: the flat list below is whatever patch is open in the
+            // editor, which is a different graph entirely.
+            const params = list(s?.parameters).slice(0, 24);
+            return params.length
+              ? `${head}\n      a drive in its section can reach: ${params.join(', ')}`
+              : head;
+          })
           .join('\n')}`
       : 'No scenes are loaded. Do not invent scene names: write sections whose look is left unset, and say so in the note.'
   );
@@ -1223,7 +1369,7 @@ function describeRig(input = {}) {
   const parameters = list(input.parameters);
   lines.push(
     parameters.length
-      ? `Parameters a drive can reach, as node.param:\n  ${parameters.join(', ')}`
+      ? `Parameters in the patch that is open right now, printed as node.param and written into a drive as two fields, "node" and "param". A section that loads a scene has that scene's parameters instead, listed above:\n  ${parameters.join(', ')}`
       : 'No patch is open, so there are no parameters to drive. Write the set with scenes and presets only.'
   );
 
@@ -1241,6 +1387,142 @@ function describeRig(input = {}) {
 }
 
 /**
+ * Which of the channels a look answers a parameter expression can hear, and
+ * which one needs a node.
+ *
+ * A look's `reactsTo` is written in the tap vocabulary — the channel names an
+ * AudioValue node offers (src/audio/audioAnalysisTaps.js), which is the right
+ * vocabulary for it: the same strings bind the scenario's audio signals. Only
+ * four of those bands have a counterpart a parameter expression can name, and
+ * it is spelled differently there. Everything else — the drums, their triggers
+ * and meters, brightness, noisiness — exists ONLY as a node, and an expression
+ * naming one of them compiles to 0.0 and stays there. Silently: the patch
+ * loads, the section runs, and the one thing the look was built to do never
+ * happens.
+ *
+ * Counterpart, not equal. A tap is a scaled band meter out of
+ * RealtimeAudioAnalysis; the audioEnvelope* globals are BrowserAudioCapture's
+ * own followers over the same part of the spectrum. They rise and fall
+ * together and they are not the same number, which is all a look needs — it is
+ * choosing where to listen, not matching a reading — so both halves are said
+ * rather than implying an equality that is not there.
+ *
+ * This lives here, beside the other things the features know about the editor,
+ * rather than with the manifest that names the channels: which identifiers the
+ * expression system resolves is a fact about the editor, and saying it here
+ * puts it directly under the channel list it is routing instead of a block
+ * earlier in the message. tests/aiShowLookPrompt.test.js checks both halves of
+ * the map against the tap list and against the shader generator, so a renamed
+ * channel is a failed test rather than a look that quietly stops listening.
+ */
+const EXPRESSION_AUDIO = Object.freeze({
+  level: 'audioEnvelope',
+  low: 'audioEnvelopeBass',
+  mid: 'audioEnvelopeMids',
+  high: 'audioEnvelopeHighs',
+});
+
+function audioRouting(channels) {
+  const inExpressions = [];
+  const needNodes = [];
+
+  for (const channel of channels) {
+    if (EXPRESSION_AUDIO[channel]) inExpressions.push(`${channel} is "${EXPRESSION_AUDIO[channel]}"`);
+    else needNodes.push(channel);
+  }
+
+  const lines = [];
+  if (inExpressions.length) {
+    lines.push(
+      `Inside a parameter expression ${inExpressions.join(', ')} — those names, not the channel names. `
+        + 'Same part of the spectrum under a different envelope, so it moves with the channel rather than reading the same number as it.'
+    );
+  }
+  if (needNodes.length) {
+    lines.push(
+      `${needNodes.join(', ')} ${needNodes.length === 1 ? 'is reachable' : 'are reachable'} only through an AudioValue node, one node per channel. No expression can name ${needNodes.length === 1 ? 'it' : 'them'}: it would compile to zero and the look would never react.`
+    );
+  }
+  return lines;
+}
+
+/**
+ * What a look is allowed to be made of.
+ *
+ * EDITOR_CAPABILITIES, in the cached prefix, already says these nodes exist
+ * and what they do. This is the sentence after that one: which of them a LOOK
+ * wants. The two are not the same question, and the answer to the second is
+ * what a show build was missing — asked for "slow fog tightening into vertical
+ * structure" with only the general prompt behind it, the model reaches for the
+ * safe thing it can reason about end to end, which is noise into a colour ramp
+ * into the output. Correct every time, and five of those in a row is one look
+ * played five times in different tints.
+ *
+ * So this names the families by what they ARE rather than by what they are
+ * called, because the brief is written in the artist's words and the bridge
+ * from "smoke" to ComputeFluidSim is the bridge that was missing. Every kind
+ * named here is in the registry; aiShowLookPrompt.test.js checks that against
+ * NodeDefs rather than trusting the prose, which is the check the general
+ * prompt needed once and did not have when the audio nodes were renamed.
+ */
+const SHOW_LOOK_MATERIAL = `
+# What this look may be made of
+
+A look is a whole patch and the whole editor is open to it. Decide what this one is actually MADE of before wiring anything, and build it out of that:
+
+- Simulation. Smoke, fluid, ink, growth, swarms, erosion and feedback are not effects to approximate with noise and Math nodes. They are ComputeFluidSim, ComputeReactionDiffusion, ComputeParticles, ComputeCellular and ComputeFeedbackField, and the one node that does the thing beats the eight that imitate it.
+- Depth. ComputeFieldMapper renders real geometry from any texture-producing chain, and one look with real depth in it is most of what stops a set reading flat. Wire its output on to OutputFinal so the main screen carries it and not only the floating viewport, and put its standing motion on rotateY, rotateZ or translateZ, which take expressions.
+- Whole-image moves. ComputeKaleidoscope, ComputeWarp, ComputeGlitch, ComputeBlur, ComputeEdgeDetect and ComputeMorphology read neighbouring pixels, which no per-pixel chain can. A look that turns one of those on is a different look, not a shaded version of the last one.
+- Code, where no node does it. Expr for one line, CustomGLSL for a body. Never to rebuild a node that already exists.
+
+Two or three compute nodes is this look's budget. It runs every frame, beside everything else in the set.`;
+
+/**
+ * The difference between a look and a good image.
+ *
+ * Four rules, and the third is the one that is not guessable from anywhere
+ * else in the prompt: an expression and a performer are not mutually
+ * exclusive. applyControlValue() leaves a parameter holding an expression
+ * alone and records the incoming value where the compiled formula reads it as
+ * `osc` (parameters/ExternalParameterControl.js, utils/paramReferences.js), so
+ * "=0.15+osc*0.7" is a parameter that keeps its own floor and shape while the
+ * set drives it at 60fps with no recompile. The same mechanism is why the
+ * failure mode is silent and total: a handle written "=time*0.3" has no `osc`
+ * in it, so the drive writes a reading nothing reads back, and the section
+ * loads clean, warns once, and holds a still frame for as long as it is up.
+ * Nothing downstream can detect that — unmetRequirements() in ShowBuilder.js
+ * checks the node and the parameter exist, which they do.
+ *
+ * The fourth is the other half of the same thing: ActionExecutor.writeParam()
+ * refuses a value that is not finite, so a select, bool, colour or text
+ * parameter is not a handle however interesting it is to turn by hand.
+ */
+const SHOW_LOOK_PLAYABLE = `
+# What makes it playable rather than watchable
+
+## Answer the music inside the patch
+The set's drives move at the cadence a person or the director works at — seconds, bars — which is not the cadence a kick happens at. Anything that has to land ON the music is the patch's own work, and there are two ways in, which are not interchangeable:
+- An AudioValue node, one per channel, wired into the graph. This is the ONLY way to reach the named channels — level, low, mid, high, kick, snare, hat, their Trig and Meter forms, centroid, density.
+- The audioEnvelope, audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs and audioEnvelopeFull names inside an expression. These five are the whole of what an expression can hear: "=audioEnvelopeBass" works and "=low" and "=kickTrig" compile to zero, silently, for the length of the show.
+So a look told to answer a kick ON the hit needs the AudioValue node; a look told to answer the low end can do it with an expression and one fewer node. Either way write it as a base plus the audio and never as the audio alone — "=0.35+audioEnvelopeBass*0.5" — because the analysis reads zero until someone plays into it, and a look that is black at soundcheck is a look nobody puts in a set.
+
+## Put standing motion on expressions
+A parameter carrying "=" moves every frame with nothing wired into it. That keeps the graph small, and it leaves the nodes that ARE on the canvas worth reaching for.
+
+## An expression does not lock the performer out
+A parameter holding an expression is not overwritten when the set drives it. The incoming value arrives INSIDE the formula, as "osc", and the rest of the formula keeps running:
+- "=0.15+osc*0.7" — a handle with a floor of its own that still answers the fader across its whole throw.
+- "=0.2+osc*0.5+audioEnvelopeBass*0.3" — performed, breathing and kicking at once.
+- "=time*0.3" on a parameter the set reaches for — a handle NOTHING CAN MOVE. The drive loads, warns once, and does nothing for the length of the show.
+So anything the set drives is a plain number, or an expression with "osc" in it. Never an expression without one.
+
+## A handle is a numeric parameter
+The performer writes numbers, so only a float, int or slider can be driven. A select, bool, colour or text parameter cannot be, which makes a look whose one interesting control is a mode dropdown a look with no controls on it.
+
+## It is cut to, not faded up into
+The first frame has to already be this look. That rules nothing out, but it does mean a simulation is seeded rather than started from nothing: enough dye, density, feedback or particle count that the opening frames already read as the look — or something under it that does, while the field fills.`;
+
+/**
  * When this patch is one look in a show rather than a patch on its own.
  *
  * Absent for the editor's own generator button, which is the overwhelming
@@ -1248,18 +1530,36 @@ function describeRig(input = {}) {
  * it was, so nothing about that feature changed.
  *
  * Present when the show builder is running (src/performer/ShowBuilder.js), and
- * what it adds is the two things that separate a look from an image. First,
- * the rest of the set: five patches generated from five descriptions with no
- * knowledge of each other look like five different shows spliced together,
- * however good each one is. Second, that it will be PERFORMED — a scenario
- * addresses nodes by name and moves single parameters, so a look whose nodes
- * are called Blur_3 and whose interesting parameter is already at its maximum
- * is a look nothing can play.
+ * what it adds is the three things that separate a look from an image.
+ *
+ * First, the rest of the set: five patches generated from five descriptions
+ * with no knowledge of each other look like five different shows spliced
+ * together, however good each one is.
+ *
+ * Second, that it will be PERFORMED — a scenario addresses nodes by name and
+ * moves single parameters, so a look whose nodes are called Blur_3 and whose
+ * interesting parameter is already at its maximum is a look nothing can play.
+ *
+ * Third, what it may be BUILT OUT OF. EDITOR_CAPABILITIES says what the editor
+ * can do; this says which of it a look wants, and that is not the same
+ * question. A look is cut to live in front of an audience, it answers music at
+ * frame rate rather than at the cadence a person types at, and it sits beside
+ * four or five others that must not all be the same graph in a different
+ * colour. Without that said, a show built out of the general prompt comes back
+ * as five noise-into-colour chains: every one correct, none of them reaching
+ * past the fragment nodes to the simulations, the 3D or the feedback fields
+ * that are most of what this editor is, and none of them keeping its own
+ * motion under the performer's hand. Every claim in that block is checkable —
+ * the `osc` rule is parameters/ExternalParameterControl.js and
+ * utils/paramReferences.js, the node kinds are the registry — and
+ * tests/aiShowLookPrompt.test.js holds it against them.
  *
  * It goes in the user turn rather than the system prompt on purpose: the
  * system turn is the cache prefix every call for this feature shares (see
  * prompt_cache_key in api/ai/run.js), and a paragraph that varies per look
- * would cost that cache for every artist using the plain generator.
+ * would cost that cache for every artist using the plain generator. The two
+ * blocks below are the same bytes on every look of every show, but they are
+ * bytes no plain generator call should pay for at all.
  */
 function describeShowLook(show) {
   if (!show || typeof show !== 'object') return '';
@@ -1271,14 +1571,27 @@ function describeShowLook(show) {
   const look = String(show.look || '').trim();
   if (look) lines.push(`This patch is the look called "${look}".`);
 
+  // Said with what the number MEANS, which the client's prompt used to add
+  // from the manifest and this one used to repeat without. A bare "0.2 of 1"
+  // is a figure; "restrained, with room above it" is the instruction, and the
+  // room above it is the half that a look at the quiet end of a set has to
+  // leave for the rest of the set to be louder than.
   const intensity = Number(show.intensity);
   if (Number.isFinite(intensity)) {
-    lines.push(`It plays at intensity ${round2(intensity)} of 1 across the show.`);
+    lines.push(
+      `It plays at intensity ${round2(intensity)} of 1 across the show — `
+        + `${intensity < 0.35 ? 'restrained, with room above it'
+          : intensity > 0.75 ? 'the loud end of the show'
+          : 'the middle of the show, with room in both directions'}.`
+    );
   }
 
   const reactsTo = Array.isArray(show.reactsTo) ? show.reactsTo.filter(Boolean) : [];
   if (reactsTo.length) {
-    lines.push(`It should visibly answer the music on: ${reactsTo.join(', ')}.`);
+    lines.push(
+      `It should visibly answer the music on: ${reactsTo.join(', ')}.`,
+      ...audioRouting(reactsTo)
+    );
   }
 
   // The artist's own footage, already loaded and waiting on named nodes. The
@@ -1300,11 +1613,50 @@ function describeShowLook(show) {
     );
   }
 
+  // How long the look is up for, and what a bar of this show is worth in
+  // seconds. Both are here for the same reason: an expression is the cheapest
+  // motion in the editor and its RATE is the one thing a model cannot guess.
+  // "=sin(time*0.6)" is a two-minute breath under a look that is cut away from
+  // after twenty seconds — movement the audience never sees a whole cycle of —
+  // and a cycle that is some fraction of a bar is movement that reads as part
+  // of the music rather than as something happening near it.
+  const secondsUp = Number(show.secondsUp);
+  if (Number.isFinite(secondsUp) && secondsUp > 0) {
+    lines.push(
+      `It is up for about ${round2(secondsUp)} seconds at a time, so anything that moves on its own should show a whole cycle of itself inside that.`
+    );
+  }
+
+  const bar = Number(show.bar);
+  if (Number.isFinite(bar) && bar > 0) {
+    // Three decimals on the rate rather than the two everything else here
+    // rounds to. A rate is a reciprocal, so the rounding lands on the PERIOD
+    // multiplied out: at two decimals a bar-length cycle is off by a third of
+    // a percent, which is a fifth of a bar adrift by the end of a thirty-two
+    // bar section — visible, and the exact failure the line is here to avoid.
+    const rate = (seconds) => Number(((2 * Math.PI) / seconds).toFixed(3));
+    lines.push(
+      `One bar of this show is ${round2(bar)}s and four bars ${round2(bar * 4)}s. `
+        + `An expression cycles once per bar at "=sin(time*${rate(bar)})" and once every four bars at `
+        + `"=sin(time*${rate(bar * 4)})" — motion on those rates lands with the music instead of drifting across it.`
+    );
+  }
+
+  // Three cases, not two. A look derived from a set that already exists
+  // usually names nothing in `drivable` and still has handles — the exact
+  // node.param pairs the set's drives are already written against, which the
+  // client's prompt lists because only the manifest has them. Told "leave
+  // three or four" on top of those, the answer is a patch with seven handles
+  // on it and no idea which four matter; told nothing, it leaves only the
+  // required ones and the look has no room of its own.
   const drivable = Array.isArray(show.drivable) ? show.drivable.filter(Boolean) : [];
+  const required = Number(show.requiredHandles) > 0;
   lines.push(
     drivable.length
       ? `These must each be reachable as ONE named node's parameter, because that is how the performer will reach them: ${drivable.join('; ')}.`
-      : 'Leave three or four parameters worth performing, each on its own named node.'
+      : required
+        ? 'Beyond the named parameters this look is required to carry, leave a couple more worth performing, each on its own named node.'
+        : 'Leave three or four parameters worth performing, each on its own named node.'
   );
 
   lines.push(
@@ -1312,7 +1664,7 @@ function describeShowLook(show) {
     'Set those parameters to values with somewhere left to travel: one already at its maximum is a fader with no throw.'
   );
 
-  return `\n\n# This patch is part of a show\n${lines.join('\n')}`;
+  return `\n\n# This patch is part of a show\n${lines.join('\n')}\n${SHOW_LOOK_MATERIAL}\n${SHOW_LOOK_PLAYABLE}`;
 }
 
 /** Seconds and tempi, at the precision anyone reads them: two decimals, no trailing zeros. */

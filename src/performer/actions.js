@@ -13,6 +13,14 @@
  * to be added there too (api/_lib/features.js, `ai.performer_live`) before the
  * model can use it — the mirror is deliberate and the comment there says so.
  *
+ * `audio` is the one verb deliberately NOT in that mirror. A set's bed is
+ * attached to the section it belongs to when the show is built, from the file
+ * the manifest named (ShowBuilder.bindLooks), and it is the one thing in here
+ * whose failure is audible in the room rather than visible on a screen: a
+ * model that decides to stop the music is a worse night than any parameter it
+ * could get wrong. A scenario may say it, a cue may say it, the artist may
+ * press it; the live director may not.
+ *
  * Every action is data: a plain object with a `type` and its own fields. They
  * are queued, quantised, logged and replayed, so none of them may hold a
  * function or a node reference. A node is named, never held — the graph it
@@ -26,6 +34,109 @@ const num = (value, fallback = 0) => {
 };
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const str = (value, fallback = '') => (typeof value === 'string' ? value : fallback);
+
+/** The first of these that was actually sent, or undefined. */
+const first = (...values) => values.find((value) => value !== undefined && value !== null);
+
+/**
+ * A number the caller MEANT to send, or null.
+ *
+ * `num()` answers "what number is this, or the default", which is right for a
+ * field with a harmless fallback and wrong for the one that decides what the
+ * audience sees. A move whose `to` never arrived is not a move to zero, and a
+ * `blackout` with no `on` is not a decision to kill the output — but read
+ * through a default, both are indistinguishable from having been asked for,
+ * and the log line reads as if they had been.
+ *
+ * So these fields are read on their own terms: the first key that was actually
+ * sent decides, an unusable value is null rather than a number, and null is
+ * refused — dropped with a line in the log by shapePlan(), refused by the
+ * executor for the scenario and OSC paths that do not go through it.
+ *
+ * The aliases are the same admission parameterTarget() makes: a model is
+ * answering a schema, not reading this file. `target` is not among them —
+ * there it carries the node and the parameter, not the value.
+ */
+const number = (raw, keys) => {
+  for (const key of keys) {
+    const value = raw?.[key];
+    if (value === undefined || value === null || value === '') continue;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+};
+
+/** The keys a target value arrives under, in the order they are believed. */
+const TARGET_KEYS = ['to', 'value', 'amount', 'level'];
+const pick = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
+
+/**
+ * What an `audio` action does to the transport.
+ *
+ * 'stop' rather than 'pause' is the one that rewinds, exactly as the Audio
+ * panel's two buttons do — a set that pauses its bed between two sections and
+ * a set that stops it are different sets, and the words are the artist's.
+ */
+export const TRANSPORTS = Object.freeze(['play', 'pause', 'stop']);
+
+/** "Warp.amount" split at the last dot, or null if there is nothing to split. */
+function splitDotted(value) {
+  const text = str(value).trim();
+  const cut = text.lastIndexOf('.');
+  if (cut <= 0 || cut === text.length - 1) return null;
+  return { node: text.slice(0, cut).trim(), param: text.slice(cut + 1).trim() };
+}
+
+/**
+ * The node and parameter one action or drive addresses, out of whatever shape
+ * it arrived in.
+ *
+ * Everything downstream wants two fields — `{"node":"Warp","param":"amount"}`
+ * — because a node is matched by id, then name, then kind (ActionExecutor
+ * .resolveNode) and a parameter is a key on it. But the rig is DESCRIBED to
+ * the model as a list of "node.param" strings (describeRig in
+ * api/_lib/features.js, and the panel's own rigContext()), and a model shown
+ * "ComputeNoise.scale" quotes it back in one field about as often as it splits
+ * it into two. A drive that names its parameter perfectly and lands in the
+ * wrong field is a section that silently does nothing at showtime, so the
+ * dotted form is read here rather than dropped.
+ *
+ * The split is at the LAST dot: a node someone called "Fog 2.0" is a name, and
+ * a parameter with a dot in it is not.
+ */
+export function parameterTarget(raw) {
+  const input = raw && typeof raw === 'object' ? raw : {};
+  const nested = input.target && typeof input.target === 'object' ? input.target : {};
+
+  const node = str(
+    input.node ?? input.nodeId ?? input.nodeName
+    ?? nested.node ?? nested.nodeId ?? nested.nodeName
+  ).trim();
+  const param = str(
+    input.param ?? input.parameter ?? input.paramName ?? input.parameterName
+    ?? nested.param ?? nested.parameter ?? nested.paramName ?? nested.parameterName
+  ).trim();
+
+  // A dotted pair in the parameter field. Taken when there is no node, and
+  // also when the node repeats the head of it ("Warp" + "Warp.amount"), which
+  // is the same answer written twice rather than a disagreement.
+  const inParam = splitDotted(param);
+  if (inParam && (!node || inParam.node === node)) return inParam;
+
+  if (node && param) return { node, param };
+
+  // A dotted pair on its own, in one of the fields a model reaches for when it
+  // is copying a name straight out of the list it was shown.
+  const loose = splitDotted(input.target) || splitDotted(input.path) || splitDotted(input.parameterPath);
+  if (!node && !param && loose) return loose;
+
+  // Everything in the node field: "ComputeNoise.scale" with no parameter.
+  const inNode = !param && splitDotted(node);
+  if (inNode) return inNode;
+
+  return { node, param };
+}
 
 /**
  * The vocabulary.
@@ -91,6 +202,15 @@ export const ACTION_TYPES = Object.freeze({
     fields: ['on'],
     cost: 1,
     gate: null,
+  },
+  audio: {
+    summary: "Play, pause or stop the set's own sound — the bed a look arrived with.",
+    fields: ['clip', 'transport', 'seek'],
+    // A load decodes a file and rewires the analysis input. Dearer than a
+    // fader, nothing like a scene: the graph is untouched and no shader
+    // recompiles.
+    cost: 2,
+    gate: 'allowAudio',
   },
   section: {
     summary: 'Jump to a section.',
@@ -167,13 +287,21 @@ export function normalizeAction(raw) {
       };
 
     case 'param': {
-      const overBars = raw.overBars === undefined ? null : clamp(num(raw.overBars, 0), 0, 256);
-      const overSeconds = raw.overSeconds === undefined ? null : clamp(num(raw.overSeconds, 0), 0, 600);
+      // The same aliases, for the same reason: a fade whose length arrived
+      // under a key this file did not name is a fade that lands at once,
+      // which on a long ramp is the one thing it was not supposed to do.
+      const bars = first(raw.overBars, raw.bars);
+      const seconds = first(raw.overSeconds, raw.seconds, raw.duration);
+      const overBars = bars === undefined ? null : clamp(num(bars, 0), 0, 256);
+      const overSeconds = seconds === undefined ? null : clamp(num(seconds, 0), 0, 600);
+      // `target` may be the object parameterTarget() reads the node and the
+      // parameter out of, so the value is looked for inside it as well.
+      const nested = raw.target && typeof raw.target === 'object' ? raw.target : null;
       return {
         ...common,
-        node: str(raw.node ?? raw.nodeId),
-        param: str(raw.param ?? raw.parameter),
-        to: num(raw.to ?? raw.value, 0),
+        ...parameterTarget(raw),
+        // Null, not 0, when nothing usable arrived. See number() above.
+        to: number(raw, TARGET_KEYS) ?? (nested ? number(nested, TARGET_KEYS) : null),
         overBars,
         overSeconds,
         curve: str(raw.curve) || 'linear',
@@ -184,8 +312,7 @@ export function normalizeAction(raw) {
       return {
         ...common,
         signal: str(raw.signal),
-        node: str(raw.node ?? raw.nodeId),
-        param: str(raw.param ?? raw.parameter),
+        ...parameterTarget(raw),
         min: num(raw.min, 0),
         max: num(raw.max, 1),
         curve: str(raw.curve) || 'linear',
@@ -193,11 +320,25 @@ export function normalizeAction(raw) {
         smooth: clamp(num(raw.smooth, 0), 0, 10),
       };
 
+    case 'audio':
+      return {
+        ...common,
+        // What to play, as the artist would write a filename. Empty means
+        // whatever is already loaded, which is how a section pauses or
+        // resumes the bed the section before it started.
+        clip: str(raw.clip ?? raw.sound ?? raw.file ?? raw.track),
+        // Play is the default: an audio action in a set is nearly always a
+        // section starting the track it was written against.
+        transport: pick(str(raw.transport ?? raw.do), TRANSPORTS, 'play'),
+        // Where to start, in seconds. A load starts at the top, so this is
+        // only ever the artist dropping in somewhere on purpose.
+        seek: raw.seek === undefined || raw.seek === null ? null : clamp(num(raw.seek, 0), 0, 36000),
+      };
+
     case 'undrive':
       return {
         ...common,
-        node: str(raw.node ?? raw.nodeId),
-        param: str(raw.param ?? raw.parameter),
+        ...parameterTarget(raw),
       };
 
     case 'transition':
@@ -207,20 +348,34 @@ export function normalizeAction(raw) {
         duration: raw.duration === undefined ? null : clamp(num(raw.duration, 1), 0, 60),
       };
 
-    case 'master':
+    case 'master': {
+      // Null rather than 1. A master action with no target used to mean "fader
+      // to the top", so a plan that meant 0.6 over eight seconds — and said so
+      // in its `why` — arrived as a jump to full.
+      const to = number(raw, TARGET_KEYS);
+      const seconds = first(raw.overSeconds, raw.seconds, raw.duration);
       return {
         ...common,
-        to: clamp(num(raw.to ?? raw.value, 1), 0, 1),
-        overSeconds: clamp(num(raw.overSeconds, 0), 0, 60),
+        to: to === null ? null : clamp(to, 0, 1),
+        overSeconds: clamp(num(seconds, 0), 0, 60),
       };
+    }
 
-    case 'speed':
+    case 'speed': {
       // The editor's own speed control tops out well below this; the ceiling
       // here is only to keep a nonsense value out of the render loop.
-      return { ...common, to: clamp(num(raw.to ?? raw.value, 1), 0, 8) };
+      const to = number(raw, TARGET_KEYS);
+      return { ...common, to: to === null ? null : clamp(to, 0, 8) };
+    }
 
     case 'blackout':
-      return { ...common, on: raw.on === undefined ? true : Boolean(raw.on) };
+      // Null rather than true, and this is the one that cost a set. A director
+      // asked to clear a kill — "Clear the kill immediately; the artist has
+      // asked for brightness" — sent an action whose `on` never arrived, and a
+      // default of true turned a request to bring the picture back into a
+      // second blackout. Nothing in this repo sends a blackout without saying
+      // which way it goes, so guessing buys nothing and costs that.
+      return { ...common, on: raw.on === undefined || raw.on === null ? null : Boolean(raw.on) };
 
     case 'section':
       return { ...common, to: str(raw.to ?? raw.section ?? raw.id) };
@@ -282,6 +437,7 @@ export function validateAction(action, context = {}) {
 
     case 'param':
       if (!action.node || !action.param) return error('A param action needs a node and a parameter.');
+      if (action.to === null) return error('A param action needs a value to move to ("to").');
       return null;
 
     case 'drive':
@@ -291,6 +447,20 @@ export function validateAction(action, context = {}) {
 
     case 'undrive':
       if (!action.node || !action.param) return error('An undrive action needs a node and a parameter.');
+      return null;
+
+    case 'master':
+      if (action.to === null) return error('A master action needs a level to move to ("to"), 0 to 1.');
+      return null;
+
+    case 'speed':
+      if (action.to === null) return error('A speed action needs a speed to move to ("to").');
+      return null;
+
+    case 'blackout':
+      if (action.on === null) {
+        return error('A blackout action needs "on": true kills the output, false brings it back.');
+      }
       return null;
 
     case 'section':
@@ -320,10 +490,22 @@ export function validateAction(action, context = {}) {
       }
       return null;
 
+    case 'audio':
+      // A play with nothing named is a resume, which is legal and common. A
+      // set that never names a file anywhere is the one worth a word: nothing
+      // is loaded at the start of a show, so there is nothing to resume.
+      if (!action.clip && action.transport === 'play' && known.sounds === 0) {
+        return warn('Nothing to play: no look in this set names a sound, so the bed this would resume was never loaded.');
+      }
+      return null;
+
     default:
       return null;
   }
 }
+
+/** A value that never arrived, as the log should show it. */
+const shown = (value) => (value === null || value === undefined ? '?' : value);
 
 /** A one-line rendering for the performance log and the panel. */
 export function describeAction(action) {
@@ -334,14 +516,22 @@ export function describeAction(action) {
     case 'param': {
       const over = action.overBars ? ` over ${action.overBars} bars`
         : action.overSeconds ? ` over ${action.overSeconds}s` : '';
-      return `${action.node}.${action.param} → ${action.to}${over}`;
+      // "→ ?" rather than "→ 0". Read over a mixer in the dark, the two say
+      // very different things about what is about to happen.
+      return `${action.node}.${action.param} → ${shown(action.to)}${over}`;
     }
     case 'drive': return `${action.signal} drives ${action.node}.${action.param}`;
     case 'undrive': return `release ${action.node}.${action.param}`;
     case 'transition': return `transition = ${action.transition || action.duration + 's'}`;
-    case 'master': return `master → ${action.to}`;
-    case 'speed': return `speed → ${action.to}`;
-    case 'blackout': return action.on ? 'blackout' : 'blackout off';
+    case 'master': return `master → ${shown(action.to)}`;
+    case 'speed': return `speed → ${shown(action.to)}`;
+    case 'blackout':
+      if (action.on === null || action.on === undefined) return 'blackout ?';
+      return action.on ? 'blackout' : 'blackout off';
+    case 'audio': {
+      const where = action.seek === null ? '' : ` from ${action.seek}s`;
+      return action.clip ? `${action.transport} ${action.clip}${where}` : `${action.transport} the bed${where}`;
+    }
     case 'section': return `jump → ${action.to}`;
     case 'cue': return `cue ${action.name}`;
     case 'graph': return `new patch${action.reason ? ` (${action.reason})` : ''}`;

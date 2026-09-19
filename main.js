@@ -29,6 +29,7 @@ import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
 import { describeAudioSource, getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
+import { getAudioDeck } from './src/audio/audioDeck.js';
 import { MIDIManager } from './src/midi/MIDIManager.js';
 import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
@@ -642,7 +643,7 @@ async function initialize() {
       console.error("Error stack:", error.stack);
     }
 
-    // The AI performer. Built last of the live-control systems because it
+    // The coPerformer. Built last of the live-control systems because it
     // drives all of them: OSC in, the VJ panel's scenes and presets out, and
     // the editor's own parameter path in between.
     //
@@ -664,6 +665,9 @@ async function initialize() {
         vjPanel: vjControlPanel,
         director: performerDirector,
         replaceGraph: replaceGraphWithPatch,
+        // The Audio panel's transport, so a set that arrived with its own beds
+        // can play them into the one analysis engine the editor has.
+        audioDeck: getAudioDeck(),
         // How a generated patch becomes a scene the set can cut to, for the
         // show builder. Injected here rather than imported in the performer so
         // that subsystem stays testable without the editor.
@@ -685,10 +689,13 @@ async function initialize() {
         oscManager: window.oscManager || null,
         vjPanel: vjControlPanel,
         eventSystem: editor.eventSystem,
+        // Built above, at the same point in boot as the rest of the editor's
+        // windows, so a set that drives the timeline can show it.
+        timelinePanel,
       });
       window.performerPanel = performerPanel;
     } catch (error) {
-      console.error("ERROR creating AI performer:", error);
+      console.error("ERROR creating coPerformer:", error);
       console.error("Error stack:", error.stack);
     }
 
@@ -1643,19 +1650,19 @@ function setupUIEventHandlers() {
     console.error('[main.js] Timeline button NOT found in DOM!');
   }
 
-  // AI Performer panel
+  // coPerformer panel
   const performerButton = document.getElementById("btn-toggle-performer");
   if (performerButton) {
     performerButton.addEventListener("click", () => {
       try {
         if (performerPanel && typeof performerPanel.toggle === 'function') {
           performerPanel.toggle();
-          updateStatus(performerPanel.visible ? "AI Performer opened" : "AI Performer closed");
+          updateStatus(performerPanel.visible ? "coPerformer opened" : "coPerformer closed");
         } else {
-          updateStatus("AI Performer failed to load", "error");
+          updateStatus("coPerformer failed to load", "error");
         }
       } catch (error) {
-        updateStatus("Error toggling AI Performer: " + error.message, "error");
+        updateStatus("Error toggling coPerformer: " + error.message, "error");
       }
     });
   }
@@ -3692,6 +3699,13 @@ async function processFieldMapperNodes() {
 
 async function updateShaderFromGraph() {
   try {
+    // Every rebuild, counted. This is the expensive path of the two the
+    // renderer has (ARCHITECTURE.md, and the one performance rule in
+    // CLAUDE.md), and a rebuild happening per frame rather than per edit is
+    // the single likeliest reason the editor is slow — so window.perfReport()
+    // now says how many ran in the window it covers.
+    getPerfProbe().count('shaderRebuilds', 1);
+
     // Every graph edit funnels through here - flag it so the 30s
     // autosave/backup loop has something to pick up (no-op during imports)
     saveLoadManager?.markUnsaved?.();

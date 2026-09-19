@@ -1,4 +1,4 @@
-/* AI Performer panel.
+/* coPerformer panel.
  *
  * Written to sit next to vj-control-panel.css and share its tokens, with one
  * departure: this panel is read in the dark, at a glance, while doing
@@ -644,3 +644,105 @@
 .rz-perf-folder-file[data-kind="video"] .rz-perf-folder-name { color: #8ecbff; }
 .rz-perf-folder-file[data-kind="audio"] .rz-perf-folder-name { color: #8b8175; }
 .rz-perf-folder-file[data-kind="skipped"] .rz-perf-folder-name { color: #8b8175; text-decoration: line-through; }
+
+/* --- pre-directions ----------------------------------------------------
+ *
+ * The show's own direction, written at the desk. It sits directly under the
+ * folder row and above the manifest, in the same collapsed-until-wanted shape
+ * the folder list uses: an artist standing at a laptop never opens it, and one
+ * handing the whole set to the model opens it once and writes the arc.
+ *
+ * The purple is the director's colour everywhere else on this panel
+ * (.rz-perf-director-note, and the "director" level in the log), and it is
+ * used here for the same reason: everything in this colour is something a
+ * model was told or said, as opposed to something the set does.
+ */
+
+.rz-perf-predirections[data-open="true"] {
+  border-color: rgba(217, 166, 255, 0.5);
+  color: #e9d4ff;
+}
+
+.rz-perf-predirection-box {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  /* The manifest editor below it is flex: 1, so this has to refuse to be the
+   * thing a short panel collapses — the same rule the folder list follows. */
+  flex: 0 0 auto;
+  padding: 6px 7px;
+  border: 1px solid rgba(217, 166, 255, 0.22);
+  border-radius: 3px;
+  background: rgba(217, 166, 255, 0.05);
+}
+
+.rz-perf-predirection-editor {
+  width: 100%;
+  padding: 5px 7px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 244, 230, 0.09);
+  border-radius: 3px;
+  color: var(--rz-text);
+  font-family: var(--rz-font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.rz-perf-predirection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 0 0 auto;
+  max-height: 110px;
+  overflow-y: auto;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.rz-perf-predirection {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+/* Where it lands. Monospaced and never truncated: which section is handed
+ * which line is the whole thing this list exists to state. */
+.rz-perf-predirection-at {
+  font-family: var(--rz-font-mono);
+  color: #d9a6ff;
+  flex-shrink: 0;
+}
+
+.rz-perf-predirection-text {
+  color: #8b8175;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The line the show is telling the model right now, under the steer box on the
+ * Set tab. Italic like the director's note, because it is the same kind of
+ * thing: words, not a reading. */
+.rz-perf-director-plan {
+  font-size: 11px;
+  color: #b98ede;
+  font-style: italic;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The section's own pre-direction, on its row in the set list. Clipped to one
+ * line: the row is a jump target read in the dark, and it must not grow by a
+ * paragraph because someone wrote a long sentence. */
+.rz-perf-section-direction {
+  font-size: 10px;
+  color: #b98ede;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

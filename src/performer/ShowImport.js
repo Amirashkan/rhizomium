@@ -35,8 +35,8 @@
  *       media/
  *         image.png          <- a look's footage
  *         video.mp4
- *         music.mp3          <- listed, not loaded: the performer listens
- *         narration.mp3         to the room, not to a file
+ *         music.mp3          <- the bed: played under the look it belongs to
+ *         narration.mp3         named in the notes, for the artist to fire
  *
  * One project is one look. What crosses over is what a patch can be built
  * from — the video and image prompts become the look's brief, the palette and
@@ -44,6 +44,23 @@
  * clips become the look's `media`, which is what puts the artist's own footage
  * on a texture node instead of leaving the model to draw everything from
  * nothing.
+ *
+ * The energy and `transition_out` cross over a second time, as the look's
+ * `direction` (PreDirections.js): what the LIVE model should be going for while
+ * this piece is up, as opposed to what the patch is built from. These shows are
+ * the case that feature exists for — generated, ambient, and played by the model
+ * with nobody standing over them — and a set of them that arrived undirected
+ * would be improvised for its whole length. Derived rather than waited for, so a
+ * folder `transmissions` wrote months ago is directed without being regenerated:
+ * `energy` is already a decision about how much a piece should move, and its own
+ * schema says what the ends of it mean.
+ *
+ * The bed crosses over too, as the look's `sound`. It is the piece the hold was
+ * measured from, so a section and the track under it are the same length by
+ * construction, and the level and low the look answers are that track's rather
+ * than an empty room's. The narration is left named in the notes: there is one
+ * element behind the analysis, and a voice over the bed is a mix the artist
+ * makes in their own software, not something to be chosen for them here.
  *
  * What does not cross over is the copy. The brief is the news and the vignette
  * is fiction about a person in a room; neither describes an image, and a patch
@@ -256,6 +273,70 @@ function briefOf(data) {
   return parts.join(' ') || text(data?.title);
 }
 
+/**
+ * How much a piece should be allowed to move, by the energy it was written at.
+ *
+ * `performance.energy` is not a loudness reading — it is a decision the model
+ * made about where this piece sits in a set, and its own field says what the
+ * ends mean: "1 is a held drone to open or close on; 5 is the loudest, densest
+ * point of a set." That is already a direction. It only has to be said as one.
+ *
+ * Which is the whole reason this is derived rather than waited for: a
+ * transmission written last month has an energy on it, so a folder the artist
+ * already has arrives directed without being regenerated.
+ *
+ * Kept word-for-word the same as the read on the `transmissions` side
+ * (`transmissions/rhizomium.py`, MOVEMENT_BY_ENERGY), because the same pieces
+ * reach the performer either way — opened as a folder here, or exported from
+ * there as a scenario or a manifest — and the two arriving differently
+ * directed would be a difference nobody could see the cause of. No handle
+ * names, for the same reason: an export writes `drift`, `fill` and `glow` and
+ * drives them, while a show built from these folders has patches generated
+ * from the briefs and is not guaranteed to have nodes under those names.
+ */
+const MOVEMENT_BY_ENERGY = Object.freeze([
+  // 1
+  'Hold it. Almost nothing should move - one slow drift and no more.',
+  // 2
+  'Keep it patient. One thing moving at a time, and never brighten it.',
+  // 3
+  'Let it breathe. Move steadily, stay dark, and do not build to anything.',
+  // 4
+  'Push it. Let density and contrast climb, and keep them climbing.',
+  // 5 — "densest", not "brightest". These sets are half an hour in a dark
+  // room, and a strobe or a full-white frame is not one going hard, it is one
+  // breaking. The top of the scale is the line most likely to cross that, so
+  // it carries the rule itself rather than trusting the model to remember a
+  // paragraph it was shown elsewhere.
+  'The densest point of the set: everything answering the accent at once. '
+    + 'Still a dark room - no strobe, no white frame, no cut every few seconds.',
+]);
+
+/**
+ * What the live AI should be going for while this piece is up.
+ *
+ * Deliberately not the look's `mood`, which is what the piece IS made of and
+ * already goes across as `mood` — the director is shown both, and repeating one
+ * as the other wastes the only line it gets. This says what to DO: how much to
+ * move, and how to leave.
+ *
+ * `transition_out` is the one field with the next piece in it, and on an
+ * unattended set nothing else is going to think about the handover: a section
+ * that ends where the arranger said it should is the difference between a set
+ * and a sequence of clips.
+ */
+function directionOf(data) {
+  const show = obj(data?.performance) || {};
+  const energy = clamp(int(show.energy, 3), 1, 5);
+
+  const lines = [MOVEMENT_BY_ENERGY[energy - 1]];
+
+  const out = text(show.transition_out).replace(/\.$/, '');
+  if (out) lines.push(`Towards the end, ${out[0].toLowerCase()}${out.slice(1)}.`);
+
+  return lines.join(' ');
+}
+
 /** The panel's line on a look: its key, how it arrives, and where its sound is. */
 function notesOf(data, assets) {
   const show = obj(data?.performance) || {};
@@ -264,8 +345,9 @@ function notesOf(data, assets) {
   if (text(show.key)) lines.push(`Key: ${text(show.key)}`);
   if (text(show.transition_in)) lines.push(`In: ${text(show.transition_in)}`);
 
-  // The sound is the half of this the editor does not play. Naming the files
-  // is what lets the artist find the bed to play into the room.
+  // Every sound file the piece produced, named. The bed is also the look's
+  // `sound` and is played under it; the rest are named here because they are
+  // the artist's to place — a narration is a mix decision, not a second bed.
   const sound = SOUND_KINDS.filter((kind) => assets[kind]).map((kind) => `${kind}: ${assets[kind]}`);
   if (sound.length) lines.push(...sound);
 
@@ -301,8 +383,14 @@ export function lookFromTransmission(data, options = {}) {
     name,
     brief: briefOf(source),
     mood: [text(music.mood), text(show.texture)].filter(Boolean).join(', '),
+    // What the live AI is handed for this piece's stretch of the set. These
+    // shows are the case pre-directions exist for: generated, ambient, and
+    // played by the model with nobody standing over them.
+    direction: directionOf(source),
     intensity: Math.round(((energy - 1) / 4) * 100) / 100,
     media: CLIP_KINDS.filter((kind) => assets[kind]).map((kind) => assets[kind]),
+    // The bed, which is also what holdOf() measured this look's length from.
+    sound: assets.music || '',
     // These beds are ambient and the level is the one channel all of them move.
     // A look that answers nothing is a still image with a fader wired to it.
     reactsTo: ['level', 'low'],
@@ -554,6 +642,14 @@ export function manifestFromTransmissions(entries, options = {}) {
       + 'figures, no objects, no architecture, no text. Dark ground, clear contrast, built to '
       + 'hold when it is projected large.',
     palette: paletteOf(kept),
+    // The floor under every piece. Said once, because it is true of all of
+    // them and a line repeated per look is a line that stops being read.
+    // The two rules this material will not break, put in front of the model at
+    // the moment it is deciding rather than left in a brief it was shown once.
+    direction:
+      'A pool of abstract material in a dark room, not a story: let each section hold, '
+      + 'one change at a time. Never let a look become an object, and never strobe or go '
+      + 'white - that is it breaking, not going hard.',
     bpm: bpmOf(kept),
     // These beds are ambient and most have no usable pulse, so the set is
     // written in seconds and nothing in it is counted in bars. A tempo detector

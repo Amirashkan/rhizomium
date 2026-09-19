@@ -24,3 +24,4 @@ __pycache__/
 # these to the repository root).
 PERFORMANCE_TEST_REPORT.md
 PERFORMANCE_TEST_REPORT.json
+.vercel
