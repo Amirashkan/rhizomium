@@ -6,6 +6,57 @@ import { getInputCount } from '../../data/nodeInputs.js';
 import { resolveDiscreteParam } from '../../utils/discreteParams.js';
 import { inferBodyType } from './wgslExprType.js';
 
+// Reduce a node body's last line to the expression it yields.
+//
+// The body of a CustomGLSL node is a function body everywhere except here:
+// the compiler splices it into an assignment, `node_<id> = <expr>`, so the
+// last line has to be an expression and not a statement. Three shapes mean
+// the same thing to whoever wrote the node and had to be handled separately:
+//
+//   vec4<f32>(a, b, 0.0, 1.0)          a bare expression
+//   let out = vec4<f32>(...);          a declaration of the value
+//   return vec4<f32>(...);             a return of the value
+//
+// The first two were understood and the third was not, so a body written the
+// way a shader function is written - which is how anyone arriving from GLSL
+// writes one, and how a model asked for a patch writes one - compiled to
+// `node_beam = return vec4<f32>(...)`. That is not WGSL, so the shader failed
+// to build, every pipeline downstream of it was invalidated, and the node
+// went black with a parse error rather than with anything that named the
+// cause.
+// The WGSL spelling of a type this compiler names in shorthand.
+//
+// `validOutputType` is the vocabulary the graph uses - "vec4", "vec3", "f32" -
+// and that is what goes in a constructor. It is not what goes after a colon:
+// `var x: vec4` names no type in WGSL, where the element type is part of the
+// name. Everywhere else the shorthand is only ever used to pick a constructor,
+// so this is needed exactly where a declaration is written out.
+const WGSL_TYPES = new Map([
+  ['vec2', 'vec2<f32>'],
+  ['vec3', 'vec3<f32>'],
+  ['vec4', 'vec4<f32>'],
+]);
+
+function wgslTypeName(type) {
+  const name = String(type ?? '').trim();
+  return WGSL_TYPES.get(name) || name || 'f32';
+}
+
+function asExpression(line) {
+  const trimmed = String(line ?? '').trim().replace(/;+\s*$/, '');
+
+  const declaration = trimmed.match(/^(?:let|var)\s+\w+\s*(?::\s*[\w<>]+\s*)?=\s*([\s\S]+)$/);
+  if (declaration) return declaration[1].trim();
+
+  // `return;` returns nothing, which is not a value this can use - leave it
+  // alone rather than emitting an empty right-hand side, and let the caller's
+  // own guards substitute a default.
+  const returned = trimmed.match(/^return\s+([\s\S]+)$/);
+  if (returned) return returned[1].trim();
+
+  return trimmed;
+}
+
 // The names hand-written (or model-written) node code may use for things that live in the
 // generated shader rather than in the snippet itself. Order does not matter: substitution walks
 // whole identifiers, so `u_time` is never seen as `time` and `audioEnvelopeBass` is never seen as
@@ -1083,14 +1134,9 @@ export class UtilityNodes {
           finalExpression = finalExpression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
         }
         
-        // Remove "let" or "var" from final expression if present
-        const finalLetMatch = finalExpression.match(/let\s+\w+\s*=\s*(.+);?$/);
-        const finalVarMatch = finalExpression.match(/var\s+\w+\s*[=:]\s*(.+);?$/);
-        if (finalLetMatch) {
-          finalExpression = finalLetMatch[1];
-        } else if (finalVarMatch) {
-          finalExpression = finalVarMatch[1];
-        }
+        // Reduce the last line to the expression it yields: a declaration's
+        // right-hand side, or what a `return` returns.
+        finalExpression = asExpression(finalExpression);
         
         // Wrap in a block - but node_X needs to be accessible outside
         // Use var so we can assign it inside the block
@@ -1120,7 +1166,7 @@ export class UtilityNodes {
         const blockContent = blockContentLines.join('\n  ');
         // The entire block (var declaration + block) should be a single line in the lines array
         // The newlines inside will be preserved when inserted into the shader
-        compiledCode = `var node_${sanitizedNodeId}: ${validOutputType} = ${defaultValue};
+        compiledCode = `var node_${sanitizedNodeId}: ${wgslTypeName(validOutputType)} = ${defaultValue};
 {
   ${blockContent}
 }`;
@@ -1176,18 +1222,16 @@ export class UtilityNodes {
           finalExpression = finalExpression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
         }
         
-        // Remove any "let" declaration from final expression if present
-        const finalMatch = finalExpression.match(/let\s+\w+\s*=\s*(.+);?$/);
-        if (finalMatch) {
-          finalExpression = finalMatch[1];
-        }
+        finalExpression = asExpression(finalExpression);
         
         // Combine all declarations - node_X must be at top level, not in a block
         compiledCode = intermediateDeclarations.join('\n') + `\nlet node_${sanitizedNodeId} = ${finalExpression};`;
       }
     } else if (codeLines.length === 1) {
-      // Single line - just assign
-      compiledCode = `let node_${sanitizedNodeId} = ${codeLines[0]};`;
+      // Single line - just assign. Still reduced to an expression: a one-line
+      // body is as free to be written `return vec3<f32>(uv, 0.0);` as a
+      // multi-line one, and means exactly the same thing.
+      compiledCode = `let node_${sanitizedNodeId} = ${asExpression(codeLines[0])};`;
     } else {
       // Empty code - use default
       compiledCode = `let node_${sanitizedNodeId} = 0.0;`;
