@@ -1014,6 +1014,70 @@ function enterFromPrevious(look, show) {
  * what the generated patches called their nodes. It plays, and the artist can
  * write the drives in the editor — which is where the panel puts it anyway.
  */
+/**
+ * How long past the previous section's hold an unattended entry waits.
+ *
+ * `by` has to land strictly past that hold or there is no window for the cue to
+ * decide in, and the scenario checker says so. Small on purpose: the hold is
+ * what the set was written to, and this is how long we are willing to sit past
+ * it waiting for a cue that may never come - not an invitation to drift. A
+ * musician who wants the cue has the whole of the previous section to fire it.
+ */
+const UNATTENDED_GRACE_BARS = 4;
+const UNATTENDED_GRACE_SECONDS = 4;
+
+/**
+ * Give every section a way in that does not need a person.
+ *
+ * Pass 2 is written by a model, and a model is free to write an entry that
+ * waits for a cue or for the music. Both are legitimate - that is how a set
+ * written for a musician in the room reads - and both strand the performance on
+ * its first frame when nobody is playing into it: every drive working perfectly
+ * against a picture that never changes. Scenario.js says so at the desk, which
+ * is how this was found, but a warning about a document the model has just
+ * written leaves the artist hand-editing it.
+ *
+ * So each entry that can wait forever gets a deadline built from the section
+ * before it: take the cue if it comes, take the condition if the room reaches
+ * it, and failing both move on a few seconds past the hold. Nothing is
+ * overridden - the cue still decides when it is fired, and a section that can
+ * already be entered unattended is left exactly as the model wrote it.
+ *
+ * A section whose predecessor states no length at all is left alone: there is
+ * no floor to build a ceiling on, and inventing one would be inventing a
+ * deadline the set deliberately does not have.
+ */
+export function ensureUnattended(scenario) {
+  const set = normalizeScenario(scenario);
+
+  const sections = set.sections.map((section, index) => {
+    // The first section is where the set starts. It does not need reaching.
+    if (index === 0) return section;
+
+    const enter = section.enter;
+    // Already on the clock, or already carrying its own deadline.
+    if (enter.kind === 'bars' || enter.kind === 'seconds' || enter.by) return section;
+
+    const previous = set.sections[index - 1];
+
+    // `manual` needs nothing added: the performer moves on when the previous
+    // section's hold is up, which is what makes it unattended already. Without
+    // a hold there it is stuck, and so is everything below - no floor, no
+    // ceiling to hang off it.
+    if (enter.kind === 'manual') return section;
+
+    const by = previous.hold.seconds !== null
+      ? { bars: null, seconds: previous.hold.seconds + UNATTENDED_GRACE_SECONDS }
+      : previous.hold.bars !== null
+        ? { bars: previous.hold.bars + UNATTENDED_GRACE_BARS, seconds: null }
+        : null;
+
+    return by ? { ...section, enter: { ...enter, by } } : section;
+  });
+
+  return { ...set, sections };
+}
+
 export function scenarioFromManifest(manifest, built = []) {
   const show = normalizeManifest(manifest);
   const scenes = new Map(built.map((entry) => [entry.lookId, entry.sceneName]));

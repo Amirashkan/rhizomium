@@ -23,8 +23,9 @@ import {
   readFolderShow,
 } from '../src/performer/ShowImport.js';
 import { normalizeManifest, validateManifest } from '../src/performer/ShowManifest.js';
+import { normalizeScenario, validateScenario } from '../src/performer/Scenario.js';
 import { indexShowFolder } from '../src/performer/ShowFolder.js';
-import { ShowBuilder } from '../src/performer/ShowBuilder.js';
+import { ShowBuilder, ensureUnattended } from '../src/performer/ShowBuilder.js';
 import {
   endCardPatch, cardText, wrapCard, MAX_CARD_CHARS, RESOLUTION,
 } from '../src/performer/EndCard.js';
@@ -507,5 +508,99 @@ describe('the card patch, at a readable size', () => {
     // The ellipsis ends the card rather than sitting mid-block.
     expect(text.trimEnd().endsWith('…')).toBe(true);
     expect(cardText('sediment '.repeat(200)).length).toBeLessThanOrEqual(MAX_CARD_CHARS);
+  });
+});
+
+// -- a set nobody is playing into ------------------------------------------
+//
+// Pass 2 is written by a model, and a model is free to write an entry that
+// waits for a cue or for the music. Both are legitimate — that is how a set
+// written for a musician in the room reads — and both leave the performance on
+// its first frame when nobody is playing into it. The scenario checker says so
+// at the desk, which is how this was found; the artist should not then have to
+// hand-edit a document the model has just written.
+
+describe('ensureUnattended', () => {
+  const modelSet = () => ({
+    name: 'Messy Eaters',
+    sections: [
+      { id: 'intro', name: 'Opening', enter: 'manual', hold: { seconds: 26 }, next: 'cat' },
+      // A bare string is what a model writes when it means "this section's own
+      // cue" — and normalizeEnter reads any string that is not "manual" as a
+      // cue to wait for.
+      { id: 'cat', name: 'The Cat', enter: 'cat', hold: { seconds: 166 }, next: 'air' },
+      { id: 'air', name: 'Air', enter: { when: 'level > 0.6' }, hold: { seconds: 166 } },
+    ],
+  });
+
+  const stranded = (scenario) => validateScenario(normalizeScenario(scenario))
+    .warnings.some((one) => /Nothing moves this set/.test(one.message));
+
+  it('is the failure this exists to stop', () => {
+    // Without it, the set holds one frame forever.
+    expect(stranded(modelSet())).toBe(true);
+  });
+
+  it('gives a cue entry a deadline past the hold before it', () => {
+    const set = ensureUnattended(modelSet());
+    const cat = set.sections[1];
+
+    expect(cat.enter.kind).toBe('cue');
+    expect(cat.enter.cue).toBe('cat');
+    // Strictly past the previous hold, or there is no window for the cue to
+    // decide in and the checker says so.
+    expect(cat.enter.by.seconds).toBeGreaterThan(26);
+    expect(stranded(set)).toBe(false);
+  });
+
+  it('gives a condition entry one too', () => {
+    const air = ensureUnattended(modelSet()).sections[2];
+    expect(air.enter.kind).toBe('when');
+    expect(air.enter.by.seconds).toBeGreaterThan(166);
+  });
+
+  it('leaves the cue itself deciding when it is fired', () => {
+    // A deadline is a ceiling, not a replacement: the musician still moves the
+    // set on whenever they like.
+    const cat = ensureUnattended(modelSet()).sections[1];
+    expect(cat.enter.cue).toBe('cat');
+  });
+
+  it('touches nothing that can already be entered on its own', () => {
+    const set = {
+      sections: [
+        { id: 'a', name: 'A', enter: 'manual', hold: { seconds: 20 } },
+        { id: 'b', name: 'B', enter: { seconds: 30 }, hold: { seconds: 20 } },
+        { id: 'c', name: 'C', enter: 'manual', hold: { seconds: 20 } },
+        { id: 'd', name: 'D', enter: { cue: 'drop', by: { bars: 8 } }, hold: { seconds: 20 } },
+      ],
+    };
+    const after = ensureUnattended(set);
+    const before = normalizeScenario(set);
+
+    expect(after.sections.map((s) => s.enter)).toEqual(before.sections.map((s) => s.enter));
+  });
+
+  it('leaves a section alone when the one before it states no length', () => {
+    // No floor to hang a ceiling off, and inventing a deadline the set does not
+    // have is worse than the warning.
+    const after = ensureUnattended({
+      sections: [
+        { id: 'a', name: 'A', enter: 'manual' },
+        { id: 'b', name: 'B', enter: { cue: 'drop' } },
+      ],
+    });
+    expect(after.sections[1].enter.by).toBeUndefined();
+  });
+
+  it('works in bars when that is the unit the set is written in', () => {
+    const after = ensureUnattended({
+      sections: [
+        { id: 'a', name: 'A', enter: 'manual', hold: { bars: 32 } },
+        { id: 'b', name: 'B', enter: { cue: 'drop' } },
+      ],
+    });
+    expect(after.sections[1].enter.by.bars).toBeGreaterThan(32);
+    expect(after.sections[1].enter.by.seconds).toBeNull();
   });
 });
