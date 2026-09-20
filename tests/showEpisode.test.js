@@ -604,3 +604,37 @@ describe('ensureUnattended', () => {
     expect(after.sections[1].enter.by.seconds).toBeNull();
   });
 });
+
+// -- what the folder says it did -------------------------------------------
+
+describe('the note about the other manifests', () => {
+  const show = { show: 'Messy Eaters', looks: [] };
+
+  it('does not say the cue folders were ignored', async () => {
+    // They were not. The show being opened is built out of them and already
+    // describes every one — "ignoring" beside four of them reads as though the
+    // episode had been thrown away.
+    const result = await read([manifestFile('2026-09-20-ep-004.rzshow.json', show), ...FOLDER.slice(1)]);
+
+    expect(result.kind).toBe('show');
+    const text = result.problems.map((one) => one.message).join(' ');
+    expect(text).not.toMatch(/ignoring .*manifest\.json/);
+    expect(text).toMatch(/nothing in them is lost/);
+  });
+
+  it('still says so when a second show manifest really is passed over', async () => {
+    // Two documents describing this set and only one opened is a real fork, and
+    // the artist should be told which way it went.
+    const result = await read([
+      manifestFile('a-show.rzshow.json', show),
+      manifestFile('b-show.rzshow.json', { show: 'Other', looks: [] }),
+    ]);
+
+    expect(result.problems.map((one) => one.message).join(' ')).toMatch(/ignoring "?b-show/);
+  });
+
+  it('says nothing at all about a folder holding one show and nothing else', async () => {
+    const result = await read([manifestFile('only.rzshow.json', show)]);
+    expect(result.problems).toEqual([]);
+  });
+});

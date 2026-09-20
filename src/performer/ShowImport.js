@@ -743,16 +743,29 @@ export async function readFolderShow(folder) {
   // the artist wrote for this set, and its own bytes go into the editor —
   // unchanged, so that Save… puts back what was opened.
   if (shows.length) {
-    const ignored = [
-      ...shows.slice(1).map((entry) => entry.path),
-      ...transmissions.map((entry) => entry.path),
-      ...foreign,
-    ];
-    if (ignored.length) {
+    // Two different things get passed over here and they do not deserve the
+    // same sentence. A second show manifest is a real fork in the road - two
+    // documents describing this set and only one of them opened. The cue
+    // folders are not: the show being opened is built out of them and already
+    // describes every one, so reading "ignoring" beside four of them says
+    // something was lost when nothing was.
+    const rivals = [...shows.slice(1).map((entry) => entry.path), ...foreign];
+    const cues = transmissions.map((entry) => entry.path);
+
+    if (rivals.length) {
       problems.push({
         where: 'the folder',
         level: 'note',
-        message: `More than one manifest here. Using "${shows[0].path}"; ignoring ${ignored.join(', ')}.`,
+        message: `More than one manifest here. Using "${shows[0].path}"; ignoring ${rivals.join(', ')}.`,
+      });
+    }
+    if (cues.length) {
+      problems.push({
+        where: 'the folder',
+        level: 'note',
+        message: `${cues.length} transmission${cues.length === 1 ? '' : 's'} in this folder, `
+          + `already described by "${shows[0].path}" — the show is read from that one document, `
+          + 'so nothing in them is lost.',
       });
     }
     return {

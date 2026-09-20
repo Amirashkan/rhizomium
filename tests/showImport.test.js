@@ -365,7 +365,12 @@ describe('readFolderShow', () => {
     ]);
 
     expect(result.kind).toBe('show');
-    expect(result.problems.some((p) => /ignoring 2026-09-14-first/.test(p.message))).toBe(true);
+    // The artist is still told the transmission is there — but it was not
+    // ignored. The show is built out of it and already describes it, and
+    // "ignoring" beside a folder of cues reads as though they were thrown away.
+    // Counted rather than listed: four cue paths in one line was the noise.
+    expect(result.problems.some((p) => /1 transmission in this folder/.test(p.message))).toBe(true);
+    expect(result.problems.some((p) => /nothing in them is lost/.test(p.message))).toBe(true);
   });
 
   it('says which file could not be read rather than failing the folder', async () => {
