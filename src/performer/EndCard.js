@@ -43,14 +43,116 @@ const GROUND = [0, 0, 0, 1];
 export const MAX_CARD_CHARS = 600;
 
 /**
+ * Pixels per side of the card's texture.
+ *
+ * The node's own default is 1024, which at 1080 output is already an upscale and
+ * softens every glyph. A card is rasterised once and never touched again — it is
+ * a string, not an animation — so this costs memory rather than frame time, and
+ * 2048 covers a 1080p canvas with room over. 4096 is the node's ceiling and
+ * worth it only for 4K: four times the bytes, inlined into the saved scene,
+ * which makes the patch file large.
+ */
+export const RESOLUTION = 2048;
+
+/** Line spacing, as a multiple of the font size. */
+export const LINE_HEIGHT = 1.35;
+
+/**
+ * Roughly how wide a glyph is, as a fraction of the font size.
+ *
+ * Only used to decide how many characters go on a line before the text is handed
+ * over; the rasteriser measures for real afterwards. Half the font size is the
+ * usual figure for a sans-serif at mixed case.
+ */
+const GLYPH_ASPECT = 0.5;
+
+/** No card is wrapped narrower than this, however short it is. */
+const MIN_LINE_CHARS = 12;
+
+/**
  * How large the words are drawn, as a fraction of the frame.
  *
  * `autoFit` shrinks whatever will not fit, so this is a ceiling rather than a
  * size: a four-word sign-off comes up large, a fifty-word opening settles to
  * whatever fits. Erring large is right — these are read once, from the back of
  * a room, while somebody is speaking them.
+ *
+ * It is also why turning this up by hand does nothing to a long card: the block
+ * is already too wide to fit, so autoFit was scaling it down from here and
+ * simply scales it down further from a bigger number. `wrapCard` is the thing
+ * that makes a card bigger.
  */
 const SIZE = 0.16;
+
+/**
+ * Break a card into lines that let it be read.
+ *
+ * The node lays out into a SQUARE texture, and `fit: "contain"` maps that square
+ * to the frame's shorter side — so on 16:9 the words only ever use the middle
+ * 56% of the width. Inside the square, autoFit shrinks the block until BOTH its
+ * widest line and its total height fit, which means the longest line governs the
+ * size of every glyph. An opening that arrives as one line per story has lines
+ * of eighty-odd characters, and that is what made the words tiny: nothing to do
+ * with the font size, which autoFit was already overriding.
+ *
+ * So: stop the width being the binding constraint. Writing the two limits
+ * against the usable square, with `a` the glyph aspect and `h` the line height:
+ *
+ *     width-limited    fontPx = usable · R / (a · W)
+ *     height-limited   fontPx = usable · R / (h · L)
+ *
+ * They are equal when `W = (h / a) · L`, and with `W · L ≈ N` characters that
+ * settles at `W = sqrt(h / a · N)` — about 28 characters over 10 lines for a
+ * fifty-word opening, 17 over 6 for a short sign-off. Short cards come up large
+ * and long ones stay readable, with nothing to tune per episode.
+ */
+export function wrapCard(text, lineHeight = LINE_HEIGHT) {
+  const words = String(text ?? '').split(/\s+/).filter(Boolean);
+  if (!words.length) return '';
+
+  const characters = words.join(' ').length;
+  const target = Math.max(
+    MIN_LINE_CHARS,
+    Math.round(Math.sqrt((lineHeight / GLYPH_ASPECT) * characters)),
+  );
+
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    if (!line) {
+      line = word;
+    } else if (line.length + 1 + word.length > target) {
+      lines.push(line);
+      line = word;
+    } else {
+      line += ` ${word}`;
+    }
+  }
+  if (line) lines.push(line);
+
+  // One word alone on the last line reads as a mistake rather than as a line.
+  // Two ways out, in order: put it back up if the line above can take it, or
+  // else pull a word down to keep it company. A line above that is itself a
+  // single word can still spare it — a lone word in the middle of a block is
+  // ordinary, a lone word at the end of one looks like a fault.
+  if (lines.length > 1 && !lines[lines.length - 1].includes(' ')) {
+    const last = lines[lines.length - 1];
+    const above = lines[lines.length - 2];
+
+    if (above.length + 1 + last.length <= target) {
+      lines[lines.length - 2] = `${above} ${last}`;
+      lines.pop();
+    } else {
+      const words = above.split(' ');
+      if (words.length >= 2) {
+        lines[lines.length - 1] = `${words.pop()} ${last}`;
+        lines[lines.length - 2] = words.join(' ');
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
 
 /** A card's text, trimmed and tidied for drawing. */
 export function cardText(text) {
@@ -73,7 +175,9 @@ export function cardText(text) {
  * @returns {{nodes: Array, connections: Array}|null} null when there is nothing to draw
  */
 export function endCardPatch(text) {
-  const words = cardText(text);
+  // Trimmed first, then wrapped: trimming after the wrap would cut a line off
+  // rather than a clause.
+  const words = wrapCard(cardText(text));
   if (!words) return null;
 
   return {
@@ -98,7 +202,8 @@ export function endCardPatch(text) {
           // The whole point: alpha 1 behind the glyphs, so this is words on
           // black rather than words on whatever the last look left up.
           background: [...GROUND],
-          lineHeight: 1.35,
+          lineHeight: LINE_HEIGHT,
+          resolution: RESOLUTION,
         },
       },
       {

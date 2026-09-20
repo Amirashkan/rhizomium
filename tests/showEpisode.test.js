@@ -25,7 +25,9 @@ import {
 import { normalizeManifest, validateManifest } from '../src/performer/ShowManifest.js';
 import { indexShowFolder } from '../src/performer/ShowFolder.js';
 import { ShowBuilder } from '../src/performer/ShowBuilder.js';
-import { endCardPatch, cardText, MAX_CARD_CHARS } from '../src/performer/EndCard.js';
+import {
+  endCardPatch, cardText, wrapCard, MAX_CARD_CHARS, RESOLUTION,
+} from '../src/performer/EndCard.js';
 
 /** About fifty words — what an opening is written to, and read in twenty seconds. */
 const OPENING = Array.from({ length: 50 }, () => 'word').join(' ');
@@ -286,7 +288,9 @@ describe('endCardPatch', () => {
     const [text, output] = patch.nodes;
 
     expect(text.kind).toBe('Text');
-    expect(text.params.text).toBe('Four things found out this week.');
+    // The words, not the layout: the card is wrapped on the way in so that
+    // autoFit has a block it can draw large. See wrapCard.
+    expect(text.params.text.split(/\s+/)).toEqual('Four things found out this week.'.split(' '));
     // Alpha 1 behind the glyphs, or the card is words over whatever the last
     // look left on the screen.
     expect(text.params.background).toEqual([0, 0, 0, 1]);
@@ -353,7 +357,7 @@ describe('building an episode', () => {
     const [name, patch] = installScene.mock.calls[0];
     expect(name).toBe('Opening');
     expect(patch.nodes.map((node) => node.kind)).toEqual(['Text', 'OutputFinal']);
-    expect(patch.nodes[0].params.text).toBe(OPENING);
+    expect(patch.nodes[0].params.text.split(/\s+/)).toEqual(OPENING.split(' '));
   });
 
   it('builds a show of nothing but ends with no AI at all', async () => {
@@ -415,5 +419,93 @@ describe('the scenario an episode makes', () => {
     }));
 
     expect(set.runsOnce).toBe(false);
+  });
+});
+
+// -- making the words readable ---------------------------------------------
+//
+// The card was legible in the sense that it was on the screen. It was not
+// legible in the sense that anyone could read it, and turning the font size up
+// did nothing at all — which is the tell: the node's `autoFit` had already
+// overridden `size`, because the block was too wide to fit and was being scaled
+// down from whatever number it was given.
+
+describe('wrapCard', () => {
+  const OPENING_LINES = [
+    "Bolivia's Yungas forest gives up a wild cat, newly named.",
+    'Cleaner air is linked to better mental development in toddlers.',
+    'Starship prepares for its first orbit around Earth, with satellites aboard.',
+    'Black holes disclose when feeding turns to jets, and darkness remembers its poor manners.',
+  ].join('\n');
+
+  const longest = (text) => Math.max(...text.split('\n').map((line) => line.length));
+
+  it('breaks the widest line down to something that can be read', () => {
+    // The opening arrives as one line per story, and the longest is 88
+    // characters. That single line was deciding the size of every glyph in the
+    // card: autoFit shrinks until the widest line fits the square.
+    expect(longest(OPENING_LINES)).toBeGreaterThan(80);
+    expect(longest(wrapCard(OPENING_LINES))).toBeLessThan(35);
+  });
+
+  it('gives a long card more lines and a short one fewer', () => {
+    const opening = wrapCard(OPENING_LINES).split('\n');
+    const signoff = wrapCard('The last jet fades into distance. For a moment, even the dark is finished.')
+      .split('\n');
+
+    // The target width scales with the character count, so a short card is
+    // wrapped narrower and comes up larger rather than sitting tiny in the
+    // middle of a square sized for the long one.
+    expect(opening.length).toBeGreaterThan(7);
+    expect(signoff.length).toBeLessThan(opening.length);
+  });
+
+  it('never breaks a word', () => {
+    const words = (text) => text.split(/\s+/).filter(Boolean);
+    expect(words(wrapCard(OPENING_LINES))).toEqual(words(OPENING_LINES));
+  });
+
+  it('is idempotent, so re-wrapping a card does not walk it narrower', () => {
+    const once = wrapCard(OPENING_LINES);
+    expect(wrapCard(once)).toBe(once);
+  });
+
+  it('leaves no single word alone on the last line', () => {
+    // A widow reads as a mistake rather than as a line.
+    for (const text of [OPENING_LINES, 'One two three four five six seven eight nine ten eleven']) {
+      const lines = wrapCard(text).split('\n');
+      if (lines.length > 1) expect(lines[lines.length - 1]).toContain(' ');
+    }
+  });
+
+  it('has nothing to wrap for nothing', () => {
+    expect(wrapCard('')).toBe('');
+    expect(wrapCard('   \n  ')).toBe('');
+  });
+});
+
+describe('the card patch, at a readable size', () => {
+  it('asks for a texture bigger than the node would default to', () => {
+    const patch = endCardPatch('Four things found out this week, and what it is to live with them.');
+    // 1024 is the node's default and softens every glyph at 1080 output.
+    expect(patch.nodes[0].params.resolution).toBe(RESOLUTION);
+    expect(RESOLUTION).toBeGreaterThan(1024);
+  });
+
+  it('hands the node text already broken into lines', () => {
+    const patch = endCardPatch(
+      'Black holes disclose when feeding turns to jets, and darkness remembers its poor manners.'
+    );
+    expect(patch.nodes[0].params.text).toContain('\n');
+  });
+
+  it('trims before it wraps, so an over-long card loses a clause not a line', () => {
+    const patch = endCardPatch('sediment '.repeat(200));
+    const text = patch.nodes[0].params.text;
+
+    expect(text).toContain('…');
+    // The ellipsis ends the card rather than sitting mid-block.
+    expect(text.trimEnd().endsWith('…')).toBe(true);
+    expect(cardText('sediment '.repeat(200)).length).toBeLessThanOrEqual(MAX_CARD_CHARS);
   });
 });
