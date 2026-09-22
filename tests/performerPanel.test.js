@@ -192,6 +192,84 @@ describe('PerformerPanel', () => {
     expect(engine.sections).toHaveLength(1);
   });
 
+  // "Let the AI improvise live" does nothing until the set is running, because
+  // the director is only consulted from tick(). The readout used to say
+  // "0 min, next in 0s" regardless — a countdown to a question that would never
+  // be asked, which reads as a switch that worked.
+  describe('the live director switch', () => {
+    /** A director that reports itself on, with a cadence ready to spend. */
+    function litDirector() {
+      return {
+        enabled: false,
+        setEnabled(v) { this.enabled = v; return v; },
+        setSteer() {}, setListener() {},
+        status() {
+          return {
+            enabled: this.enabled,
+            thinking: false,
+            calls: 0,
+            minutesSpent: 0,
+            steer: '',
+            lastNote: '',
+            lastError: null,
+            cadence: { reason: null, nextInSeconds: 0, budgetLeft: 6, budgetInSeconds: 0 },
+          };
+        },
+      };
+    }
+
+    it('says it is waiting for the set rather than counting down to nothing', () => {
+      const { engine, panel } = build();
+      engine.director = litDirector();
+      panel.show();
+
+      panel.directorToggle.checked = true;
+      panel.directorToggle.dispatchEvent(new Event('change'));
+
+      expect(panel.directorStatus.textContent).toBe('waiting for the set to start');
+      expect(panel.directorStatus.dataset.held).toBe('true');
+      // Not an error — the switch is fine, the transport is what is missing.
+      expect(panel.directorStatus.dataset.error).toBe('false');
+    });
+
+    it('goes back to the cadence readout once the set is running', () => {
+      const { engine, panel } = build();
+      engine.director = litDirector();
+      panel.show();
+
+      engine.start();
+      panel.directorToggle.checked = true;
+      panel.directorToggle.dispatchEvent(new Event('change'));
+
+      expect(panel.directorStatus.dataset.held).toBe('false');
+      expect(panel.directorStatus.textContent).toMatch(/0 min/);
+    });
+
+    it('names the scenario\'s own rule when that is what is holding it', () => {
+      const { engine, panel } = build({
+        sections: [{ name: 'One' }],
+        rules: { director: { enabled: false } },
+      });
+      engine.director = litDirector();
+      panel.show();
+
+      engine.start();
+      panel.directorToggle.checked = true;
+      panel.directorToggle.dispatchEvent(new Event('change'));
+
+      expect(panel.directorStatus.textContent).toBe('off in this scenario');
+    });
+
+    it('still reads "off" when the switch is off', () => {
+      const { engine, panel } = build();
+      engine.director = litDirector();
+      panel.show();
+
+      expect(panel.directorStatus.textContent).toBe('off');
+      expect(panel.directorStatus.dataset.held).toBe('false');
+    });
+  });
+
   describe('the AI author', () => {
     it('puts a draft in the editor rather than under a running set', async () => {
       const director = {
