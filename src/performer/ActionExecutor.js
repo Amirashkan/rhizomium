@@ -47,6 +47,26 @@ import { actionCost, actionGate, describeAction } from './actions.js';
  */
 const MISSING_GRACE_SECONDS = 2;
 
+/**
+ * How long past a transition's own length a scene load is still believed in.
+ *
+ * `sceneChangeInFlight` is a latch, and it used to have exactly one way out:
+ * the load promise settling. Everything downstream of a scene change waits on
+ * it - every later scene change is refused while it is set, and tick() holds
+ * the drives' missing-node clock at zero - so a promise that never settles does
+ * not degrade the set, it ends it. The look on the output at that moment stays
+ * there for the rest of the night, still being driven by the music, and the log
+ * says only "a scene change is already running", over and over, with nothing
+ * about what is actually stuck.
+ *
+ * A load that has outlived its own transition by this much has not settled and
+ * is not going to. Generous, because the wait is real work - importing a
+ * project and compiling its shaders on a rig already drawing sixty frames a
+ * second - and because giving up early is its own failure: a second import
+ * landing on top of one still running is the race the latch exists to prevent.
+ */
+const SCENE_LOAD_GRACE_MS = 15_000;
+
 /** A result every execute() path returns, so the caller never has to guess. */
 const ok = (detail = '') => ({ ok: true, detail });
 const no = (reason) => ({ ok: false, reason });
@@ -133,6 +153,20 @@ export class ActionExecutor {
 
     /** A scene load is async; a second one on top of it is a race. */
     this.sceneChangeInFlight = false;
+
+    /**
+     * When the in-flight load was started, and by when it should have settled.
+     * The latch above is only trusted until this passes — see
+     * SCENE_LOAD_GRACE_MS and sceneLoadStalled().
+     */
+    this._sceneChangeDeadline = 0;
+
+    /**
+     * Which load the latch belongs to. A load that has been given up on, or
+     * superseded, must not clear the flag a newer one has since set — it would
+     * hand a second import the run of a graph the first is still replacing.
+     */
+    this._sceneChangeToken = 0;
 
     /** The same for a bed: decoding two files onto one element is a race. */
     this.soundLoadInFlight = false;
@@ -639,7 +673,21 @@ export class ActionExecutor {
     if (gate && rules[gate] === false) return `${action.type} is off (rules.${gate})`;
 
     if (action.type === 'scene') {
-      if (this.sceneChangeInFlight) return 'a scene change is already running';
+      // A load still within its deadline is a real one, and a second import on
+      // top of it is the race this latch exists for. One past its deadline is
+      // wreckage, and refusing behind it would mean refusing every scene change
+      // for the rest of the set.
+      if (this.sceneChangeInFlight && !this.sceneLoadStalled(now)) {
+        // How long, and until when. The bare "already running" was the only
+        // line a wedged latch ever put in the log, and it reads as the new
+        // change being at fault rather than as the old one never having landed.
+        const running = (now - this._lastSceneChangeAt) / 1000;
+        const left = Math.max(0, this._sceneChangeDeadline - now) / 1000;
+        return `a scene change is already running (${running.toFixed(1)}s so far; `
+          + `given up on in ${left.toFixed(1)}s if it has not landed)`;
+      }
+      this.abandonSceneChange('it never finished loading', now);
+
       const since = (now - this._lastSceneChangeAt) / 1000;
       if (this._lastSceneChangeAt && since < rules.minSceneChangeSeconds) {
         return `only ${since.toFixed(1)}s since the last scene change (rules.minSceneChangeSeconds = ${rules.minSceneChangeSeconds})`;
@@ -719,12 +767,33 @@ export class ActionExecutor {
     const type = action.transition || this.transition.type;
     const duration = action.duration ?? this.transition.duration;
 
+    const manager = this.transitionManager;
+    const start = manager?.startTransition
+      ? () => manager.startTransition(scene.data, type, duration)
+      : (this.sceneManager?.switchToScene
+        ? () => this.sceneManager.switchToScene(scene.id)
+        : null);
+    if (!start) return no('no scene manager');
+
+    // Claimed before the load is kicked off, and only ever released by way of
+    // this token: a load given up on by refuse(), or superseded by a later one,
+    // must not clear a latch it no longer owns.
+    const token = this._sceneChangeToken + 1;
+    this._sceneChangeToken = token;
     this.sceneChangeInFlight = true;
     this._lastSceneChangeAt = now;
+    // A crossfade legitimately takes its own duration; the grace on top is for
+    // the import and the shader compile at the end of it.
+    this._sceneChangeDeadline = now + Math.max(0, Number(duration) || 0) * 1000 + SCENE_LOAD_GRACE_MS;
 
-    const manager = this.transitionManager;
-    const finish = () => {
+    const release = () => {
+      if (token !== this._sceneChangeToken) return false;
       this.sceneChangeInFlight = false;
+      this._sceneChangeDeadline = 0;
+      return true;
+    };
+    const finish = () => {
+      if (!release()) return;
       // The import replaced every node object in the graph.
       this.invalidateNodes();
       if (this.sceneManager) {
@@ -734,21 +803,65 @@ export class ActionExecutor {
       scene.lastUsed = now;
     };
     const failed = (error) => {
-      this.sceneChangeInFlight = false;
+      if (!release()) return;
       this.invalidateNodes();
       this.log('error', `Scene "${scene.name}" failed to load`, { error: String(error) });
     };
 
-    if (manager?.startTransition) {
-      manager.startTransition(scene.data, type, duration).then(finish, failed);
-    } else if (this.sceneManager?.switchToScene) {
-      this.sceneManager.switchToScene(scene.id).then(finish, failed);
-    } else {
-      this.sceneChangeInFlight = false;
-      return no('no scene manager');
+    // Promise.resolve(), and a try around the call itself, for the same reason
+    // doGraph() has them: a manager that throws on the spot, or hands back
+    // something that is not a promise, would otherwise leave the latch set with
+    // nothing on its way to clear it.
+    try {
+      Promise.resolve(start()).then(finish, failed);
+    } catch (error) {
+      failed(error);
+      return no(`scene "${scene.name}" could not be started: ${error?.message || error}`);
     }
 
     return ok(`${scene.name} (${type}${duration ? ` ${duration}s` : ''})`);
+  }
+
+  /**
+   * Whether the in-flight scene load has outlived the time it was given.
+   *
+   * @param {number} [now] wall-clock ms, matching _lastSceneChangeAt
+   */
+  sceneLoadStalled(now = Date.now()) {
+    return this.sceneChangeInFlight
+      && this._sceneChangeDeadline > 0
+      && now >= this._sceneChangeDeadline;
+  }
+
+  /**
+   * Give up on an in-flight scene load and let scene changes through again.
+   *
+   * Said out loud rather than done quietly. From the outside a stuck load and a
+   * refusal look identical — the look does not change — and the one line in the
+   * log that named the stuck load was the refusal of the *next* scene change,
+   * which reads as the new change being at fault.
+   *
+   * The token is left alone deliberately. If the load is merely slow and does
+   * settle later, its `finish` still owns this token and still does its
+   * bookkeeping; if a new scene change has started since, that one took the
+   * token and the straggler is ignored either way.
+   *
+   * @returns {boolean} whether there was anything to give up on
+   */
+  abandonSceneChange(why = 'the set moved on', now = Date.now()) {
+    if (!this.sceneChangeInFlight) return false;
+
+    const waited = this._lastSceneChangeAt ? (now - this._lastSceneChangeAt) / 1000 : 0;
+    this.sceneChangeInFlight = false;
+    this._sceneChangeDeadline = 0;
+    // The graph may or may not have been replaced under the failed load. The
+    // cache cannot tell, so it is dropped rather than trusted.
+    this.invalidateNodes();
+    this.log('warn',
+      `The scene change started ${waited.toFixed(1)}s ago is being abandoned — ${why}. `
+      + 'Scene changes are allowed through again.',
+      { waitedSeconds: Number(waited.toFixed(1)) });
+    return true;
   }
 
   doPreset(action) {
@@ -968,6 +1081,12 @@ export class ActionExecutor {
    * @param {SignalBus} signals
    */
   tick(delta, signals) {
+    // Noticed here rather than only when the next scene change is attempted,
+    // because a set can go a long section without one — and every frame of that
+    // section is a frame the drives below are holding their tongue for a load
+    // that is not coming.
+    if (this.sceneLoadStalled()) this.abandonSceneChange('it never finished loading');
+
     for (const drive of this.drives.values()) {
       const node = this.resolveNode(drive.node);
       if (!node) {
@@ -979,7 +1098,8 @@ export class ActionExecutor {
         // The look this drive belongs to may simply still be coming up, and
         // the grace period is not enough on its own: a slow scene change is a
         // long stretch of every drive in the section pointing at nothing. So
-        // the clock does not start until the load has settled.
+        // the clock does not start until the load has settled — or until the
+        // top of this function gives up on one that never will.
         if (this.sceneChangeInFlight) continue;
 
         drive.missingSeconds += delta;
@@ -1158,6 +1278,7 @@ export class ActionExecutor {
       master: getMasterOpacity(),
       transition: { ...this.transition },
       sceneChangeInFlight: this.sceneChangeInFlight,
+      sceneChangeStalled: this.sceneLoadStalled(),
     };
   }
 }

@@ -23,9 +23,15 @@ class FakeExecutor {
     this.soundStopped = [];
     this.soundPaused = 0;
     this.soundResumed = 0;
+    this.sceneChangesAbandoned = [];
+    /** The real executor's `sceneChangeInFlight`: while set, no scene loads. */
+    this.latched = false;
     this.graph = { nodes: [{ id: 'n0', kind: 'Blur', params: { amount: 0.5 } }] };
   }
   execute(action) {
+    if (this.latched && action.type === 'scene') {
+      return { ok: false, reason: 'a scene change is already running', cost: 0 };
+    }
     if (this.refuseNext) {
       const reason = this.refuseNext;
       this.refuseNext = null;
@@ -44,6 +50,12 @@ class FakeExecutor {
   stopSound(why) { this.soundStopped.push(why || ''); return true; }
   pauseSound() { this.soundPaused++; return true; }
   resumeSound() { this.soundResumed++; return true; }
+  abandonSceneChange(why) {
+    this.sceneChangesAbandoned.push(why || '');
+    const had = this.latched;
+    this.latched = false;
+    return had;
+  }
   status() { return { drives: [], ramps: [], blackedOut: false, transition: {}, sceneChangeInFlight: false }; }
   /** Every action of a type, for readable assertions. */
   ofType(type) { return this.performed.filter((a) => a.type === type); }
@@ -108,6 +120,36 @@ describe('PerformerEngine', () => {
       engine.start();
       play(2);
       expect(engine.clock.beats).toBeGreaterThan(at);
+    });
+
+    // A set's first act is to change scene. If a load left over from before the
+    // set is still latched when Perform is pressed, that first change is refused
+    // and every one after it with it - the whole performance then runs against
+    // whatever patch happened to be on the canvas, reacting to the music,
+    // looking like a set that was written for the wrong look.
+    it('does not inherit a scene load left in flight from before the set', () => {
+      const { engine, executor } = makeEngine({
+        sections: [{ name: 'One', look: { scene: 'opening' } }],
+      });
+
+      // A look previewed at the desk, still loading when Perform was pressed.
+      executor.latched = true;
+      engine.start();
+
+      expect(executor.sceneChangesAbandoned).toContain('the set is starting');
+      expect(executor.ofType('scene')[0].scene).toBe('opening');
+    });
+
+    it('gives up any scene load still in flight when the set stops', () => {
+      const { engine, executor } = makeEngine({
+        sections: [{ name: 'One', look: { scene: 'opening' } }],
+      });
+      engine.start();
+      executor.latched = true;
+      engine.stop();
+
+      expect(executor.sceneChangesAbandoned).toContain('the set stopped');
+      expect(executor.latched).toBe(false);
     });
 
     it('releases standing drives on stop, so parameters are the artist\'s again', () => {

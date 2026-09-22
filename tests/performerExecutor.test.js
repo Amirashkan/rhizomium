@@ -352,9 +352,32 @@ describe('a drive that never finds its node', () => {
     const { executor, bus, logged } = rig();
     install(executor);
     executor.sceneChangeInFlight = true;
+    executor._sceneChangeDeadline = Date.now() + 60_000;
 
     for (let i = 0; i < 20; i += 1) executor.tick(1, bus);
     expect(logged).toHaveLength(0);
+  });
+
+  // Holding the clock behind a load is right; holding it behind a load that is
+  // never going to land is how a whole set runs silent. The grace period was
+  // the only thing standing between a wedged latch and a log full of nothing.
+  it('starts the clock again once the load it was waiting for has stalled', () => {
+    const { executor, bus, logged } = rig();
+    install(executor);
+    executor.sceneChangeInFlight = true;
+    executor._sceneChangeDeadline = Date.now() + 60_000;
+
+    for (let i = 0; i < 20; i += 1) executor.tick(1, bus);
+    expect(logged).toHaveLength(0);
+
+    // The load outlives the time it was given. It is not coming.
+    executor._sceneChangeDeadline = Date.now() - 1;
+    executor.tick(1, bus);
+    expect(executor.sceneChangeInFlight).toBe(false);
+    expect(logged.map((one) => one.message).join('\n')).toContain('abandoned');
+
+    executor.tick(3, bus);
+    expect(logged.some((one) => one.message.includes('no node "ComputeNoise"'))).toBe(true);
   });
 
   it('says when it finds its node after all, because the warning was alarming', () => {
@@ -985,5 +1008,85 @@ describe('the editor\'s timeline', () => {
     const executor = makeExecutor({ editor: { graph: { nodes: [] } } });
     expect(executor.armTimeline(10).ok).toBe(false);
     expect(executor.releaseTimeline()).toBe(false);
+  });
+});
+
+// The failure this set of tests is named for: `sceneChangeInFlight` was a latch
+// with exactly one way out, the load promise settling. A promise that never
+// settles — a fade whose animation frames stopped arriving because the editor
+// window was behind the projector — left it set for the rest of the session, and
+// every scene change after it was refused with "a scene change is already
+// running". On stage that is the look that happened to be up staying up all
+// night, still moving with the music, with a log that never says why.
+describe('a scene load that never settles', () => {
+  const scene = { id: 's1', name: 'One', data: {} };
+
+  function rig(switchToScene) {
+    const executor = makeExecutor({
+      sceneManager: {
+        getScene: (id) => (id === 's1' ? scene : null),
+        getAllScenes: () => [scene],
+        switchToScene,
+      },
+      rules: { minSceneChangeSeconds: 0 },
+    });
+    const logged = [];
+    executor.log = (level, message) => logged.push({ level, message });
+    return { executor, logged };
+  }
+
+  const change = (executor, now) => executor.execute(act({ type: 'scene', scene: 's1' }), { now });
+
+  it('still holds a second change back while it might yet land', () => {
+    const { executor } = rig(() => new Promise(() => {}));
+    expect(change(executor, 1000).ok).toBe(true);
+    expect(change(executor, 2000).reason).toMatch(/already running/);
+  });
+
+  it('is given up on once it has outlived its deadline', () => {
+    const { executor, logged } = rig(() => new Promise(() => {}));
+    expect(change(executor, 1000).ok).toBe(true);
+
+    const later = change(executor, 1000 + 60_000);
+    expect(later.ok).toBe(true);
+    expect(logged.some((one) => one.level === 'warn' && /abandoned/.test(one.message))).toBe(true);
+  });
+
+  it('does not clear the latch of the change that replaced it, if it lands after all', async () => {
+    let settle = null;
+    const { executor } = rig(() => new Promise((resolve) => { settle = resolve; }));
+
+    change(executor, 1000);
+    const straggler = settle;
+
+    // Given up on, and a second load started in its place.
+    change(executor, 1000 + 60_000);
+    expect(executor.sceneChangeInFlight).toBe(true);
+
+    straggler(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Still the second load's latch. Clearing it here would let a third import
+    // land on top of a graph the second is in the middle of replacing.
+    expect(executor.sceneChangeInFlight).toBe(true);
+  });
+
+  it('is not left set by a manager that throws on the spot', () => {
+    const { executor } = rig(() => { throw new Error('no device'); });
+
+    const result = change(executor, 1000);
+    expect(result.ok).toBe(false);
+    expect(executor.sceneChangeInFlight).toBe(false);
+    expect(change(executor, 1001).ok).toBe(false); // still no manager that works
+  });
+
+  it('is not left set by a manager that hands back something that is not a promise', async () => {
+    const { executor } = rig(() => true);
+
+    expect(change(executor, 1000).ok).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(executor.sceneChangeInFlight).toBe(false);
   });
 });
