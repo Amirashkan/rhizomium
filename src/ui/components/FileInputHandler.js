@@ -3,13 +3,26 @@
 import { ACCENT, SEMANTIC, SURFACE, TEXT } from '../../core/theme.js';
 import { isVideoSource } from '../../core/TextureManager.js';
 
+const AUDIO_EXTENSION = /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|weba)$/i;
+const AUDIO_MIME_BY_EXTENSION = {
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', m4a: 'audio/mp4',
+  aac: 'audio/aac', flac: 'audio/flac', opus: 'audio/ogg', weba: 'audio/webm',
+};
+
+/** An audio file, by its type or - when the OS reports none - by its extension. */
+export function isAudioFile(file) {
+  if (!file) return false;
+  if (typeof file.type === "string" && file.type.startsWith("audio/")) return true;
+  return AUDIO_EXTENSION.test(file.name || "");
+}
+
 export class FileInputHandler {
   constructor(undoManager = null) {
     this.undoManager = undoManager;
   }
 
   create(param, node, div, label, valueManager, onChange) {
-    this._showCurrentFile(node, div);
+    this._showCurrentFile(node, div, param);
     
     const fileInput = this._createFileInput(param);
     const dropZone = this._createDropZone(param);
@@ -22,9 +35,12 @@ export class FileInputHandler {
     return div;
   }
 
-  _showCurrentFile(node, div) {
-    const textureInfo = window.textureManager?.getTexture(node.id);
-    if (textureInfo && textureInfo.file) {
+  _showCurrentFile(node, div, param = null) {
+    // An audio file lives on the node itself (see the Audio Sampler), not in the texture manager.
+    const audioName = this._acceptsAudio(param) ? node.params?.[param.name] : null;
+    const textureInfo = audioName ? null : window.textureManager?.getTexture(node.id);
+    const name = audioName || textureInfo?.file?.name;
+    if (name) {
       const fileLabel = document.createElement("div");
       fileLabel.className = "current-file";
       fileLabel.style.cssText = `
@@ -32,7 +48,7 @@ export class FileInputHandler {
         color: ${TEXT.tertiary};
         margin-bottom: 4px;
       `;
-      fileLabel.textContent = `✓ ${textureInfo.file.name}`;
+      fileLabel.textContent = `✓ ${name}`;
       div.appendChild(fileLabel);
     }
   }
@@ -46,6 +62,11 @@ export class FileInputHandler {
     fileInput.setAttribute("data-param-type", param.type);
     
     return fileInput;
+  }
+
+  /** Is this an audio parameter (the Audio Sampler's file) rather than a texture? */
+  _acceptsAudio(param) {
+    return (param?.accept || "").includes("audio");
   }
 
   /** Does this parameter take video as well as stills? Drives both wording and what a drop accepts. */
@@ -78,7 +99,7 @@ export class FileInputHandler {
     // rather than repeating (and drifting from) it.
     dropZone._idleContent = `
       <div>
-        <div style="margin-bottom: 4px;">📁 Drop ${this._acceptsVideo(param) ? "image or video" : "image"} here</div>
+        <div style="margin-bottom: 4px;">📁 Drop ${this._acceptsAudio(param) ? "audio file" : this._acceptsVideo(param) ? "image or video" : "image"} here</div>
         <div style="font-size: 9px; opacity: 0.7;">or click to browse</div>
       </div>
     `;
@@ -149,6 +170,14 @@ export class FileInputHandler {
       const files = e.dataTransfer.files;
       if (files.length > 0) {
         const file = files[0];
+        if (this._acceptsAudio(param)) {
+          if (isAudioFile(file)) {
+            this._handleFileLoad(node, file, dropZone, param, valueManager, onChange);
+          } else {
+            this._showErrorState(dropZone, "Please drop an audio file");
+          }
+          return;
+        }
         const acceptsVideo = this._acceptsVideo(param);
         if (file.type.startsWith("image/") || (acceptsVideo && isVideoSource(file))) {
           this._handleFileLoad(node, file, dropZone, param, valueManager, onChange);
@@ -172,6 +201,9 @@ export class FileInputHandler {
   }
 
   async _handleFileLoad(node, file, dropZone, param, valueManager, onChange) {
+    if (this._acceptsAudio(param)) {
+      return this._handleAudioLoad(node, file, dropZone, param, valueManager, onChange);
+    }
     try {
       if (!window.textureManager) {
         throw new Error("TextureManager not available. Make sure it's initialized.");
@@ -231,6 +263,37 @@ export class FileInputHandler {
     }
   }
 
+  /**
+   * Load an audio file onto the node. The clip is inlined into `audioData` as a data: URL so it is
+   * saved with the patch and travels into every VJ scene captured from it; AudioSamplerProcessor
+   * sees the new source on the next frame and starts it.
+   */
+  async _handleAudioLoad(node, file, dropZone, param, valueManager, onChange) {
+    try {
+      this._showLoadingState(dropZone);
+      const dataUrl = await readAudioAsDataUrl(file);
+
+      if (!node.params) node.params = {};
+      const oldFileName = node.params[param.name] || null;
+      node.params.audioData = dataUrl;
+
+      if (this.undoManager && oldFileName !== file.name) {
+        this.undoManager.recordParameterChange(node.id, param.name, oldFileName, file.name);
+      }
+      if (valueManager && valueManager.setValue) {
+        valueManager.setValue(node, param.name, file.name);
+      } else {
+        node.params[param.name] = file.name;
+      }
+
+      this._showSuccessState(dropZone, file);
+      if (onChange) onChange(`Audio loaded for ${node.kind}`);
+    } catch (error) {
+      window.errorHandler?.handleError?.(error, { component: 'audio-load', nodeId: node.id });
+      this._showErrorState(dropZone, error.message);
+    }
+  }
+
   _showLoadingState(dropZone) {
     if (dropZone) {
       dropZone.style.borderColor = SEMANTIC.warn;
@@ -285,4 +348,30 @@ export class FileInputHandler {
 
     }
   }
+}
+/**
+ * Read an audio file as a data: URL. A file the OS reported no type for comes back as
+ * `data:application/octet-stream`, which the sampler refuses to play, so it is re-labelled from its
+ * extension.
+ */
+function readAudioAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('Could not read the audio file'));
+    reader.onload = () => {
+      let dataUrl = String(reader.result || '');
+      if (!/^data:(audio|video)\//i.test(dataUrl)) {
+        const ext = (file.name || '').split('.').pop().toLowerCase();
+        const mime = AUDIO_MIME_BY_EXTENSION[ext];
+        const comma = dataUrl.indexOf(',');
+        if (!mime || comma < 0) {
+          reject(new Error('Not a recognised audio file'));
+          return;
+        }
+        dataUrl = `data:${mime};base64${dataUrl.slice(comma)}`;
+      }
+      resolve(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  });
 }
