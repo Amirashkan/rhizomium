@@ -71,7 +71,9 @@ export class VJControlPanel {
 
     this.createUI();
     this.attachEventListeners();
-    this.loadFromStorage();
+    // Scenes come back from IndexedDB, so restoring is async; anything that
+    // needs the saved set in place (tests, the AI timeline reader) can await it.
+    this.ready = this.loadFromStorage();
 
     // Playback that advances on its own (auto-advance, next/previous, a scene
     // that dropped out) has to be able to redraw the list.
@@ -598,6 +600,7 @@ export class VJControlPanel {
       notes.value = scene.notes || '';
       notes.onchange = () => {
         this.sceneManager.updateSceneMetadata(scene.id, { notes: notes.value });
+        this.persistScenes();
       };
       // The card switches scene on click; typing a note must not load it.
       notes.onclick = (e) => e.stopPropagation();
@@ -618,7 +621,7 @@ export class VJControlPanel {
           alert('Could not override this scene. The current project could not be captured.');
           return;
         }
-        this.sceneManager.saveToLocalStorage();
+        this.persistScenes();
         this.refreshScenes();
       });
       overrideBtn.className = 'vj-btn-small';
@@ -636,6 +639,7 @@ export class VJControlPanel {
       const deleteBtn = this.createButton('×', 'Remove scene', () => {
         if (confirm(`Remove scene "${scene.name}"?`)) {
           this.sceneManager.removeScene(scene.id);
+          this.persistScenes();
           this.refreshScenes();
         }
       });
@@ -885,6 +889,7 @@ export class VJControlPanel {
 
       try {
         await this.sceneManager.loadSceneFromFile(file);
+        this.persistScenes();
         this.refreshScenes();
       } catch (error) {
         alert(`Failed to load scene: ${error.message}`);
@@ -902,14 +907,31 @@ export class VJControlPanel {
     if (!name) return;
 
     this.sceneManager.captureCurrentScene(name);
+    this.persistScenes();
     this.refreshScenes();
+  }
+
+  /**
+   * Write the scene set straight away. Scenes used to persist only through
+   * Save All, so a captured, imported or deleted scene was lost on reload
+   * unless the user also remembered to press it.
+   */
+  async persistScenes() {
+    const saved = await this.sceneManager.save();
+    if (!saved && !this._sceneSaveWarned) {
+      // Once per session - every edit would otherwise raise the same alert.
+      this._sceneSaveWarned = true;
+      alert('Could not save your scenes - browser storage is full or unavailable.');
+    }
+    if (saved) this._sceneSaveWarned = false;
+    return saved;
   }
 
   /**
    * Save the whole VJ set - scenes, presets and playlist.
    */
-  saveAllScenes() {
-    if (this.saveToStorage()) {
+  async saveAllScenes() {
+    if (await this.saveToStorage()) {
       alert('Scenes, presets and playlist saved to browser storage');
     } else {
       alert('Could not save the VJ set - browser storage is full or unavailable.');
@@ -1301,9 +1323,7 @@ export class VJControlPanel {
    * Scenes were the only thing ever restored, so presets and playlists - which
    * take a set apart and rebuild it - vanished on every reload.
    */
-  loadFromStorage() {
-    this.sceneManager.loadFromLocalStorage();
-
+  async loadFromStorage() {
     const presets = readStoredJSON(PRESETS_STORAGE_KEY);
     if (presets) this.presetManager.importPresets(presets);
 
@@ -1324,14 +1344,21 @@ export class VJControlPanel {
         this.setBeatSyncEnabled(settings.beatSyncEnabled);
       }
     }
+
+    // Last, so presets, playlist and settings are in place without waiting on
+    // IndexedDB.
+    if (await this.sceneManager.load()) {
+      if (this.activeTab === 'scenes') this.refreshScenes();
+      this.syncPlaylistUI();
+    }
   }
 
   /**
    * Save to storage. Returns false if any part could not be written, so the
    * caller can tell the user rather than claiming a save that did not happen.
    */
-  saveToStorage() {
-    const scenesSaved = this.sceneManager.saveToLocalStorage();
+  async saveToStorage() {
+    const scenesSaved = await this.sceneManager.save();
     const presetsSaved = writeStoredJSON(PRESETS_STORAGE_KEY, this.presetManager.exportPresets());
     const playlistSaved = writeStoredJSON(PLAYLIST_STORAGE_KEY, this.playlistManager.exportPlaylist());
     const settingsSaved = writeStoredJSON(SETTINGS_STORAGE_KEY, {
