@@ -261,6 +261,7 @@ exportProject(options = {}) {
       includeMetadata = true,
       includePreviews = false,
       includeViewport = true,
+      includeVJSet = false,
     } = options;
 
     // Collect texture data BEFORE creating projectData
@@ -325,6 +326,14 @@ exportProject(options = {}) {
       // Preview data (optional, can be large)
       ...(includePreviews && {
         previews: this.exportPreviews(),
+      }),
+
+      // The VJ set - scenes, presets, playlist. Only the project file asks for
+      // it: every scene is itself a whole project, so a scene capture taking it
+      // would nest the set inside itself, and a publish or viewer link would
+      // carry megabytes of scenes the viewer never plays.
+      ...(includeVJSet && {
+        vjSet: this.exportVJSet(),
       }),
     };
 
@@ -476,6 +485,13 @@ exportViewerControls() {
 }
 
 /**
+ * Export the VJ panel's set, or null when there is no panel.
+ */
+exportVJSet() {
+  return window.vjControlPanel?.exportSet?.() ?? null;
+}
+
+/**
  * Export the viewer page settings.
  *
  * Null when the artist has changed nothing, so a patch that takes the page as
@@ -499,6 +515,7 @@ async importProject(projectData, options = {}) {
       validateData = true,
       restoreViewport = true,
       restorePreviews = false,
+      restoreVJSet = false,
     } = options;
 
     // Migrate older save formats to the current one (throws a clear error
@@ -600,6 +617,12 @@ async importProject(projectData, options = {}) {
     // Restore previews if requested
     if (restorePreviews && projectData.previews) {
       this.importPreviews(projectData.previews);
+    }
+
+    // Only opening a project file swaps the VJ set. Switching scenes runs
+    // through here too, and must not replace the set it is playing from.
+    if (restoreVJSet) {
+      await this.importVJSet(projectData.vjSet);
     }
 
     // CRITICAL: Enhanced shader rebuild sequence after loading
@@ -1186,7 +1209,7 @@ async reinitializeWebGPU() {
 
   async saveToFile(filename = null, format = "json") {
     try {
-      const projectData = this.exportProject();
+      const projectData = this.exportProject({ includeVJSet: true });
       const timestamp = new Date()
         .toISOString()
         .slice(0, 19)
@@ -1544,7 +1567,7 @@ async reinitializeWebGPU() {
           throw new Error(`Unsupported file type: ${extension}`);
       }
 
-      await this.importProject(projectData);
+      await this.importProject(projectData, { restoreVJSet: true });
 
       // Bind the project to the file we just opened so the title and the next
       // "Save" reflect it. pickProjectFile() may already have set a writable
@@ -2398,6 +2421,23 @@ importConnections(connectionData) {
   }
 
   /**
+   * Import the VJ set a project file carries. A file saved before the set
+   * travelled with the project has no `vjSet`; the set on screen is then left
+   * alone rather than wiped, since it is most likely that project's own and the
+   * next save writes it in.
+   */
+  async importVJSet(vjSet) {
+    if (vjSet === undefined) return;
+    try {
+      await window.vjControlPanel?.importSet?.(vjSet);
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'vj-set-import'
+      });
+    }
+  }
+
+  /**
    * Import the viewer page settings. Absent data restores the defaults rather
    * than keeping the last patch's ground colour behind this one's work.
    */
@@ -2590,7 +2630,7 @@ importConnections(connectionData) {
    * JSON for a .json, which stays human-readable interchange.
    */
   async _encodeForFile(name) {
-    const projectData = this.exportProject();
+    const projectData = this.exportProject({ includeVJSet: true });
     if (/\.json$/i.test(String(name || ""))) {
       return JSON.stringify(projectData, null, 2);
     }

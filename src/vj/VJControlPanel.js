@@ -1958,22 +1958,51 @@ export class VJControlPanel {
   }
 
   /**
-   * Start an empty VJ set for a new project. The set lives in browser storage
-   * rather than in the project file, so without this File > New Project kept
-   * showing the previous project's scenes, presets and playlist. BPM and beat
-   * sync are the performer's settings, not the project's, so they stay.
+   * The VJ set as the project file carries it. BPM and beat sync stay out:
+   * they are the performer's settings, not the project's.
    */
-  async startNewSet() {
-    // A restore still in flight would land the old set back over the empty one.
+  exportSet() {
+    return {
+      version: 1,
+      scenes: this.sceneManager.exportScenes(),
+      presets: this.presetManager.exportPresets(),
+      playlist: this.playlistManager.exportPlaylist()
+    };
+  }
+
+  /**
+   * Replace the set with one from a project file, or with an empty one when
+   * `set` is null. Written through to browser storage so a reload shows the
+   * project's set and not the one before it.
+   */
+  async importSet(set) {
+    // A restore still in flight would land the old set back over this one.
     await this.ready;
 
     this.playlistManager.clearPlaylist();
     this.sceneManager.clear();
     this.presetManager.clear();
 
+    if (set) {
+      if (set.scenes) this.sceneManager.importScenes(set.scenes);
+      if (set.presets) this.presetManager.importPresets(set.presets);
+      if (set.playlist) this.playlistManager.importPlaylist(set.playlist);
+    }
+    if (this.playlistLoopCheck) {
+      this.playlistLoopCheck.checked = this.playlistManager.loop;
+    }
+
     this.refreshActiveTab();
     this.syncPlaylistUI();
     return this.saveToStorage();
+  }
+
+  /**
+   * Start an empty VJ set for a new project. BPM and beat sync are the
+   * performer's settings, not the project's, so they stay.
+   */
+  startNewSet() {
+    return this.importSet(null);
   }
 
   /**

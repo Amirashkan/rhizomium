@@ -3475,8 +3475,8 @@ function createNewProject() {
 
   SeedGraphBuilder.createSeedGraph(graph);
 
-  // The VJ set is kept in browser storage, not the project, so it has to be
-  // emptied here or the new project shows the last one's scenes and presets.
+  // The panel keeps the open project's VJ set in browser storage between
+  // saves, so it has to be emptied here or the new project shows the last one's.
   vjControlPanel?.startNewSet?.();
 
   updateShaderFromGraph();
