@@ -36,6 +36,8 @@ export class RenderLoop {
     this._accumulator = 0;
     this._simTime = 0;
     this._frameIndex = 0;
+    this._lastFrameErrorMessage = null;
+    this._lastFrameErrorAt = 0;
     
     // Unified RAF Manager for coordinating all RAF-based handlers
     // RenderLoop becomes the single RAF coordinator
@@ -143,6 +145,20 @@ export class RenderLoop {
   _handleFrame(timestampMs) {
     if (!this._running) return;
 
+    // Book the next frame whatever this one does. The loop is a chain of
+    // requestAnimationFrame calls, so a single throw from a frame handler used
+    // to end it for good: the output froze, videos stopped, and the node canvas
+    // stopped redrawing, so dragging and selecting nodes looked dead.
+    try {
+      this._runFrame(timestampMs);
+    } catch (err) {
+      this._reportFrameError(err);
+    } finally {
+      this._scheduleNextFrame();
+    }
+  }
+
+  _runFrame(timestampMs) {
     if (this._lastTimestamp === null) {
       this._lastTimestamp = timestampMs;
     }
@@ -174,8 +190,6 @@ export class RenderLoop {
         this._step(0);
       }
     }
-
-    this._scheduleNextFrame();
   }
 
   _step(rawDeltaTime) {
@@ -190,10 +204,29 @@ export class RenderLoop {
     });
 
     // Process all registered RAF handlers before the main onFrame callback
-    // This makes RenderLoop the single RAF coordinator
-    this.rafManager.processFrame(frameInfo);
+    // This makes RenderLoop the single RAF coordinator. A failure in one must
+    // not cost the frame its main callback, which draws the output and canvas.
+    try {
+      this.rafManager.processFrame(frameInfo);
+    } catch (err) {
+      this._reportFrameError(err);
+    }
 
     this.onFrame(frameInfo);
+  }
+
+  // Log a frame error without flooding the console: a fault that repeats every
+  // frame is reported once, then again only if the message changes or a few
+  // seconds have passed.
+  _reportFrameError(err) {
+    const message = err?.message || String(err);
+    const now = performance.now();
+    if (message === this._lastFrameErrorMessage && now - this._lastFrameErrorAt < 5000) {
+      return;
+    }
+    this._lastFrameErrorMessage = message;
+    this._lastFrameErrorAt = now;
+    console.error("[RenderLoop] Frame handler threw; the loop keeps running:", err);
   }
 
   _buildFrameInfo({

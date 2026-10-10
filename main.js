@@ -3913,6 +3913,26 @@ function syncOutputMenuToScreens() {
   setSecondMonitorButtonState(screenModel.enabledScreens().length > 0);
 }
 
+// Run one stage of the frame so that a throw stays inside it. The stages of
+// handleRenderFrame used to share one fate: a single exception (a timeline
+// update, a 3D render, a panel refresh) skipped everything after it, including
+// the node-canvas draw, so the editor stopped redrawing and nodes could no
+// longer be dragged or selected. A stage that fails every frame is logged once,
+// then again only when its message changes or a few seconds have passed.
+const frameStageErrors = new Map();
+function runFrameStage(name, fn) {
+  try {
+    fn();
+  } catch (err) {
+    const message = err?.message || String(err);
+    const now = performance.now();
+    const last = frameStageErrors.get(name);
+    if (last && last.message === message && now - last.at < 5000) return;
+    frameStageErrors.set(name, { message, at: now });
+    console.error(`[RenderLoop] '${name}' stage failed; the rest of the frame still runs:`, err);
+  }
+}
+
 function handleRenderFrame(frameState) {
   // PerfProbe: track real animation cadence; manual renders (warmup bursts,
   // renderNow calls) are counted separately so they show up as out-of-band work.
@@ -3940,14 +3960,18 @@ function handleRenderFrame(frameState) {
 
   // PERFORMANCE: Skip expensive operations during drag/pan, but keep basic rendering
   // Update timeline manager (skip during panning/dragging)
-  if (!shouldThrottleTimeline && !isDragging && timelineManager && timelineManager.isEnabled()) {
-    timelineManager.update(frameState.deltaTime);
-  }
+  runFrameStage('timeline', () => {
+    if (!shouldThrottleTimeline && !isDragging && timelineManager && timelineManager.isEnabled()) {
+      timelineManager.update(frameState.deltaTime);
+    }
+  });
 
   // Update timeline panel visualization (skip during panning/dragging)
-  if (!shouldThrottleUIPanels && !isDragging && timelinePanel) {
-    timelinePanel.update();
-  }
+  runFrameStage('timelinePanel', () => {
+    if (!shouldThrottleUIPanels && !isDragging && timelinePanel) {
+      timelinePanel.update();
+    }
+  });
 
   // GPU rendering - Always render every frame, even during interactions
   // PERFORMANCE: GPU renderer is async and non-blocking, so throttling is unnecessary
@@ -4039,115 +4063,125 @@ function handleRenderFrame(frameState) {
     }
   }
 
-  if (shouldRenderGPU) {
-    const gpuToken = previewPerfMonitor?.timeSection("gpu");
-    // Check if compute shader test is active
-    if (computeShaderTest && computeShaderTest.isEnabled) {
-      // Render compute shader test instead of normal renderer
-      computeShaderTest.render(frameState.simTime);
-      previewPerfMonitor?.endSection(gpuToken);
-    } else if (window.gpuRenderer) {
-      // ARCHITECTURAL FIX: Separate GPU and canvas rendering threads
-      // GPU renderer is async and not awaited - it runs independently
-      // This allows GPU work to proceed in parallel with canvas rendering
-      // GPU renderer's sync work completes immediately, then async work proceeds
-      // Canvas rendering can run without blocking GPU work continuation
-      const gpuProbeToken = perfProbe.begin("gpuDispatchCpu");
-      const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
-      perfProbe.end(gpuProbeToken);
-      previewPerfMonitor?.endSection(gpuToken);
-      previewPerfMonitor?.attachAsyncMetric("gpuQueueWaitMs", renderPromise);
+  runFrameStage('gpu', () => {
+    if (shouldRenderGPU) {
+      const gpuToken = previewPerfMonitor?.timeSection("gpu");
+      // Check if compute shader test is active
+      if (computeShaderTest && computeShaderTest.isEnabled) {
+        // Render compute shader test instead of normal renderer
+        computeShaderTest.render(frameState.simTime);
+        previewPerfMonitor?.endSection(gpuToken);
+      } else if (window.gpuRenderer) {
+        // ARCHITECTURAL FIX: Separate GPU and canvas rendering threads
+        // GPU renderer is async and not awaited - it runs independently
+        // This allows GPU work to proceed in parallel with canvas rendering
+        // GPU renderer's sync work completes immediately, then async work proceeds
+        // Canvas rendering can run without blocking GPU work continuation
+        const gpuProbeToken = perfProbe.begin("gpuDispatchCpu");
+        const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
+        perfProbe.end(gpuProbeToken);
+        previewPerfMonitor?.endSection(gpuToken);
+        previewPerfMonitor?.attachAsyncMetric("gpuQueueWaitMs", renderPromise);
 
-      // NOTE: the preview FPS counter is NOT ticked here. Dispatching render()
-      // happens at the loop's target cadence regardless of GPU load, so counting
-      // dispatches pinned the label to ~60 even when heavy graphs ran far slower.
-      // It is now ticked on actual GPU-frame completion via
-      // gpuRenderer.onFramePresented (wired where floatingPreview is created).
+        // NOTE: the preview FPS counter is NOT ticked here. Dispatching render()
+        // happens at the loop's target cadence regardless of GPU load, so counting
+        // dispatches pinned the label to ~60 even when heavy graphs ran far slower.
+        // It is now ticked on actual GPU-frame completion via
+        // gpuRenderer.onFramePresented (wired where floatingPreview is created).
 
-      renderPromise.catch(__err => {
-        // Silently handle render errors to avoid breaking render loop
-        // Errors are already logged in gpuRenderer.render()
-      });
+        renderPromise.catch(__err => {
+          // Silently handle render errors to avoid breaking render loop
+          // Errors are already logged in gpuRenderer.render()
+        });
 
+      }
     }
-  }
+  });
 
   // 3D scene rendering. Runs whenever a 3D Field Visualizer node exists -
   // not just while the viewport panel is open - because the rendered frame is
   // also the node's graph OUTPUT (own preview, downstream nodes, OutputFinal).
-  const hasFieldMappers = fieldMapperIntegration && fieldMapperIntegration.fieldMappers.size > 0;
-  if (sceneRenderer3D && (hasFieldMappers || (viewportPanel && viewportPanel.isVisible))) {
-    // Regenerate points-mode geometry from the live compute textures so
-    // animated fields keep moving. Async and self-guarded: if the previous
-    // GPU readback is still in flight this is a no-op for the frame.
-    // (GPU shape modes sample the compute texture in the render pass and
-    // need no per-frame CPU work.)
-    if (fieldMapperIntegration) {
-      fieldMapperIntegration.updateFrame();
-    }
-    sceneRenderer3D.render(frameState.simTime);
+  runFrameStage('scene3D', () => {
+    const hasFieldMappers = fieldMapperIntegration && fieldMapperIntegration.fieldMappers.size > 0;
+    if (sceneRenderer3D && (hasFieldMappers || (viewportPanel && viewportPanel.isVisible))) {
+      // Regenerate points-mode geometry from the live compute textures so
+      // animated fields keep moving. Async and self-guarded: if the previous
+      // GPU readback is still in flight this is a no-op for the frame.
+      // (GPU shape modes sample the compute texture in the render pass and
+      // need no per-frame CPU work.)
+      if (fieldMapperIntegration) {
+        fieldMapperIntegration.updateFrame();
+      }
+      sceneRenderer3D.render(frameState.simTime);
 
-    // Publish each 3D node's OWN rendered frame as its output texture so
-    // downstream nodes and the main canvas consume that node's view alone
-    if (hasFieldMappers) {
-      fieldMapperIntegration.publishOutputs();
-    }
+      // Publish each 3D node's OWN rendered frame as its output texture so
+      // downstream nodes and the main canvas consume that node's view alone
+      if (hasFieldMappers) {
+        fieldMapperIntegration.publishOutputs();
+      }
 
-    // Mirror each node's own frame into its editor thumbnail so it stays
-    // live. Throttled: a readback 4x/sec is imperceptible on the tiny
-    // thumbnail but keeps GPU->CPU traffic negligible.
-    const now = performance.now();
-    if (now - (window.__fieldMapperThumbAt || 0) > 250) {
-      window.__fieldMapperThumbAt = now;
-      const previewManager = window.editor?.shaderPreviewManager;
-      if (previewManager && graph?.nodes) {
-        for (const node of graph.nodes) {
-          if (node && node.kind === 'ComputeFieldMapper') {
-            // Pass a getter so the queue always downscales the CURRENT
-            // texture, not one retired by a resolution change while queued
-            previewManager.updateNodeThumbnailFromTexture(
-              node,
-              () => sceneRenderer3D?.getNodeTexture?.(node.id) ?? null
-            );
+      // Mirror each node's own frame into its editor thumbnail so it stays
+      // live. Throttled: a readback 4x/sec is imperceptible on the tiny
+      // thumbnail but keeps GPU->CPU traffic negligible.
+      const now = performance.now();
+      if (now - (window.__fieldMapperThumbAt || 0) > 250) {
+        window.__fieldMapperThumbAt = now;
+        const previewManager = window.editor?.shaderPreviewManager;
+        if (previewManager && graph?.nodes) {
+          for (const node of graph.nodes) {
+            if (node && node.kind === 'ComputeFieldMapper') {
+              // Pass a getter so the queue always downscales the CURRENT
+              // texture, not one retired by a resolution change while queued
+              previewManager.updateNodeThumbnailFromTexture(
+                node,
+                () => sceneRenderer3D?.getNodeTexture?.(node.id) ?? null
+              );
+            }
           }
         }
       }
     }
-  }
+  });
 
   // Update viewport panel
-  if (viewportPanel && viewportPanel.isVisible) {
-    viewportPanel.update();
-  }
+  runFrameStage('viewportPanel', () => {
+    if (viewportPanel && viewportPanel.isVisible) {
+      viewportPanel.update();
+    }
+  });
 
   // FPS counter is handled by FloatingGPUPreview in its own render loop
   // This ensures it only counts actual preview refresh frames, not render loop frames
 
   // Update compute profiler overlay - Continue updating during interactions
   // FIX: Allow profiler to continue updating during panning to prevent freezing
-  if (profilerOverlay && computeProfiler) {
-    // Run the profiler only while its overlay is visible. Its per-frame GPU
-    // timestamp readback (mapAsync) is a CPU<->GPU sync that periodically stalls the
-    // shared GPU — which showed up as a hitch on the second-monitor output (both
-    // windows freezing in lockstep). No display ⇒ no readback.
-    if (computeProfiler.enabled !== profilerOverlay.visible) {
-      computeProfiler.setEnabled(profilerOverlay.visible);
-    }
-    if (profilerOverlay.visible) {
-      const now = performance.now();
-      const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
-      if (shouldUpdateProfiler) {
-        const metrics = computeProfiler.getMetrics();
-        profilerOverlay.update(metrics);
-        lastProfilerUpdate = now;
+  runFrameStage('profiler', () => {
+    if (profilerOverlay && computeProfiler) {
+      // Run the profiler only while its overlay is visible. Its per-frame GPU
+      // timestamp readback (mapAsync) is a CPU<->GPU sync that periodically stalls the
+      // shared GPU — which showed up as a hitch on the second-monitor output (both
+      // windows freezing in lockstep). No display ⇒ no readback.
+      if (computeProfiler.enabled !== profilerOverlay.visible) {
+        computeProfiler.setEnabled(profilerOverlay.visible);
+      }
+      if (profilerOverlay.visible) {
+        const now = performance.now();
+        const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
+        if (shouldUpdateProfiler) {
+          const metrics = computeProfiler.getMetrics();
+          profilerOverlay.update(metrics);
+          lastProfilerUpdate = now;
+        }
       }
     }
-  }
+  });
 
   // Undo UI updates (skip during panning/dragging)
-  if (!shouldThrottleUIPanels && !isDragging && undoManager) {
-    undoManager.updateUI();
-  }
+  runFrameStage('undoUI', () => {
+    if (!shouldThrottleUIPanels && !isDragging && undoManager) {
+      undoManager.updateUI();
+    }
+  });
 
   // Update preview values and canvas for time/audio-based expressions
   // Only when actually animating (not manual updates)
@@ -4165,136 +4199,140 @@ function handleRenderFrame(frameState) {
     // the field mapper now resolve those references through
     // PreviewComputer.evaluateNodeLive, which re-evaluates the whole upstream
     // chain at this frame's time.
-    if (!isDragging || graphIsAnimated) {
-      const now = performance.now();
-      if (now - lastPreviewUpdate >= PREVIEW_UPDATE_INTERVAL) {
-        lastPreviewUpdate = now;
+    runFrameStage('previewValues', () => {
+      if (!isDragging || graphIsAnimated) {
+        const now = performance.now();
+        if (now - lastPreviewUpdate >= PREVIEW_UPDATE_INTERVAL) {
+          lastPreviewUpdate = now;
 
-        if (editor?.previewComputer && editor?.graph) {
-          const previewComputer = editor.previewComputer;
-          const graphInstance = editor.graph;
-          const animationTime = frameState.simTime || performance.now() / 1000;
-          const expressionSystem = editor.expressionSystem || previewComputer.expressionSystem;
-          // Count BOTH expression-time-animated nodes (=time / =audio, tracked in
-          // timeAnimatedNodes) AND intrinsic clock nodes (Time / Random Value), which animate every
-          // frame from g.time alone and so never register in timeAnimatedNodes. Without the
-          // intrinsic check, a graph whose only animation is such a node never flags
-          // needsPreviewCompute, so this loop never calls setInteractionMode — and the interaction
-          // flag left set by a drag+tab node creation (that gesture has no balancing
-          // interaction-end) is never cleared, freezing requestPreviewComputation and the node's
-          // live value. hasActiveAnimations() short-circuits on timeAnimatedNodes, then on a cheap
-          // intrinsic-kind scan, so this stays cheap.
-          const hadTimeAnimatedNodes = (expressionSystem?.timeAnimatedNodes?.size || 0) > 0
-            || (typeof editor.hasActiveAnimations === 'function' && editor.hasActiveAnimations());
-          const timeChanged = hadTimeAnimatedNodes &&
-            (lastPreviewAnimationTime === null || Math.abs(animationTime - lastPreviewAnimationTime) > 1e-4);
+          if (editor?.previewComputer && editor?.graph) {
+            const previewComputer = editor.previewComputer;
+            const graphInstance = editor.graph;
+            const animationTime = frameState.simTime || performance.now() / 1000;
+            const expressionSystem = editor.expressionSystem || previewComputer.expressionSystem;
+            // Count BOTH expression-time-animated nodes (=time / =audio, tracked in
+            // timeAnimatedNodes) AND intrinsic clock nodes (Time / Random Value), which animate every
+            // frame from g.time alone and so never register in timeAnimatedNodes. Without the
+            // intrinsic check, a graph whose only animation is such a node never flags
+            // needsPreviewCompute, so this loop never calls setInteractionMode — and the interaction
+            // flag left set by a drag+tab node creation (that gesture has no balancing
+            // interaction-end) is never cleared, freezing requestPreviewComputation and the node's
+            // live value. hasActiveAnimations() short-circuits on timeAnimatedNodes, then on a cheap
+            // intrinsic-kind scan, so this stays cheap.
+            const hadTimeAnimatedNodes = (expressionSystem?.timeAnimatedNodes?.size || 0) > 0
+              || (typeof editor.hasActiveAnimations === 'function' && editor.hasActiveAnimations());
+            const timeChanged = hadTimeAnimatedNodes &&
+              (lastPreviewAnimationTime === null || Math.abs(animationTime - lastPreviewAnimationTime) > 1e-4);
 
-          const dirtyNodeCount = graphInstance?.dirtyNodes?.size ?? 0;
-          const dirtyInputCount = graphInstance?.dirtyInputs?.size ?? 0;
-          const parameterValuesChanged = (dirtyNodeCount + dirtyInputCount) > 0;
+            const dirtyNodeCount = graphInstance?.dirtyNodes?.size ?? 0;
+            const dirtyInputCount = graphInstance?.dirtyInputs?.size ?? 0;
+            const parameterValuesChanged = (dirtyNodeCount + dirtyInputCount) > 0;
 
-          const currentStructureHash = computePreviewStructureHash(graphInstance);
-          const structureChanged = currentStructureHash !== lastPreviewStructureHash;
-          if (structureChanged) {
-            // Invalidate topological sort cache only when the structure hash truly changes
-            lastPreviewStructureHash = currentStructureHash;
-          }
+            const currentStructureHash = computePreviewStructureHash(graphInstance);
+            const structureChanged = currentStructureHash !== lastPreviewStructureHash;
+            if (structureChanged) {
+              // Invalidate topological sort cache only when the structure hash truly changes
+              lastPreviewStructureHash = currentStructureHash;
+            }
 
-          const explicitPreviewRequest = !!editor._needsPreviewUpdate;
-          // Audio-reactive nodes change on the audio clock, not the sim clock, so `timeChanged`
-          // (which tracks sim time) can be false every frame while the audio value is still moving —
-          // leaving node value previews and =node_<id> readouts frozen even though the GPU output
-          // reacts. When audio is playing, recompute the preview each frame so those stay live.
-          const audioLive = !!(typeof window !== 'undefined' && window.audioCapture?.getIsPlaying?.());
-          const needsPreviewCompute =
-            (hadTimeAnimatedNodes && (timeChanged || audioLive)) ||
-            parameterValuesChanged ||
-            structureChanged ||
-            explicitPreviewRequest;
+            const explicitPreviewRequest = !!editor._needsPreviewUpdate;
+            // Audio-reactive nodes change on the audio clock, not the sim clock, so `timeChanged`
+            // (which tracks sim time) can be false every frame while the audio value is still moving —
+            // leaving node value previews and =node_<id> readouts frozen even though the GPU output
+            // reacts. When audio is playing, recompute the preview each frame so those stay live.
+            const audioLive = !!(typeof window !== 'undefined' && window.audioCapture?.getIsPlaying?.());
+            const needsPreviewCompute =
+              (hadTimeAnimatedNodes && (timeChanged || audioLive)) ||
+              parameterValuesChanged ||
+              structureChanged ||
+              explicitPreviewRequest;
 
-          if (needsPreviewCompute) {
-            const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
-            const queueManager = window.threadSeparationManager?.getQueueManager?.();
-            const previewQueueSize = queueManager?.getQueueSize?.('previewComputer') || 0;
-            const queueBacklogged = previewQueueSize > 5;
+            if (needsPreviewCompute) {
+              const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
+              const queueManager = window.threadSeparationManager?.getQueueManager?.();
+              const previewQueueSize = queueManager?.getQueueSize?.('previewComputer') || 0;
+              const queueBacklogged = previewQueueSize > 5;
 
-            if (!queueBacklogged) {
-              if (previewComputer?.setInteractionMode) {
-                previewComputer.setInteractionMode(isCanvasInteracting);
-              }
-
-              const finalizePreviewUpdate = () => {
-                if (hadTimeAnimatedNodes && editor.markDirty) {
-                  editor.markDirty('time-animation');
+              if (!queueBacklogged) {
+                if (previewComputer?.setInteractionMode) {
+                  previewComputer.setInteractionMode(isCanvasInteracting);
                 }
-                graphInstance.clearDirtyFlags?.();
-                lastPreviewAnimationTime = animationTime;
-              };
 
-              try {
-                // NOTE: requestPreviewComputation currently runs synchronously on
-                // the main thread despite its name — the probe section makes that
-                // cost visible in window.perfReport().
-                if (typeof previewComputer.requestPreviewComputation === 'function') {
-                  const previewProbeToken = perfProbe.begin("previewComputeCpu");
-                  previewComputer.requestPreviewComputation(
-                    graphInstance,
-                    { time: animationTime },
-                    {},
-                    () => finalizePreviewUpdate()
-                  );
-                  perfProbe.end(previewProbeToken);
-                } else {
-                  // Fallback: defer with requestIdleCallback if worker not available
-                  if (typeof requestIdleCallback !== 'undefined') {
-                    requestIdleCallback(() => {
+                const finalizePreviewUpdate = () => {
+                  if (hadTimeAnimatedNodes && editor.markDirty) {
+                    editor.markDirty('time-animation');
+                  }
+                  graphInstance.clearDirtyFlags?.();
+                  lastPreviewAnimationTime = animationTime;
+                };
+
+                try {
+                  // NOTE: requestPreviewComputation currently runs synchronously on
+                  // the main thread despite its name — the probe section makes that
+                  // cost visible in window.perfReport().
+                  if (typeof previewComputer.requestPreviewComputation === 'function') {
+                    const previewProbeToken = perfProbe.begin("previewComputeCpu");
+                    previewComputer.requestPreviewComputation(
+                      graphInstance,
+                      { time: animationTime },
+                      {},
+                      () => finalizePreviewUpdate()
+                    );
+                    perfProbe.end(previewProbeToken);
+                  } else {
+                    // Fallback: defer with requestIdleCallback if worker not available
+                    if (typeof requestIdleCallback !== 'undefined') {
+                      requestIdleCallback(() => {
+                        previewComputer.computePreviews(graphInstance);
+                        finalizePreviewUpdate();
+                      }, { timeout: 100 });
+                    } else {
                       previewComputer.computePreviews(graphInstance);
                       finalizePreviewUpdate();
-                    }, { timeout: 100 });
-                  } else {
-                    previewComputer.computePreviews(graphInstance);
-                    finalizePreviewUpdate();
+                    }
                   }
+                } catch (err) {
+                  console.warn('[Performance] computePreviews error:', err);
                 }
-              } catch (err) {
-                console.warn('[Performance] computePreviews error:', err);
-              }
 
-              editor._needsPreviewUpdate = false;
-            } else {
-              previewPerfMonitor?.recordValue?.('previewQueueSkip', 1);
+                editor._needsPreviewUpdate = false;
+              } else {
+                previewPerfMonitor?.recordValue?.('previewQueueSkip', 1);
+              }
             }
           }
         }
       }
-    }
+    });
 
     // Reset interaction state cache at the start of each frame
     // This ensures fresh state values for the new frame
-    if (editor?.eventHandler?._invalidateInteractionStateCache) {
-      editor.eventHandler._invalidateInteractionStateCache();
-    }
+    runFrameStage('canvas', () => {
+      if (editor?.eventHandler?._invalidateInteractionStateCache) {
+        editor.eventHandler._invalidateInteractionStateCache();
+      }
 
-    // Canvas drawing - throttle during panning and skip when editor is clean
-    const editorNeedsCanvasDraw = typeof editor?.isDirty === 'function'
-      ? editor.isDirty()
-      : !!editor?.draw;
-    const sceneIsStatic = !editorNeedsCanvasDraw &&
-      typeof editor?.isSceneStatic === 'function' &&
-      editor.isSceneStatic(120);
+      // Canvas drawing - throttle during panning and skip when editor is clean
+      const editorNeedsCanvasDraw = typeof editor?.isDirty === 'function'
+        ? editor.isDirty()
+        : !!editor?.draw;
+      const sceneIsStatic = !editorNeedsCanvasDraw &&
+        typeof editor?.isSceneStatic === 'function' &&
+        editor.isSceneStatic(120);
 
-    if (editorNeedsCanvasDraw && editor?.draw) {
-      // PERFORMANCE: Always draw at 60fps during panning for smooth interaction
-      // Even in empty graphs, panning should be smooth. Throttling causes choppy panning.
-      // Canvas rendering is fast enough to handle 60fps, especially with an empty graph.
-      const canvasToken = previewPerfMonitor?.timeSection("canvas");
-      const canvasProbeToken = perfProbe.begin("canvasDraw");
-      editor.draw();
-      perfProbe.end(canvasProbeToken);
-      previewPerfMonitor?.endSection(canvasToken);
-    } else if (sceneIsStatic) {
-      previewPerfMonitor?.recordValue('canvasStaticSkip', 1);
-    }
+      if (editorNeedsCanvasDraw && editor?.draw) {
+        // PERFORMANCE: Always draw at 60fps during panning for smooth interaction
+        // Even in empty graphs, panning should be smooth. Throttling causes choppy panning.
+        // Canvas rendering is fast enough to handle 60fps, especially with an empty graph.
+        const canvasToken = previewPerfMonitor?.timeSection("canvas");
+        const canvasProbeToken = perfProbe.begin("canvasDraw");
+        editor.draw();
+        perfProbe.end(canvasProbeToken);
+        previewPerfMonitor?.endSection(canvasToken);
+      } else if (sceneIsStatic) {
+        previewPerfMonitor?.recordValue('canvasStaticSkip', 1);
+      }
+    });
   }
   previewPerfMonitor?.endFrame();
   
