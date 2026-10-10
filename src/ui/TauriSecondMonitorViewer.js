@@ -800,18 +800,45 @@ export class TauriSecondMonitorViewer {
   }
 
   /**
-   * True when the editor has any externally-owned scene output — currently the 3D
-   * Field Visualizer, which renders its scene to an offscreen GPUTexture and
+   * True when the OUTPUT depends on an externally-owned scene output — currently
+   * the 3D Field Visualizer, which renders its scene to an offscreen GPUTexture and
    * publishes it into the compute-executor's texture table (tracked in
    * `externalOutputNodeIds`, which FieldMapperIntegration keeps in step with the
    * live field-mapper nodes: added on publish, removed on node delete). These
    * textures are rendered pixels, not reproducible from the broadcast WGSL/uniform
-   * state, so any graph consuming one must mirror pixels rather than re-render.
+   * state, so a graph consuming one must mirror pixels rather than re-render.
+   *
+   * Only a 3D node upstream of the Output counts. One merely sitting in the patch
+   * (unwired, or feeding a branch the Output never reads) used to put the whole
+   * second monitor on the pixel path too: a full-frame readback every frame, which
+   * slowed the editor down, and a tier flip back on delete that blacked the output.
    */
   _hasExternalSceneOutput() {
     const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
     const ids = exec && exec.externalOutputNodeIds;
-    return !!(ids && typeof ids.size === 'number' && ids.size > 0);
+    if (!(ids && typeof ids.size === 'number' && ids.size > 0)) return false;
+    const graph = (typeof window !== 'undefined') ? window.graph : null;
+    const nodes = graph && Array.isArray(graph.nodes) ? graph.nodes : null;
+    // No graph to walk: stay on the safe (pixel) side.
+    if (!nodes) return true;
+    const external = new Set([...ids].map(String));
+    const byId = new Map(nodes.filter(Boolean).map((n) => [String(n.id), n]));
+    const stack = nodes
+      .filter((n) => n && /OutputFinal/i.test(n.kind || n.type || ''))
+      .map((n) => String(n.id));
+    const seen = new Set();
+    while (stack.length) {
+      const id = stack.pop();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      if (external.has(id)) return true;
+      const node = byId.get(id);
+      if (!node || !Array.isArray(node.inputs)) continue;
+      for (const input of node.inputs) {
+        if (input !== null && input !== undefined) stack.push(String(input));
+      }
+    }
+    return false;
   }
 
   /**

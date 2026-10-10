@@ -691,6 +691,53 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
+  it('stays native when a 3D node sits in the patch but the Output does not depend on it', async () => {
+    // An unwired (or side-branch) 3D Field Visualizer still publishes its scene,
+    // but nothing the Output renders reads it — so it must not drag the second
+    // monitor onto the per-frame pixel readback.
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    global.window.computeExecutor = { externalOutputNodeIds: new Set(['42']) };
+    global.window.graph = {
+      nodes: [
+        { id: '1', kind: 'ComputeNoise', inputs: [] },
+        { id: '42', kind: 'ComputeFieldMapper', inputs: ['1'] },
+        { id: '9', kind: 'OutputFinal', inputs: ['1'] },
+      ],
+    };
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('WGSL_NO_3D'));
+
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
+    expect(renderer.setFrameTap).not.toHaveBeenCalledWith(expect.any(Function));
+
+    await viewer.close();
+  });
+
+  it('falls back when the 3D node reaches the Output through other nodes', async () => {
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    global.window.computeExecutor = { externalOutputNodeIds: new Set(['42']) };
+    global.window.graph = {
+      nodes: [
+        { id: '1', kind: 'ComputeNoise', inputs: [] },
+        { id: '42', kind: 'ComputeFieldMapper', inputs: ['1'] },
+        { id: '7', kind: 'ComputeBlur', inputs: ['42'] },
+        { id: '9', kind: 'OutputFinal', inputs: ['7'] },
+      ],
+    };
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('WGSL_3D'));
+
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.FALLBACK);
+
+    await viewer.close();
+  });
+
   it('renders a video graph natively: sends the video source once, then per-frame playback state', async () => {
     const renderer = makeFakeRenderer({ tier: 'native-compute' });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });
