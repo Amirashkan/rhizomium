@@ -730,6 +730,7 @@ export class TauriSecondMonitorViewer {
       if (this._mode === 'native-compute' && snap.fragment) {
         try { this._channel.postMessage({ type: MSG.FRAGMENT_UNIFORMS, nodes: snap.fragment }); } catch { /* ignore */ }
       }
+      if (this._mode === 'native-compute') this._broadcastVideoSync();
     }
   }
 
@@ -787,10 +788,6 @@ export class TauriSecondMonitorViewer {
     // black where the 3D view should be. Route these graphs to the pixel-mirror
     // fallback instead so the second monitor shows the composited scene.
     if (this._hasExternalSceneOutput()) return TIER.FALLBACK;
-    // Same for a playing video: TEXTURE is sent once per load, so the receiver
-    // would hold a single frame — or none, when the video had not decoded its
-    // first frame yet and the copy failed, leaving the screen black.
-    if (this._hasVideoTexture()) return TIER.FALLBACK;
     const renderer = this._resolveRenderer();
     if (renderer && typeof renderer.classifyMirrorTier === 'function') {
       return renderer.classifyMirrorTier();
@@ -817,11 +814,51 @@ export class TauriSecondMonitorViewer {
     return !!(ids && typeof ids.size === 'number' && ids.size > 0);
   }
 
-  /** True when any loaded texture is a video (TextureManager keeps them in `videos`). */
-  _hasVideoTexture() {
+  /**
+   * Send a video's SOURCE to the receivers, which decode and play it themselves.
+   * A video graph then renders natively like any other: the file crosses once,
+   * and only its playback state follows per frame (see _broadcastVideoSync).
+   * Mirroring pixels instead cost a full-output readback and a multi-MB copy
+   * every frame.
+   */
+  _broadcastVideo(nodeId, info) {
+    if (!this._channel || !info) return;
+    const file = info.file || null;
+    const dataUrl = file ? null : (info.dataUrl || null);
+    if (!file && !dataUrl) return;
+    try {
+      this._channel.postMessage({ type: MSG.VIDEO, nodeId, file, dataUrl });
+    } catch {
+      /* channel closed mid-flight */
+    }
+  }
+
+  /**
+   * Per-frame playback state of every editor video, so each receiver's own
+   * player tracks the editor's: play/pause, rate, loop and trim, and the time it
+   * re-seeks to when it drifts. A few numbers per video.
+   */
+  _broadcastVideoSync() {
     const tm = (typeof window !== 'undefined') ? window.textureManager : null;
     const videos = tm && tm.videos;
-    return !!(videos && typeof videos.size === 'number' && videos.size > 0);
+    if (!videos || !videos.size) return;
+    const list = [];
+    for (const [nodeId, entry] of videos) {
+      const video = entry && entry.video;
+      if (!video) continue;
+      list.push({
+        nodeId,
+        time: video.currentTime || 0,
+        paused: !!video.paused,
+        rate: video.playbackRate || 1,
+        loop: !!video.loop,
+        loopWanted: entry.loopWanted !== false,
+        trimStart: entry.trimStart || 0,
+        trimEnd: entry.trimEnd || 0,
+      });
+    }
+    if (!list.length) return;
+    try { this._channel.postMessage({ type: MSG.VIDEO_SYNC, videos: list }); } catch { /* ignore */ }
   }
 
   /** The TIER constant matching the current mirror mode (FALLBACK when none set). */
@@ -1070,6 +1107,7 @@ export class TauriSecondMonitorViewer {
 
   async _broadcastTexture(nodeId, info) {
     if (!this._channel || !info) return;
+    if (info.isVideo) { this._broadcastVideo(nodeId, info); return; }
     const src = info.bitmap || info.image || info.source || info.video;
     if (!src || typeof createImageBitmap !== 'function') return;
     let bitmap;

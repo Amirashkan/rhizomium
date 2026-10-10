@@ -164,8 +164,10 @@ async uploadToGPU(nodeId, bitmap) {
  *
  * @param {string} nodeId
  * @param {File|Blob} file
- * @param {{node?: Object, dataUrl?: string}} [options] - `node` supplies playback parameters;
- *        `dataUrl` skips re-encoding when the caller already holds the inline copy (patch load).
+ * @param {{node?: Object, dataUrl?: string, inline?: boolean}} [options] - `node` supplies
+ *        playback parameters; `dataUrl` skips re-encoding when the caller already holds the
+ *        inline copy (patch load); `inline: false` skips it altogether (the second-monitor
+ *        window plays the editor's file and never saves a patch).
  */
 async uploadVideo(nodeId, file, options = {}) {
   const { node = null } = options;
@@ -192,7 +194,7 @@ async uploadVideo(nodeId, file, options = {}) {
   // nobody can save or send, so past the cap the node keeps the filename and the artist re-drops
   // the file after loading.
   let dataUrl = options.dataUrl ?? null;
-  if (!dataUrl && (file.size ?? 0) <= TextureManager.MAX_INLINE_VIDEO_BYTES) {
+  if (!dataUrl && options.inline !== false && (file.size ?? 0) <= TextureManager.MAX_INLINE_VIDEO_BYTES) {
     try {
       dataUrl = await this.fileToDataUrl(file);
     } catch {

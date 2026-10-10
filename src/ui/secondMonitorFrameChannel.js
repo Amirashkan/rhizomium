@@ -61,7 +61,9 @@ export const SecondMonitorMessage = Object.freeze({
   FEEDBACK_STATE: 'feedback-state',     // { nodeId, width, height, data:Uint8Array } — a feedback node's current sim state (its next-read ping-pong texture); seeds the receiver's sim so a mid-session viewer matches the editor exactly
   FRAGMENT_GRAPH: 'fragment-graph',     // { nodes:[{id,kind,params,inputs}] } — fragment subgraph feeding compute (on structure/expression change)
   FRAGMENT_UNIFORMS: 'fragment-uniforms', // { nodes:[{id,params}] } — per-frame evaluated fragment u_params bytes (static params; streams without a rebuild)
-  TEXTURE: 'texture',   // { nodeId, varKind, bitmap, width, height } — loaded image/video texture (on change)
+  TEXTURE: 'texture',   // { nodeId, varKind, bitmap, width, height } — loaded image texture (on change)
+  VIDEO: 'video',       // { nodeId, file, dataUrl } — a loaded video's SOURCE (on load / on READY). The receiver decodes and plays it itself, so video graphs render natively; only playback state crosses per frame (VIDEO_SYNC), never frames
+  VIDEO_SYNC: 'video-sync', // { videos:[{nodeId,time,paused,rate,loop,loopWanted,trimStart,trimEnd}] } — per-frame playback state of every editor video; the receiver follows it (play/pause/rate/trim, and re-seeks when it drifts)
   FRAME: 'frame',       // { bitmap, sw, sh }  — mirrored pixels (fallback path only)
   MASTER_OPACITY: 'master-opacity', // { opacity } — VJ master fader × any running scene transition, 0..1. The receiver renders its own frames, so the editor's canvas opacity means nothing to it; this carries the level across. Sent on change and on READY
   RENDER_RES: 'render-res', // ADDRESSED. { screenId, maxDim, displayMaxDim } — maxDim is the viewer's compute long edge and the editor always sends -1 (render the output format, so the viewer's sims match exactly); displayMaxDim caps the PRESENTATION surface's long edge in device px (0 = the display's own resolution). The render is letterboxed into the display either way

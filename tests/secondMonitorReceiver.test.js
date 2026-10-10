@@ -923,6 +923,52 @@ describe('secondMonitorReceiver', () => {
       expect(rt.textureManager.injectExternalTexture).toHaveBeenCalledWith('7', expect.objectContaining({ width: 4 }));
     });
 
+    it('plays a broadcast video with its own player, once, and follows the editor playback state', async () => {
+      const rt = installFakeRuntime();
+      const video = {
+        readyState: 4, currentTime: 0, paused: false, ended: false, seeking: false,
+        playbackRate: 1, loop: true, duration: 10,
+        play: vi.fn(() => Promise.resolve()), pause: vi.fn(function () { this.paused = true; }),
+      };
+      rt.textureManager.videos = new Map();
+      rt.textureManager.uploadVideo = vi.fn(async (nodeId) => {
+        rt.textureManager.videos.set(nodeId, { video });
+      });
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.CAPS, tier: TIER.NATIVE_COMPUTE });
+      await settle();
+
+      const file = { name: 'clip.mp4', size: 99, lastModified: 5 };
+      ch.emit({ type: MSG.VIDEO, nodeId: '7', file, dataUrl: null });
+      await settle();
+      expect(rt.textureManager.uploadVideo).toHaveBeenCalledTimes(1);
+      expect(rt.textureManager.uploadVideo).toHaveBeenCalledWith('7', file, { inline: false });
+
+      // The editor re-sends textures on READY / graph changes: the same clip keeps playing.
+      ch.emit({ type: MSG.VIDEO, nodeId: '7', file: { ...file }, dataUrl: null });
+      await settle();
+      expect(rt.textureManager.uploadVideo).toHaveBeenCalledTimes(1);
+
+      // Close to the editor: left alone. Rate, loop and trim follow.
+      video.currentTime = 2.1;
+      ch.emit({ type: MSG.VIDEO_SYNC, videos: [{ nodeId: '7', time: 2, paused: false, rate: 2, loop: false, loopWanted: false, trimStart: 1, trimEnd: 5 }] });
+      expect(video.currentTime).toBe(2.1);
+      expect(video.playbackRate).toBe(2);
+      expect(video.loop).toBe(false);
+      expect(rt.textureManager.videos.get('7')).toMatchObject({ trimStart: 1, trimEnd: 5, loopWanted: false });
+
+      // Drifted: re-seek to the editor's time.
+      video.currentTime = 6;
+      ch.emit({ type: MSG.VIDEO_SYNC, videos: [{ nodeId: '7', time: 3, paused: false, rate: 2, loop: false }] });
+      expect(video.currentTime).toBe(3);
+
+      // Paused in the editor: pause and hold its exact frame.
+      ch.emit({ type: MSG.VIDEO_SYNC, videos: [{ nodeId: '7', time: 3.04, paused: true, rate: 2, loop: false }] });
+      expect(video.pause).toHaveBeenCalled();
+      expect(video.currentTime).toBe(3.04);
+    });
+
     it('renders natively in the native-compute tier', async () => {
       const renderer = makeFakeRenderer();
       const rt = installFakeRuntime();

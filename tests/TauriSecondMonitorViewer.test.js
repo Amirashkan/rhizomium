@@ -691,22 +691,37 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
-  it('forces the pixel fallback while a video texture is loaded (TEXTURE carries one frame, not a stream)', async () => {
+  it('renders a video graph natively: sends the video source once, then per-frame playback state', async () => {
     const renderer = makeFakeRenderer({ tier: 'native-compute' });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });
-    global.window.textureManager = { textures: new Map(), videos: new Map([['7', { video: {} }]]) };
+    const file = { name: 'clip.mp4', size: 1234, lastModified: 1 };
+    const video = { currentTime: 2.5, paused: false, playbackRate: 1.5, loop: true };
+    global.window.textureManager = {
+      textures: new Map([['7', { isVideo: true, file, video }]]),
+      videos: new Map([['7', { video, loopWanted: true, trimStart: 1, trimEnd: 4 }]]),
+    };
     await viewer.open();
     const channel = FakeBroadcastChannel.instances[0];
 
     renderer.emitState(computeSnap('WGSL_VIDEO'));
-    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.FALLBACK);
-    expect(channel.posted.some((m) => m.type === MSG.SHADER)).toBe(false);
-
-    // The video node goes away: back to re-rendering natively.
-    global.window.textureManager.videos.clear();
-    channel.posted.length = 0;
-    renderer.emitState(computeSnap('WGSL_VIDEO'));
+    await flush();
     expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
+    expect(channel.posted.some((m) => m.type === MSG.SHADER)).toBe(true);
+    // The source, not a frame: no pixel copy of the video or the canvas.
+    const sent = channel.posted.find((m) => m.type === MSG.VIDEO);
+    expect(sent).toMatchObject({ nodeId: '7', file, dataUrl: null });
+    expect(channel.posted.some((m) => m.type === MSG.TEXTURE && m.nodeId === '7')).toBe(false);
+    expect(channel.posted.some((m) => m.type === MSG.FRAME)).toBe(false);
+
+    // Every frame carries the editor player's state.
+    channel.posted.length = 0;
+    video.currentTime = 3;
+    renderer.emitState(computeSnap('WGSL_VIDEO'));
+    const sync = channel.posted.find((m) => m.type === MSG.VIDEO_SYNC);
+    expect(sync.videos).toEqual([{
+      nodeId: '7', time: 3, paused: false, rate: 1.5, loop: true, loopWanted: true, trimStart: 1, trimEnd: 4,
+    }]);
+    expect(channel.posted.some((m) => m.type === MSG.VIDEO)).toBe(false); // the source is not re-sent
 
     delete global.window.textureManager;
     await viewer.close();

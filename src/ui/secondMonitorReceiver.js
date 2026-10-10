@@ -228,6 +228,13 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let computeRuntimePromise = null;
   let pendingComputeGraph = null;   // COMPUTE_GRAPH seen before the runtime existed
   let pendingTextures = [];         // TEXTURE messages seen before the runtime existed
+  // Videos are played HERE, by this window's own decoder, from the source the
+  // editor sends once (VIDEO) - so a video graph renders natively instead of
+  // mirroring pixels. Per frame only the editor's playback state arrives
+  // (VIDEO_SYNC) and our player follows it.
+  const VIDEO_DRIFT_S = 0.25;     // re-seek when we are this far from the editor
+  const loadedVideoKeys = new Map(); // node id -> identity of the source playing there
+  const videoLoadSeq = new Map();    // node id -> latest load request (stale loads are dropped)
   let latestComputeUniforms = null; // re-applied once the executor finishes init
   let appliedComputeKey = null;     // dedupe costly graph rebuilds
   const prevPacked = new Map();     // node id -> last packed bytes (re-dispatch detection)
@@ -634,11 +641,80 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   }
 
   function applyTexture(msg) {
-    if (!msg || !msg.bitmap) return;
+    if (!msg) return;
+    if (msg.type === MSG.VIDEO) { applyVideo(msg); return; }
+    if (!msg.bitmap) return;
     if (!computeRuntime) { pendingTextures.push(msg); ensureComputeRuntime(); return; }
+    // A still replaces whatever video this node had, including one still loading.
+    loadedVideoKeys.delete(msg.nodeId);
+    videoLoadSeq.set(msg.nodeId, (videoLoadSeq.get(msg.nodeId) || 0) + 1);
     const tm = computeRuntime.textureManager;
     if (tm && typeof tm.injectExternalTexture === 'function') {
       try { tm.injectExternalTexture(msg.nodeId, msg.bitmap); } catch { /* ignore */ }
+    }
+  }
+
+  function videoSourceKey(msg) {
+    const f = msg.file;
+    if (f) return `file:${f.name || ''}|${f.size || 0}|${f.lastModified || 0}`;
+    return msg.dataUrl ? `data:${msg.dataUrl.length}|${msg.dataUrl.slice(-64)}` : null;
+  }
+
+  function applyVideo(msg) {
+    if (!msg || (!msg.file && !msg.dataUrl)) return;
+    if (!computeRuntime) { pendingTextures.push(msg); ensureComputeRuntime(); return; }
+    const tm = computeRuntime.textureManager;
+    if (!tm || typeof tm.uploadVideo !== 'function') return;
+    const key = videoSourceKey(msg);
+    // The editor re-sends every texture on READY and on graph changes; reloading
+    // the same clip would restart it, so keep the one already playing.
+    if (key && loadedVideoKeys.get(msg.nodeId) === key && tm.videos?.has(msg.nodeId)) return;
+    const seq = (videoLoadSeq.get(msg.nodeId) || 0) + 1;
+    videoLoadSeq.set(msg.nodeId, seq);
+    loadedVideoKeys.set(msg.nodeId, key);
+    const source = msg.file
+      ? Promise.resolve(msg.file)
+      : win.fetch(msg.dataUrl).then((r) => r.blob());
+    source
+      .then((blob) => {
+        if (videoLoadSeq.get(msg.nodeId) !== seq) return null;
+        // Muted: the editor's own player is the one that is heard.
+        return tm.uploadVideo(msg.nodeId, blob, { inline: false });
+      })
+      .catch(() => {
+        if (videoLoadSeq.get(msg.nodeId) === seq) loadedVideoKeys.delete(msg.nodeId);
+      });
+  }
+
+  function applyVideoSync(msg) {
+    const tm = computeRuntime && computeRuntime.textureManager;
+    if (!tm || !tm.videos || !Array.isArray(msg.videos)) return;
+    for (const v of msg.videos) {
+      const entry = tm.videos.get(v.nodeId);
+      const video = entry && entry.video;
+      if (!video || (video.readyState ?? 0) < 1) continue;
+      // Trim and loop are enforced by our own player (TextureManager._enforceTrim).
+      entry.loopWanted = v.loopWanted !== false;
+      entry.trimStart = Math.max(0, Number(v.trimStart) || 0);
+      entry.trimEnd = Math.max(0, Number(v.trimEnd) || 0);
+      entry.playRequested = !v.paused;
+      if (video.loop !== !!v.loop) video.loop = !!v.loop;
+      const rate = Number(v.rate) || 1;
+      if (video.playbackRate !== rate) { try { video.playbackRate = rate; } catch { /* refused */ } }
+      const target = Number(v.time) || 0;
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      let drift = Math.abs((video.currentTime || 0) - target);
+      if (video.loop && duration > 0) drift = Math.min(drift, duration - drift); // across the loop seam
+      if (v.paused) {
+        if (!video.paused) video.pause?.();
+        // Held: show exactly the editor's frame.
+        if (drift > 0.001 && !video.seeking) { try { video.currentTime = target; } catch { /* not seekable */ } }
+        continue;
+      }
+      if (video.paused && !video.ended) video.play?.().catch(() => {});
+      if (drift > VIDEO_DRIFT_S && !video.seeking) {
+        try { video.currentTime = target; } catch { /* not seekable yet */ }
+      }
     }
   }
 
@@ -762,7 +838,11 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         applyFragmentUniforms(d);
         break;
       case MSG.TEXTURE:
+      case MSG.VIDEO:
         applyTexture(d);
+        break;
+      case MSG.VIDEO_SYNC:
+        applyVideoSync(d);
         break;
       case MSG.FRAME:
         if (d.bitmap) setLatest(d.bitmap, d.sw, d.sh);
