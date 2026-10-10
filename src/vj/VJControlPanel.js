@@ -17,6 +17,9 @@ import { makeResizable } from '../ui/utils/resizable.js';
 import { folderPickerKind, readDirectoryHandle, readFileList } from '../performer/ShowFolder.js';
 import { readNarrationFolder, planNarration, applySceneTexts } from './NarrationImport.js';
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
+import { AudioLibrary, formatBytes } from './AudioLibrary.js';
+import { getAudioDeck } from '../audio/audioDeck.js';
+import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 
 // Siblings of SceneManager's 'rhizomium.vj.scenes'.
 const PRESETS_STORAGE_KEY = 'rhizomium.vj.presets';
@@ -72,8 +75,30 @@ const TRANSITION_TYPES = [
 ];
 
 export class VJControlPanel {
-  constructor(editor) {
+  /**
+   * @param {object} editor
+   * @param {object} [options]
+   * @param {AudioLibrary} [options.audioLibrary] the tests' in-memory library.
+   * @param {object} [options.audioDeck] the transport tracks are loaded into;
+   *   left out, the editor's own (src/audio/audioDeck.js).
+   * @param {object} [options.audioClient] the capture client whose events say
+   *   a track started, stopped or was replaced from elsewhere.
+   */
+  constructor(editor, options = {}) {
     this.editor = editor;
+
+    // The audio tab's files, and the transport they are loaded into. The deck
+    // and client are looked up on first use so a panel that never opens its
+    // audio tab never creates the capture client.
+    this.audioLibrary = options.audioLibrary || new AudioLibrary();
+    this.audioLibrary.onChange = () => {
+      if (this.visible && this.activeTab === 'audio') this.refreshAudio();
+    };
+    this._audioDeck = options.audioDeck || null;
+    this._audioClient = options.audioClient || null;
+    this._audioListening = false;
+    this._loadedAudioId = null;
+    this._audioStatus = '';
 
     // Initialize managers
     this.sceneManager = new SceneManager(editor, editor.saveLoadManager);
@@ -84,7 +109,7 @@ export class VJControlPanel {
 
     // UI state
     this.visible = false;
-    this.activeTab = 'scenes'; // 'scenes', 'presets', 'playlist'
+    this.activeTab = 'scenes'; // 'scenes', 'presets', 'playlist', 'audio'
 
     // Performance controls
     this.masterOpacity = 1.0;
@@ -134,6 +159,7 @@ export class VJControlPanel {
     this.createScenesTab();
     this.createPresetsTab();
     this.createPlaylistTab();
+    this.createAudioTab();
 
     // Footer with quick controls
     this.createFooter();
@@ -186,7 +212,8 @@ export class VJControlPanel {
     const tabs = [
       { id: 'scenes', label: 'Scenes', icon: 'scenes', title: 'Scene management' },
       { id: 'presets', label: 'Presets', icon: 'presets', title: 'Parameter presets' },
-      { id: 'playlist', label: 'Playlist', icon: 'playlist', title: 'Playlist & sequencing' }
+      { id: 'playlist', label: 'Playlist', icon: 'playlist', title: 'Playlist & sequencing' },
+      { id: 'audio', label: 'Audio', icon: 'waveform', title: 'Audio files for the audio system' }
     ];
 
     tabs.forEach(tab => {
@@ -407,6 +434,370 @@ export class VJControlPanel {
   }
 
   /**
+   * Create audio tab: the library of audio files, any of which can be put
+   * into the audio system from here.
+   */
+  createAudioTab() {
+    const tab = document.createElement('div');
+    tab.className = 'vj-tab-content';
+    tab.dataset.tab = 'audio';
+    tab.style.display = 'none';
+
+    // What the audio system is playing, and its transport. The same element
+    // the Audio panel drives, so a press here shows up there and back.
+    const transport = document.createElement('div');
+    transport.className = 'vj-playlist-controls vj-audio-transport';
+
+    this.audioPlayBtn = this.createButton('', 'Play / pause the loaded track', () => this.toggleAudioPlayback(), 'play');
+    this.audioStopBtn = this.createButton('', 'Stop the loaded track', () => this.stopAudio(), 'stop');
+    transport.appendChild(this.audioPlayBtn);
+    transport.appendChild(this.audioStopBtn);
+
+    this.audioNowPlaying = document.createElement('div');
+    this.audioNowPlaying.className = 'vj-audio-now';
+    transport.appendChild(this.audioNowPlaying);
+    tab.appendChild(transport);
+
+    const items = document.createElement('div');
+    items.className = 'vj-playlist-items vj-audio-items';
+    tab.appendChild(items);
+    this.audioItems = items;
+
+    // On the list rather than each row: the first click of a double-click
+    // loads the track and redraws the rows, so the row the second click lands
+    // on is a new one.
+    items.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.vj-playlist-actions, input')) return;
+      const row = e.target.closest('.vj-audio-item');
+      if (row) this.loadAudioTrack(row.dataset.audioId, { play: true });
+    });
+
+    // Files dropped anywhere on the tab join the library. Only files: a row
+    // being dragged to reorder is handled by the row.
+    const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+    tab.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      tab.classList.add('vj-audio-dropping');
+    });
+    tab.addEventListener('dragleave', (e) => {
+      if (e.target === tab) tab.classList.remove('vj-audio-dropping');
+    });
+    tab.addEventListener('drop', (e) => {
+      tab.classList.remove('vj-audio-dropping');
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      this.addAudioFiles(e.dataTransfer.files);
+    });
+
+    const buttonGroup = document.createElement('div');
+    buttonGroup.className = 'vj-button-group';
+    const addBtn = this.createButton('Add Audio Files…', 'Add audio files to the list', () => this.pickAudioFiles(), 'add');
+    const clearBtn = this.createButton('Clear All', 'Remove every audio file from the list', () => this.clearAudioLibrary(), 'trash');
+    buttonGroup.appendChild(addBtn);
+    buttonGroup.appendChild(clearBtn);
+    tab.appendChild(buttonGroup);
+
+    this.contentArea.appendChild(tab);
+  }
+
+  /** The transport tracks are loaded into. */
+  audioDeck() {
+    if (!this._audioDeck) this._audioDeck = getAudioDeck();
+    return this._audioDeck;
+  }
+
+  /**
+   * Follow the capture client, so a track started, stopped or replaced from
+   * the Audio panel or the performer repaints the list. Once, on first use.
+   */
+  listenToAudio() {
+    if (this._audioListening) return;
+    let client = this._audioClient;
+    if (!client) {
+      try {
+        client = getBrowserAudioCapture();
+      } catch {
+        return;
+      }
+      this._audioClient = client;
+    }
+    this._audioListening = true;
+    for (const event of ['loaded', 'started', 'stopped', 'error']) {
+      client?.on?.(event, () => {
+        if (this.visible && this.activeTab === 'audio') this.refreshAudio();
+      });
+    }
+  }
+
+  /**
+   * The library track the audio system is holding, if it is one of ours.
+   *
+   * The id remembers what this panel loaded; the name on the element says
+   * whether it is still there, since the Audio panel or the performer can
+   * load something else over it without telling us.
+   */
+  loadedAudioTrackId() {
+    if (!this._loadedAudioId) return null;
+    const track = this.audioLibrary.get(this._loadedAudioId);
+    if (!track) return null;
+    let state;
+    try {
+      state = this.audioDeck().describe();
+    } catch {
+      return null;
+    }
+    return state.loaded && state.file === track.name ? track.id : null;
+  }
+
+  refreshAudio() {
+    if (!this.audioItems) return;
+    this.listenToAudio();
+    this.closeContextMenu();
+    this.audioItems.innerHTML = '';
+
+    let state = { file: '', loaded: false, playing: false };
+    try {
+      state = this.audioDeck().describe();
+    } catch {
+      // No audio system here; the list still works.
+    }
+    const loadedId = this.loadedAudioTrackId();
+
+    // Transport and the line beside it.
+    setIcon(this.audioPlayBtn, state.playing ? 'pause' : 'play', {
+      label: state.playing ? 'Pause' : 'Play'
+    });
+    this.audioPlayBtn.disabled = !state.loaded;
+    this.audioStopBtn.disabled = !state.loaded;
+    const nowText = state.loaded
+      ? `${state.playing ? 'Playing' : 'Loaded'}: ${state.file || 'untitled track'}`
+      : 'Nothing loaded';
+    this.audioNowPlaying.textContent = this._audioStatus ? `${nowText} — ${this._audioStatus}` : nowText;
+    this.audioNowPlaying.title = this.audioNowPlaying.textContent;
+
+    const tracks = this.audioLibrary.getAll();
+    if (tracks.length === 0) {
+      const emptyMsg = document.createElement('div');
+      emptyMsg.className = 'vj-empty-message';
+      emptyMsg.textContent = this.audioLibrary.persistent
+        ? 'No audio files. Add some, or drop them here.'
+        : 'No audio files. Add some, or drop them here (kept for this session only).';
+      this.audioItems.appendChild(emptyMsg);
+      return;
+    }
+
+    tracks.forEach((track, index) => {
+      const row = document.createElement('div');
+      row.className = 'vj-playlist-item vj-audio-item';
+      row.dataset.audioId = track.id;
+      row.title = 'Click to load into the audio system, double-click to load and play';
+      const isLoaded = track.id === loadedId;
+      if (isLoaded) row.classList.add('current');
+
+      const number = document.createElement('div');
+      number.className = 'vj-playlist-number';
+      number.textContent = `${index + 1}.`;
+      row.appendChild(number);
+
+      const info = document.createElement('div');
+      info.className = 'vj-playlist-info';
+      const name = document.createElement('div');
+      name.className = 'vj-playlist-name vj-audio-name';
+      name.textContent = track.name;
+      info.appendChild(name);
+      const details = document.createElement('div');
+      details.className = 'vj-playlist-details';
+      details.textContent = isLoaded
+        ? `${formatBytes(track.size)} · ${state.playing ? 'playing' : 'loaded'}`
+        : formatBytes(track.size);
+      info.appendChild(details);
+      row.appendChild(info);
+
+      const actions = document.createElement('div');
+      actions.className = 'vj-playlist-actions';
+
+      const playBtn = this.createButton('', isLoaded && state.playing ? 'Pause' : 'Load and play', () => {
+        if (isLoaded) this.toggleAudioPlayback();
+        else this.loadAudioTrack(track.id, { play: true });
+      }, isLoaded && state.playing ? 'pause' : 'play');
+      playBtn.className = 'vj-btn-small';
+      actions.appendChild(playBtn);
+
+      const moreBtn = this.createButton('⋯', 'More actions', () => {
+        const rect = moreBtn.getBoundingClientRect();
+        this.showContextMenu(rect.left, rect.bottom, this.audioMenuItems(track.id));
+      });
+      moreBtn.className = 'vj-btn-small';
+      actions.appendChild(moreBtn);
+
+      const removeBtn = this.createButton('×', 'Remove from the list', () => this.removeAudioTrack(track.id));
+      removeBtn.className = 'vj-btn-small vj-btn-danger';
+      actions.appendChild(removeBtn);
+      row.appendChild(actions);
+
+      row.onclick = (e) => {
+        if (e.target.closest('.vj-playlist-actions, input')) return;
+        if (!isLoaded) this.loadAudioTrack(track.id);
+      };
+      row.oncontextmenu = (e) => {
+        e.preventDefault();
+        this.showContextMenu(e.clientX, e.clientY, this.audioMenuItems(track.id));
+      };
+
+      this.makeReorderable(row, index, {
+        group: 'audio',
+        axis: 'y',
+        onMove: (from, to) => this.moveAudioTrack(tracks[from].id, to)
+      });
+
+      this.audioItems.appendChild(row);
+    });
+  }
+
+  /** The audio row's context menu. */
+  audioMenuItems(trackId) {
+    const index = this.audioLibrary.order.indexOf(trackId);
+    const last = this.audioLibrary.order.length - 1;
+    return [
+      { label: 'Load', onSelect: () => this.loadAudioTrack(trackId) },
+      { label: 'Load and play', onSelect: () => this.loadAudioTrack(trackId, { play: true }) },
+      { label: 'Rename…', onSelect: () => this.renameAudioTrack(trackId) },
+      { separator: true },
+      { label: 'Move up', disabled: index <= 0, onSelect: () => this.moveAudioTrack(trackId, index - 1) },
+      { label: 'Move down', disabled: index >= last, onSelect: () => this.moveAudioTrack(trackId, index + 1) },
+      { separator: true },
+      { label: 'Remove', danger: true, onSelect: () => this.removeAudioTrack(trackId) }
+    ];
+  }
+
+  /**
+   * Put a library track into the audio system, in place of whatever it was
+   * playing. Playback carries over: a track picked while the last one was
+   * playing starts playing, so a swap mid-set does not drop to silence.
+   */
+  async loadAudioTrack(trackId, { play = false } = {}) {
+    const track = this.audioLibrary.get(trackId);
+    const file = this.audioLibrary.fileFor(trackId);
+    if (!track || !file) return false;
+
+    const deck = this.audioDeck();
+    let wasPlaying = false;
+    try { wasPlaying = !!deck.describe().playing; } catch { /* nothing loaded */ }
+
+    this._audioStatus = '';
+    try {
+      await deck.load(file, track.name);
+    } catch {
+      this._audioStatus = `could not read ${track.name}`;
+      this.refreshAudio();
+      return false;
+    }
+    this._loadedAudioId = trackId;
+
+    let ok = true;
+    if (play || wasPlaying) {
+      const result = await deck.play();
+      if (!result?.ok) {
+        ok = false;
+        this._audioStatus = 'playback was blocked — press play';
+      } else if (result.stoppedLive) {
+        this._audioStatus = `live input (${result.stoppedLive}) stopped`;
+      }
+    }
+    this.refreshAudio();
+    return ok;
+  }
+
+  async toggleAudioPlayback() {
+    const deck = this.audioDeck();
+    let state;
+    try { state = deck.describe(); } catch { return false; }
+    this._audioStatus = '';
+    if (state.playing) {
+      deck.pause();
+    } else {
+      const result = await deck.play();
+      if (!result?.ok) this._audioStatus = 'playback was blocked — press play';
+      else if (result.stoppedLive) this._audioStatus = `live input (${result.stoppedLive}) stopped`;
+    }
+    this.refreshAudio();
+    return true;
+  }
+
+  stopAudio() {
+    try { this.audioDeck().stop(); } catch { /* nothing loaded */ }
+    this._audioStatus = '';
+    this.refreshAudio();
+  }
+
+  pickAudioFiles() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'audio/*';
+    input.multiple = true;
+    input.onchange = (e) => this.addAudioFiles(e.target.files);
+    input.click();
+  }
+
+  async addAudioFiles(files) {
+    const { added, skipped } = await this.audioLibrary.add(files);
+    this._audioStatus = skipped.length
+      ? `skipped ${skipped.length} file${skipped.length === 1 ? '' : 's'} that ${skipped.length === 1 ? 'is' : 'are'} not audio`
+      : '';
+    if (!this.audioLibrary.persistent && added.length) {
+      this._audioStatus = 'could not save — kept for this session only';
+    }
+    this.refreshAudio();
+    return added;
+  }
+
+  renameAudioTrack(trackId) {
+    const track = this.audioLibrary.get(trackId);
+    const row = this.audioItems?.querySelector(`.vj-audio-item[data-audio-id="${CSS.escape(trackId)}"]`);
+    const nameEl = row?.querySelector('.vj-audio-name');
+    if (!track || !nameEl) return;
+
+    const wasLoaded = this.loadedAudioTrackId() === trackId;
+    this.beginRename(nameEl, track.name, (name) => {
+      this.audioLibrary.rename(trackId, name);
+      // The loaded element is named after the track; keep it naming the new
+      // one, or the loaded marker and every meter label lose it.
+      if (wasLoaded) {
+        const el = this._audioClient?.audioElement || getBrowserAudioCapture().audioElement;
+        if (el?.dataset) el.dataset.fileName = name;
+      }
+      this.refreshAudio();
+    });
+  }
+
+  moveAudioTrack(trackId, toIndex) {
+    this.audioLibrary.move(trackId, toIndex);
+    this.refreshAudio();
+  }
+
+  removeAudioTrack(trackId) {
+    const track = this.audioLibrary.get(trackId);
+    if (!track) return false;
+    if (!confirm(`Remove "${track.name}" from the audio list?`)) return false;
+    // Whatever is already in the audio system keeps playing: removing a file
+    // from the list is not a request for silence.
+    if (this._loadedAudioId === trackId) this._loadedAudioId = null;
+    this.audioLibrary.remove(trackId);
+    this.refreshAudio();
+    return true;
+  }
+
+  clearAudioLibrary() {
+    if (!this.audioLibrary.size) return false;
+    if (!confirm('Remove every audio file from the list?')) return false;
+    this._loadedAudioId = null;
+    this.audioLibrary.clear();
+    this.refreshAudio();
+    return true;
+  }
+
+  /**
    * Keep the scene picker in step with the scene collection, holding the current
    * choice where it still exists.
    */
@@ -593,6 +984,9 @@ export class VJControlPanel {
         break;
       case 'playlist':
         this.refreshPlaylist();
+        break;
+      case 'audio':
+        this.refreshAudio();
         break;
     }
   }
@@ -2159,7 +2553,8 @@ export class VJControlPanel {
     }
 
     // Last, so presets, playlist and settings are in place without waiting on
-    // IndexedDB.
+    // IndexedDB. The audio library is its own store and does not hold scenes up.
+    this.audioLibrary.load();
     if (await this.sceneManager.load()) {
       if (this.activeTab === 'scenes') this.refreshScenes();
       this.syncPlaylistUI();

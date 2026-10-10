@@ -7,7 +7,7 @@
 // fail with VersionError for whichever one opened second).
 
 const DB_NAME = "rhizomium";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 export const BACKUPS_STORE = "backups";
 export const AUTOSAVE_STORE = "autosave";
@@ -18,6 +18,9 @@ export const VIEWER_HANDOFF_STORE = "viewerHandoff";
 // The VJ panel's scene set. Every scene is a full project snapshot, textures
 // included, so a handful of them overflow localStorage.
 export const VJ_SCENES_STORE = "vjScenes";
+// The VJ panel's audio library: the tracks themselves, as Blobs, one record
+// each. Audio files are megabytes apiece, far past what localStorage holds.
+export const VJ_AUDIO_STORE = "vjAudio";
 
 let dbPromise = null;
 
@@ -46,6 +49,9 @@ export function openRhizomiumDB() {
       }
       if (!db.objectStoreNames.contains(VJ_SCENES_STORE)) {
         db.createObjectStore(VJ_SCENES_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(VJ_AUDIO_STORE)) {
+        db.createObjectStore(VJ_AUDIO_STORE, { keyPath: "id" });
       }
     };
 
