@@ -27,6 +27,60 @@ import { getNumericParam, evaluateExpressionSafely } from '../utils/safeExpressi
 export const MIN_RESOLUTION = 64;
 export const MAX_RESOLUTION = 4096;
 
+/**
+ * Auto resolution (the `resolution` parameter at 0) rounds the output size up to a multiple of
+ * this, so dragging a window edge re-rasterises a handful of times rather than on every pixel.
+ */
+const AUTO_RESOLUTION_STEP = 256;
+
+/** What auto resolution falls back to when no renderer is up (tests, headless previews). */
+const AUTO_RESOLUTION_FALLBACK = 1024;
+
+/** Is this node's texture sized from the output rather than from a fixed Resolution? */
+export function textNodeAutoResolution(node) {
+  const raw = node?.params?.resolution;
+  if (raw === undefined || raw === null || raw === '') return true;
+  if (typeof raw === 'string' && raw.trim().startsWith('=')) return false;
+  return Number(raw) <= 0;
+}
+
+/**
+ * The texture size that puts at least one texel under every output pixel the square covers.
+ *
+ * A fixed 1024 square is what made text blurry: the render canvas follows the Output Format, so a
+ * 4K output (or a Cover fit on 1080p) spreads the square over 2000+ pixels and a linear filter
+ * magnifies it ~2x. How many output pixels the square spans depends on the fit — contain maps it
+ * onto the short side, cover and stretch onto the long one.
+ *
+ * @param {object} node
+ * @param {{width:number,height:number}|null} [outputSize] - defaults to the live render canvas
+ * @returns {number}
+ */
+export function autoTextResolution(node, outputSize = currentOutputSize()) {
+  if (!outputSize) return AUTO_RESOLUTION_FALLBACK;
+  const { width, height } = outputSize;
+  const fit = paramString(node, 'fit', 'contain');
+  const span = fit === 'contain' ? Math.min(width, height) : Math.max(width, height);
+  return Math.ceil(span / AUTO_RESOLUTION_STEP) * AUTO_RESOLUTION_STEP;
+}
+
+/** The render canvas's size in device pixels, or null when there isn't one. */
+function currentOutputSize() {
+  const canvas = typeof window !== 'undefined' ? window.gpuRenderer?.canvas : null;
+  const width = canvas?.width;
+  const height = canvas?.height;
+  if (!(width > 0) || !(height > 0)) return null;
+  return { width, height };
+}
+
+/** The adapter's texture size limit, when a device is up, so auto resolution never exceeds it. */
+function maxTextureSide() {
+  const limit = typeof window !== 'undefined'
+    ? window.textureManager?.device?.limits?.maxTextureDimension2D
+    : undefined;
+  return Number.isFinite(limit) && limit > 0 ? Math.min(MAX_RESOLUTION, limit) : MAX_RESOLUTION;
+}
+
 /** Font stacks the `fontFamily` parameter selects between, keyed by the stored value. */
 const FONT_STACKS = {
   'sans-serif': 'Arial, Helvetica, sans-serif',
@@ -170,9 +224,21 @@ export function resolveTextContent(node, decimals = 2) {
 }
 
 /**
+ * Does this node need the periodic refresh TextNodeProcessor runs? Yes when its string reads a live
+ * value, and when its texture is sized from the output — a window resize or a move to another
+ * display has no parameter write to hang a re-raster off either. A static, fixed-size Text node
+ * costs nothing.
+ *
+ * @param {object} node
+ * @returns {boolean}
+ */
+export function textNodeNeedsRefresh(node) {
+  return textNodeHasLiveExpression(node) || (node?.kind === 'Text' && textNodeAutoResolution(node));
+}
+
+/**
  * Does this node's output depend on something that moves on its own (a clock, the audio signal,
- * another node's value)? Only those need the per-frame refresh TextNodeProcessor runs; a static
- * Text node costs nothing.
+ * another node's value)?
  *
  * @param {object} node
  * @returns {boolean}
@@ -278,9 +344,10 @@ export function colorToCss(value, fallback = [1, 1, 1, 1]) {
  * @returns {object} layout description
  */
 export function textNodeLayout(node) {
-  const resolution = Math.round(
-    Math.min(MAX_RESOLUTION, Math.max(MIN_RESOLUTION, evalNumber(node, 'resolution', 1024)))
-  );
+  const requested = textNodeAutoResolution(node)
+    ? autoTextResolution(node)
+    : evalNumber(node, 'resolution', AUTO_RESOLUTION_FALLBACK);
+  const resolution = Math.round(Math.min(maxTextureSide(), Math.max(MIN_RESOLUTION, requested)));
 
   // Size is a fraction of the texture so the look survives a resolution change.
   const fontPx = Math.max(1, evalNumber(node, 'size', 0.25) * resolution);
