@@ -25,7 +25,7 @@
  * warning, never a refusal to start.
  */
 
-import { ACTION_TYPES, normalizeAction, validateAction } from './actions.js';
+import { ACTION_TYPES, normalizeAction, parameterTarget, validateAction } from './actions.js';
 
 /** The format version this build writes. Readers accept anything <= this. */
 export const SCENARIO_VERSION = 1;
@@ -246,8 +246,12 @@ export function normalizeDrive(raw, index = 0) {
     // Node is matched by id first, then by name, then by kind - see
     // ActionExecutor.resolveNode. A scenario written against last week's patch
     // should still find "the Warp node".
-    node: str(input.node ?? input.nodeId),
-    param: str(input.param ?? input.parameter),
+    //
+    // The pair is read by the same function the actions use, so a drive that
+    // arrived as one dotted "ComputeNoise.scale" - the form the rig's own
+    // parameter list is printed in - is the drive it was meant to be rather
+    // than an error at the bottom of the Scenario tab.
+    ...parameterTarget(input),
     min: num(input.min, 0),
     max: num(input.max, 1),
     curve: pick(str(input.curve, 'linear'), CURVES, 'linear'),
@@ -258,18 +262,94 @@ export function normalizeDrive(raw, index = 0) {
   };
 }
 
-/** A timed move inside a section: do this, this far in. */
-function normalizeMove(raw, index = 0) {
-  const input = raw && typeof raw === 'object' ? raw : {};
+/**
+ * How far into a section a move fires, out of whatever shape it arrived in.
+ *
+ * `{"atBars":8}` and `{"at":{"seconds":30}}` are the written forms, but a move
+ * is the one part of a scenario with no worked example in front of whoever is
+ * writing it, so the unit lands beside `at` about as often as inside it:
+ * `{"seconds":30}`, `{"at":30}`, `{"at":"30s"}`. All of them say when, and a
+ * move with no when at all can never fire — so they are read here rather than
+ * reported at the bottom of the Scenario tab.
+ *
+ * A bare number has no unit on it, so it is read in the unit the section
+ * around it is written in: seconds in a section entered and held in seconds,
+ * bars everywhere else. That is the same question `enter` answers with bars,
+ * and the difference is that `enter` is documented and demonstrated — a set
+ * with no pulse in it has nothing to count bars against, so reading "30" as
+ * bars there is a move that fires at a time nobody chose.
+ *
+ * @param {object} input the raw move
+ * @param {'bars'|'seconds'} units what a bare number means here
+ * @returns {{bars: number|null, seconds: number|null}}
+ */
+function moveTime(input, units) {
   const at = input.at && typeof input.at === 'object' ? input.at : {};
-  const bars = input.atBars ?? at.bars;
-  const seconds = input.atSeconds ?? at.seconds;
+  let bars = input.atBars ?? at.bars ?? input.bars;
+  let seconds = input.atSeconds ?? at.seconds ?? input.seconds;
+
+  if (bars === undefined && seconds === undefined) {
+    // A bare `at`: a number, or the way a musician writes one down.
+    const bare = typeof input.at === 'object' ? undefined : input.at;
+    const written = readTime(bare, units);
+    if (written) ({ bars, seconds } = written);
+  }
+
+  return {
+    // Bars win when both are given: a set on a grid is written in bars.
+    bars: bars === undefined ? null : Math.max(0, num(bars, 0)),
+    seconds: seconds === undefined ? null : Math.max(0, num(seconds, 0)),
+  };
+}
+
+const BAR_UNITS = new Set(['b', 'bar', 'bars']);
+const SECOND_UNITS = new Set(['s', 'sec', 'secs', 'second', 'seconds']);
+const MINUTE_UNITS = new Set(['m', 'min', 'mins', 'minute', 'minutes']);
+
+/**
+ * One written time - 12, "12", "30s", "8 bars", "1:30" - as bars or seconds.
+ * Null when there is nothing there to read.
+ */
+function readTime(value, units) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return units === 'seconds' ? { seconds: value } : { bars: value };
+  }
+  if (typeof value !== 'string') return null;
+
+  const text = value.trim().toLowerCase();
+  if (!text) return null;
+
+  // "1:30" - minutes and seconds, which is never a bar count.
+  const clock = text.match(/^(\d+):([0-5]?\d(?:\.\d+)?)$/);
+  if (clock) return { seconds: Number(clock[1]) * 60 + Number(clock[2]) };
+
+  const written = text.match(/^(-?\d+(?:\.\d+)?)\s*([a-z]*)$/);
+  if (!written) return null;
+
+  const amount = Number(written[1]);
+  if (!Number.isFinite(amount)) return null;
+
+  const unit = written[2];
+  if (BAR_UNITS.has(unit)) return { bars: amount };
+  if (SECOND_UNITS.has(unit)) return { seconds: amount };
+  if (MINUTE_UNITS.has(unit)) return { seconds: amount * 60 };
+  // A unit nobody here recognises - "8 beats", "2 phrases" - is not guessed
+  // at: the number is taken in the section's own unit, which is the same
+  // answer a bare number gets.
+  return units === 'seconds' ? { seconds: amount } : { bars: amount };
+}
+
+/** A timed move inside a section: do this, this far in. */
+function normalizeMove(raw, index = 0, units = 'bars') {
+  const input = raw && typeof raw === 'object' ? raw : {};
+  const when = moveTime(input, units);
 
   return {
     id: str(input.id) || `move${index + 1}`,
-    // Bars win when both are given: a set on a grid is written in bars.
-    atBars: bars === undefined ? null : Math.max(0, num(bars, 0)),
-    atSeconds: seconds === undefined ? null : Math.max(0, num(seconds, 0)),
+    atBars: when.bars,
+    atSeconds: when.seconds,
     when: str(input.when),
     // A move fires once per visit to its section unless it says otherwise.
     repeat: Boolean(input.repeat),
@@ -285,23 +365,33 @@ export function normalizeActionList(raw) {
 export function normalizeSection(raw, index = 0) {
   const input = raw && typeof raw === 'object' ? raw : {};
   const name = str(input.name) || str(input.id) || `Section ${index + 1}`;
+  const enter = normalizeEnter(input.enter);
+  const hold = {
+    bars: input.hold?.bars === undefined ? null : Math.max(0, num(input.hold.bars, 0)),
+    seconds: input.hold?.seconds === undefined ? null : Math.max(0, num(input.hold.seconds, 0)),
+  };
+
+  // What a move in this section means by a number with no unit on it. A
+  // section entered and held in seconds is a section off the grid, and a bar
+  // count inside one is a time nobody chose - see moveTime().
+  const inSeconds = (enter.kind === 'seconds' || hold.seconds !== null)
+    && enter.kind !== 'bars' && hold.bars === null;
 
   return {
     id: slugify(input.id ?? input.name, index, 'section'),
     name,
-    enter: normalizeEnter(input.enter),
+    enter,
     // The floor on how long this section stays up once entered. It is what
     // stops a `when` condition that is true at the boundary from strobing
     // between two sections, and it is checked before every exit including a
     // director's.
-    hold: {
-      bars: input.hold?.bars === undefined ? null : Math.max(0, num(input.hold.bars, 0)),
-      seconds: input.hold?.seconds === undefined ? null : Math.max(0, num(input.hold.seconds, 0)),
-    },
+    hold,
     look: normalizeLook(input.look ?? input.scene),
     transition: normalizeTransition(input.transition),
     drives: arr(input.drives).slice(0, LIMITS.drivesPerSection).map(normalizeDrive),
-    moves: arr(input.moves).slice(0, LIMITS.movesPerSection).map(normalizeMove),
+    moves: arr(input.moves)
+      .slice(0, LIMITS.movesPerSection)
+      .map((move, position) => normalizeMove(move, position, inSeconds ? 'seconds' : 'bars')),
     onEnter: normalizeActionList(input.onEnter),
     onExit: normalizeActionList(input.onExit),
     // Where to go when nothing else says. Empty means the next in the list.
@@ -528,10 +618,16 @@ export function validateScenario(scenario, known = {}) {
 
     for (const drive of section.drives) {
       if (!signalNames.has(drive.signal)) {
-        errors.push(at(where, `Drive reads signal "${drive.signal}", which is not declared.`));
+        errors.push(at(where, `Drive "${drive.id}" reads signal "${drive.signal}", which is not declared.`));
       }
       if (!drive.node || !drive.param) {
-        errors.push(at(where, 'A drive needs both a node and a parameter.'));
+        // Named, and with what it did have in it: five drives in a section and
+        // five identical lines saying one of them is wrong is a report an
+        // artist has to go and diff the document against.
+        const got = drive.node ? `node "${drive.node}" and no parameter`
+          : drive.param ? `parameter "${drive.param}" and no node`
+          : 'neither';
+        errors.push(at(where, `Drive "${drive.id}" (signal "${drive.signal}") needs both a node and a parameter — it has ${got}. Write them as two fields: "node": "Warp", "param": "amount".`));
       }
       if (drive.min === drive.max) {
         warnings.push(at(where, `Drive on ${drive.node}.${drive.param} has min === max, so it will hold still.`));
@@ -540,7 +636,7 @@ export function validateScenario(scenario, known = {}) {
 
     for (const move of section.moves) {
       if (move.atBars === null && move.atSeconds === null && !move.when) {
-        errors.push(at(where, `Move "${move.id}" has no time and no condition, so it can never fire.`));
+        errors.push(at(where, `Move "${move.id}" has no time and no condition, so it can never fire. Give it "atSeconds", "atBars" or "when".`));
       }
       if (move.when) {
         const problem = checkCondition(move.when, signalNames);
