@@ -48,6 +48,25 @@ export class SceneManager {
   }
 
   /**
+   * Replace a saved scene's project data with the editor's current state.
+   * Keep its ID, name, notes, playlist references, and ordering intact.
+   */
+  overrideSceneWithCurrentState(sceneId) {
+    const scene = this.scenes.get(sceneId);
+    if (!scene || !this.saveLoadManager?.exportProject) return false;
+    try {
+      const projectData = this.saveLoadManager.exportProject();
+      if (!projectData || !Array.isArray(projectData.nodes)) return false;
+      scene.data = projectData;
+      scene.duration = projectData.timeline?.duration || scene.duration || 10;
+      scene.updatedAt = Date.now();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Remove a scene from the collection
    */
   removeScene(sceneId) {
