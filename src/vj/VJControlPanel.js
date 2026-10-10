@@ -14,6 +14,9 @@ import { BeatSyncManager } from './BeatSyncManager.js';
 import { setMasterOpacity } from './MasterOutput.js';
 import { makeDraggable } from '../ui/utils/draggable.js';
 import { makeResizable } from '../ui/utils/resizable.js';
+import { folderPickerKind, readDirectoryHandle, readFileList } from '../performer/ShowFolder.js';
+import { readNarrationFolder, planNarration, applySceneTexts } from './NarrationImport.js';
+import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
 
 // Siblings of SceneManager's 'rhizomium.vj.scenes'.
 const PRESETS_STORAGE_KEY = 'rhizomium.vj.presets';
@@ -386,6 +389,19 @@ export class VJControlPanel {
     addGroup.appendChild(addBtn);
     addGroup.appendChild(clearBtn);
     tab.appendChild(addGroup);
+
+    // The narrator's words, read from a transmissions folder into the Text
+    // nodes of the scenes above, in playlist order.
+    const narrationGroup = document.createElement('div');
+    narrationGroup.className = 'vj-button-group';
+    const narrationBtn = this.createButton(
+      'Narration from Folder…',
+      'Read the narration from a transmissions project, episode or projects folder and '
+        + 'write it into the Text nodes of the playlist scenes, in order',
+      () => this.importNarrationFromFolder()
+    );
+    narrationGroup.appendChild(narrationBtn);
+    tab.appendChild(narrationGroup);
 
     this.contentArea.appendChild(tab);
   }
@@ -1379,6 +1395,101 @@ export class VJControlPanel {
       card.parentElement?.querySelectorAll('.vj-drop-before, .vj-drop-after')
         .forEach(el => el.classList.remove('vj-drop-before', 'vj-drop-after'));
     });
+  }
+
+  /**
+   * Pick a folder and put its narration into the playlist's scenes.
+   *
+   * Shows what will change and asks first: it rewrites saved scenes, and the
+   * text it replaces is not kept anywhere else.
+   */
+  async importNarrationFromFolder() {
+    const rows = this.playlistManager.getPlaylist();
+    if (!rows.length) {
+      alert('The playlist is empty. Add the scenes for the show first, in order.');
+      return null;
+    }
+
+    let entries;
+    try {
+      entries = folderPickerKind() === 'directory'
+        ? await readDirectoryHandle(await window.showDirectoryPicker({ id: 'rhizo-narration', mode: 'read' }))
+        : await this.pickNarrationFolderFallback();
+    } catch (error) {
+      if (error?.name === 'AbortError') return null;
+      alert(`Could not read that folder: ${error?.message || error}`);
+      return null;
+    }
+    if (!entries) return null;
+
+    return this.applyNarrationEntries(entries, rows);
+  }
+
+  /** The folder picker for browsers with no showDirectoryPicker. */
+  pickNarrationFolderFallback() {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.webkitdirectory = true;
+      input.multiple = true;
+      input.addEventListener('change', () => {
+        const files = Array.from(input.files || []);
+        resolve(files.length ? readFileList(files) : null);
+      });
+      input.click();
+    });
+  }
+
+  /**
+   * Read, plan, confirm, write. Split from the picker so it can be driven
+   * with entries directly.
+   */
+  async applyNarrationEntries(entries, rows = this.playlistManager.getPlaylist()) {
+    const folder = await readNarrationFolder(entries);
+    const plan = planNarration(rows, (id) => this.sceneManager.getScene(id), folder);
+    const writable = plan.rows.filter((row) => row.changes.length);
+
+    const lines = plan.rows.map((row) => {
+      const what = row.changes.length
+        ? `${row.changes.length} text${row.changes.length === 1 ? '' : 's'}`
+        : `skipped — ${row.note}`;
+      return `${row.index + 1}. ${row.sceneName}  ←  ${row.source}  (${what})`;
+    });
+    const summary = [...lines, ...(plan.problems.length ? ['', ...plan.problems] : [])].join('\n');
+
+    if (!writable.length) {
+      alert(`Nothing to write.\n\n${summary}`);
+      return { written: 0, plan };
+    }
+    if (!confirm(`Replace the text in these scenes?\n\n${summary}`)) {
+      return { written: 0, plan };
+    }
+
+    let written = 0;
+    for (const row of writable) {
+      const scene = this.sceneManager.getScene(row.sceneId);
+      const count = applySceneTexts(scene?.data, row.changes);
+      if (count && scene) scene.updatedAt = Date.now();
+      written += count;
+    }
+
+    // The scene on screen is the editor's live graph, not the saved copy.
+    // Write it there too: it should show the new words now, and with
+    // auto-override on the next edit would otherwise save the old ones back.
+    const live = writable.find((row) => row.sceneId === this.sceneManager.activeSceneId);
+    if (live && this.editorShowsVJScene() && this.editor?.graph) {
+      applySceneTexts(this.editor.graph, live.changes, (node) => {
+        // A texture that fails to redraw is one frame of old text, not a
+        // reason to leave the saved scenes unwritten.
+        try { refreshTextNodeTexture(node); } catch { /* redrawn on the next rebuild */ }
+      });
+      this.editor.onChange?.();
+    }
+
+    await this.persistScenes();
+    this.refreshScenes();
+    this.refreshPlaylist();
+    return { written, plan };
   }
 
   /**
