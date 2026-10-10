@@ -267,8 +267,13 @@ export class Timeline {
 
     // Use loop region if loop is enabled, otherwise use full duration
     if (this.loop) {
-      const loopEnd = Math.min(this.loopEnd, this.duration);
-      const loopStart = Math.max(0, Math.min(this.loopStart, loopEnd));
+      let loopEnd = Math.min(this.loopEnd, this.duration);
+      let loopStart = Math.max(0, Math.min(this.loopStart, loopEnd));
+      // A zero-length region would pin the playhead in place; loop the whole timeline instead.
+      if (loopEnd - loopStart <= 1e-6) {
+        loopStart = 0;
+        loopEnd = this.duration;
+      }
 
       if (this.currentTime > loopEnd) {
         // Wrap to loop start
