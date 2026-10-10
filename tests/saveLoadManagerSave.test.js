@@ -23,6 +23,7 @@ function makeStub(overrides = {}) {
     _sanitizeFileName: P._sanitizeFileName,
     _suggestedFileName: P._suggestedFileName,
     _writeToHandle: P._writeToHandle,
+    exportProjectFile: P.exportProjectFile,
     _encodeForFile: P._encodeForFile,
     _fileMimeType: P._fileMimeType,
     _promptForName: P._promptForName,

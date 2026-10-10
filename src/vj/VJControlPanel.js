@@ -1985,6 +1985,16 @@ export class VJControlPanel {
   }
 
   /**
+   * The audio tab's tracks with their bytes, for the project file only. Kept
+   * out of exportSet(): reading every track is async and can run to many
+   * megabytes, which the stored previous set and the scene store should not
+   * carry.
+   */
+  exportAudioTracks() {
+    return this.audioLibrary.exportTracks();
+  }
+
+  /**
    * Replace the set with one from a project file, or with an empty one when
    * `set` is null. Written through to browser storage so a reload shows the
    * project's set and not the one before it.
@@ -2009,6 +2019,13 @@ export class VJControlPanel {
       if (set.scenes) this.sceneManager.importScenes(set.scenes);
       if (set.presets) this.presetManager.importPresets(set.presets);
       if (set.playlist) this.playlistManager.importPlaylist(set.playlist);
+      // Only a set that carries tracks replaces the audio list: a set without
+      // them (an older file, a kept previous set) must not delete the files
+      // the artist added, which nothing could bring back.
+      if (Array.isArray(set.audio) && set.audio.length) {
+        this._loadedAudioId = null;
+        await this.audioLibrary.importTracks(set.audio);
+      }
     }
     if (this.playlistLoopCheck) {
       this.playlistLoopCheck.checked = this.playlistManager.loop;

@@ -68,6 +68,7 @@ describe('a project file on disk', () => {
 describe('which encoding a save uses', () => {
   const manager = () => ({
     exportProject: () => ({ app: 'Rhizomium-Web', nodes: [] }),
+    exportProjectFile: SaveLoadManager.prototype.exportProjectFile,
     _encodeForFile: SaveLoadManager.prototype._encodeForFile,
     _fileMimeType: SaveLoadManager.prototype._fileMimeType,
   });

@@ -485,6 +485,24 @@ exportViewerControls() {
 }
 
 /**
+ * The project as a saved file carries it: the VJ set, and with it the audio
+ * tab's tracks inlined, so the file opens with the playlists built for it.
+ */
+async exportProjectFile() {
+  const projectData = this.exportProject({ includeVJSet: true });
+  if (projectData?.vjSet) {
+    try {
+      const audio = await window.vjControlPanel?.exportAudioTracks?.();
+      if (Array.isArray(audio) && audio.length) projectData.vjSet.audio = audio;
+    } catch (error) {
+      // The patch and the rest of the set still save without the tracks.
+      window.errorHandler?.handleError(error, { component: 'vj-audio-export' });
+    }
+  }
+  return projectData;
+}
+
+/**
  * Export the VJ panel's set, or null when there is no panel.
  */
 exportVJSet() {
@@ -1209,7 +1227,7 @@ async reinitializeWebGPU() {
 
   async saveToFile(filename = null, format = "json") {
     try {
-      const projectData = this.exportProject({ includeVJSet: true });
+      const projectData = await this.exportProjectFile();
       const timestamp = new Date()
         .toISOString()
         .slice(0, 19)
@@ -2630,7 +2648,7 @@ importConnections(connectionData) {
    * JSON for a .json, which stays human-readable interchange.
    */
   async _encodeForFile(name) {
-    const projectData = this.exportProject({ includeVJSet: true });
+    const projectData = await this.exportProjectFile();
     if (/\.json$/i.test(String(name || ""))) {
       return JSON.stringify(projectData, null, 2);
     }

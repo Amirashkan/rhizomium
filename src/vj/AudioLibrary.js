@@ -17,6 +17,7 @@
  */
 
 import { runTransaction, VJ_AUDIO_STORE } from '../core/rhizomiumDB.js';
+import { dataUrlToBlob } from '../core/dataUrl.js';
 
 const ORDER_RECORD_ID = '__order';
 
@@ -240,6 +241,50 @@ export class AudioLibrary {
     return this._enqueue(() => this._writeOrder().then(() => true));
   }
 
+  /**
+   * The tracks in running order, bytes inlined, as a project file carries
+   * them. A track that cannot be read is left out rather than failing the save.
+   *
+   * @returns {Promise<{name: string, type: string, data: string}[]>}
+   */
+  async exportTracks() {
+    const out = [];
+    for (const id of [...this.order]) {
+      const record = this.tracks.get(id);
+      if (!record?.blob) continue;
+      try {
+        out.push({ name: record.name, type: record.type || record.blob.type || '', data: await blobToDataUrl(record.blob, record.type) });
+      } catch {
+        // Unreadable bytes: the rest of the list still saves.
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Replace the library with tracks from a project file. Entries that do not
+   * decode are skipped.
+   */
+  async importTracks(entries) {
+    const files = [];
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      if (typeof entry?.data !== 'string') continue;
+      try {
+        const blob = dataUrlToBlob(entry.data);
+        const type = entry.type || blob.type || '';
+        const name = String(entry.name || `Track ${files.length + 1}`);
+        files.push(typeof File === 'function'
+          ? new File([blob], name, { type })
+          : Object.assign(blob, { name }));
+      } catch {
+        // A damaged entry costs only itself.
+      }
+    }
+    this.clear();
+    const { added } = await this.add(files);
+    return added;
+  }
+
   clear() {
     const ids = [...this.order];
     if (!ids.length) return Promise.resolve(false);
@@ -252,6 +297,17 @@ export class AudioLibrary {
       return true;
     });
   }
+}
+
+/** A Blob as a base64 data: URL, for the project file. */
+function blobToDataUrl(blob, type) {
+  const source = type && !blob.type ? new Blob([blob], { type }) : blob;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error || new Error('Could not read the track.'));
+    reader.readAsDataURL(source);
+  });
 }
 
 /** "3.4 MB", for the row under a track's name. */

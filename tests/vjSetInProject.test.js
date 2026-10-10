@@ -92,6 +92,18 @@ describe('VJ set in the project file', () => {
     expect(reloaded.sceneManager.getAllScenes().map(s => s.name)).toEqual(['Opener', 'Drop']);
   });
 
+  it('saves the audio tab\'s tracks with the project file', async () => {
+    const panel = await makePanel();
+    panels.push(panel);
+    panel.exportAudioTracks = vi.fn(async () => [{ name: 'bed.mp3', type: 'audio/mpeg', data: 'data:audio/mpeg;base64,eA==' }]);
+    window.vjControlPanel = panel;
+
+    const file = await makeManager().exportProjectFile();
+    expect(file.vjSet.audio.map(t => t.name)).toEqual(['bed.mp3']);
+    // Nothing else reads the tracks.
+    expect(makeManager().exportProject({ includeVJSet: true }).vjSet).not.toHaveProperty('audio');
+  });
+
   it('keeps the set out of every export but the project file', async () => {
     const panel = await makePanel();
     panels.push(panel);

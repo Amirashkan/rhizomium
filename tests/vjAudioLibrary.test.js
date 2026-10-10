@@ -179,3 +179,42 @@ describe('the VJ panel audio tab', () => {
     expect(deck.state.playing).toBe(true);
   });
 });
+
+describe('the audio list in the project file', () => {
+  it('round-trips the tracks, bytes and order included', async () => {
+    const source = new AudioLibrary(memoryStore());
+    await source.add([audio('intro.mp3'), new File(['wave'], 'drop.wav', { type: 'audio/wav' })]);
+    await source.move(source.order[1], 0);
+
+    const saved = JSON.parse(JSON.stringify(await source.exportTracks()));
+    expect(saved.map((t) => t.name)).toEqual(['drop.wav', 'intro.mp3']);
+
+    const store = memoryStore();
+    const target = new AudioLibrary(store);
+    await target.add([audio('other.mp3')]);
+    await target.importTracks(saved);
+
+    expect(target.getAll().map((t) => t.name)).toEqual(['drop.wav', 'intro.mp3']);
+    expect(await target.fileFor(target.order[0]).text()).toBe('wave');
+    // Written through, so a reload shows the opened project's tracks.
+    const reloaded = new AudioLibrary(store);
+    await reloaded.load();
+    expect(reloaded.getAll().map((t) => t.name)).toEqual(['drop.wav', 'intro.mp3']);
+  });
+
+  it('replaces the list only when the set carries tracks', async () => {
+    const { panel, library } = makePanel();
+    await panel.ready;
+    await library.add([audio('keep.mp3')]);
+
+    await panel.importSet({ version: 1 });
+    await panel.importSet(null);
+    expect(library.getAll().map((t) => t.name)).toEqual(['keep.mp3']);
+
+    const other = new AudioLibrary(memoryStore());
+    await other.add([audio('project.mp3')]);
+    await panel.importSet({ version: 1, audio: await other.exportTracks() });
+    expect(library.getAll().map((t) => t.name)).toEqual(['project.mp3']);
+  });
+});
+
