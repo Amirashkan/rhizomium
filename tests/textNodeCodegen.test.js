@@ -20,6 +20,8 @@ import {
   colorToCss,
   resolveTextContent,
   textNodeHasLiveExpression,
+  textNodeNeedsRefresh,
+  autoTextResolution,
 } from '../src/core/TextRasterizer.js';
 import { TextNodeProcessor } from '../src/core/TextNodeProcessor.js';
 import { SHARED_SAMPLER } from '../src/gpu/sharedSamplers.js';
@@ -183,7 +185,7 @@ describe('Text node definition', () => {
     expect(node.params.fontFamily).toBe('sans-serif');
     expect(node.params.align).toBe('center');
     expect(node.params.size).toBe(0.25);
-    expect(node.params.resolution).toBe(1024);
+    expect(node.params.resolution).toBe(0); // auto: follows the output
     expect(node.params.wrap).toBe('clamp');
     expect(node.params.color).toEqual([1, 1, 1, 1]);
   });
@@ -209,6 +211,28 @@ describe('Text node layout', () => {
   it('clamps the resolution to what the node is willing to allocate', () => {
     expect(textNodeLayout(node({ resolution: 999999 })).resolution).toBe(4096);
     expect(textNodeLayout(node({ resolution: 1 })).resolution).toBe(64);
+  });
+
+  it('sizes an auto-resolution texture to the output so the text is never magnified', () => {
+    // 2x display, full-screen 16:9: contain maps the square onto the short side, cover onto the long.
+    const out = { width: 2880, height: 1620 };
+    expect(autoTextResolution(node({}), out)).toBe(1792);
+    expect(autoTextResolution(node({ fit: 'cover' }), out)).toBe(3072);
+    expect(autoTextResolution(node({ fit: 'stretch' }), out)).toBe(3072);
+    // Rounded up to a step, so a window drag doesn't re-rasterise on every pixel.
+    expect(autoTextResolution(node({}), { width: 800, height: 601 })).toBe(768);
+  });
+
+  it('follows the live render canvas when Resolution is 0', () => {
+    window.gpuRenderer = { canvas: { width: 1000, height: 3000 } };
+    try {
+      expect(textNodeLayout(node({ resolution: 0 })).resolution).toBe(1024);
+      expect(textNodeLayout(node({ resolution: 0, fit: 'cover' })).resolution).toBe(3072);
+      // An explicit Resolution still wins.
+      expect(textNodeLayout(node({ resolution: 512 })).resolution).toBe(512);
+    } finally {
+      delete window.gpuRenderer;
+    }
   });
 
   it('splits on newlines and stacks the lines by line height', () => {
@@ -414,6 +438,10 @@ describe('TextNodeProcessor', () => {
       { id: '3', kind: 'Circle', params: {} },
     ];
     for (const n of nodes) if (textNodeHasLiveExpression(n)) visited.push(n.id);
+    // The fixtures leave Resolution unset (auto), which also needs the refresh: a resize has no
+    // parameter write to re-rasterise from.
+    expect(nodes.filter(textNodeNeedsRefresh).map((n) => n.id)).toEqual(['1', '2']);
+    expect(textNodeNeedsRefresh({ kind: 'Text', params: { text: 'static', resolution: 1024 } })).toBe(false);
     proc.update(graph(nodes), { now: 1000 });
 
     expect(visited).toEqual(['2']);

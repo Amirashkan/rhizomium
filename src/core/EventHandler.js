@@ -524,6 +524,7 @@ export class EventHandler {
         target.closest(
           ".ctx-menu, .radial-menu, .panel, #param-panel, .param-panel, " +
             ".timeline-panel, .preview-header, .preview-controls, " +
+            ".vj-control-panel, .vj-context-menu, " +
             "input, textarea, select, button, a",
         )
       );

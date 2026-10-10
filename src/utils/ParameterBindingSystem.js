@@ -41,14 +41,19 @@ export class ParameterBindingSystem {
       this.updateBoundParameters(data.node, data.parameterName, data.newValue, data.source);
     });
 
-    // Listen for keyboard shortcuts
+    // Listen for keyboard shortcuts. Only claim the key when there is a
+    // focused parameter to act on: Mod+Shift+V is also View → VJ Control, and
+    // an unconditional preventDefault here would swallow it before the
+    // shortcut dispatcher on window ever sees it.
     document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === 'c' && e.shiftKey) {
-          e.preventDefault();
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+        const key = e.key.toLowerCase();
+        if (key !== 'c' && key !== 'v') return;
+        if (!this.getSelectedNode() || !this.getSelectedParameter()) return;
+        e.preventDefault();
+        if (key === 'c') {
           this.copyParameterAsReference();
-        } else if (e.key === 'v' && e.shiftKey) {
-          e.preventDefault();
+        } else {
           this.pasteParameterReference();
         }
       }

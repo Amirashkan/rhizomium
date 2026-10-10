@@ -6,6 +6,9 @@
 
 import { setTransitionOpacity, clearTransitionOpacity } from './MasterOutput.js';
 
+// SaveLoadManager.importProject's `source` for a scene loaded by the VJ panel.
+export const VJ_SCENE_IMPORT_SOURCE = 'vj-scene';
+
 export class TransitionManager {
   constructor(editor) {
     this.editor = editor;
@@ -63,7 +66,7 @@ export class TransitionManager {
     try {
       // Handle instant transitions
       if (type === TransitionManager.TRANSITIONS.CUT || duration === 0) {
-        await this.editor.saveLoadManager.importProject(targetSceneData);
+        await this.loadScene(targetSceneData);
         return true;
       }
 
@@ -79,7 +82,7 @@ export class TransitionManager {
           break;
 
         default:
-          await this.editor.saveLoadManager.importProject(targetSceneData);
+          await this.loadScene(targetSceneData);
       }
 
       return true;
@@ -93,6 +96,14 @@ export class TransitionManager {
   }
 
   /**
+   * Load a scene into the editor, tagged so the VJ panel's auto-override knows
+   * the editor is showing a scene it put there.
+   */
+  loadScene(sceneData) {
+    return this.editor.saveLoadManager.importProject(sceneData, { source: VJ_SCENE_IMPORT_SOURCE });
+  }
+
+  /**
    * Execute crossfade transition
    */
   async executeCrossfade(targetSceneData, token) {
@@ -100,7 +111,7 @@ export class TransitionManager {
     await this.fadeOutput(1.0, 0.0, this.transitionDuration / 2, token);
 
     // Load new scene at 0 opacity
-    await this.editor.saveLoadManager.importProject(targetSceneData);
+    await this.loadScene(targetSceneData);
 
     // Fade in new scene
     await this.fadeOutput(0.0, 1.0, this.transitionDuration / 2, token);
@@ -116,7 +127,7 @@ export class TransitionManager {
     await this.fadeToColor(color, 0.0, 1.0, this.transitionDuration / 2, token);
 
     // Load new scene while color overlay is visible
-    await this.editor.saveLoadManager.importProject(targetSceneData);
+    await this.loadScene(targetSceneData);
 
     // Fade from color
     await this.fadeToColor(color, 1.0, 0.0, this.transitionDuration / 2, token);

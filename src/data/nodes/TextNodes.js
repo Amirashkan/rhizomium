@@ -180,11 +180,14 @@ export const TextNodes = {
       {
         name: "resolution",
         type: "int",
-        default: 1024,
-        min: 64,
+        default: 0,
+        min: 0,
         max: 4096,
         label: "Resolution",
-        description: "Size of the rasterised texture, per side",
+        description:
+          "Size of the rasterised texture, per side. 0 (auto) matches the output's pixel size so "
+          + "text stays sharp at any window size or display density; raise it when a Transform "
+          + "zooms in on the text.",
         group: "Texture",
         groupCollapsed: true,
       },

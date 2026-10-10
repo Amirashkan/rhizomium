@@ -58,6 +58,12 @@ export class SaveLoadManager {
     // find it - so the file-level dirty bit is tracked on its own.
     this.hasUnsavedFileChanges = false;
     this.isImporting = false;
+    // Every import bumps importCount, and a successful one records the
+    // `source` its caller passed (null when none). The VJ panel reads these to
+    // tell a scene it loaded apart from any other project that has replaced it
+    // since - a file opened, a backup restored - before auto-overriding.
+    this.importCount = 0;
+    this.lastImportSource = null;
     this._lastAutosaveHash = null;
     this._lastBackupHash = null;
 
@@ -485,6 +491,8 @@ exportViewerPage() {
 async importProject(projectData, options = {}) {
   try {
     this.isImporting = true;
+    this.importCount++;
+    this.lastImportSource = null;
 
     const {
       clearExisting = true,
@@ -736,6 +744,7 @@ async importProject(projectData, options = {}) {
       this.importViewport3D(projectData.viewport3D);
     }
 
+    this.lastImportSource = options.source || null;
     return true;
 
   } catch (error) {

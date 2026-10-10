@@ -203,6 +203,11 @@ export class TimelineManager {
    * Start playback
    */
   play() {
+    // Without a loop, playback stops at the end; pressing Play there again
+    // starts over instead of stopping on the very next frame.
+    if (!this.timeline.loop && this.timeline.currentTime >= this.timeline.duration) {
+      this.setCurrentTime(0);
+    }
     this.timeline.playing = true;
     if (this.onPlayStateChange) {
       this.onPlayStateChange(true);
@@ -270,6 +275,12 @@ export class TimelineManager {
 
     if (this.onTimeChange) {
       this.onTimeChange(this.timeline.currentTime);
+    }
+
+    // advanceTime() stops a non-looping timeline at its end; tell the panel so
+    // the button goes back to Play.
+    if (!this.timeline.playing && this.onPlayStateChange) {
+      this.onPlayStateChange(false);
     }
   }
 
@@ -749,10 +760,17 @@ export class TimelineManager {
    * @param {number} duration - Duration in seconds
    */
   setDuration(duration) {
+    const previousDuration = this.timeline.duration;
     this.timeline.duration = Math.max(0.1, duration);
-    // Adjust loop end if it exceeds new duration
-    if (this.timeline.loopEnd > this.timeline.duration) {
+    // A loop region that spanned the whole timeline keeps spanning it. Leaving
+    // loopEnd at the old duration made a lengthened timeline loop back to the
+    // start during playback before it ever reached the keyframes added past it,
+    // while scrubbing still showed them.
+    if (this.timeline.loopEnd >= previousDuration || this.timeline.loopEnd > this.timeline.duration) {
       this.timeline.loopEnd = this.timeline.duration;
+    }
+    if (this.timeline.loopStart > this.timeline.loopEnd) {
+      this.timeline.loopStart = 0;
     }
   }
 

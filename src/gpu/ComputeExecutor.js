@@ -163,10 +163,13 @@ export class ComputeExecutor {
     // state) instead of tearing it down and recreating it on every rebuild.
     this._reuseContext = null;
 
-    // Serializes overlapping initialize() calls. initialize() clears
-    // computeManagers up front and rebuilds asynchronously; if a second call
-    // started mid-rebuild it would snapshot an already-empty manager map, defeat
-    // the reuse path, and wipe every feedback node's accumulated state. _initInFlight
+    // The maps an initialize() pass builds into before swapping them in.
+    this._staging = null;
+
+    // Serializes overlapping initialize() calls. initialize() rebuilds
+    // asynchronously; if a second call started mid-rebuild it would snapshot
+    // managers the first pass is about to replace, defeat the reuse path, and
+    // wipe every feedback node's accumulated state. _initInFlight
     // holds the running rebuild promise; _initQueued requests one more pass after it.
     this._initInFlight = null;
     this._initQueued = false;
@@ -299,8 +302,41 @@ export class ComputeExecutor {
         reused: new Set(),
       };
       oldFallback = this.fallbackTexture;
-
       this.fallbackTexture = null;
+    }
+
+    // Build the new managers off to the side and swap them in at the end, in one
+    // synchronous step. The rebuild awaits between nodes, and the render loop runs
+    // in those gaps: clearing the live maps up front left execute() with no
+    // managers and an empty execution order until the pass finished. A rebuild on
+    // every frame — timeline playback animating a parameter — then never let a
+    // compute node dispatch at all, so the picture held still and jumped to the
+    // end value once the keyframes stopped changing it. Until the swap, execute()
+    // keeps dispatching the previous managers (reused ones are the same objects).
+    const staging = { managers: new Map(), textures: new Map() };
+    this._staging = staging;
+    this._reuseContext = reuseContext;
+
+    // Create fallback texture
+    this.createFallbackTexture();
+
+    try {
+      for (const [nodeId, nodeData] of (registry || [])) {
+        await this.initializeComputeNode(nodeId, nodeData);
+      }
+    } catch (error) {
+      // The previous managers are still the live ones; drop the half-built set.
+      for (const [id, m] of staging.managers) {
+        if (!reuseContext?.reused.has(id)) m.destroy?.();
+      }
+      this._reinitializing = false;
+      throw error;
+    } finally {
+      this._staging = null;
+      this._reuseContext = null;
+    }
+
+    if (reuseContext) {
       this.computeManagers.clear();
       this.computeNodes.clear();
       // Preserve entries owned by an external producer (the 3D Field
@@ -310,24 +346,18 @@ export class ComputeExecutor {
       // frame — and a render firing in that gap samples nothing, blacking out
       // any downstream (e.g. mapper -> OutputFinal). Reference params trigger
       // frequent rebuilds, so that gap was hit constantly.
-      if (this.externalOutputNodeIds && this.externalOutputNodeIds.size > 0) {
-        for (const id of this.computeTextures.keys()) {
-          if (!this.externalOutputNodeIds.has(id)) {
-            this.computeTextures.delete(id);
-          }
+      for (const id of [...this.computeTextures.keys()]) {
+        if (!this.externalOutputNodeIds?.has(id)) {
+          this.computeTextures.delete(id);
         }
-      } else {
-        this.computeTextures.clear();
       }
       this.inputHashes.clear();
       // nodeOutputs is intentionally NOT cleared here. Old entries keep the
       // previous output textures alive so _lookupTextureBinding continues
-      // returning the last-dispatched (visually correct) texture while new
-      // managers initialise. As each new manager dispatches for the first
-      // time it calls nodeOutputs.set(nodeId, newTexture), which is then
-      // detected as a change by _updateComputeTextureBindings → bind groups
-      // are rebuilt, and the fence safely destroys the old texture afterward.
-      this.executionOrder = [];
+      // returning the last-dispatched (visually correct) texture until each
+      // manager dispatches again and calls nodeOutputs.set(nodeId, newTexture),
+      // which _updateComputeTextureBindings detects → bind groups are rebuilt,
+      // and the fence safely destroys the old texture afterward.
 
       // Invalidate fragment renderer caches so all fragment nodes re-render at
       // the new resolution/state. Without this, stale cached textures (rendered
@@ -338,19 +368,8 @@ export class ComputeExecutor {
       // via _deferDestroy, so it is safe to call while _reinitializing = true.
       this.clearFragmentCache();
     }
-
-    // Expose the reuse snapshot to initializeComputeNode for the duration of
-    // this pass only.
-    this._reuseContext = reuseContext;
-
-    // Create fallback texture
-    this.createFallbackTexture();
-
-    for (const [nodeId, nodeData] of (registry || [])) {
-      await this.initializeComputeNode(nodeId, nodeData);
-    }
-
-    this._reuseContext = null;
+    for (const [id, m] of staging.managers) this.computeManagers.set(id, m);
+    for (const [id, t] of staging.textures) this.computeTextures.set(id, t);
 
     // Tear down the previous resources that were NOT reused this pass. Deferred
     // so the old textures stay alive until the freshly built/reused bind groups
@@ -401,6 +420,10 @@ export class ComputeExecutor {
    */
   async initializeComputeNode(nodeId, nodeData) {
     const { node, wgslCode, resolution, supportsFeedback } = nodeData;
+    // Inside an initialize() pass, write to its staging maps; called on its own,
+    // straight into the live ones.
+    const managers = this._staging?.managers ?? this.computeManagers;
+    const textures = this._staging?.textures ?? this.computeTextures;
 
     const DEFAULT_COMPUTE_RES = 1024;
 
@@ -467,10 +490,10 @@ export class ComputeExecutor {
       if (prev && prev._initSignature === initSignature) {
         prev.node = node; // keep the live node reference current for params
         reuseContext.reused.add(nodeId);
-        this.computeManagers.set(nodeId, prev);
+        managers.set(nodeId, prev);
         const prevTex = reuseContext.previousTextures.get(nodeId);
         if (prevTex) {
-          this.computeTextures.set(nodeId, prevTex);
+          textures.set(nodeId, prevTex);
         }
         return;
       }
@@ -482,7 +505,7 @@ export class ComputeExecutor {
     manager._initSignature = initSignature;
 
     // Store manager
-    this.computeManagers.set(nodeId, manager);
+    managers.set(nodeId, manager);
 
     // Create sampler for this texture
     const sampler = this.device.createSampler({
@@ -499,7 +522,7 @@ export class ComputeExecutor {
     }
 
     // Store texture and sampler
-    this.computeTextures.set(nodeId, {
+    textures.set(nodeId, {
       texture: outputTexture,
       sampler,
       manager
