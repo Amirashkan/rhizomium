@@ -481,21 +481,22 @@ export class ParameterPanel {
       this.hide();
     });
 
-    // Add keyboard shortcuts for binding
+    // Add keyboard shortcuts for binding. Only claim the key while focus is in
+    // this panel and a parameter is selected: Mod+Shift+V is also View → VJ
+    // Control, and preventing it unconditionally stops the shortcut dispatcher
+    // from ever firing it.
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
-        if (e.key === 'C' || e.key === 'c') {
-          e.preventDefault();
-          const selectedParam = this.getSelectedParameter();
-          if (selectedParam && this.selectedNode) {
-            this.copyParameterReference(this.selectedNode, selectedParam);
-          }
-        } else if (e.key === 'V' || e.key === 'v') {
-          e.preventDefault();
-          const selectedParam = this.getSelectedParameter();
-          if (selectedParam && this.selectedNode) {
-            this.pasteParameterReference(this.selectedNode, selectedParam);
-          }
+        const key = e.key.toLowerCase();
+        if (key !== 'c' && key !== 'v') return;
+        if (!this.panel?.contains(document.activeElement)) return;
+        const selectedParam = this.getSelectedParameter();
+        if (!selectedParam || !this.selectedNode) return;
+        e.preventDefault();
+        if (key === 'c') {
+          this.copyParameterReference(this.selectedNode, selectedParam);
+        } else {
+          this.pasteParameterReference(this.selectedNode, selectedParam);
         }
       }
     });
