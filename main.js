@@ -44,7 +44,7 @@ import { getScreensPanel } from './src/ui/ScreensPanel.js';
 import { ViewerControlsModel } from './src/viewer/ViewerControls.js';
 import { ViewerPageModel } from './src/viewer/ViewerPage.js';
 import { getWebViewerTool } from './src/ui/WebViewerTool.js';
-import { getOutputAspect } from './src/ui/OutputFormat.js';
+import { getOutputAspect, resolveResolution, subscribeRole } from './src/ui/OutputFormat.js';
 import { getShaderCompilerWindow } from './src/ui/ShaderCompilerWindow.js';
 import { getGLSLUtilitiesWindow } from './src/ui/GLSLUtilitiesWindow.js';
 import { getLayoutManager } from './src/ui/layoutManager.js';
@@ -298,22 +298,38 @@ async function initialize() {
     window.gpuAdapter = adapter;
     window.gpuRenderer = new GPURenderer(device, canvas);
 
-    // Set up window resize handler to prevent tearing from mid-render resizing
+    // The render canvas is sized by the OUTPUT FORMAT, never by the editor
+    // window. It used to follow the window (resizeCanvas() measures the
+    // canvas's CSS box), so resizing or docking in the editor changed the
+    // shader's resolution uniform and the compute sizes broadcast to the
+    // second monitor - the external output's framing and scale tracked the
+    // editor window. While the floating preview is open it owns the size
+    // (preview role x adaptive quality); otherwise pin it to the preview role.
+    const sizeRenderCanvasToOutput = () => {
+      const renderer = window.gpuRenderer;
+      if (!renderer) return;
+      if (window.floatingPreview?.isVisible) {
+        window.floatingPreview.updateSize?.();
+        return;
+      }
+      const { width, height } = resolveResolution('preview');
+      renderer.resizeCanvas(width, height);
+    };
+
+    // Debounced: the preview's own resize clamp keeps its panel in bounds.
     let resizeTimeout;
     window.addEventListener('resize', () => {
-      // Debounce resize to avoid excessive calls
       if (resizeTimeout) clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => {
-        if (window.gpuRenderer) {
-          window.gpuRenderer.resizeCanvas();
-        }
-      }, 100);
+      resizeTimeout = setTimeout(sizeRenderCanvasToOutput, 100);
     });
 
     // Initial canvas size
-    if (window.gpuRenderer) {
-      window.gpuRenderer.resizeCanvas();
-    }
+    sizeRenderCanvasToOutput();
+    // With the preview closed nothing else follows the output format (the
+    // preview's own subscription no-ops without a panel), so follow it here.
+    subscribeRole('preview', () => {
+      if (!window.floatingPreview?.isVisible) sizeRenderCanvasToOutput();
+    });
 
     if (device) {
       const { TextureManager } = await import("./src/core/TextureManager.js");

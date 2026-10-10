@@ -316,14 +316,24 @@ export class GPURenderer {
     }
   }
 
-  // Explicit canvas resize method - should only be called on window resize, not during render
-  resizeCanvas() {
-    const dpr = window.devicePixelRatio || 1;
-    // Update cache with current layout dimensions (only during explicit resize)
-    this._cachedCanvasSize.clientWidth = this.canvas.clientWidth || window.innerWidth;
-    this._cachedCanvasSize.clientHeight = this.canvas.clientHeight || window.innerHeight;
-    const targetWidth = Math.max(1, Math.floor(this._cachedCanvasSize.clientWidth * dpr));
-    const targetHeight = Math.max(1, Math.floor(this._cachedCanvasSize.clientHeight * dpr));
+  // Explicit canvas resize method - should only be called on window resize, not during render.
+  // With width/height the backing store is set to exactly that size (the output
+  // format); without, it follows the canvas's CSS box at device-pixel density.
+  resizeCanvas(width, height) {
+    let targetWidth, targetHeight;
+    if (width > 0 && height > 0) {
+      targetWidth = Math.max(1, Math.floor(width));
+      targetHeight = Math.max(1, Math.floor(height));
+      this._cachedCanvasSize.clientWidth = targetWidth;
+      this._cachedCanvasSize.clientHeight = targetHeight;
+    } else {
+      const dpr = window.devicePixelRatio || 1;
+      // Update cache with current layout dimensions (only during explicit resize)
+      this._cachedCanvasSize.clientWidth = this.canvas.clientWidth || window.innerWidth;
+      this._cachedCanvasSize.clientHeight = this.canvas.clientHeight || window.innerHeight;
+      targetWidth = Math.max(1, Math.floor(this._cachedCanvasSize.clientWidth * dpr));
+      targetHeight = Math.max(1, Math.floor(this._cachedCanvasSize.clientHeight * dpr));
+    }
 
     if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
       this.canvas.width = targetWidth;
