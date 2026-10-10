@@ -1909,6 +1909,13 @@ case 'flip2d':
         // artist find it in the Tools menu with the node already selected.
         getAudioSettingsPanel().show();
         break;
+      case 'playAudioSample':
+        // Restart the Audio Sampler's clip from the top; AudioSamplerProcessor owns the element.
+        window.audioSamplerProcessor?.play?.(node.id);
+        break;
+      case 'stopAudioSample':
+        window.audioSamplerProcessor?.stop?.(node.id);
+        break;
       case 'resetCount':
         // Queue a reset of the CPU-side counter; CountNodeProcessor applies it on the next frame.
         window.countNodeProcessor?.requestReset?.(node.id);

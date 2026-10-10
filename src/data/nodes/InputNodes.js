@@ -280,6 +280,33 @@ export const InputNodes = {
     ],
   },
 
+  AudioSampler: {
+    label: "Audio Sampler",
+    cat: "Input",
+    inputs: 0,
+    pinsIn: [],
+    // No outputs: it makes sound, not a signal. It sits beside the audio analysis rather than in
+    // it — the Audio / Audio Value nodes keep listening to whatever source the Audio panel names.
+    pinsOut: [],
+    // Plays one audio file. AudioSamplerProcessor owns the <audio> element: it starts the clip the
+    // first time it sees the node in the live graph — when the patch is opened, or when a VJ scene
+    // holding it is switched to — and silences it when the node leaves the graph, which is what a
+    // scene switch does to the scene that was playing.
+    params: [
+      { name: "audioFile", type: "file", accept: "audio/*", label: "Audio File" },
+      // The clip itself, inlined as a data: URL so the patch (and every VJ scene captured from it)
+      // carries its sound with it. Written by the upload, never by hand; `audioFile` above is only
+      // the name shown for it.
+      { name: "audioData", type: "text", default: "", hidden: true, label: "Audio Data" },
+      { name: "playOnStart", type: "bool", default: true, label: "Play When Scene Starts" },
+      { name: "loop", type: "bool", default: false, label: "Loop" },
+      { name: "volume", type: "float", default: 1.0, min: 0.0, max: 1.0, label: "Volume" },
+      { name: "playbackRate", type: "float", default: 1.0, min: 0.0625, max: 16.0, label: "Speed" },
+      { name: "play", type: "button", displayName: "Play", action: "playAudioSample", description: "Play the clip from the start" },
+      { name: "stop", type: "button", displayName: "Stop", action: "stopAudioSample", description: "Stop the clip and rewind it" },
+    ],
+  },
+
   Wave: {
     label: "Wave",
     cat: "Input",

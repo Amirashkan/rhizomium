@@ -95,6 +95,7 @@ import { VideoResetProcessor } from "./src/core/VideoResetProcessor.js";
 import { WaveSyncProcessor } from "./src/core/WaveSyncProcessor.js";
 import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
 import { TextNodeProcessor } from "./src/core/TextNodeProcessor.js";
+import { AudioSamplerProcessor } from "./src/core/AudioSamplerProcessor.js";
 import { setupTauriFileAssociation } from "./src/core/tauriFileOpen.js";
 import { startCompositionFormatSync } from "./src/core/CompositionFormatSync.js";
 import {
@@ -141,6 +142,10 @@ const waveSyncProcessor = new WaveSyncProcessor();
 const audioKickProcessor = new AudioAnalysisProcessor();
 // Re-rasterises Text nodes whose string or layout reads a live expression. See TextNodeProcessor.
 const textNodeProcessor = new TextNodeProcessor();
+// Plays the Audio Sampler nodes' files, starting each when its scene comes up. See AudioSamplerProcessor.
+const audioSamplerProcessor = new AudioSamplerProcessor();
+// Exposed so the sampler's Play / Stop buttons (ParameterPanel.runParameterAction) can reach it.
+window.audioSamplerProcessor = audioSamplerProcessor;
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
@@ -3991,6 +3996,16 @@ function handleRenderFrame(frameState) {
       textNodeProcessor.update(window.editor.graph);
     } catch {
       // Never let the hold/count latch break the render loop.
+    }
+  }
+
+  // Start, stop and steer the Audio Sampler clips. Kept apart from the shader-side processors above:
+  // it needs no uniform manager, and sound has to keep playing whether or not the GPU path is up.
+  if (window.editor?.graph) {
+    try {
+      audioSamplerProcessor.update(window.editor.graph, { time: frameState.simTime });
+    } catch {
+      // A bad clip must not break the render loop.
     }
   }
 
