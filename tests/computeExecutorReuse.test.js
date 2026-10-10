@@ -3,8 +3,7 @@
  *
  * Feedback nodes (ComputeFeedback, ComputeFeedbackField, reaction-diffusion)
  * accumulate state in ping-pong textures owned by their ComputeShaderManager.
- * initialize() clears the manager map up front and rebuilds asynchronously,
- * reusing a node's existing manager when its WGSL/resolution/feedback config is
+ * initialize() rebuilds the manager map asynchronously, reusing a node's existing manager when its WGSL/resolution/feedback config is
  * unchanged so the accumulated state survives unrelated graph edits.
  *
  * The bug these tests pin down: graph edits (param drags, node moves, selection)
@@ -101,6 +100,26 @@ describe('ComputeExecutor reuse + re-entrancy guard', () => {
 
     const after = exec.computeManagers.get('7');
     expect(after).toBe(original);
+  });
+
+  it('keeps the live managers dispatchable while a rebuild is in flight', async () => {
+    const exec = new ComputeExecutor(device);
+    registerFeedbackNode(0.95);
+    await exec.initialize();
+    const original = exec.computeManagers.get('7');
+
+    // Timeline playback rebuilds on every frame, and the render loop runs
+    // execute() while that rebuild is still awaiting. Clearing the maps up front
+    // left execute() nothing to dispatch, so animated params never reached the
+    // GPU until the keyframes stopped changing them.
+    registerFeedbackNode(0.50);
+    const pending = exec.initialize();
+    expect(exec.computeManagers.get('7')).toBe(original);
+    expect(exec.executionOrder).toEqual(['7']);
+
+    await pending;
+    expect(exec.computeManagers.get('7')).toBe(original);
+    expect(exec.executionOrder).toEqual(['7']);
   });
 
   it('never runs two initialize passes concurrently', async () => {
