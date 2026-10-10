@@ -62,7 +62,14 @@ export class GPURenderer {
     this.canvas = canvas;
     this.context = canvas.getContext("webgpu");
     this.format = navigator.gpu.getPreferredCanvasFormat();
-    this.sampleCount = 4; // 4x MSAA antialiasing
+    // No MSAA. The only thing drawn is a fullscreen triangle running the
+    // fragment shader once per pixel, so there are no geometry edges to
+    // antialias and a 4x target resolves to exactly the pixels a 1x one holds.
+    // It was pure cost: at a 1920x1080 output, ~33 MB of multisample target
+    // written and resolved every frame - bandwidth the second-monitor window
+    // (which already renders without MSAA) competes for on the same GPU, which
+    // made both outputs choppy while the editor UI and fps readout looked fine.
+    this.sampleCount = 1;
 
     this.context.configure({
       device,
@@ -235,6 +242,8 @@ export class GPURenderer {
 
   // Create or recreate MSAA texture to match canvas size
   _createMSAATexture() {
+    // Single-sampled: the pass renders straight into the canvas texture.
+    if (this.sampleCount <= 1) return;
     const width = Math.max(1, this.canvas.width);
     const height = Math.max(1, this.canvas.height);
     
