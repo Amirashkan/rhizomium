@@ -1,5 +1,5 @@
 // src/core/TextNodeProcessor.js
-import { ensureTextTexture, textNodeHasLiveExpression } from './TextRasterizer.js';
+import { ensureTextTexture, textNodeNeedsRefresh } from './TextRasterizer.js';
 
 /**
  * Keeps a Text node that reads a live value on screen up to date.
@@ -11,8 +11,8 @@ import { ensureTextTexture, textNodeHasLiveExpression } from './TextRasterizer.j
  * HoldNodeProcessor / CountNodeProcessor, which carry CPU-side node state for the same reason.
  *
  * Two things keep the cost proportionate:
- *   - only nodes that actually contain an expression are considered at all, so an ordinary Text
- *     node never enters this path;
+ *   - only nodes that contain an expression, or whose texture follows the output size (auto
+ *     Resolution — a resize is just as write-less), are considered at all;
  *   - ensureTextTexture compares the RESOLVED layout, so a frame where the value has not visibly
  *     moved costs a string comparison and uploads nothing.
  *
@@ -42,7 +42,7 @@ export class TextNodeProcessor {
 
     for (const node of graph.nodes) {
       if (node?.kind !== 'Text') continue;
-      if (!textNodeHasLiveExpression(node)) continue;
+      if (!textNodeNeedsRefresh(node)) continue;
       ensureTextTexture(node);
     }
   }
