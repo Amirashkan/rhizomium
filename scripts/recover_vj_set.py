@@ -12,9 +12,20 @@ the storage files until the browser compacts them. This script reads those
 files, finds every copy of the set it can, and writes each one out as a file
 the VJ panel's "Import Set" button loads.
 
+Scenes are the fragile part: each one is a whole project, so Chrome keeps the
+big ones in separate blob files and deletes those as soon as the set is
+overwritten - the playlist survives, pointing at scenes that are gone. A scene
+is a snapshot of the editor taken at a known moment (its id carries the
+time), though, and the editor's autosave and backups are snapshots of the same
+editor with their own times. Where a scene is missing, the script rebuilds it
+from the snapshot closest to the moment it was captured, and says how close.
+Saved project files (--projects) are used the same way.
+
     python scripts/recover_vj_set.py                 # search the usual places
     python scripts/recover_vj_set.py <folder> ...    # search these folders
     python scripts/recover_vj_set.py --out <folder>  # where to write results
+    python scripts/recover_vj_set.py --projects <folder>
+                                  # also rebuild scenes from saved projects
 
 QUIT THE BROWSER (or the desktop app) FIRST, and keep it closed until you have
 your set back. Every run of it can compact the files and drop old copies for
@@ -24,6 +35,8 @@ Standard library only, so it runs on any Python 3.8+.
 """
 
 import argparse
+import datetime
+import gzip
 import hashlib
 import json
 import os
@@ -306,6 +319,213 @@ def find_json(stream):
 
 
 # ---------------------------------------------------------------------------
+# Editor snapshots. The autosave is stored as JSON text; backups are stored as
+# structured-clone objects (V8's serialization format), so those need a
+# decoder of their own.
+# ---------------------------------------------------------------------------
+
+
+class SSVError(Exception):
+    pass
+
+
+class _SSVReader:
+    """Plain-data subset of V8's ValueSerializer format: objects, arrays,
+    strings, numbers, booleans, null, dates and back-references."""
+
+    def __init__(self, buf, pos):
+        self.buf = buf
+        self.pos = pos
+        self.objects = []
+
+    def varint(self):
+        try:
+            value, self.pos = _varint(self.buf, self.pos)
+        except SnappyError as error:
+            raise SSVError(str(error))
+        return value
+
+    def tag(self):
+        while True:
+            if self.pos >= len(self.buf):
+                raise SSVError("truncated")
+            t = self.buf[self.pos]
+            self.pos += 1
+            if t != 0:  # padding before two-byte strings
+                return t
+
+    def take(self, n):
+        if n < 0 or self.pos + n > len(self.buf):
+            raise SSVError("truncated")
+        chunk = self.buf[self.pos:self.pos + n]
+        self.pos += n
+        return chunk
+
+    def value(self, depth=0):
+        if depth > 200:
+            raise SSVError("too deep")
+        t = self.tag()
+        c = chr(t)
+        if c == '"':
+            return self.take(self.varint()).decode("latin-1")
+        if c == "c":
+            return self.take(self.varint()).decode("utf-16-le", errors="replace")
+        if c == "S":
+            return self.take(self.varint()).decode("utf-8", errors="replace")
+        if c == "I":
+            v = self.varint()
+            return (v >> 1) ^ -(v & 1)
+        if c == "U":
+            return self.varint()
+        if c == "N":
+            return struct.unpack("<d", self.take(8))[0]
+        if c == "D":
+            value = struct.unpack("<d", self.take(8))[0]
+            self.objects.append(value)
+            return value
+        if c == "T":
+            return True
+        if c == "F":
+            return False
+        if c in "0_-":
+            return None
+        if c == "^":
+            ref = self.varint()
+            if ref >= len(self.objects):
+                raise SSVError("bad reference")
+            return self.objects[ref]
+        if c == "o":
+            obj = {}
+            self.objects.append(obj)
+            self._pairs(obj, ord("{"), depth)
+            return obj
+        if c == "A":
+            length = self.varint()
+            arr = []
+            self.objects.append(arr)
+            for _ in range(length):
+                arr.append(self.value(depth + 1))
+            self._pairs({}, ord("$"), depth, extra=1)
+            return arr
+        if c == "a":
+            length = self.varint()
+            arr = [None] * min(length, 1 << 20)
+            self.objects.append(arr)
+            props = {}
+            self._pairs(props, ord("@"), depth, extra=1)
+            for k, v in props.items():
+                if isinstance(k, int) and 0 <= k < len(arr):
+                    arr[k] = v
+            return arr
+        raise SSVError(f"unsupported tag {t:#x}")
+
+    def _pairs(self, target, end, depth, extra=0):
+        while True:
+            save = self.pos
+            if self.tag() == end:
+                self.varint()  # property count
+                for _ in range(extra):
+                    self.varint()  # array length
+                return
+            self.pos = save
+            key = self.value(depth + 1)
+            target[key] = self.value(depth + 1)
+
+
+def ssv_objects(stream):
+    """Every top-level structured-clone object in a stream. V8 starts each one
+    with its version tag (0xFF, 0x0F or later) right before the first value."""
+    for m in re.finditer(rb"\xff[\x0d-\x16]o", stream):
+        reader = _SSVReader(stream, m.start() + 2)
+        try:
+            value = reader.value()
+        except (SSVError, IndexError, struct.error, RecursionError):
+            continue
+        if isinstance(value, dict):
+            yield value
+
+
+def _is_project(obj):
+    return isinstance(obj, dict) and isinstance(obj.get("nodes"), list) and (
+        obj.get("format") == "rhizomium-project" or obj.get("app") == "Rhizomium-Web"
+    )
+
+
+def _parse_time(value):
+    if isinstance(value, (int, float)) and value > 1e11:
+        return float(value) / 1000.0
+    if isinstance(value, str):
+        try:
+            return datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def snapshots_in(stream, where):
+    """(time, project, where) for every editor snapshot in a stream."""
+    out = []
+    for record in ssv_objects(stream):
+        data = record.get("data")
+        if _is_project(data):
+            t = _parse_time(record.get("timestamp")) or _parse_time(data.get("savedAt"))
+            if t:
+                out.append((t, data, where + " (backup)"))
+    for encoding in ("latin-1", "utf-16-le"):
+        for marker in ('{"data":{"app":"Rhizomium-Web"', '{"app":"Rhizomium-Web"'):
+            needle = marker.encode(encoding)
+            for m in re.finditer(re.escape(needle), stream):
+                chunk = stream[m.start():]
+                if encoding == "utf-16-le":
+                    text = chunk[:len(chunk) // 2 * 2].decode("utf-16-le", errors="replace")
+                else:
+                    text = chunk.decode("latin-1")
+                end = _balanced_end(text, 0)
+                if end is None:
+                    continue
+                raw = text[:end]
+                try:
+                    obj = json.loads(_from_latin1(raw) if encoding == "latin-1" else raw)
+                except ValueError:
+                    continue
+                project = obj.get("data") if "data" in obj else obj
+                if not _is_project(project):
+                    continue
+                t = _parse_time(obj.get("timestamp")) or _parse_time(project.get("savedAt"))
+                if t:
+                    out.append((t, project, where + " (autosave)"))
+    return out
+
+
+def project_file_snapshot(path):
+    """A saved project file (.rz is gzip or plain JSON) as a snapshot."""
+    try:
+        data = path.read_bytes()
+        if data[:2] == b"\x1f\x8b":
+            data = gzip.decompress(data)
+        project = json.loads(data.decode("utf-8"))
+    except (OSError, ValueError, EOFError):
+        return None
+    if not _is_project(project):
+        return None
+    t = _parse_time(project.get("savedAt"))
+    if not t:
+        try:
+            t = path.stat().st_mtime
+        except OSError:
+            return None
+    return (t, project, str(path))
+
+
+SCENE_TIME = re.compile(r"^scene_(\d{12,14})_")
+
+
+def scene_time(scene_id):
+    m = SCENE_TIME.match(str(scene_id or ""))
+    return int(m.group(1)) / 1000.0 if m else None
+
+
+# ---------------------------------------------------------------------------
 # Where browsers keep their storage.
 # ---------------------------------------------------------------------------
 
@@ -326,7 +546,7 @@ def default_roots():
             local / "Chromium" / "User Data",
         ]
         roaming = Path(os.environ.get("APPDATA", home / "AppData" / "Roaming"))
-        roots += [roaming / "Opera Software"]
+        roots += [roaming / APP_ID, roaming / "Opera Software"]
     elif sys.platform == "darwin":
         support = home / "Library" / "Application Support"
         roots += [
@@ -370,6 +590,11 @@ def storage_files(root):
     )
     for dirpath, dirnames, filenames in os.walk(root):
         here = dirpath.lower()
+        for f in filenames:
+            # The desktop app's autosave.rz sits in its data folder, outside any
+            # storage folder.
+            if f.lower().endswith((".rz", ".rz.tmp")):
+                yield Path(dirpath) / f
         if not whole and not any(part in here for part in STORAGE_DIRS):
             # Skip caches and the like; descend only toward storage folders.
             dirnames[:] = [d for d in dirnames if d.lower() not in ("cache", "code cache", "gpucache", "service worker", "extensions")]
@@ -393,23 +618,96 @@ def _scene_names(scenes):
     return [s.get("name", s.get("id", "?")) for s in scenes.get("scenes", [])]
 
 
-def collect(paths):
+def collect(paths, project_dirs=()):
     found = {"playlist": {}, "scenes": {}, "presets": {}, "set": {}}
-    sources = {}
+    snapshots = {}
     for root in paths:
         print(f"Searching {root}")
         for path in storage_files(root):
-            try:
-                mtime = path.stat().st_mtime
-            except OSError:
-                mtime = 0
+            if path.suffix.lower() in (".rz", ".json", ".tmp") and ".blob" not in str(path).lower():
+                snap = project_file_snapshot(path)
+                if snap:
+                    snapshots.setdefault(_key(snap[1]), snap)
+                    continue
             for stream in streams_for(path):
                 for kind, obj in find_json(stream):
-                    k = _key(obj)
-                    if k not in found[kind]:
-                        found[kind][k] = obj
-                        sources[k] = (str(path), mtime)
-    return found, sources
+                    found[kind].setdefault(_key(obj), obj)
+                for snap in snapshots_in(stream, str(path)):
+                    snapshots.setdefault(_key(snap[1]), snap)
+    for folder in project_dirs:
+        print(f"Reading projects in {folder}")
+        for dirpath, _, filenames in os.walk(folder):
+            for f in filenames:
+                if f.lower().endswith((".rz", ".json", ".rhizo")):
+                    snap = project_file_snapshot(Path(dirpath) / f)
+                    if snap:
+                        snapshots.setdefault(_key(snap[1]), snap)
+    # Scenes inside recovered scene sets are snapshots too (a set from another
+    # day may hold the very scene a playlist is missing).
+    return found, sorted(snapshots.values(), key=lambda s: s[0])
+
+
+def _fmt_time(t):
+    return datetime.datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _fmt_gap(seconds):
+    seconds = abs(seconds)
+    if seconds < 90:
+        return f"{seconds:.0f}s"
+    if seconds < 5400:
+        return f"{seconds / 60:.0f} min"
+    if seconds < 172800:
+        return f"{seconds / 3600:.1f} h"
+    return f"{seconds / 86400:.0f} days"
+
+
+# A snapshot further than this from a scene's capture is offered, but flagged.
+CLOSE_ENOUGH = 10 * 60
+
+
+def rebuild_missing_scenes(vj_set, snapshots):
+    """Fill in the playlist's missing scenes from the nearest snapshots.
+    Returns a line per rebuilt scene for the report."""
+    scenes = vj_set["scenes"]
+    have = {s.get("id") for s in scenes.get("scenes", [])}
+    notes = []
+    for item in vj_set["playlist"].get("playlist", []):
+        sid = item.get("sceneId")
+        if sid in have:
+            continue
+        t = scene_time(sid)
+        if t is None or not snapshots:
+            continue
+        # The editor as it was when the scene was captured: the last snapshot
+        # before it. One taken after already holds whatever was edited next,
+        # so it is only the fallback when nothing before is close.
+        before = [snap for snap in snapshots if snap[0] <= t + 1]
+        after = [snap for snap in snapshots if snap[0] > t + 1]
+        best = before[-1] if before else None
+        if after and (best is None or t - best[0] > CLOSE_ENOUGH) and (
+            best is None or after[0][0] - t < t - best[0]
+        ):
+            best = after[0]
+        gap = best[0] - t
+        label = datetime.datetime.fromtimestamp(t).strftime("%b %d %H:%M:%S")
+        scene = {
+            "id": sid,
+            "name": f"Rebuilt {label}",
+            "data": best[1],
+            "thumbnail": None,
+            "duration": item.get("duration") or 10,
+            "notes": f"Rebuilt from the editor snapshot of {_fmt_time(best[0])}, "
+                     f"{_fmt_gap(gap)} {'after' if gap > 0 else 'before'} this scene was captured.",
+            "addedAt": int(t * 1000),
+            "lastUsed": None,
+        }
+        scenes.setdefault("scenes", []).append(scene)
+        scenes.setdefault("sceneOrder", []).append(sid)
+        have.add(sid)
+        flag = "" if abs(gap) <= CLOSE_ENOUGH else "  <- far from the capture; check it"
+        notes.append(f"{label}: from snapshot {_fmt_time(best[0])} ({_fmt_gap(gap)} {'after' if gap > 0 else 'before'}){flag}")
+    return notes
 
 
 def is_empty(kind, obj):
@@ -479,6 +777,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("paths", nargs="*", help="browser, profile or storage folders to search (default: the usual places)")
     parser.add_argument("--out", default="recovered-vj-sets", help="folder to write recovered sets to")
+    parser.add_argument("--projects", action="append", default=[], help="folder of saved projects to rebuild missing scenes from (repeatable)")
     args = parser.parse_args(argv)
 
     roots = [Path(p) for p in args.paths] or default_roots()
@@ -486,7 +785,7 @@ def main(argv=None):
         print("No browser storage found in the usual places. Pass the folder to search.")
         return 1
 
-    found, _ = collect(roots)
+    found, snapshots = collect(roots, args.projects)
     sets = assemble(found)
     if not sets:
         print("\nNo VJ set found. If the browser has been running since the set was lost,")
@@ -497,8 +796,10 @@ def main(argv=None):
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    print(f"\nFound {len(sets)} VJ set(s). Fullest first:\n")
+    print(f"\nFound {len(snapshots)} editor snapshot(s) to rebuild missing scenes from.")
+    print(f"Found {len(sets)} VJ set(s). Fullest first:\n")
     for i, vj_set in enumerate(sets, 1):
+        rebuilt = rebuild_missing_scenes(vj_set, snapshots)
         names = _scene_names(vj_set["scenes"])
         have = {s.get("id") for s in vj_set["scenes"].get("scenes", [])}
         items = vj_set["playlist"].get("playlist", [])
@@ -509,6 +810,8 @@ def main(argv=None):
         print(f"     scenes ({len(names)}): {', '.join(names) or '-'}")
         print(f"     playlist: {len(items)} item(s)" + (f", {missing} whose scene was not found" if missing else ""))
         print(f"     presets: {len(vj_set['presets'].get('presets', []))}")
+        for line in rebuilt:
+            print(f"     rebuilt scene {line}")
     print("\nOpen the VJ panel, press Import Set, and pick a file. The set it replaces")
     print("is kept, so Restore Previous Set undoes the import if you pick the wrong one.")
     return 0
