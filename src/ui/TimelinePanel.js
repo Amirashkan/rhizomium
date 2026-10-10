@@ -111,6 +111,7 @@ export class TimelinePanel {
       if (!isNaN(duration) && duration > 0) {
         this.timelineManager.setDuration(duration);
         this.viewEnd = duration;
+        this.updateLoopInputs();
         this.render();
       }
     });
