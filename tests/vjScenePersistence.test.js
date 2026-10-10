@@ -171,4 +171,31 @@ describe('VJ scene persistence', () => {
     panel.container.remove();
     reloaded.container.remove();
   });
+
+  it('starts a new project with an empty VJ set', async () => {
+    const panel = new VJControlPanel(makeEditor());
+    await panel.ready;
+    panel.sceneManager.addScene('a', { nodes: [] }, 'A');
+    panel.presetManager.capturePreset('Drop');
+    panel.playlistManager.addToPlaylist('a', 10);
+    panel.beatSyncManager.setBPM(140);
+    expect(await panel.saveToStorage()).toBe(true);
+
+    expect(await panel.startNewSet()).toBe(true);
+    expect(panel.sceneManager.getAllScenes()).toEqual([]);
+    expect(panel.presetManager.getAllPresets()).toEqual([]);
+    expect(panel.playlistManager.getPlaylist()).toEqual([]);
+
+    // The emptied set is what comes back on reload, not the previous one.
+    const reloaded = new VJControlPanel(makeEditor());
+    await reloaded.ready;
+    expect(reloaded.sceneManager.getAllScenes()).toEqual([]);
+    expect(reloaded.presetManager.getAllPresets()).toEqual([]);
+    expect(reloaded.playlistManager.getPlaylist()).toEqual([]);
+    // Tempo belongs to the performer, not the project.
+    expect(reloaded.beatSyncManager.bpm).toBe(140);
+
+    panel.container.remove();
+    reloaded.container.remove();
+  });
 });

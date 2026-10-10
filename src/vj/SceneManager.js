@@ -90,6 +90,16 @@ export class SceneManager {
   }
 
   /**
+   * Drop every scene, for a new project starting from an empty set.
+   */
+  clear() {
+    this.scenes.clear();
+    this.sceneOrder = [];
+    this.activeSceneId = null;
+    this.previousSceneId = null;
+  }
+
+  /**
    * Load a scene from file
    */
   async loadSceneFromFile(file) {
