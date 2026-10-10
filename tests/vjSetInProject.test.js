@@ -137,4 +137,58 @@ describe('VJ set in the project file', () => {
 
     vi.unstubAllGlobals();
   });
+
+  it('keeps the set New Project replaces, and brings it back', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const panel = await makePanel();
+    panels.push(panel);
+    panel.sceneManager.addScene('a', { nodes: [] }, 'Opener');
+    panel.presetManager.capturePreset('Calm');
+    panel.playlistManager.addToPlaylist('a', 12);
+    await panel.saveToStorage();
+
+    await panel.startNewSet();
+    expect(panel.isSetEmpty()).toBe(true);
+
+    // Survives a reload: the kept copy is in IndexedDB, not only in memory.
+    const reloaded = await makePanel();
+    panels.push(reloaded);
+    expect(await reloaded.restorePreviousSet()).toBe(true);
+    expect(reloaded.sceneManager.getAllScenes().map(s => s.name)).toEqual(['Opener']);
+    expect(reloaded.presetManager.getAllPresets().map(p => p.name)).toEqual(['Calm']);
+    expect(reloaded.playlistManager.getPlaylist().map(i => i.sceneId)).toEqual(['a']);
+  });
+
+  it('swaps rather than loses when restoring twice', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const panel = await makePanel();
+    panels.push(panel);
+    panel.sceneManager.addScene('a', { nodes: [] }, 'First');
+    await panel.importSet({ scenes: { version: 1, scenes: [{ id: 'b', name: 'Second' }], sceneOrder: ['b'] } });
+
+    await panel.restorePreviousSet();
+    expect(panel.sceneManager.getAllScenes().map(s => s.name)).toEqual(['First']);
+    await panel.restorePreviousSet();
+    expect(panel.sceneManager.getAllScenes().map(s => s.name)).toEqual(['Second']);
+  });
+
+  it('does not keep an empty set over a real one', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const panel = await makePanel();
+    panels.push(panel);
+    panel.sceneManager.addScene('a', { nodes: [] }, 'Opener');
+    await panel.startNewSet();
+    await panel.startNewSet();
+
+    await panel.restorePreviousSet();
+    expect(panel.sceneManager.getAllScenes().map(s => s.name)).toEqual(['Opener']);
+  });
+
+  it('reads a set from an exported, recovered or project file', () => {
+    const set = { version: 1, scenes: { scenes: [] }, playlist: { playlist: [] } };
+    expect(VJControlPanel.setFromFileData(set)).toBe(set);
+    expect(VJControlPanel.setFromFileData({ nodes: [], vjSet: set })).toBe(set);
+    // A plain project without a set is not one.
+    expect(VJControlPanel.setFromFileData({ nodes: [], connections: [] })).toBe(null);
+  });
 });

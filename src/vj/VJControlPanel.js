@@ -6,6 +6,7 @@
  */
 
 import { SceneManager } from './SceneManager.js';
+import { runTransaction, VJ_SCENES_STORE } from '../core/rhizomiumDB.js';
 import { setIcon } from '../ui/iconSprite.js';
 import { PresetManager } from './PresetManager.js';
 import { TransitionManager, VJ_SCENE_IMPORT_SOURCE } from './TransitionManager.js';
@@ -25,6 +26,10 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 const PRESETS_STORAGE_KEY = 'rhizomium.vj.presets';
 const PLAYLIST_STORAGE_KEY = 'rhizomium.vj.playlist';
 const SETTINGS_STORAGE_KEY = 'rhizomium.vj.settings';
+
+// The set last replaced by importSet(), kept beside the scenes so a New Project
+// or an opened file can be undone with Restore Previous Set.
+const PREVIOUS_SET_RECORD_ID = 'previous';
 
 function readStoredJSON(key) {
   try {
@@ -301,6 +306,15 @@ export class VJControlPanel {
     buttonGroup.appendChild(captureBtn);
     buttonGroup.appendChild(saveAllBtn);
     tab.appendChild(buttonGroup);
+
+    // The whole set as one file: a backup, a set moved to another machine, or
+    // one recovered by scripts/recover_vj_set.py.
+    const setGroup = document.createElement('div');
+    setGroup.className = 'vj-button-group';
+    setGroup.appendChild(this.createButton('Import Set', 'Replace the set with one from a file', () => this.importSetFromFile(), 'upload'));
+    setGroup.appendChild(this.createButton('Export Set', 'Save scenes, presets and playlist to a file', () => this.exportSetToFile(), 'download'));
+    setGroup.appendChild(this.createButton('Restore Previous Set', 'Bring back the set that was last replaced', () => this.restorePreviousSet(), 'undo'));
+    tab.appendChild(setGroup);
 
     this.contentArea.appendChild(tab);
   }
@@ -1974,10 +1988,18 @@ export class VJControlPanel {
    * Replace the set with one from a project file, or with an empty one when
    * `set` is null. Written through to browser storage so a reload shows the
    * project's set and not the one before it.
+   *
+   * The set being replaced is kept first, so Restore Previous Set can bring it
+   * back - a New Project or an opened file must never be the end of a set that
+   * took hours to build.
    */
   async importSet(set) {
     // A restore still in flight would land the old set back over this one.
     await this.ready;
+
+    if (!this.isSetEmpty()) {
+      await this.keepPreviousSet(this.exportSet());
+    }
 
     this.playlistManager.clearPlaylist();
     this.sceneManager.clear();
@@ -1995,6 +2017,103 @@ export class VJControlPanel {
     this.refreshActiveTab();
     this.syncPlaylistUI();
     return this.saveToStorage();
+  }
+
+  isSetEmpty() {
+    return this.sceneManager.getAllScenes().length === 0
+      && this.presetManager.getAllPresets().length === 0
+      && this.playlistManager.getPlaylist().length === 0;
+  }
+
+  /**
+   * Store a set as the one to restore. In memory as well, so the undo still
+   * works for this session where IndexedDB is missing or full.
+   */
+  async keepPreviousSet(set) {
+    this._previousSet = set;
+    try {
+      const json = JSON.stringify(set);
+      await runTransaction(VJ_SCENES_STORE, 'readwrite', (store) =>
+        store.put({ id: PREVIOUS_SET_RECORD_ID, json, keptAt: Date.now() })
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async readPreviousSet() {
+    try {
+      const record = await runTransaction(VJ_SCENES_STORE, 'readonly', (store) =>
+        store.get(PREVIOUS_SET_RECORD_ID)
+      );
+      if (typeof record?.json === 'string') return JSON.parse(record.json);
+    } catch {
+      // Fall through to the copy kept this session.
+    }
+    return this._previousSet || null;
+  }
+
+  /**
+   * Swap the set back to the one last replaced. The set on screen becomes the
+   * previous one in turn, so pressing it twice is a no-op, not a loss.
+   */
+  async restorePreviousSet() {
+    const previous = await this.readPreviousSet();
+    if (!previous) {
+      alert('There is no previous VJ set to restore.');
+      return false;
+    }
+    const scenes = previous.scenes?.scenes?.length || 0;
+    const items = previous.playlist?.playlist?.length || 0;
+    if (!confirm(`Restore the previous VJ set (${scenes} scene(s), ${items} playlist item(s))? The current set becomes the previous one.`)) {
+      return false;
+    }
+    await this.importSet(previous);
+    return true;
+  }
+
+  /**
+   * The set inside a file: a set exported here or recovered by
+   * scripts/recover_vj_set.py, or a project file that carries one.
+   */
+  static setFromFileData(data) {
+    if (data && data.vjSet && typeof data.vjSet === 'object') return data.vjSet;
+    if (data && (data.scenes || data.presets || data.playlist) && !Array.isArray(data.nodes)) return data;
+    return null;
+  }
+
+  async importSetFromFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const set = VJControlPanel.setFromFileData(JSON.parse(await file.text()));
+        if (!set) throw new Error('no VJ set in this file');
+        const scenes = set.scenes?.scenes?.length || 0;
+        const items = set.playlist?.playlist?.length || 0;
+        if (!confirm(`Load "${file.name}" (${scenes} scene(s), ${items} playlist item(s))? The current set is kept - Restore Previous Set brings it back.`)) return;
+        await this.importSet(set);
+      } catch (error) {
+        alert(`Could not import the VJ set: ${error.message}`);
+      }
+    };
+    input.click();
+  }
+
+  exportSetToFile() {
+    const blob = new Blob([JSON.stringify(this.exportSet())], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `vj-set-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   /**
