@@ -1958,6 +1958,25 @@ export class VJControlPanel {
   }
 
   /**
+   * Start an empty VJ set for a new project. The set lives in browser storage
+   * rather than in the project file, so without this File > New Project kept
+   * showing the previous project's scenes, presets and playlist. BPM and beat
+   * sync are the performer's settings, not the project's, so they stay.
+   */
+  async startNewSet() {
+    // A restore still in flight would land the old set back over the empty one.
+    await this.ready;
+
+    this.playlistManager.clearPlaylist();
+    this.sceneManager.clear();
+    this.presetManager.clear();
+
+    this.refreshActiveTab();
+    this.syncPlaylistUI();
+    return this.saveToStorage();
+  }
+
+  /**
    * Save the whole VJ set - scenes, presets and playlist.
    */
   async saveAllScenes() {
