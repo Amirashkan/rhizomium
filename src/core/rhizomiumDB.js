@@ -7,7 +7,7 @@
 // fail with VersionError for whichever one opened second).
 
 const DB_NAME = "rhizomium";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 export const BACKUPS_STORE = "backups";
 export const AUTOSAVE_STORE = "autosave";
@@ -15,6 +15,9 @@ export const AUTOSAVE_STORE = "autosave";
 // for the same reason: a patch carries its textures inline and does not fit
 // in localStorage.
 export const VIEWER_HANDOFF_STORE = "viewerHandoff";
+// The VJ panel's scene set. Every scene is a full project snapshot, textures
+// included, so a handful of them overflow localStorage.
+export const VJ_SCENES_STORE = "vjScenes";
 
 let dbPromise = null;
 
@@ -40,6 +43,9 @@ export function openRhizomiumDB() {
       }
       if (!db.objectStoreNames.contains(VIEWER_HANDOFF_STORE)) {
         db.createObjectStore(VIEWER_HANDOFF_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(VJ_SCENES_STORE)) {
+        db.createObjectStore(VJ_SCENES_STORE, { keyPath: "id" });
       }
     };
 

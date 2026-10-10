@@ -305,7 +305,7 @@ describe('VJ master fader reaching the second monitor', () => {
 describe('VJ control panel', () => {
   let panel;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // The beat clock is a rAF loop; inline frames would spin it forever, so
     // hand these tests a no-op scheduler and drive the clock explicitly.
     globalThis.requestAnimationFrame = () => 0;
@@ -317,6 +317,7 @@ describe('VJ control panel', () => {
     resetOutputOpacity();
     gpuCanvas();
     panel = new VJControlPanel(makeEditor());
+    await panel.ready;
     panel.show();
     // These cover playlist and transport behaviour, not fades - cut straight to
     // each scene so no frame-driven animation is involved. Fades have their own
@@ -537,17 +538,18 @@ describe('VJ control panel', () => {
     expect(panel.bpmInput.value).toBe('120');
   });
 
-  it('saves and restores presets and the playlist', () => {
+  it('saves and restores presets and the playlist', async () => {
     const a = addScene(panel, 'A');
     panel.addSceneToPlaylist(a);
     panel.playlistManager.updatePlaylistItem(0, { duration: 12 });
     panel.presetManager.capturePreset('Drop');
     panel.playlistManager.loop = false;
 
-    expect(panel.saveToStorage()).toBe(true);
+    expect(await panel.saveToStorage()).toBe(true);
 
     // A fresh panel is what a page reload gives you.
     const reloaded = new VJControlPanel(makeEditor());
+    await reloaded.ready;
 
     expect(reloaded.presetManager.getAllPresets().map(p => p.name)).toEqual(['Drop']);
     expect(reloaded.playlistManager.getPlaylist().map(i => i.duration)).toEqual([12]);
@@ -586,12 +588,13 @@ describe('VJ control panel', () => {
     expect(note.value).toBe('strobe heavy');
   });
 
-  it('carries scene notes through a save and reload', () => {
+  it('carries scene notes through a save and reload', async () => {
     const a = addScene(panel, 'A');
     panel.sceneManager.updateSceneMetadata(a, { notes: 'opener' });
-    expect(panel.saveToStorage()).toBe(true);
+    expect(await panel.saveToStorage()).toBe(true);
 
     const reloaded = new VJControlPanel(makeEditor());
+    await reloaded.ready;
     expect(reloaded.sceneManager.getScene(a).notes).toBe('opener');
     reloaded.container.remove();
   });
@@ -636,13 +639,14 @@ describe('VJ control panel', () => {
     expect(panel.beatIndicator.classList.contains('disabled')).toBe(false);
   });
 
-  it('remembers the beat sync switch and tempo across a reload', () => {
+  it('remembers the beat sync switch and tempo across a reload', async () => {
     panel.bpmInput.value = '141';
     panel.bpmInput.onchange();
     panel.setBeatSyncEnabled(false);
-    expect(panel.saveToStorage()).toBe(true);
+    expect(await panel.saveToStorage()).toBe(true);
 
     const reloaded = new VJControlPanel(makeEditor());
+    await reloaded.ready;
     reloaded.show();
 
     expect(reloaded.beatSyncEnabled).toBe(false);
