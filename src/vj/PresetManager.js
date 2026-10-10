@@ -23,7 +23,36 @@ export class PresetManager {
   capturePreset(name) {
     const presetId = `preset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Capture all node parameters
+    const preset = {
+      id: presetId,
+      name: name || `Preset ${this.presets.size + 1}`,
+      parameterState: this.readParameterState(),
+      capturedAt: Date.now(),
+      lastUsed: null
+    };
+
+    this.presets.set(presetId, preset);
+    if (!this.presetOrder.includes(presetId)) {
+      this.presetOrder.push(presetId);
+    }
+
+    return preset;
+  }
+
+  /**
+   * Re-capture an existing preset from the current parameters, keeping its
+   * ID, name and place in the order.
+   */
+  updatePresetFromCurrent(presetId) {
+    const preset = this.presets.get(presetId);
+    if (!preset) return false;
+    preset.parameterState = this.readParameterState();
+    preset.capturedAt = Date.now();
+    return true;
+  }
+
+  /** Every node's current parameters, keyed by node ID. */
+  readParameterState() {
     const parameterState = {};
 
     (this.editor.graph?.nodes || []).forEach(node => {
@@ -36,20 +65,7 @@ export class PresetManager {
       }
     });
 
-    const preset = {
-      id: presetId,
-      name: name || `Preset ${this.presets.size + 1}`,
-      parameterState,
-      capturedAt: Date.now(),
-      lastUsed: null
-    };
-
-    this.presets.set(presetId, preset);
-    if (!this.presetOrder.includes(presetId)) {
-      this.presetOrder.push(presetId);
-    }
-
-    return preset;
+    return parameterState;
   }
 
   /**
@@ -295,6 +311,37 @@ export class PresetManager {
 
     preset.name = newName;
     return true;
+  }
+
+  /**
+   * Copy a preset and slot the copy in right after the original.
+   */
+  duplicatePreset(presetId, name) {
+    const source = this.presets.get(presetId);
+    if (!source) return null;
+
+    const copy = JSON.parse(JSON.stringify(source));
+    copy.id = `preset_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    copy.name = name || `${source.name} copy`;
+    copy.capturedAt = Date.now();
+    copy.lastUsed = null;
+
+    this.presets.set(copy.id, copy);
+    this.presetOrder.splice(this.presetOrder.indexOf(presetId) + 1, 0, copy.id);
+    return copy;
+  }
+
+  /**
+   * Move a preset to a new position in the order.
+   */
+  movePreset(presetId, toIndex) {
+    const from = this.presetOrder.indexOf(presetId);
+    if (from < 0) return false;
+    const order = this.presetOrder.filter(id => id !== presetId);
+    const to = Math.max(0, Math.min(order.length, toIndex));
+    order.splice(to, 0, presetId);
+    this.presetOrder = order;
+    return from !== to;
   }
 
   /**

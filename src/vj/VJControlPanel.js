@@ -8,7 +8,7 @@
 import { SceneManager } from './SceneManager.js';
 import { setIcon } from '../ui/iconSprite.js';
 import { PresetManager } from './PresetManager.js';
-import { TransitionManager } from './TransitionManager.js';
+import { TransitionManager, VJ_SCENE_IMPORT_SOURCE } from './TransitionManager.js';
 import { PlaylistManager } from './PlaylistManager.js';
 import { BeatSyncManager } from './BeatSyncManager.js';
 import { setMasterOpacity } from './MasterOutput.js';
@@ -37,6 +37,25 @@ function writeStoredJSON(key, value) {
   } catch {
     // Quota exceeded, or storage blocked entirely.
     return false;
+  }
+}
+
+// How often auto-override looks for edits to write back into the live scene,
+// and how long the scene set waits after the last write before going to disk.
+const AUTO_OVERRIDE_INTERVAL_MS = 1500;
+const AUTO_OVERRIDE_PERSIST_DELAY_MS = 1500;
+
+// djb2 over the JSON, for an editor that has no _computeProjectHash.
+function hashProject(projectData) {
+  try {
+    const str = JSON.stringify(projectData);
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+    }
+    return `${hash}:${str.length}`;
+  } catch {
+    return null;
   }
 }
 
@@ -78,6 +97,13 @@ export class VJControlPanel {
     // Playback that advances on its own (auto-advance, next/previous, a scene
     // that dropped out) has to be able to redraw the list.
     this.playlistManager.onStateChange = () => this.syncPlaylistUI();
+
+    // Auto-override: which scene the editor is linked to and what was last
+    // written into it. See autoOverrideTick().
+    this._autoLink = null;
+    this._autoOverrideTimer = null;
+    this._autoPersistTimer = null;
+    this.ready.then(() => this.updateAutoOverrideWatch());
   }
 
   /**
@@ -559,6 +585,7 @@ export class VJControlPanel {
    * Refresh scenes display
    */
   refreshScenes() {
+    this.closeContextMenu();
     this.scenesArea.innerHTML = '';
     // The playlist's scene picker reads from the same collection.
     this.refreshPlaylistSceneOptions();
@@ -573,17 +600,33 @@ export class VJControlPanel {
       return;
     }
 
-    scenes.forEach(scene => {
+    scenes.forEach((scene, index) => {
       const sceneCard = document.createElement('div');
       sceneCard.className = 'vj-scene-card';
+      sceneCard.dataset.sceneId = scene.id;
       if (scene.id === this.sceneManager.activeSceneId) {
         sceneCard.classList.add('active');
       }
 
+      const titleRow = document.createElement('div');
+      titleRow.className = 'vj-card-title-row';
+
       const sceneName = document.createElement('div');
       sceneName.className = 'vj-scene-name';
       sceneName.textContent = scene.name;
-      sceneCard.appendChild(sceneName);
+      titleRow.appendChild(sceneName);
+
+      // Keep this scene following the editor while it is the live one.
+      const autoBtn = document.createElement('button');
+      autoBtn.className = 'vj-btn-toggle vj-auto-override-btn';
+      autoBtn.textContent = 'Auto';
+      autoBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.setSceneAutoOverride(scene.id, !scene.autoOverride);
+      };
+      titleRow.appendChild(autoBtn);
+
+      sceneCard.appendChild(titleRow);
 
       const sceneInfo = document.createElement('div');
       sceneInfo.className = 'vj-scene-info';
@@ -616,13 +659,7 @@ export class VJControlPanel {
       actions.appendChild(switchBtn);
 
       const overrideBtn = this.createButton('Override', 'Replace this saved scene with the current editor state', () => {
-        if (!confirm(`Replace scene "${scene.name}" with the current editor state? This cannot be undone.`)) return;
-        if (!this.sceneManager.overrideSceneWithCurrentState(scene.id)) {
-          alert('Could not override this scene. The current project could not be captured.');
-          return;
-        }
-        this.persistScenes();
-        this.refreshScenes();
+        this.overrideScene(scene.id);
       });
       overrideBtn.className = 'vj-btn-small';
       actions.appendChild(overrideBtn);
@@ -636,12 +673,16 @@ export class VJControlPanel {
       queueBtn.className = 'vj-btn-small';
       actions.appendChild(queueBtn);
 
+      const moreBtn = this.createButton('⋯', 'More actions', (e) => {
+        const rect = moreBtn.getBoundingClientRect();
+        this.showContextMenu(rect.left, rect.bottom, this.sceneMenuItems(scene.id));
+        e.stopPropagation();
+      });
+      moreBtn.className = 'vj-btn-small';
+      actions.appendChild(moreBtn);
+
       const deleteBtn = this.createButton('×', 'Remove scene', () => {
-        if (confirm(`Remove scene "${scene.name}"?`)) {
-          this.sceneManager.removeScene(scene.id);
-          this.persistScenes();
-          this.refreshScenes();
-        }
+        this.removeScene(scene.id);
       });
       deleteBtn.className = 'vj-btn-small vj-btn-danger';
       actions.appendChild(deleteBtn);
@@ -655,8 +696,129 @@ export class VJControlPanel {
         }
       };
 
+      sceneCard.oncontextmenu = (e) => {
+        // A note keeps the browser's own menu - copy and paste live there.
+        if (e.target.closest('textarea, input')) return;
+        e.preventDefault();
+        this.showContextMenu(e.clientX, e.clientY, this.sceneMenuItems(scene.id));
+      };
+
+      this.makeReorderable(sceneCard, index, {
+        group: 'scenes',
+        axis: 'x',
+        onMove: (from, to) => this.moveScene(scenes[from].id, to)
+      });
+
       this.scenesArea.appendChild(sceneCard);
     });
+
+    this.updateAutoOverrideBadges();
+  }
+
+  /** The scene card's context menu. */
+  sceneMenuItems(sceneId) {
+    const scene = this.sceneManager.getScene(sceneId);
+    if (!scene) return [];
+    const index = this.sceneManager.sceneOrder.indexOf(sceneId);
+    const last = this.sceneManager.sceneOrder.length - 1;
+    return [
+      { label: 'Load', onSelect: () => this.switchToScene(sceneId) },
+      { label: 'Rename…', onSelect: () => this.renameScene(sceneId) },
+      { label: 'Duplicate', onSelect: () => this.duplicateScene(sceneId) },
+      { separator: true },
+      { label: 'Override with current state', onSelect: () => this.overrideScene(sceneId) },
+      {
+        label: 'Auto-override while live',
+        checked: !!scene.autoOverride,
+        onSelect: () => this.setSceneAutoOverride(sceneId, !scene.autoOverride)
+      },
+      { separator: true },
+      { label: 'Add to playlist', onSelect: () => this.addSceneToPlaylist(sceneId) },
+      { label: 'Move to start', disabled: index <= 0, onSelect: () => this.moveScene(sceneId, 0) },
+      { label: 'Move to end', disabled: index >= last, onSelect: () => this.moveScene(sceneId, last) },
+      { label: 'Save to file…', onSelect: () => this.exportSceneToFile(sceneId) },
+      { separator: true },
+      { label: 'Remove', danger: true, onSelect: () => this.removeScene(sceneId) }
+    ];
+  }
+
+  /** Rename a scene in place on its card. */
+  renameScene(sceneId) {
+    const scene = this.sceneManager.getScene(sceneId);
+    const card = this.scenesArea.querySelector(`.vj-scene-card[data-scene-id="${CSS.escape(sceneId)}"]`);
+    const nameEl = card?.querySelector('.vj-scene-name');
+    if (!scene || !nameEl) return;
+
+    this.beginRename(nameEl, scene.name, (name) => {
+      this.sceneManager.updateSceneMetadata(sceneId, { name });
+      this.persistScenes();
+      this.refreshScenes();
+    });
+  }
+
+  duplicateScene(sceneId) {
+    const copy = this.sceneManager.duplicateScene(sceneId);
+    if (!copy) {
+      alert('Could not duplicate this scene.');
+      return null;
+    }
+    this.persistScenes();
+    this.refreshScenes();
+    return copy;
+  }
+
+  moveScene(sceneId, toIndex) {
+    if (!this.sceneManager.moveScene(sceneId, toIndex)) return false;
+    this.persistScenes();
+    this.refreshScenes();
+    return true;
+  }
+
+  removeScene(sceneId) {
+    const scene = this.sceneManager.getScene(sceneId);
+    if (!scene) return false;
+    if (!confirm(`Remove scene "${scene.name}"?`)) return false;
+    this.sceneManager.removeScene(sceneId);
+    this.persistScenes();
+    this.refreshScenes();
+    this.updateAutoOverrideWatch();
+    return true;
+  }
+
+  overrideScene(sceneId) {
+    const scene = this.sceneManager.getScene(sceneId);
+    if (!scene) return false;
+    if (!confirm(`Replace scene "${scene.name}" with the current editor state? This cannot be undone.`)) return false;
+    if (!this.sceneManager.overrideSceneWithCurrentState(sceneId)) {
+      alert('Could not override this scene. The current project could not be captured.');
+      return false;
+    }
+    // The scene now matches the editor - auto-override has nothing to catch up on.
+    if (this._autoLink?.sceneId === sceneId) this._autoLink = null;
+    this.persistScenes();
+    this.refreshScenes();
+    return true;
+  }
+
+  /** Download a scene as a project file that Load Scene (or File > Open) reads back. */
+  exportSceneToFile(sceneId) {
+    const scene = this.sceneManager.getScene(sceneId);
+    if (!scene) return false;
+    try {
+      const blob = new Blob([JSON.stringify(scene.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${(scene.name || 'scene').replace(/[\\/:*?"<>|]+/g, '_')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      return true;
+    } catch (error) {
+      alert(`Could not save scene: ${error?.message || error}`);
+      return false;
+    }
   }
 
   /**
@@ -675,9 +837,10 @@ export class VJControlPanel {
       return;
     }
 
-    presets.forEach(preset => {
+    presets.forEach((preset, index) => {
       const presetCard = document.createElement('div');
       presetCard.className = 'vj-preset-card';
+      presetCard.dataset.presetId = preset.id;
       if (preset.id === this.presetManager.activePresetId) {
         presetCard.classList.add('active');
       }
@@ -696,11 +859,15 @@ export class VJControlPanel {
       applyBtn.className = 'vj-btn-small';
       actions.appendChild(applyBtn);
 
+      const moreBtn = this.createButton('⋯', 'More actions', () => {
+        const rect = moreBtn.getBoundingClientRect();
+        this.showContextMenu(rect.left, rect.bottom, this.presetMenuItems(preset.id));
+      });
+      moreBtn.className = 'vj-btn-small';
+      actions.appendChild(moreBtn);
+
       const deleteBtn = this.createButton('×', 'Delete preset', () => {
-        if (confirm(`Delete preset "${preset.name}"?`)) {
-          this.presetManager.deletePreset(preset.id);
-          this.refreshPresets();
-        }
+        this.deletePreset(preset.id);
       });
       deleteBtn.className = 'vj-btn-small vj-btn-danger';
       actions.appendChild(deleteBtn);
@@ -714,8 +881,94 @@ export class VJControlPanel {
         }
       };
 
+      presetCard.oncontextmenu = (e) => {
+        e.preventDefault();
+        this.showContextMenu(e.clientX, e.clientY, this.presetMenuItems(preset.id));
+      };
+
+      this.makeReorderable(presetCard, index, {
+        group: 'presets',
+        axis: 'x',
+        onMove: (from, to) => this.movePreset(presets[from].id, to)
+      });
+
       this.presetsArea.appendChild(presetCard);
     });
+  }
+
+  /** The preset card's context menu. */
+  presetMenuItems(presetId) {
+    const index = this.presetManager.presetOrder.indexOf(presetId);
+    const last = this.presetManager.presetOrder.length - 1;
+    return [
+      { label: 'Apply', onSelect: () => this.applyPreset(presetId) },
+      { label: 'Rename…', onSelect: () => this.renamePreset(presetId) },
+      { label: 'Duplicate', onSelect: () => this.duplicatePreset(presetId) },
+      { label: 'Update from current', onSelect: () => this.updatePresetFromCurrent(presetId) },
+      { separator: true },
+      { label: 'Move to start', disabled: index <= 0, onSelect: () => this.movePreset(presetId, 0) },
+      { label: 'Move to end', disabled: index >= last, onSelect: () => this.movePreset(presetId, last) },
+      { separator: true },
+      { label: 'Delete', danger: true, onSelect: () => this.deletePreset(presetId) }
+    ];
+  }
+
+  renamePreset(presetId) {
+    const preset = this.presetManager.presets.get(presetId);
+    const card = this.presetsArea.querySelector(`.vj-preset-card[data-preset-id="${CSS.escape(presetId)}"]`);
+    const nameEl = card?.querySelector('.vj-preset-name');
+    if (!preset || !nameEl) return;
+
+    this.beginRename(nameEl, preset.name, (name) => {
+      this.presetManager.renamePreset(presetId, name);
+      this.persistPresets();
+      this.refreshPresets();
+    });
+  }
+
+  duplicatePreset(presetId) {
+    const copy = this.presetManager.duplicatePreset(presetId);
+    if (!copy) return null;
+    this.persistPresets();
+    this.refreshPresets();
+    return copy;
+  }
+
+  updatePresetFromCurrent(presetId) {
+    const preset = this.presetManager.presets.get(presetId);
+    if (!preset) return false;
+    if (!confirm(`Replace preset "${preset.name}" with the current parameters?`)) return false;
+    this.presetManager.updatePresetFromCurrent(presetId);
+    this.persistPresets();
+    this.refreshPresets();
+    return true;
+  }
+
+  movePreset(presetId, toIndex) {
+    if (!this.presetManager.movePreset(presetId, toIndex)) return false;
+    this.persistPresets();
+    this.refreshPresets();
+    return true;
+  }
+
+  deletePreset(presetId) {
+    const preset = this.presetManager.presets.get(presetId);
+    if (!preset) return false;
+    if (!confirm(`Delete preset "${preset.name}"?`)) return false;
+    this.presetManager.deletePreset(presetId);
+    this.persistPresets();
+    this.refreshPresets();
+    return true;
+  }
+
+  /** Presets are small - write them as soon as they change. */
+  persistPresets() {
+    return writeStoredJSON(PRESETS_STORAGE_KEY, this.presetManager.exportPresets());
+  }
+
+  /** As persistPresets(), for the playlist. */
+  persistPlaylist() {
+    return writeStoredJSON(PLAYLIST_STORAGE_KEY, this.playlistManager.exportPlaylist());
   }
 
   /**
@@ -751,6 +1004,7 @@ export class VJControlPanel {
     playlist.forEach((item, index) => {
       const itemCard = document.createElement('div');
       itemCard.className = 'vj-playlist-item';
+      itemCard.dataset.index = String(index);
       if (item.isCurrent) {
         itemCard.classList.add('current');
       }
@@ -788,6 +1042,7 @@ export class VJControlPanel {
           return;
         }
         this.playlistManager.updatePlaylistItem(index, { duration: seconds });
+        this.persistPlaylist();
       };
       itemDetails.appendChild(durationInput);
 
@@ -807,6 +1062,7 @@ export class VJControlPanel {
       transitionSelect.value = item.transitionType;
       transitionSelect.onchange = () => {
         this.playlistManager.updatePlaylistItem(index, { transitionType: transitionSelect.value });
+        this.persistPlaylist();
       };
       itemDetails.appendChild(transitionSelect);
 
@@ -817,29 +1073,22 @@ export class VJControlPanel {
       const actions = document.createElement('div');
       actions.className = 'vj-playlist-actions';
 
-      const upBtn = this.createButton('', 'Move up', () => {
-        if (index > 0) {
-          this.playlistManager.movePlaylistItem(index, index - 1);
-          this.refreshPlaylist();
-        }
+      const upBtn = this.createButton('↑', 'Move up', () => {
+        this.movePlaylistItem(index, index - 1);
       });
       upBtn.className = 'vj-btn-tiny';
       upBtn.disabled = index === 0;
       actions.appendChild(upBtn);
 
-      const downBtn = this.createButton('', 'Move down', () => {
-        if (index < playlist.length - 1) {
-          this.playlistManager.movePlaylistItem(index, index + 1);
-          this.refreshPlaylist();
-        }
+      const downBtn = this.createButton('↓', 'Move down', () => {
+        this.movePlaylistItem(index, index + 1);
       });
       downBtn.className = 'vj-btn-tiny';
       downBtn.disabled = index === playlist.length - 1;
       actions.appendChild(downBtn);
 
       const deleteBtn = this.createButton('×', 'Remove from playlist', () => {
-        this.playlistManager.removeFromPlaylist(index);
-        this.refreshPlaylist();
+        this.removePlaylistItem(index);
       });
       deleteBtn.className = 'vj-btn-tiny vj-btn-danger';
       actions.appendChild(deleteBtn);
@@ -854,7 +1103,281 @@ export class VJControlPanel {
         this.playlistManager.jumpTo(index);
       };
 
+      itemCard.oncontextmenu = (e) => {
+        if (e.target.closest('input')) return;
+        e.preventDefault();
+        this.showContextMenu(e.clientX, e.clientY, this.playlistMenuItems(index));
+      };
+
+      this.makeReorderable(itemCard, index, {
+        group: 'playlist',
+        axis: 'y',
+        onMove: (from, to) => this.movePlaylistItem(from, to)
+      });
+
       this.playlistItems.appendChild(itemCard);
+    });
+  }
+
+  /** A playlist row's context menu. */
+  playlistMenuItems(index) {
+    const last = this.playlistManager.playlist.length - 1;
+    const sceneId = this.playlistManager.playlist[index]?.sceneId;
+    return [
+      { label: 'Jump to', onSelect: () => this.playlistManager.jumpTo(index) },
+      { label: 'Duplicate', onSelect: () => this.duplicatePlaylistItem(index) },
+      {
+        label: 'Show scene',
+        disabled: !this.sceneManager.getScene(sceneId),
+        onSelect: () => this.revealScene(sceneId)
+      },
+      { separator: true },
+      { label: 'Move up', disabled: index <= 0, onSelect: () => this.movePlaylistItem(index, index - 1) },
+      { label: 'Move down', disabled: index >= last, onSelect: () => this.movePlaylistItem(index, index + 1) },
+      { separator: true },
+      { label: 'Remove', danger: true, onSelect: () => this.removePlaylistItem(index) }
+    ];
+  }
+
+  movePlaylistItem(fromIndex, toIndex) {
+    if (fromIndex === toIndex) return false;
+    if (!this.playlistManager.movePlaylistItem(fromIndex, toIndex)) return false;
+    this.persistPlaylist();
+    this.refreshPlaylist();
+    return true;
+  }
+
+  duplicatePlaylistItem(index) {
+    if (!this.playlistManager.duplicatePlaylistItem(index)) return false;
+    this.persistPlaylist();
+    this.refreshPlaylist();
+    return true;
+  }
+
+  removePlaylistItem(index) {
+    if (!this.playlistManager.removeFromPlaylist(index)) return false;
+    this.persistPlaylist();
+    this.refreshPlaylist();
+    return true;
+  }
+
+  /** Switch to the scenes tab and bring a scene's card into view. */
+  revealScene(sceneId) {
+    this.switchTab('scenes');
+    const card = this.scenesArea.querySelector(`.vj-scene-card[data-scene-id="${CSS.escape(sceneId)}"]`);
+    card?.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  /**
+   * Pop a small menu at (x, y). Items are { label, onSelect, disabled, danger,
+   * checked } or { separator: true }. Closes on a pick, Escape, or any press
+   * outside it.
+   */
+  showContextMenu(x, y, items) {
+    this.closeContextMenu();
+    if (!items?.length) return null;
+
+    const menu = document.createElement('div');
+    menu.className = 'vj-context-menu';
+    menu.setAttribute('role', 'menu');
+
+    items.forEach(item => {
+      if (item.separator) {
+        const sep = document.createElement('div');
+        sep.className = 'vj-context-separator';
+        menu.appendChild(sep);
+        return;
+      }
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'vj-context-item';
+      if (item.danger) row.classList.add('danger');
+      row.setAttribute('role', item.checked === undefined ? 'menuitem' : 'menuitemcheckbox');
+      if (item.checked !== undefined) row.setAttribute('aria-checked', String(!!item.checked));
+      row.disabled = !!item.disabled;
+
+      const check = document.createElement('span');
+      check.className = 'vj-context-check';
+      check.textContent = item.checked ? '✓' : '';
+      row.appendChild(check);
+
+      const label = document.createElement('span');
+      label.textContent = item.label;
+      row.appendChild(label);
+
+      row.onclick = (e) => {
+        e.stopPropagation();
+        this.closeContextMenu();
+        item.onSelect?.();
+      };
+      menu.appendChild(row);
+    });
+
+    document.body.appendChild(menu);
+
+    // Keep it on screen.
+    const rect = menu.getBoundingClientRect();
+    const maxX = Math.max(0, window.innerWidth - rect.width - 4);
+    const maxY = Math.max(0, window.innerHeight - rect.height - 4);
+    menu.style.left = `${Math.min(Math.max(0, x), maxX)}px`;
+    menu.style.top = `${Math.min(Math.max(0, y), maxY)}px`;
+
+    const onPointerDown = (e) => {
+      if (!menu.contains(e.target)) this.closeContextMenu();
+    };
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.closeContextMenu();
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const rows = [...menu.querySelectorAll('.vj-context-item:not(:disabled)')];
+        if (!rows.length) return;
+        const at = rows.indexOf(document.activeElement);
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        rows[(at + step + rows.length) % rows.length].focus();
+      }
+    };
+    const onBlur = () => this.closeContextMenu();
+    // Capture, so a handler that stops propagation can't keep it open.
+    document.addEventListener('mousedown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('blur', onBlur);
+
+    this._contextMenu = {
+      element: menu,
+      dispose: () => {
+        document.removeEventListener('mousedown', onPointerDown, true);
+        document.removeEventListener('keydown', onKeyDown, true);
+        window.removeEventListener('blur', onBlur);
+        menu.remove();
+      }
+    };
+
+    menu.querySelector('.vj-context-item:not(:disabled)')?.focus();
+    return menu;
+  }
+
+  closeContextMenu() {
+    const open = this._contextMenu;
+    this._contextMenu = null;
+    open?.dispose();
+  }
+
+  /**
+   * Swap a name label for a text field. Enter or leaving the field commits,
+   * Escape puts the old name back. Empty names are ignored.
+   */
+  beginRename(nameEl, currentName, onCommit) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'vj-rename-input';
+    input.value = currentName;
+
+    let done = false;
+    const finish = (commit) => {
+      if (done) return;
+      done = true;
+      const name = input.value.trim();
+      if (commit && name && name !== currentName) {
+        onCommit(name);
+      } else {
+        nameEl.textContent = currentName;
+      }
+    };
+
+    input.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        finish(true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(false);
+      }
+    };
+    input.onblur = () => finish(true);
+    // Clicking into the field must not load the scene or apply the preset.
+    input.onclick = (e) => e.stopPropagation();
+    input.onmousedown = (e) => e.stopPropagation();
+
+    nameEl.textContent = '';
+    nameEl.appendChild(input);
+    input.focus();
+    input.select();
+    return input;
+  }
+
+  /**
+   * Let a card be dragged onto its siblings in the same `group` to reorder
+   * them. `axis` says which half of the target means "after": 'x' for the
+   * wrapping card grids, 'y' for the playlist's column. onMove gets the
+   * dragged item's index and the index it should end up at.
+   */
+  makeReorderable(card, index, { group, axis, onMove }) {
+    card.draggable = true;
+    card.dataset.reorderGroup = group;
+    card.dataset.reorderIndex = String(index);
+
+    // A draggable parent stops text being selected in its fields (Firefox), and
+    // a drag started from a field is never meant as a reorder.
+    card.addEventListener('mousedown', (e) => {
+      card.draggable = !e.target.closest('input, textarea, select');
+    });
+
+    const clearMarks = () => {
+      card.classList.remove('vj-drop-before', 'vj-drop-after');
+    };
+    const isAfter = (e) => {
+      const rect = card.getBoundingClientRect();
+      return axis === 'y'
+        ? e.clientY > rect.top + rect.height / 2
+        : e.clientX > rect.left + rect.width / 2;
+    };
+
+    card.addEventListener('dragstart', (e) => {
+      this._drag = { group, from: index };
+      card.classList.add('vj-dragging');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        // Firefox will not start a drag without data.
+        try { e.dataTransfer.setData('text/plain', `${group}:${index}`); } catch { /* ignore */ }
+      }
+    });
+
+    card.addEventListener('dragover', (e) => {
+      if (this._drag?.group !== group) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      const after = isAfter(e);
+      card.classList.toggle('vj-drop-after', after);
+      card.classList.toggle('vj-drop-before', !after);
+    });
+
+    card.addEventListener('dragleave', (e) => {
+      if (!card.contains(e.relatedTarget)) clearMarks();
+    });
+
+    card.addEventListener('drop', (e) => {
+      const drag = this._drag;
+      if (drag?.group !== group) return;
+      e.preventDefault();
+      clearMarks();
+      this._drag = null;
+
+      let to = index + (isAfter(e) ? 1 : 0);
+      if (drag.from < to) to--;
+      if (to !== drag.from) onMove(drag.from, to);
+    });
+
+    card.addEventListener('dragend', () => {
+      this._drag = null;
+      card.draggable = true;
+      card.classList.remove('vj-dragging');
+      card.parentElement?.querySelectorAll('.vj-drop-before, .vj-drop-after')
+        .forEach(el => el.classList.remove('vj-drop-before', 'vj-drop-after'));
     });
   }
 
@@ -917,6 +1440,8 @@ export class VJControlPanel {
    * unless the user also remembered to press it.
    */
   async persistScenes() {
+    clearTimeout(this._autoPersistTimer);
+    this._autoPersistTimer = null;
     const saved = await this.sceneManager.save();
     if (!saved && !this._sceneSaveWarned) {
       // Once per session - every edit would otherwise raise the same alert.
@@ -948,6 +1473,10 @@ export class VJControlPanel {
     const scene = this.sceneManager.getScene(sceneId);
     if (!scene) return false;
 
+    // Leaving a scene with auto-override on: catch its last edits before the
+    // editor is torn down for the next one.
+    this.autoOverrideTick();
+    this._switchingScene = true;
     try {
       await this.transitionManager.startTransition(
         scene.data,
@@ -960,12 +1489,180 @@ export class VJControlPanel {
       alert(`Failed to load scene "${scene.name}": ${error?.message || error}`);
       this.refreshScenes();
       return false;
+    } finally {
+      this._switchingScene = false;
     }
 
     this.sceneManager.activeSceneId = sceneId;
     scene.lastUsed = Date.now();
     this.refreshScenes();
     return true;
+  }
+
+  /**
+   * Turn auto-override on or off for a scene. While on and the scene is the
+   * live one, edits made in the editor are written back into it.
+   */
+  setSceneAutoOverride(sceneId, enabled) {
+    if (!this.sceneManager.updateSceneMetadata(sceneId, { autoOverride: enabled })) return false;
+    if (this._autoLink?.sceneId === sceneId) this._autoLink = null;
+    this.persistScenes();
+    this.updateAutoOverrideBadges();
+    this.updateAutoOverrideWatch();
+    return true;
+  }
+
+  /**
+   * Where a scene's auto-override stands:
+   *   'off'    - not switched on
+   *   'armed'  - on, but another scene (or none) is live
+   *   'paused' - on and live, but the editor has since loaded something that
+   *              is not this scene (a file, a backup), so nothing is written
+   *   'live'   - on, live, and following the editor
+   */
+  autoOverrideState(sceneId) {
+    const scene = this.sceneManager.getScene(sceneId);
+    if (!scene?.autoOverride) return 'off';
+    if (this.sceneManager.activeSceneId !== sceneId) return 'armed';
+    return this.editorShowsVJScene() ? 'live' : 'paused';
+  }
+
+  /**
+   * True when the project in the editor was put there by a VJ scene load and
+   * nothing has replaced it since. An editor that does not track import
+   * sources is taken at its word.
+   */
+  editorShowsVJScene() {
+    const slm = this.editor?.saveLoadManager;
+    if (!slm || !('lastImportSource' in slm)) return true;
+    return slm.lastImportSource === VJ_SCENE_IMPORT_SOURCE;
+  }
+
+  /** Paint each scene card's Auto button for its current state. */
+  updateAutoOverrideBadges() {
+    if (!this.scenesArea) return;
+    const titles = {
+      off: 'Auto-override is off. Turn on to keep this scene updated with your edits while it is live.',
+      armed: 'Auto-override is on. Load this scene and your edits will be saved into it automatically.',
+      paused: 'Auto-override is paused: the editor no longer shows this scene. Load it again to resume.',
+      live: 'Auto-override is live: edits are being saved into this scene.'
+    };
+    this.scenesArea.querySelectorAll('.vj-scene-card[data-scene-id]').forEach(card => {
+      const state = this.autoOverrideState(card.dataset.sceneId);
+      const btn = card.querySelector('.vj-auto-override-btn');
+      card.classList.toggle('auto-live', state === 'live');
+      if (!btn) return;
+      btn.classList.toggle('on', state !== 'off');
+      btn.dataset.state = state;
+      btn.setAttribute('aria-pressed', String(state !== 'off'));
+      btn.title = titles[state];
+    });
+  }
+
+  /** Run the auto-override poll only while some scene wants it. */
+  updateAutoOverrideWatch() {
+    const wanted = this.sceneManager.getAllScenes().some(scene => scene.autoOverride);
+    if (wanted && !this._autoOverrideTimer) {
+      this._autoOverrideTimer = setInterval(() => this.autoOverrideTick(), AUTO_OVERRIDE_INTERVAL_MS);
+    } else if (!wanted && this._autoOverrideTimer) {
+      clearInterval(this._autoOverrideTimer);
+      this._autoOverrideTimer = null;
+      this._autoLink = null;
+    }
+  }
+
+  /**
+   * One auto-override pass: if the live scene has auto-override on and the
+   * editor has changed since the last pass, write the editor's state into it.
+   * Returns true when the scene was updated.
+   *
+   * Never writes mid-transition or mid-import, and never once the editor has
+   * loaded a project that is not a VJ scene - otherwise opening a file would
+   * quietly overwrite whatever scene was live.
+   */
+  autoOverrideTick() {
+    const sm = this.sceneManager;
+    const slm = this.editor?.saveLoadManager;
+    const scene = sm.activeSceneId ? sm.getScene(sm.activeSceneId) : null;
+
+    if (!scene?.autoOverride || !slm?.exportProject) {
+      this._autoLink = null;
+      return false;
+    }
+    if (this.transitionManager.isTransitioning || slm.isImporting || this._switchingScene) return false;
+
+    const importCount = slm.importCount ?? 0;
+    let link = this._autoLink;
+    const state = this.editorShowsVJScene() ? 'live' : 'paused';
+
+    // A new scene went live, or the same one was reloaded: start from what
+    // is stored for it, so the first pass only writes real edits.
+    if (!link || link.sceneId !== scene.id || link.importCount !== importCount) {
+      link = this._autoLink = {
+        sceneId: scene.id,
+        importCount,
+        hash: this.hashProject(scene.data),
+        dirtyStamp: undefined,
+        state: null
+      };
+      this.updateAutoOverrideBadges();
+    }
+
+    if (link.state !== state) {
+      link.state = state;
+      this.updateAutoOverrideBadges();
+    }
+    if (state !== 'live') return false;
+
+    // Skip the export when the editor has not been touched since last time.
+    const dirtyStamp = this.editor._lastDirtyTimestamp;
+    if (dirtyStamp !== undefined && dirtyStamp === link.dirtyStamp) return false;
+    link.dirtyStamp = dirtyStamp;
+
+    let projectData;
+    try {
+      projectData = slm.exportProject();
+    } catch {
+      return false;
+    }
+    if (!projectData || !Array.isArray(projectData.nodes)) return false;
+
+    const hash = this.hashProject(projectData);
+    if (hash !== null && hash === link.hash) return false;
+
+    if (!sm.overrideSceneWithCurrentState(scene.id, projectData)) return false;
+    link.hash = hash;
+    this.flashAutoOverride(scene.id);
+    this.scheduleAutoOverridePersist();
+    return true;
+  }
+
+  hashProject(projectData) {
+    const slm = this.editor?.saveLoadManager;
+    if (typeof slm?._computeProjectHash === 'function') {
+      return slm._computeProjectHash(projectData);
+    }
+    return hashProject(projectData);
+  }
+
+  /** Writes come in bursts while editing; save once they settle. */
+  scheduleAutoOverridePersist() {
+    clearTimeout(this._autoPersistTimer);
+    this._autoPersistTimer = setTimeout(() => {
+      this._autoPersistTimer = null;
+      this.persistScenes();
+    }, AUTO_OVERRIDE_PERSIST_DELAY_MS);
+  }
+
+  /** Blink the Auto button so it is visible that the scene just took edits. */
+  flashAutoOverride(sceneId) {
+    const card = this.scenesArea?.querySelector(`.vj-scene-card[data-scene-id="${CSS.escape(sceneId)}"]`);
+    const btn = card?.querySelector('.vj-auto-override-btn');
+    if (!btn) return;
+    btn.classList.remove('flash');
+    // Restart the animation.
+    void btn.offsetWidth;
+    btn.classList.add('flash');
   }
 
   /**
@@ -976,6 +1673,7 @@ export class VJControlPanel {
     if (!name) return;
 
     this.presetManager.capturePreset(name);
+    this.persistPresets();
     this.refreshPresets();
   }
 
@@ -986,6 +1684,7 @@ export class VJControlPanel {
     if (!confirm('Clear all presets?')) return;
 
     this.presetManager.clear();
+    this.persistPresets();
     this.refreshPresets();
   }
 
@@ -1020,6 +1719,7 @@ export class VJControlPanel {
       transitionDuration
     );
 
+    if (added) this.persistPlaylist();
     this.refreshPlaylist();
     return added;
   }
@@ -1031,6 +1731,7 @@ export class VJControlPanel {
     if (!confirm('Clear playlist?')) return;
 
     this.playlistManager.clearPlaylist();
+    this.persistPlaylist();
     this.refreshPlaylist();
   }
 
@@ -1299,6 +2000,7 @@ export class VJControlPanel {
    * Hide panel
    */
   hide() {
+    this.closeContextMenu();
     this.visible = false;
     this.container.style.display = 'none';
 

@@ -44,6 +44,9 @@ export class SceneManager {
       duration: sceneData.timeline?.duration || 10,
       // Free-text cue note - what this scene is for, when to fire it.
       notes: '',
+      // While on and this scene is the active one, the panel keeps writing the
+      // editor's latest state back into it - see VJControlPanel.autoOverrideTick.
+      autoOverride: false,
       addedAt: Date.now(),
       lastUsed: null
     };
@@ -59,12 +62,13 @@ export class SceneManager {
   /**
    * Replace a saved scene's project data with the editor's current state.
    * Keep its ID, name, notes, playlist references, and ordering intact.
+   * Pass `exported` to use a project export the caller already has.
    */
-  overrideSceneWithCurrentState(sceneId) {
+  overrideSceneWithCurrentState(sceneId, exported = null) {
     const scene = this.scenes.get(sceneId);
-    if (!scene || !this.saveLoadManager?.exportProject) return false;
+    if (!scene || (!exported && !this.saveLoadManager?.exportProject)) return false;
     try {
-      const projectData = this.saveLoadManager.exportProject();
+      const projectData = exported || this.saveLoadManager.exportProject();
       if (!projectData || !Array.isArray(projectData.nodes)) return false;
       scene.data = projectData;
       scene.duration = projectData.timeline?.duration || scene.duration || 10;
@@ -73,6 +77,48 @@ export class SceneManager {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Copy a scene - project data, notes and all - and slot the copy in right
+   * after the original. Returns the new scene, or null if there is none.
+   */
+  duplicateScene(sceneId, name) {
+    const source = this.scenes.get(sceneId);
+    if (!source) return null;
+
+    let data;
+    try {
+      data = typeof structuredClone === 'function'
+        ? structuredClone(source.data)
+        : JSON.parse(JSON.stringify(source.data));
+    } catch {
+      return null;
+    }
+
+    const newId = `scene_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const copy = this.addScene(newId, data, name || `${source.name} copy`);
+    copy.duration = source.duration;
+    copy.notes = source.notes || '';
+
+    // addScene appended it; move it next to its original.
+    this.sceneOrder = this.sceneOrder.filter(id => id !== newId);
+    this.sceneOrder.splice(this.sceneOrder.indexOf(sceneId) + 1, 0, newId);
+    return copy;
+  }
+
+  /**
+   * Move a scene to a new position in the order. `toIndex` is where it ends
+   * up, counted after it has been taken out.
+   */
+  moveScene(sceneId, toIndex) {
+    const from = this.sceneOrder.indexOf(sceneId);
+    if (from < 0) return false;
+    const order = this.sceneOrder.filter(id => id !== sceneId);
+    const to = Math.max(0, Math.min(order.length, toIndex));
+    order.splice(to, 0, sceneId);
+    this.sceneOrder = order;
+    return from !== to;
   }
 
   /**
@@ -186,6 +232,7 @@ export class SceneManager {
     if (metadata.name !== undefined) scene.name = metadata.name;
     if (metadata.duration !== undefined) scene.duration = metadata.duration;
     if (metadata.notes !== undefined) scene.notes = String(metadata.notes);
+    if (metadata.autoOverride !== undefined) scene.autoOverride = !!metadata.autoOverride;
 
     return true;
   }

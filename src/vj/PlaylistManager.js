@@ -80,6 +80,20 @@ export class PlaylistManager {
   }
 
   /**
+   * Copy a playlist item - same scene, hold time and transition - and insert
+   * the copy right after it.
+   */
+  duplicatePlaylistItem(index) {
+    if (index < 0 || index >= this.playlist.length) return false;
+
+    this.playlist.splice(index + 1, 0, { ...this.playlist[index] });
+    if (this.currentIndex > index) this.currentIndex++;
+
+    this.notifyStateChange();
+    return true;
+  }
+
+  /**
    * Move playlist item
    */
   movePlaylistItem(fromIndex, toIndex) {
