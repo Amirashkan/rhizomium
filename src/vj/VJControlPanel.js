@@ -612,6 +612,18 @@ export class VJControlPanel {
       switchBtn.className = 'vj-btn-small';
       actions.appendChild(switchBtn);
 
+      const overrideBtn = this.createButton('Override', 'Replace this saved scene with the current editor state', () => {
+        if (!confirm(`Replace scene "${scene.name}" with the current editor state? This cannot be undone.`)) return;
+        if (!this.sceneManager.overrideSceneWithCurrentState(scene.id)) {
+          alert('Could not override this scene. The current project could not be captured.');
+          return;
+        }
+        this.sceneManager.saveToLocalStorage();
+        this.refreshScenes();
+      });
+      overrideBtn.className = 'vj-btn-small';
+      actions.appendChild(overrideBtn);
+
       // Queue straight from the scene list. Requiring a scene to be loaded
       // before it could be queued meant building a playlist tore down the graph
       // once per entry - and any scene that failed to load could never be added.
