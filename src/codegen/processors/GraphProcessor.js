@@ -180,7 +180,15 @@ validateForCompilation(graph) {
           if (!id || visited.has(id)) return;
           
           if (visiting.has(id)) {
-
+            // Back edge: this node is upstream of itself (a feedback loop). A compute node is
+            // read in the fragment shader as its output texture — the last dispatch, not this
+            // pass's inputs — so it can be emitted right here, ahead of the consumer that closed
+            // the loop. Otherwise that consumer compiles first and finds no expression for it.
+            const looped = byId.get(id);
+            if (looped && /^Compute/.test(looped.kind || '')) {
+              visited.add(id);
+              result.push(looped);
+            }
             return;
           }
           
@@ -202,6 +210,7 @@ validateForCompilation(graph) {
           }
           
           visiting.delete(id);
+          if (visited.has(id)) return; // already emitted at a feedback-loop back edge
           visited.add(id);
           result.push(node);
         } catch (error) {
