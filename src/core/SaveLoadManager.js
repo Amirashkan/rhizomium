@@ -2355,6 +2355,11 @@ importConnections(connectionData) {
    * to be looked at on one machine must not throw windows onto whatever displays
    * happen to be attached, so every loaded screen starts switched off and the
    * output button is what takes the rig live.
+   *
+   * Nor does it ever close them. While any screen is live the rig is left as it
+   * is: a VJ scene switch, a performer cue or an AI edit all load through here,
+   * and replacing the rig mid-show switched every loaded screen off — which shut
+   * the projector window on every scene change.
    */
   importOutputScreens(screenData) {
     try {
@@ -2362,6 +2367,7 @@ importConnections(connectionData) {
 
         return;
       }
+      if (window.screenModel.enabledScreens().length > 0) return;
 
       window.screenModel.deserialize(screenData);
     } catch (error) {

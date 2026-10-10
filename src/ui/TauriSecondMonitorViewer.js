@@ -787,6 +787,10 @@ export class TauriSecondMonitorViewer {
     // black where the 3D view should be. Route these graphs to the pixel-mirror
     // fallback instead so the second monitor shows the composited scene.
     if (this._hasExternalSceneOutput()) return TIER.FALLBACK;
+    // Same for a playing video: TEXTURE is sent once per load, so the receiver
+    // would hold a single frame — or none, when the video had not decoded its
+    // first frame yet and the copy failed, leaving the screen black.
+    if (this._hasVideoTexture()) return TIER.FALLBACK;
     const renderer = this._resolveRenderer();
     if (renderer && typeof renderer.classifyMirrorTier === 'function') {
       return renderer.classifyMirrorTier();
@@ -811,6 +815,13 @@ export class TauriSecondMonitorViewer {
     const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
     const ids = exec && exec.externalOutputNodeIds;
     return !!(ids && typeof ids.size === 'number' && ids.size > 0);
+  }
+
+  /** True when any loaded texture is a video (TextureManager keeps them in `videos`). */
+  _hasVideoTexture() {
+    const tm = (typeof window !== 'undefined') ? window.textureManager : null;
+    const videos = tm && tm.videos;
+    return !!(videos && typeof videos.size === 'number' && videos.size > 0);
   }
 
   /** The TIER constant matching the current mirror mode (FALLBACK when none set). */

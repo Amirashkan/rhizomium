@@ -150,6 +150,37 @@ describe('secondMonitorReceiver', () => {
     expect(r.tier).toBe(TIER.FALLBACK);
   });
 
+  it('asks for pixels when the broadcast shader fails to build on this device', async () => {
+    const renderer = makeFakeRenderer();
+    renderer.device = {
+      pushErrorScope: vi.fn(),
+      popErrorScope: vi.fn(async () => ({ message: 'Invalid ShaderModule' })),
+    };
+    const r = initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
+    const ch = FakeBroadcastChannel.instances[0];
+
+    ch.emit({ type: MSG.SHADER, wgsl: 'WGSL_BAD' });
+    await flush();
+    await flush();
+
+    expect(renderer.device.pushErrorScope).toHaveBeenCalledWith('validation');
+    expect(ch.posted.some((m) => m.type === MSG.NEED_FALLBACK)).toBe(true);
+    expect(r.tier).toBe(TIER.FALLBACK);
+  });
+
+  it('stays native when the broadcast shader builds cleanly', async () => {
+    const renderer = makeFakeRenderer();
+    renderer.device = { pushErrorScope: vi.fn(), popErrorScope: vi.fn(async () => null) };
+    initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
+    const ch = FakeBroadcastChannel.instances[0];
+
+    ch.emit({ type: MSG.SHADER, wgsl: 'WGSL_OK' });
+    await flush();
+    await flush();
+
+    expect(ch.posted.some((m) => m.type === MSG.NEED_FALLBACK)).toBe(false);
+  });
+
   it('creates its renderer in externalUniformMode and applies the broadcast shader', async () => {
     const renderer = makeFakeRenderer();
     initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });

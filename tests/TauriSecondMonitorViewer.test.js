@@ -691,6 +691,27 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
+  it('forces the pixel fallback while a video texture is loaded (TEXTURE carries one frame, not a stream)', async () => {
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    global.window.textureManager = { textures: new Map(), videos: new Map([['7', { video: {} }]]) };
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('WGSL_VIDEO'));
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.FALLBACK);
+    expect(channel.posted.some((m) => m.type === MSG.SHADER)).toBe(false);
+
+    // The video node goes away: back to re-rendering natively.
+    global.window.textureManager.videos.clear();
+    channel.posted.length = 0;
+    renderer.emitState(computeSnap('WGSL_VIDEO'));
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
+
+    delete global.window.textureManager;
+    await viewer.close();
+  });
+
   it('re-sends the current SHADER + CAPS when the receiver reports READY', async () => {
     const renderer = makeFakeRenderer({ eligible: true });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });

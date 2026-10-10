@@ -298,7 +298,22 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
 
   function applyShader(wgsl) {
     if (!renderer || !wgsl || wgsl === appliedWgsl) return;
+    // A shader that will not build HERE (it built in the editor, which is why
+    // the preview is fine) fails soft: WebGPU reports it asynchronously and the
+    // window just stays black. Catch the validation error and ask for pixels.
+    const device = renderer.device;
+    const scoped = !!(device && typeof device.pushErrorScope === 'function');
+    if (scoped) { try { device.pushErrorScope('validation'); } catch { /* ignore */ } }
     try { renderer.setShaderSource(wgsl); appliedWgsl = wgsl; } catch { /* ignore */ }
+    if (!scoped) return;
+    Promise.resolve()
+      .then(() => device.popErrorScope())
+      .then((error) => {
+        if (!error || appliedWgsl !== wgsl) return;
+        console.warn('[secondMonitorReceiver] shader failed to build here, mirroring pixels instead:', error.message);
+        requestPixelFallback();
+      })
+      .catch(() => { /* device lost: ensureRenderer's own path handles it */ });
   }
 
   // --- native compute runtime (Tier 2) ------------------------------------
