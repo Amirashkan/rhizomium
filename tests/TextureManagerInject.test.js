@@ -26,6 +26,9 @@ describe('TextureManager.injectExternalTexture', () => {
     expect(tm.gpuTextures.get('node_7')).toMatchObject({ textureView: tm.device._view });
     expect(tm.getTexture('node_7')).toMatchObject({ width: 64, height: 32 });
     expect(tm.bindGroup).toBeNull();
+    // Flagged so a window-local producer (the Text rasteriser) never overwrites the editor's copy.
+    expect(tm.gpuTextures.get('node_7').external).toBe(true);
+    expect(tm.getTexture('node_7').external).toBe(true);
   });
 
   it('no-ops without a device', async () => {

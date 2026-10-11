@@ -652,6 +652,11 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (tm && typeof tm.injectExternalTexture === 'function') {
       try { tm.injectExternalTexture(msg.nodeId, msg.bitmap); } catch { /* ignore */ }
     }
+    // A fragment chain bridged into compute re-renders only when its parameter hash moves, and a
+    // new texture is invisible to that hash: a Text node's new raster arrives here a moment after
+    // the edit that caused it, so the chain would keep showing the previous one. Make every
+    // bridged chain re-sample on the next frame — textures arrive rarely enough for that to be free.
+    try { computeRuntime.computeExecutor?.fragmentRenderer?.parameterHashes?.clear?.(); } catch { /* ignore */ }
   }
 
   function videoSourceKey(msg) {

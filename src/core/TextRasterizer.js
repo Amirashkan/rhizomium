@@ -574,6 +574,13 @@ export function ensureTextTexture(node, { force = false } = {}) {
   const previous = uploadState.get(node.id);
   const existing = texManager.gpuTextures?.get(node.id);
 
+  // In the second-monitor window the editor broadcasts its own raster of this node, and that copy
+  // wins: it is sized to the editor's output and drawn from the editor's live expression values.
+  // Rasterising here as well (this window re-runs the codegen when a Text node feeds a compute
+  // node) copied a differently sized bitmap into the broadcast texture, which fails validation, or
+  // destroyed that texture outright on a size change while the output pipeline still had it bound.
+  if (existing?.external) return false;
+
   if (!force && existing && previous
       && previous.rasterKey === rasterKey && previous.samplerKey === sampKey) {
     return false;

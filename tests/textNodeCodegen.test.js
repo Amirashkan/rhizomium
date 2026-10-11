@@ -9,7 +9,7 @@
 // happy-dom has no 2D canvas context, so nothing here rasterises for real; textNodeLayout is
 // deliberately free of canvas calls so it stays testable.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { buildWGSL } from '../src/codegen/glslBuilder.js';
 import { TextureBindings } from '../src/codegen/generators/TextureBindings.js';
 import { makeNode, NodeDefs } from '../src/data/NodeDefs.js';
@@ -22,6 +22,7 @@ import {
   textNodeHasLiveExpression,
   textNodeNeedsRefresh,
   autoTextResolution,
+  ensureTextTexture,
 } from '../src/core/TextRasterizer.js';
 import { TextNodeProcessor } from '../src/core/TextNodeProcessor.js';
 import { SHARED_SAMPLER } from '../src/gpu/sharedSamplers.js';
@@ -465,5 +466,36 @@ describe('TextNodeProcessor', () => {
     const proc = new TextNodeProcessor({ intervalMs: 0 });
     expect(() => proc.update(graph([]), { now: 1 })).not.toThrow();
     expect(() => proc.update(null, { now: 2 })).not.toThrow();
+  });
+});
+
+describe('ensureTextTexture in the second-monitor window', () => {
+  it('leaves a texture broadcast from the editor alone', () => {
+    const broadcast = { texture: { destroy: vi.fn() }, textureView: {}, sampler: {}, external: true };
+    const device = { createTexture: vi.fn(), createSampler: vi.fn(), queue: { copyExternalImageToTexture: vi.fn() } };
+    window.textureManager = {
+      device,
+      gpuTextures: new Map([['10', broadcast]]),
+      textures: new Map([['10', broadcast]]),
+      bindGroup: {},
+    };
+    // happy-dom has no 2D canvas; give the rasteriser one so only the guard can stop the upload.
+    const ctx = new Proxy({ measureText: () => ({ width: 10, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2 }) }, {
+      get: (target, key) => (key in target ? target[key] : () => {}),
+      set: () => true,
+    });
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+    try {
+      const uploaded = ensureTextTexture({ id: '10', kind: 'Text', params: { text: 'HELLO' } }, { force: true });
+
+      expect(uploaded).toBe(false);
+      expect(broadcast.texture.destroy).not.toHaveBeenCalled();
+      expect(device.createTexture).not.toHaveBeenCalled();
+      expect(device.queue.copyExternalImageToTexture).not.toHaveBeenCalled();
+      expect(window.textureManager.gpuTextures.get('10')).toBe(broadcast);
+    } finally {
+      getContext.mockRestore();
+      delete window.textureManager;
+    }
   });
 });

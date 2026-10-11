@@ -969,6 +969,21 @@ describe('secondMonitorReceiver', () => {
       expect(video.currentTime).toBe(3.04);
     });
 
+    it('makes bridged fragment chains re-sample a newly broadcast texture', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.CAPS, tier: TIER.NATIVE_COMPUTE });
+      await settle();
+      const fr = rt.computeExecutor.fragmentRenderer;
+      fr.parameterHashes.set('7', 'cached');
+
+      ch.emit({ type: MSG.TEXTURE, nodeId: '7', varKind: '2d', bitmap: { width: 4, height: 4 } });
+      await settle();
+
+      expect(fr.parameterHashes.size).toBe(0);
+    });
+
     it('renders natively in the native-compute tier', async () => {
       const renderer = makeFakeRenderer();
       const rt = installFakeRuntime();
