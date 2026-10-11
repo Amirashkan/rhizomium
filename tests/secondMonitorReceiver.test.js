@@ -999,6 +999,119 @@ describe('secondMonitorReceiver', () => {
       expect(renderer.render).toHaveBeenCalled();
     });
 
+    describe('3D Field Visualizers', () => {
+      // Records what the receiver asks of its 3D renderer, in order with the
+      // output render, so the tests can check it draws BEFORE the output samples.
+      function fakeScene3D(calls) {
+        return {
+          apply: vi.fn((nodes) => calls.push(['apply', nodes.map((n) => n.id)])),
+          render: vi.fn((exec, w, h) => calls.push(['scene', w, h])),
+          dispose: vi.fn(() => calls.push(['dispose'])),
+        };
+      }
+      const scene3dMsg = (nodes) => ({ type: MSG.SCENE3D, nodes });
+      const mapper = {
+        id: '42', sourceId: '5', shapeParams: { mode: 'surface' },
+        model: new Float32Array(16), camera: { azimuth: 1 },
+      };
+
+      it('draws the 3D nodes natively each frame, ahead of the output render', async () => {
+        const calls = [];
+        const scene = fakeScene3D(calls);
+        const renderer = makeFakeRenderer();
+        renderer.render = vi.fn(() => calls.push(['output']));
+        const rt = installFakeRuntime();
+        const r = initSecondMonitorReceiver(doc, win, { ...opts(rt, renderer), createScene3D: () => scene });
+        const ch = FakeBroadcastChannel.instances[0];
+        ch.emit({ type: MSG.CAPS, tier: TIER.NATIVE_COMPUTE });
+        ch.emit({ type: MSG.SHADER, wgsl: 'FRAG' });
+        emitUniforms(ch);
+        ch.emit(scene3dMsg([mapper]));
+        await settle();
+
+        expect(r.tier).toBe(TIER.NATIVE_COMPUTE);
+        expect(scene.apply).toHaveBeenCalledWith([mapper], rt.computeExecutor);
+        // A 3D node fed by a pure fragment chain needs the executor's bridge even
+        // with no compute node registered.
+        expect(rt.computeExecutor.fieldMapperBridgeActive).toBe(true);
+
+        calls.length = 0;
+        step();
+        expect(calls[0][0]).toBe('scene');
+        expect(calls[calls.length - 1]).toEqual(['output']);
+        // Drawn at the composition's size (this window's render canvas).
+        expect(calls[0].slice(1)).toEqual([gpuCanvas.width, gpuCanvas.height]);
+        // Never the pixel path.
+        expect(ch.posted.some((m) => m.type === MSG.NEED_FALLBACK)).toBe(false);
+      });
+
+      it('keeps the fragment bridge running when the graph has no compute node to step', async () => {
+        const rt = installFakeRuntime();
+        initSecondMonitorReceiver(doc, win, { ...opts(rt), createScene3D: () => fakeScene3D([]) });
+        const ch = FakeBroadcastChannel.instances[0];
+        ch.emit({ type: MSG.CAPS, tier: TIER.NATIVE_COMPUTE });
+        ch.emit({ type: MSG.SHADER, wgsl: 'FRAG' });
+        emitUniforms(ch);
+        ch.emit(scene3dMsg([mapper]));
+        await settle();
+
+        // No COMPUTE_UNIFORMS ever arrives (nothing to step), yet the bridge
+        // feeding the 3D node must still run.
+        step();
+        expect(rt.computeExecutor.holdDispatch).toBe(false);
+      });
+
+      it('adopts each new pose and lets go of a removed 3D node', async () => {
+        const calls = [];
+        const scene = fakeScene3D(calls);
+        const rt = installFakeRuntime();
+        initSecondMonitorReceiver(doc, win, { ...opts(rt), createScene3D: () => scene });
+        const ch = FakeBroadcastChannel.instances[0];
+        ch.emit({ type: MSG.CAPS, tier: TIER.NATIVE_COMPUTE });
+        ch.emit(scene3dMsg([mapper]));
+        await settle();
+        ch.emit(scene3dMsg([{ ...mapper, camera: { azimuth: 2 } }]));
+        expect(scene.apply).toHaveBeenLastCalledWith([expect.objectContaining({ camera: { azimuth: 2 } })], rt.computeExecutor);
+
+        ch.emit(scene3dMsg([]));
+        expect(scene.apply).toHaveBeenLastCalledWith([], rt.computeExecutor);
+        expect(rt.computeExecutor.fieldMapperBridgeActive).toBe(false);
+      });
+
+      it('runs the bridge for a Projection Map fed by a fragment chain, with no compute node', async () => {
+        const rt = installFakeRuntime();
+        initSecondMonitorReceiver(doc, win, opts(rt));
+        const ch = FakeBroadcastChannel.instances[0];
+        ch.emit({
+          type: MSG.FRAGMENT_GRAPH,
+          nodes: [
+            { id: '3', kind: 'SimplexNoise', params: {}, inputs: [] },
+            { id: '8', kind: 'ProjectionMap', params: {}, inputs: ['3'] },
+          ],
+        });
+        await settle();
+        expect(win.graph.nodes.map((n) => n.id)).toEqual(['3', '8']);
+        expect(rt.computeExecutor.fieldMapperBridgeActive).toBe(true);
+
+        ch.emit({ type: MSG.FRAGMENT_GRAPH, nodes: [] });
+        expect(rt.computeExecutor.fieldMapperBridgeActive).toBe(false);
+      });
+
+      it('disposes the 3D renderer when leaving the compute tier', async () => {
+        const calls = [];
+        const scene = fakeScene3D(calls);
+        const rt = installFakeRuntime();
+        initSecondMonitorReceiver(doc, win, { ...opts(rt), createScene3D: () => scene });
+        const ch = FakeBroadcastChannel.instances[0];
+        ch.emit({ type: MSG.CAPS, tier: TIER.NATIVE_COMPUTE });
+        ch.emit(scene3dMsg([mapper]));
+        await settle();
+
+        ch.emit({ type: MSG.CAPS, tier: TIER.NATIVE });
+        expect(scene.dispose).toHaveBeenCalledWith(rt.computeExecutor);
+      });
+    });
+
     it('does not create a compute runtime for a fragment-only graph', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));

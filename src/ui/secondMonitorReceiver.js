@@ -260,6 +260,14 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let fragmentNodeIds = new Set();  // ids currently merged into win.graph (for clean replacement)
   const prevFragmentParams = new Map(); // node id -> last injected u_params (re-render detection)
 
+  // 3D Field Visualizers (native-compute): drawn HERE from the editor's per-frame
+  // camera/transform/shape state (SCENE3D) and the field textures this window
+  // already reproduces, then published where the output shader samples them —
+  // no pixels mirrored. Loaded lazily, so a graph without a 3D node pays nothing.
+  let scene3d = null;               // ReceiverScene3D
+  let scene3dPromise = null;
+  let latestScene3D = [];           // last SCENE3D node list
+
   const channel = openSecondMonitorChannel();
 
   // --- native renderer lifecycle ------------------------------------------
@@ -336,6 +344,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
           if (pendingComputeGraph) { const m = pendingComputeGraph; pendingComputeGraph = null; applyComputeGraph(m); }
           if (pendingFragmentGraph) { const m = pendingFragmentGraph; pendingFragmentGraph = null; applyFragmentGraph(m); }
           if (pendingTextures.length) { const t = pendingTextures; pendingTextures = []; t.forEach(applyTexture); }
+          if (latestScene3D.length) applyScene3D(latestScene3D);
         }
         return computeRuntime;
       });
@@ -426,6 +435,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     // Re-append the fragment subgraph: rebuilding win.graph.nodes above dropped it,
     // but the executor's auto-bridge needs the fragment feeders present to render them.
     mergeFragmentNodesIntoGraph();
+    updateBridgeActive();
     appliedComputeKey = key;
     Promise.resolve(exec.initialize ? exec.initialize() : null).then(() => {
       // Every manager consumes our injected per-node bytes rather than re-packing.
@@ -600,6 +610,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     lastFragmentGraphMsg = msg;
     if (!computeRuntime) { pendingFragmentGraph = msg; ensureComputeRuntime(); return; }
     mergeFragmentNodesIntoGraph();
+    updateBridgeActive();
     const fr = computeRuntime.computeExecutor && computeRuntime.computeExecutor.fragmentRenderer;
     try { fr?.clearCache?.(); } catch { /* ignore */ }
     prevFragmentParams.clear(); // force a re-render with the next injected uniforms
@@ -723,7 +734,60 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     }
   }
 
+  // --- 3D Field Visualizers ----------------------------------------------
+  function ensureScene3D() {
+    if (scene3d || scene3dPromise) return scene3dPromise;
+    const create = typeof opts.createScene3D === 'function'
+      ? (device) => opts.createScene3D(device)
+      : (device) => import('./secondMonitorScene3D.js').then((m) => new m.ReceiverScene3D(device));
+    scene3dPromise = ensureRenderer().then((r) => {
+      const device = r && r.device;
+      if (!device) return null;
+      return Promise.resolve(create(device)).then((s) => {
+        scene3d = s || null;
+        if (scene3d) applyScene3D(latestScene3D);
+        return scene3d;
+      });
+    }).catch(() => null).finally(() => { scene3dPromise = null; });
+    return scene3dPromise;
+  }
+
+  /**
+   * The executor's auto-bridge renders the sources of 3D nodes and Projection Maps
+   * to textures, and has to run even when no compute node is registered: one fed
+   * by a pure fragment chain samples a texture only that bridge renders. The
+   * editor sends those consumers with the fragment subgraph.
+   */
+  function updateBridgeActive() {
+    const exec = computeRuntime && computeRuntime.computeExecutor;
+    if (!exec) return;
+    const nodes = (win.graph && Array.isArray(win.graph.nodes)) ? win.graph.nodes : [];
+    exec.fieldMapperBridgeActive = latestScene3D.length > 0
+      || nodes.some((n) => n && (n.kind === 'ComputeFieldMapper' || n.kind === 'ProjectionMap'));
+  }
+
+  /** Adopt the editor's 3D node list (SCENE3D). */
+  function applyScene3D(nodes) {
+    latestScene3D = Array.isArray(nodes) ? nodes : [];
+    const exec = computeRuntime && computeRuntime.computeExecutor;
+    updateBridgeActive();
+    if (latestScene3D.length === 0 && !scene3d) return;
+    if (!computeRuntime) { ensureComputeRuntime(); return; }
+    if (!scene3d) { ensureScene3D(); return; }
+    scene3d.apply(latestScene3D, exec);
+  }
+
+  /** Draw the 3D nodes for this frame, ahead of the output that samples them. */
+  function renderScene3D() {
+    if (!scene3d || tier !== TIER.NATIVE_COMPUTE) return;
+    const exec = computeRuntime && computeRuntime.computeExecutor;
+    try { scene3d.render(exec, gpuCanvas.width, gpuCanvas.height); } catch { /* skip this frame */ }
+  }
+
   function clearComputeRuntime() {
+    try { scene3d?.dispose?.(computeRuntime && computeRuntime.computeExecutor); } catch { /* ignore */ }
+    scene3d = null;
+    latestScene3D = [];
     try { win.computeExecutor?.clear?.(); } catch { /* ignore */ }
     appliedComputeKey = null;
     latestComputeUniforms = null;
@@ -841,6 +905,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         break;
       case MSG.FRAGMENT_UNIFORMS:
         applyFragmentUniforms(d);
+        break;
+      case MSG.SCENE3D:
+        applyScene3D(d.nodes);
         break;
       case MSG.TEXTURE:
       case MSG.VIDEO:
@@ -1314,7 +1381,11 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       if (stepQueue.length === 0) {
         // No editor step since the last render (this display outpaced the editor):
         // hold the sims at their current state; the blit re-presents the last result.
-        exec.holdDispatch = true;
+        // A graph with no compute node never gets a step (the editor only streams
+        // COMPUTE_UNIFORMS for compute managers), and has no sim to hold: holding
+        // there would freeze the fragment bridge feeding a 3D node forever.
+        const managers = exec.computeManagers;
+        exec.holdDispatch = !!(managers && managers.size > 0);
       } else if (stepQueue.length === 1) {
         exec.holdDispatch = false;
         applyComputeUniforms(stepQueue.shift());
@@ -1341,6 +1412,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
               device.queue.submit([encoder.finish()]);
             }
             applyComputeUniforms(last);
+            renderScene3D();
             r.writeRawUniforms(snapshot);
             r.render({ timeSec });
           } catch {
@@ -1354,6 +1426,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     }
 
     try {
+      renderScene3D();
       r.writeRawUniforms(snapshot);
       r.render({ timeSec });
       return true;

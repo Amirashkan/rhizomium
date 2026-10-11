@@ -26,6 +26,50 @@ export function fieldMapperNodeId(fieldNode) {
   return String(fieldNode?.graphNodeId ?? fieldNode?.name ?? '');
 }
 
+/**
+ * Draw one 3D Field Visualizer's geometry into an open render pass. Shared by
+ * the editor's SceneRenderer3D and the second-monitor window, which redraws
+ * the same nodes from broadcast camera/transform state so 3D graphs render
+ * natively there too - one drawing path, so the two can't drift apart.
+ * @param {GPURenderPassEncoder} passEncoder
+ * @param {{shape: ShapeRenderer, instances: InstanceRenderer}} renderers
+ * @param {Object} frame
+ * @param {{elements: ArrayLike<number>}} frame.viewMatrix
+ * @param {{elements: ArrayLike<number>}} frame.projectionMatrix
+ * @param {{elements: ArrayLike<number>}} frame.modelMatrix
+ * @param {Object} [frame.shapeParams]
+ * @param {GPUTexture|null} [frame.texture] - The field the geometry samples
+ */
+export function drawFieldMapper(passEncoder, renderers, frame) {
+  const { viewMatrix, projectionMatrix, modelMatrix, texture = null } = frame;
+  const shapeParams = frame.shapeParams || {};
+
+  if (shapeParams.mode === 'instances') {
+    // Instanced field: one small mesh per field cell, positioned / sized /
+    // colored per instance in the vertex shader
+    const mesh = ShapeGeometry.getInstanceMesh(shapeParams.instanceShape || 'cube');
+    renderers.instances.render(passEncoder, mesh, viewMatrix, projectionMatrix, modelMatrix, {
+      texture,
+      gridCount: shapeParams.instanceCount ?? 48,
+      instanceSize: shapeParams.instanceSize ?? 0.03,
+      sizeByField: shapeParams.sizeByField ?? 0.6,
+      threshold: shapeParams.instanceThreshold ?? 0.15,
+      heightScale: shapeParams.displacementScale ?? 0.4,
+      textureAmount: shapeParams.textureAmount ?? 1.0,
+      billboard: (shapeParams.instanceShape || 'cube') === 'quad'
+    });
+    return;
+  }
+
+  // Surface: color in the fragment stage, displacement in the vertex stage
+  const geometry = ShapeGeometry.get(shapeParams.shape || 'plane', shapeParams.resolution ?? 96);
+  renderers.shape.render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix, {
+    texture,
+    displacementScale: shapeParams.displacementScale ?? 0.4,
+    textureAmount: shapeParams.textureAmount ?? 1.0
+  });
+}
+
 export class SceneRenderer3D {
   constructor(device, canvas, scene, viewport3D, computeExecutor = null) {
     this.device = device;
@@ -713,8 +757,6 @@ export class SceneRenderer3D {
     const projectionMatrix = camera.getProjectionMatrix();
     const modelMatrix = fieldNode.getWorldMatrix();
 
-    const shapeParams = fieldNode.shapeParams || {};
-
     // The live compute texture; both modes sample it directly on the GPU
     let texture = null;
     if (this.computeExecutor && fieldNode.sourceNodeId !== null && fieldNode.sourceNodeId !== undefined) {
@@ -724,29 +766,12 @@ export class SceneRenderer3D {
       }
     }
 
-    if (shapeParams.mode === 'instances') {
-      // Instanced field: one small mesh per field cell, positioned / sized /
-      // colored per instance in the vertex shader
-      const mesh = ShapeGeometry.getInstanceMesh(shapeParams.instanceShape || 'cube');
-      renderers.instances.render(passEncoder, mesh, viewMatrix, projectionMatrix, modelMatrix, {
-        texture,
-        gridCount: shapeParams.instanceCount ?? 48,
-        instanceSize: shapeParams.instanceSize ?? 0.03,
-        sizeByField: shapeParams.sizeByField ?? 0.6,
-        threshold: shapeParams.instanceThreshold ?? 0.15,
-        heightScale: shapeParams.displacementScale ?? 0.4,
-        textureAmount: shapeParams.textureAmount ?? 1.0,
-        billboard: (shapeParams.instanceShape || 'cube') === 'quad'
-      });
-      return;
-    }
-
-    // Surface: color in the fragment stage, displacement in the vertex stage
-    const geometry = ShapeGeometry.get(shapeParams.shape || 'plane', shapeParams.resolution ?? 96);
-    renderers.shape.render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix, {
-      texture,
-      displacementScale: shapeParams.displacementScale ?? 0.4,
-      textureAmount: shapeParams.textureAmount ?? 1.0
+    drawFieldMapper(passEncoder, renderers, {
+      viewMatrix,
+      projectionMatrix,
+      modelMatrix,
+      shapeParams: fieldNode.shapeParams,
+      texture
     });
   }
 

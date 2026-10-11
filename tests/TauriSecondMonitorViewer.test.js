@@ -153,6 +153,7 @@ describe('TauriSecondMonitorViewer', () => {
     delete global.window.textureManager;
     delete global.window.graph;
     delete global.window.renderLoop;
+    delete global.window.fieldMapperIntegration;
   });
 
   it('starts inactive', () => {
@@ -662,49 +663,81 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
-  it('forces the pixel fallback when a 3D scene output is present (native-compute would render black)', async () => {
-    // A 3D Field Visualizer publishes its rendered scene into the executor's
-    // texture table (tracked in externalOutputNodeIds). classifyMirrorTier() only
-    // sees a texture binding and reports native-compute, but the receiver can't
-    // reproduce a 3D scene from broadcast state — so the viewer must mirror pixels.
+  // A 3D Field Visualizer as the editor's FieldMapperIntegration holds it.
+  function stubFieldMapper(id, sourceNodeId, camera = { azimuth: 1.25, distance: 6 }) {
+    const model = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.5, 0, 0, 1]);
+    global.window.fieldMapperIntegration = {
+      fieldMappers: new Map([[id, {
+        sourceNodeId,
+        shapeParams: { mode: 'surface', shape: 'sphere', resolution: 64 },
+        camera3D: { getState: () => ({ ...camera }) },
+        getWorldMatrix: () => ({ elements: model }),
+      }]]),
+    };
+  }
+
+  it('renders a 3D graph natively: rebuilds the 3D node and streams its camera and transform', async () => {
+    // Texture -> fragment -> 3D -> Output. The 3D node's output is a rendered
+    // texture, but everything it is drawn from is reproducible, so the second
+    // monitor stays native — no pixel readback.
     const renderer = makeFakeRenderer({ tier: 'native-compute' });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });
-    global.window.computeExecutor = { externalOutputNodeIds: new Set(['42']) };
+    stubComputeGlobals({ nodes: [] });
+    global.window.graph = {
+      nodes: [
+        { id: '5', kind: 'Multiply', params: { b: 2 }, inputs: ['4'] },
+        { id: '4', kind: 'Texture2D', params: {}, inputs: [] },
+        { id: '42', kind: 'ComputeFieldMapper', params: {}, inputs: ['5'] },
+        { id: '9', kind: 'OutputFinal', params: {}, inputs: ['42'] },
+      ],
+      getNode(id) { return this.nodes.find((n) => n.id === String(id)) || null; },
+    };
+    stubFieldMapper('42', '5');
     await viewer.open();
     const channel = FakeBroadcastChannel.instances[0];
 
     renderer.emitState(computeSnap('WGSL_3D'));
 
-    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.FALLBACK);
-    expect(renderer.setFrameTap).toHaveBeenCalledWith(expect.any(Function));
-    expect(channel.posted.some((m) => m.type === MSG.SHADER)).toBe(false);
-    expect(channel.posted.some((m) => m.type === MSG.COMPUTE_GRAPH)).toBe(false);
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
+    expect(renderer.setFrameTap).not.toHaveBeenCalledWith(expect.any(Function));
+    expect(channel.posted.some((m) => m.type === MSG.FRAME)).toBe(false);
+    // The 3D node and the chain feeding it are rebuilt on the receiver.
+    const fg = channel.posted.find((m) => m.type === MSG.FRAGMENT_GRAPH);
+    expect(fg?.nodes.map((n) => n.id).sort()).toEqual(['4', '42', '5']);
+    // Its pose streams per frame.
+    const scene = channel.posted.find((m) => m.type === MSG.SCENE3D);
+    expect(scene?.nodes).toHaveLength(1);
+    expect(scene.nodes[0]).toMatchObject({
+      id: '42',
+      sourceId: '5',
+      shapeParams: { shape: 'sphere', resolution: 64 },
+      camera: { azimuth: 1.25, distance: 6 },
+    });
+    expect(Array.from(scene.nodes[0].model)[12]).toBe(0.5);
 
-    // Removing the 3D node (set emptied) lets the next frame return to native-compute.
-    global.window.computeExecutor.externalOutputNodeIds.clear();
+    // An orbit in the editor reaches the receiver on the next frame.
+    stubFieldMapper('42', '5', { azimuth: 2, distance: 6 });
     channel.posted.length = 0;
     renderer.emitState(computeSnap('WGSL_3D'));
-
-    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
-    expect(channel.posted.find((m) => m.type === MSG.SHADER)?.wgsl).toBe('WGSL_3D');
+    expect(channel.posted.find((m) => m.type === MSG.SCENE3D)?.nodes[0].camera.azimuth).toBe(2);
 
     await viewer.close();
   });
 
   it('stays native when a 3D node sits in the patch but the Output does not depend on it', async () => {
-    // An unwired (or side-branch) 3D Field Visualizer still publishes its scene,
-    // but nothing the Output renders reads it — so it must not drag the second
-    // monitor onto the per-frame pixel readback.
+    // An unwired (or side-branch) 3D Field Visualizer is not drawn on the receiver.
     const renderer = makeFakeRenderer({ tier: 'native-compute' });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });
-    global.window.computeExecutor = { externalOutputNodeIds: new Set(['42']) };
+    stubComputeGlobals({ nodes: [{ id: '1', kind: 'ComputeNoise', wgsl: 'N', width: 8, height: 8 }] });
     global.window.graph = {
       nodes: [
         { id: '1', kind: 'ComputeNoise', inputs: [] },
         { id: '42', kind: 'ComputeFieldMapper', inputs: ['1'] },
         { id: '9', kind: 'OutputFinal', inputs: ['1'] },
       ],
+      getNode(id) { return this.nodes.find((n) => n.id === String(id)) || null; },
     };
+    stubFieldMapper('42', '1');
     await viewer.open();
     const channel = FakeBroadcastChannel.instances[0];
 
@@ -712,14 +745,20 @@ describe('TauriSecondMonitorViewer', () => {
 
     expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
     expect(renderer.setFrameTap).not.toHaveBeenCalledWith(expect.any(Function));
+    expect(channel.posted.some((m) => m.type === MSG.SCENE3D)).toBe(false);
 
     await viewer.close();
   });
 
-  it('falls back when the 3D node reaches the Output through other nodes', async () => {
+  it('draws a 3D node that reaches the Output through compute nodes, and clears it when unwired', async () => {
     const renderer = makeFakeRenderer({ tier: 'native-compute' });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });
-    global.window.computeExecutor = { externalOutputNodeIds: new Set(['42']) };
+    stubComputeGlobals({
+      nodes: [
+        { id: '1', kind: 'ComputeNoise', wgsl: 'N', width: 8, height: 8 },
+        { id: '7', kind: 'ComputeBlur', wgsl: 'B', width: 8, height: 8, inputs: ['42'] },
+      ],
+    });
     global.window.graph = {
       nodes: [
         { id: '1', kind: 'ComputeNoise', inputs: [] },
@@ -727,13 +766,56 @@ describe('TauriSecondMonitorViewer', () => {
         { id: '7', kind: 'ComputeBlur', inputs: ['42'] },
         { id: '9', kind: 'OutputFinal', inputs: ['7'] },
       ],
+      getNode(id) { return this.nodes.find((n) => n.id === String(id)) || null; },
     };
+    stubFieldMapper('42', '1');
     await viewer.open();
     const channel = FakeBroadcastChannel.instances[0];
 
     renderer.emitState(computeSnap('WGSL_3D'));
 
-    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.FALLBACK);
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
+    // The compute source rides COMPUTE_GRAPH; only the 3D node itself is added.
+    expect(channel.posted.find((m) => m.type === MSG.FRAGMENT_GRAPH)?.nodes.map((n) => n.id)).toEqual(['42']);
+    expect(channel.posted.find((m) => m.type === MSG.SCENE3D)?.nodes[0]).toMatchObject({ id: '42', sourceId: '1' });
+
+    // Unwired: one empty list so the receiver unpublishes it, then silence.
+    window.computeNodeRegistry.get('7').node.inputs = ['1'];
+    window.graph.nodes.find((n) => n.id === '7').inputs = ['1'];
+    channel.posted.length = 0;
+    renderer.emitState(computeSnap('WGSL_3D'));
+    renderer.emitState(computeSnap('WGSL_3D'));
+    const scenes = channel.posted.filter((m) => m.type === MSG.SCENE3D);
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0].nodes).toEqual([]);
+
+    await viewer.close();
+  });
+
+  it('rebuilds a Projection Map and the fragment chains it bridges on the receiver', async () => {
+    // Fragment sources of a Projection Map are rendered to textures by the
+    // executor's bridge — on the receiver too, but only for nodes its graph holds.
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    stubComputeGlobals({ nodes: [] });
+    global.window.graph = {
+      nodes: [
+        { id: '3', kind: 'SimplexNoise', params: { scale: 4 }, inputs: [] },
+        { id: '8', kind: 'ProjectionMap', params: {}, inputs: ['3'] },
+        { id: '9', kind: 'OutputFinal', params: {}, inputs: ['8'] },
+      ],
+      getNode(id) { return this.nodes.find((n) => n.id === String(id)) || null; },
+    };
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('WGSL_MAP'));
+
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
+    const fg = channel.posted.find((m) => m.type === MSG.FRAGMENT_GRAPH);
+    expect(fg?.nodes.map((n) => n.id).sort()).toEqual(['3', '8']);
+    // No 3D node: nothing 3D to stream.
+    expect(channel.posted.some((m) => m.type === MSG.SCENE3D)).toBe(false);
 
     await viewer.close();
   });

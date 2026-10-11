@@ -70,6 +70,13 @@ const WINDOW_LABEL = 'second-monitor';
 // its sims replicate the editor's exactly and its framing is the composition's.
 // Only the presentation surface is configurable, between these long edges.
 const MATCH_OUTPUT = -1;
+// The 3D Field Visualizer's node kind.
+const FIELD_MAPPER_KIND = 'ComputeFieldMapper';
+// Nodes whose inputs the executor renders to textures itself (its auto-bridge),
+// for ANY kind of source: the 3D Field Visualizer and the Projection Map. The
+// receiver only bridges what its own graph holds, so these travel with the
+// fragment subgraph whenever the Output reads them.
+const BRIDGED_CONSUMER_KINDS = new Set([FIELD_MAPPER_KIND, 'ProjectionMap']);
 const MIN_DISPLAY_EDGE = 256;
 const MAX_DISPLAY_EDGE = 7680;
 
@@ -631,6 +638,8 @@ export class TauriSecondMonitorViewer {
     this._lastComputeSig = null;
     this._lastFragmentSig = null;
     this._sentFragmentNodes = false;
+    this._sentScene3D = false;
+    this._lastFieldMapperIds = [];
     this._mode = null;
     if (typeof renderer.setStateTap === 'function') {
       this._stateTap = (snap) => this._onState(snap);
@@ -666,11 +675,9 @@ export class TauriSecondMonitorViewer {
   _onState(snap) {
     if (!this._active || !this._channel || !snap) return;
     const wgsl = snap.wgsl || null;
-    // Re-evaluate the tier every frame, not only on a WGSL change: the 3D scene
-    // condition (_hasExternalSceneOutput) can flip WITHOUT the shader changing — a
-    // Field Visualizer publishes its output the frame after it's wired, and is
-    // removed on node delete. The check is cheap (a small resource scan + a set
-    // size), and _applyTier no-ops when the mode is unchanged.
+    // Re-evaluate the tier every frame, not only on a WGSL change: a forced
+    // fallback (NEED_FALLBACK) can arrive WITHOUT the shader changing. The check is
+    // cheap (a small resource scan), and _applyTier no-ops when the mode is unchanged.
     const desiredTier = this._decideTier();
     const tierChanged = desiredTier !== this._modeTier();
     if (wgsl !== this._lastWgsl || tierChanged) {
@@ -730,7 +737,10 @@ export class TauriSecondMonitorViewer {
       if (this._mode === 'native-compute' && snap.fragment) {
         try { this._channel.postMessage({ type: MSG.FRAGMENT_UNIFORMS, nodes: snap.fragment }); } catch { /* ignore */ }
       }
-      if (this._mode === 'native-compute') this._broadcastVideoSync();
+      if (this._mode === 'native-compute') {
+        this._broadcastVideoSync();
+        this._broadcastScene3D();
+      }
     }
   }
 
@@ -780,14 +790,11 @@ export class TauriSecondMonitorViewer {
   /** Decide the mirror tier for the current shader (native / native-compute / fallback). */
   _decideTier() {
     if (this._forceFallback) return TIER.FALLBACK;
-    // 3D Field Visualizer (and any externally-owned scene) output is a live
-    // GPUTexture the editor injects into the compute-texture table — a rendered 3D
-    // scene with no WGSL and no ping-pong sim, so the receiver has no way to
-    // reproduce it from the broadcast state. classifyMirrorTier() only sees a
-    // texture binding and would pick native-compute, leaving the receiver to render
-    // black where the 3D view should be. Route these graphs to the pixel-mirror
-    // fallback instead so the second monitor shows the composited scene.
-    if (this._hasExternalSceneOutput()) return TIER.FALLBACK;
+    // 3D Field Visualizers no longer force pixels: their output is a rendered
+    // texture, but everything it is drawn from is reproducible here — the field
+    // texture (compute, or a bridged fragment chain) rides the compute/fragment
+    // graph broadcasts and the camera/transform/shape state streams per frame
+    // (SCENE3D), so the receiver redraws the geometry itself.
     const renderer = this._resolveRenderer();
     if (renderer && typeof renderer.classifyMirrorTier === 'function') {
       return renderer.classifyMirrorTier();
@@ -797,48 +804,6 @@ export class TauriSecondMonitorViewer {
       return TIER.NATIVE;
     }
     return TIER.FALLBACK;
-  }
-
-  /**
-   * True when the OUTPUT depends on an externally-owned scene output — currently
-   * the 3D Field Visualizer, which renders its scene to an offscreen GPUTexture and
-   * publishes it into the compute-executor's texture table (tracked in
-   * `externalOutputNodeIds`, which FieldMapperIntegration keeps in step with the
-   * live field-mapper nodes: added on publish, removed on node delete). These
-   * textures are rendered pixels, not reproducible from the broadcast WGSL/uniform
-   * state, so a graph consuming one must mirror pixels rather than re-render.
-   *
-   * Only a 3D node upstream of the Output counts. One merely sitting in the patch
-   * (unwired, or feeding a branch the Output never reads) used to put the whole
-   * second monitor on the pixel path too: a full-frame readback every frame, which
-   * slowed the editor down, and a tier flip back on delete that blacked the output.
-   */
-  _hasExternalSceneOutput() {
-    const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
-    const ids = exec && exec.externalOutputNodeIds;
-    if (!(ids && typeof ids.size === 'number' && ids.size > 0)) return false;
-    const graph = (typeof window !== 'undefined') ? window.graph : null;
-    const nodes = graph && Array.isArray(graph.nodes) ? graph.nodes : null;
-    // No graph to walk: stay on the safe (pixel) side.
-    if (!nodes) return true;
-    const external = new Set([...ids].map(String));
-    const byId = new Map(nodes.filter(Boolean).map((n) => [String(n.id), n]));
-    const stack = nodes
-      .filter((n) => n && /OutputFinal/i.test(n.kind || n.type || ''))
-      .map((n) => String(n.id));
-    const seen = new Set();
-    while (stack.length) {
-      const id = stack.pop();
-      if (seen.has(id)) continue;
-      seen.add(id);
-      if (external.has(id)) return true;
-      const node = byId.get(id);
-      if (!node || !Array.isArray(node.inputs)) continue;
-      for (const input of node.inputs) {
-        if (input !== null && input !== undefined) stack.push(String(input));
-      }
-    }
-    return false;
   }
 
   /**
@@ -973,7 +938,10 @@ export class TauriSecondMonitorViewer {
   _collectFragmentSubgraph() {
     const registry = (typeof window !== 'undefined') ? window.computeNodeRegistry : null;
     const graph = (typeof window !== 'undefined') ? window.graph : null;
-    if (!registry || typeof registry.forEach !== 'function' || !graph) return [];
+    if (!registry || typeof registry.forEach !== 'function' || !graph) {
+      this._lastFieldMapperIds = [];
+      return [];
+    }
     const isCompute = (id) => registry.has(id) || registry.has(String(id));
     const getNode = (id) => {
       try {
@@ -1005,7 +973,86 @@ export class TauriSecondMonitorViewer {
         if (inId != null && !isCompute(inId)) visit(inId);
       }
     });
-    return [...collected.values()];
+    // 3D Field Visualizers and Projection Maps the Output reads are rebuilt on the
+    // receiver too: the node itself (so its executor bridges a fragment source
+    // exactly as the editor's does) and the chains feeding it. (One feeding a
+    // compute node was already reached above.)
+    for (const id of this._bridgedConsumersFeedingOutput(graph, registry)) visit(id);
+    const nodes = [...collected.values()];
+    this._lastFieldMapperIds = nodes
+      .filter((n) => n.kind === FIELD_MAPPER_KIND)
+      .map((n) => n.id);
+    return nodes;
+  }
+
+  /**
+   * Ids of the 3D Field Visualizers and Projection Maps upstream of the Output,
+   * through any mix of fragment and compute nodes. One only sitting in the patch
+   * is left out, so the receiver never spends a frame rendering what nothing shows.
+   */
+  _bridgedConsumersFeedingOutput(graph, registry) {
+    const nodes = graph && Array.isArray(graph.nodes) ? graph.nodes : null;
+    if (!nodes || !nodes.some((n) => n && BRIDGED_CONSUMER_KINDS.has(n.kind))) return [];
+    const byId = new Map(nodes.filter(Boolean).map((n) => [String(n.id), n]));
+    const stack = nodes
+      .filter((n) => n && /OutputFinal/i.test(n.kind || n.type || ''))
+      .map((n) => String(n.id));
+    const seen = new Set();
+    const found = [];
+    while (stack.length) {
+      const id = stack.pop();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const node = byId.get(id);
+      if (!node) continue;
+      if (BRIDGED_CONSUMER_KINDS.has(node.kind)) found.push(node.id);
+      // A compute node's inputs come from the registry copy when the graph's is
+      // missing; control pins never carry a texture.
+      const regData = registry && (registry.get?.(node.id) || registry.get?.(String(node.id)));
+      const inputs = regData && regData.node ? this._broadcastableInputs(regData.node) : node.inputs;
+      if (!Array.isArray(inputs)) continue;
+      for (const input of inputs) {
+        if (input !== null && input !== undefined) stack.push(String(input));
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Per-frame state of each 3D Field Visualizer the receiver rebuilt (see
+   * _collectFragmentSubgraph): its camera pose, world transform and shape
+   * settings — everything SceneRenderer3D draws from apart from the field
+   * texture, which the receiver reproduces itself. A few dozen numbers a node.
+   * Sent with an empty list once after the last one goes, so the receiver
+   * unpublishes it.
+   */
+  _broadcastScene3D() {
+    const ids = this._lastFieldMapperIds || [];
+    const integration = (typeof window !== 'undefined') ? window.fieldMapperIntegration : null;
+    const mappers = integration && integration.fieldMappers;
+    const nodes = [];
+    if (ids.length && mappers && typeof mappers.get === 'function') {
+      for (const id of ids) {
+        const fm = mappers.get(id) || mappers.get(String(id));
+        if (!fm) continue;
+        let model = null;
+        try {
+          const m = fm.getWorldMatrix?.();
+          if (m && m.elements) model = Float32Array.from(m.elements);
+        } catch { /* identity on the receiver */ }
+        const src = fm.sourceNodeId;
+        nodes.push({
+          id,
+          sourceId: src === undefined ? null : src,
+          shapeParams: fm.shapeParams ? { ...fm.shapeParams } : null,
+          model,
+          camera: fm.camera3D && typeof fm.camera3D.getState === 'function' ? fm.camera3D.getState() : null,
+        });
+      }
+    }
+    if (!nodes.length && !this._sentScene3D) return;
+    this._sentScene3D = nodes.length > 0;
+    try { this._channel.postMessage({ type: MSG.SCENE3D, nodes }); } catch { /* ignore */ }
   }
 
   /**
