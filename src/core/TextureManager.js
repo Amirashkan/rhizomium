@@ -498,6 +498,11 @@ isVideoTexture(nodeId) {
  * Uploads the bitmap and registers it under nodeId in BOTH maps so the renderer's
  * _lookupTextureBinding resolves `texture_<id>` / `sampler_<id>` to it. Nulls the
  * bind group so the next frame rebinds.
+ *
+ * Entries are flagged `external`: the editor's copy is the authoritative one, so a
+ * window-local producer that writes the same slot (the Text rasteriser, re-run when this
+ * window compiles a fragment subgraph itself) must leave it alone rather than reuse or
+ * destroy a texture it did not create.
  */
 async injectExternalTexture(nodeId, bitmap) {
   if (!this.device || !bitmap) return;
@@ -516,8 +521,8 @@ async injectExternalTexture(nodeId, bitmap) {
     magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat',
   });
   const textureView = texture.createView();
-  this.gpuTextures.set(nodeId, { texture, textureView, sampler });
-  this.textures.set(nodeId, { texture, textureView, sampler, width: bitmap.width, height: bitmap.height, bitmap });
+  this.gpuTextures.set(nodeId, { texture, textureView, sampler, external: true });
+  this.textures.set(nodeId, { texture, textureView, sampler, width: bitmap.width, height: bitmap.height, bitmap, external: true });
   this.bindGroup = null; // force the renderer to rebind on the next frame
 }
 
