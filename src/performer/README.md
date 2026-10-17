@@ -53,6 +53,25 @@ every thirty seconds bills you to be told it is still a drone.
 Turn the director off and the set still runs, exactly as written. That is the
 intended way to play it the first few times.
 
+**Three switches have to agree before a model is asked**, and only one of them
+is a switch you can see:
+
+1. **"Let the AI improvise live"** in the panel — the artist inviting it.
+2. **`rules.director.enabled`** in the scenario — the set asking for one. A
+   show built from a manifest ships with this off.
+3. **The transport.** The director is consulted from `tick()`, and `tick()`
+   returns at once unless the set is running. A director switched on over a
+   stopped transport is never asked anything.
+
+The panel's readout beside the switch says which of the three is holding it —
+`off in this scenario`, `waiting for the set to start` — rather than printing a
+cadence counting down to a question that will never be asked.
+
+The live call is also not made from the AI dock. That panel lists **Live
+performer** and **Performance scenario** so their tier and allowance are
+visible, but neither can be run from there: a live call needs a performance to
+describe, and the dock has a graph. Its button opens the coPerformer instead.
+
 ## Music with no pulse
 
 Most performer software assumes a beat. This one does not, because most of the
