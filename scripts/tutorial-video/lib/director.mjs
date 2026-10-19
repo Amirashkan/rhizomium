@@ -193,7 +193,8 @@ export class Director {
       if (target && typeof target.width === 'number') rect = target;
       else {
         const loc = typeof target === 'string' ? this.page.locator(target).first() : target;
-        rect = await loc.boundingBox({ timeout: 4000 });
+        await loc.waitFor({ state: 'visible', timeout: 4000 });
+        rect = await loc.boundingBox();
       }
       if (!rect) throw new Error('nothing to highlight');
       await this.page.evaluate(([r, l, p]) => window.__tour.highlight(r, l, p), [rect, label, pad]);

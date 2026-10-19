@@ -49,7 +49,7 @@ export default [
     title: 'Your first graph',
     say: `A new graph is never empty. It starts with Compute Noise, feeding a Gradient, feeding the Output.
       Drag with the middle mouse button to pan the canvas, and use the wheel to zoom.
-      To build from scratch, shift-click the three starter nodes and delete them.
+      To build from scratch, select each starter node and delete it.
       Now right-click the canvas. The Add Node palette opens, with a search field and twelve categories down the side.
       Type to search every node by name. Here's U V, which gives every pixel its coordinates.
       Next, a Circle, then a Gradient to colour it, and finally the Output node.
@@ -58,15 +58,14 @@ export default [
       As soon as the Output is connected, the shader compiles and the preview shows the result.`,
     async run(d) {
       await d.at(1);
-      await d.pan(320, 280, { x: 1300, y: 560 });
+      await d.pan(560, 300, { x: 1100, y: 560 });
       await d.zoom({ x: 1200, y: 700 }, -1);
       await d.zoom({ x: 1200, y: 700 }, 1);
       await d.at(2);
-      const starters = await d.nodes();
-      await d.page.keyboard.down('Shift');
-      for (const n of starters) await d.click(await d.title(n.id), { settle: 200 });
-      await d.page.keyboard.up('Shift');
-      await d.key('Delete', 600);
+      for (const n of await d.nodes()) {
+        await d.click(await d.title(n.id), { settle: 250 });
+        await d.key('Delete', 450);
+      }
 
       await d.at(3);
       const uv = await d.addNode('uv', { x: 300, y: 640 });
@@ -213,7 +212,7 @@ export default [
       await d.clearHighlights();
       const circle = (await d.node('Circle'))?.id;
       await d.openParams(circle);
-      await d.highlight(d.paramBlock('Smooth').locator('.keyframe-btn').first(), 'Keyframe');
+      await d.highlight(d.paramBlock('Radius').locator('.keyframe-btn').first(), 'Keyframe');
       await d.at(2);
       await d.clearHighlights();
       await d.click(BLANK, { settle: 200 });
@@ -235,7 +234,7 @@ export default [
       Here, one noise field is coloured by a gradient and also used to displace itself, a single source feeding two places.`,
     async run(d) {
       await d.loadStarter('Aurora Field');
-      await d.frameAll();
+      await d.zoom({ x: 1200, y: 560 }, -3);
       await d.at(1);
       const all = await d.nodes();
       for (const n of all.slice(0, 3)) {
@@ -286,7 +285,7 @@ export default [
       Choose a file or drop one onto the node: PNG, JPEG and WebP images, or MP4, WebM and MOV video, which starts playing straight away.
       Feed it coordinates from a U V node, run it through any effect, and mix it with the procedural parts of your patch.`,
     async run(d) {
-      const tex = await d.addNode('texture 2d', { x: 1380, y: 880 });
+      const tex = await d.addNode('texture 2d', { x: 900, y: 140 });
       await d.at(1);
       if (tex) {
         await d.highlight(await d.nodeRect(tex), 'Texture 2D');
@@ -309,21 +308,21 @@ export default [
     title: '3D fields',
     say: `Compute output can also be seen in three dimensions.
       The 3D Field Visualizer node turns a compute field into geometry, either as a surface, or as a field of instanced shapes.
-      Press control 3 to open the 3D viewport, then drag to orbit the camera, and scroll to zoom.`,
+      Wiring a field into it opens the 3D viewport, which control 3 toggles, then drag to orbit the camera, and scroll to zoom.`,
     async run(d) {
       const src = (await d.nodes())[0];
-      const fm = await d.addNode('3d field', { x: 1120, y: 880 });
+      const fm = await d.addNode('3d field', { x: 760, y: 140 });
       await d.at(1);
       if (src && fm) await d.wire(src.id, 0, fm, 0);
       await d.at(2);
-      await d.key(`${MOD}+3`, 1200);
+      if (!(await d.page.locator('#viewport3d-panel').isVisible())) await d.key(`${MOD}+3`, 1200);
       await d.highlight('#viewport3d-panel', '3D viewport');
       await d.wait(1);
       await d.clearHighlights();
       await d.drag({ x: 1600, y: 300 }, { x: 1720, y: 340 }, { ms: 1400 });
       await d.zoom({ x: 1620, y: 300 }, 2);
       await d.wait(1.5);
-      await d.key(`${MOD}+3`, 600);
+      await d.closeWindow('#viewport3d-panel');
       if (fm) {
         await d.click(await d.title(fm), { settle: 200 });
         await d.key('Delete', 400);
@@ -491,7 +490,7 @@ export default [
       Thanks for watching.`,
     async run(d) {
       await d.loadStarter('Mirror Cells');
-      await d.frameAll();
+      await d.zoom({ x: 1200, y: 560 }, -3);
       await d.at(2, 1.5);
       await d.card(`<h1>Rhizomium</h1><p>studio.tenderworld.org <span class="accent">·</span> Docs at studio.tenderworld.org/docs</p>`);
     },
