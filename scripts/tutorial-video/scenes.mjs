@@ -308,11 +308,11 @@ export default [
     id: 'three-d',
     title: '3D fields',
     say: `Compute output can also be seen in three dimensions.
-      A Field Mapper node turns a compute field into geometry, as a point cloud, or as a surface built with marching cubes.
+      The 3D Field Visualizer node turns a compute field into geometry, either as a surface, or as a field of instanced shapes.
       Press control 3 to open the 3D viewport, then drag to orbit the camera, and scroll to zoom.`,
     async run(d) {
       const src = (await d.nodes())[0];
-      const fm = await d.addNode('field mapper', { x: 1120, y: 880 });
+      const fm = await d.addNode('3d field', { x: 1120, y: 880 });
       await d.at(1);
       if (src && fm) await d.wire(src.id, 0, fm, 0);
       await d.at(2);
