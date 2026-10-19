@@ -374,11 +374,11 @@ export default [
       await d.highlight({ x: 1700, y: 1048, width: 210, height: 26 }, 'Frame rate', { pad: 4 });
       await d.at(3);
       await d.clearHighlights();
-      await d.key(`${MOD}+Alt+P`, 800);
+      await d.menu('View', 'Compute Profiler');
       await d.highlight('#compute-profiler-overlay', 'Profiler');
       await d.wait(3);
       await d.clearHighlights();
-      await d.key(`${MOD}+Alt+P`, 500);
+      await d.closeWindow('#compute-profiler-overlay');
     },
   },
 

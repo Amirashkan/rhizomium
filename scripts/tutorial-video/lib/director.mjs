@@ -179,7 +179,14 @@ export class Director {
     return this.safe(`close ${selector}`, async () => {
       const win = this.page.locator(selector).first();
       if (!(await win.isVisible())) return;
-      const btn = win.locator('[aria-label="Close"], [title^="Close"], .close-btn, .vj-close-btn').first();
+      const btn = win
+        .locator([
+          '[aria-label="Close"]', '[title^="Close"]', '.close-btn', '.vj-close-btn',
+          // icon-only buttons carry their name on the icon (src/ui/iconSprite.js)
+          'button:has([aria-label="Close"])', 'button:has(use[href="#icon-close"])',
+        ].join(', '))
+        .or(win.locator('button').filter({ hasText: /^\s*[×✕✖]\s*$/ }))
+        .first();
       if (await btn.count()) await this.click(btn, { settle: 400 });
       else await this.key('Escape', 400);
     });

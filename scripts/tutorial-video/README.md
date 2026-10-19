@@ -1,6 +1,6 @@
 # Tutorial video
 
-Records a narrated feature tour of the editor: about fifteen minutes and
+Records a narrated feature tour of the editor: about ten minutes and
 eighteen chapters, from building a first graph to projection mapping and NDI.
 A real browser plays the tour against the live editor while it is screen
 recorded. The voice is generated offline by [Piper](https://github.com/OHF-Voice/piper1-gpl),
