@@ -38,6 +38,10 @@ export class RenderLoop {
     this._frameIndex = 0;
     this._lastFrameErrorMessage = null;
     this._lastFrameErrorAt = 0;
+    // Window whose requestAnimationFrame drives the loop; null = this window.
+    // The preview pop-out swaps in its own window so rendering keeps going
+    // while the editor tab is hidden (a hidden document's rAF stops).
+    this._frameSource = null;
     
     // Unified RAF Manager for coordinating all RAF-based handlers
     // RenderLoop becomes the single RAF coordinator
@@ -55,12 +59,35 @@ export class RenderLoop {
 
   stop() {
     this._running = false;
-    if (this._frameHandle !== null) {
-      cancelAnimationFrame(this._frameHandle);
-      this._frameHandle = null;
-    }
+    this._cancelPendingFrame();
     this._lastTimestamp = null;
     this._accumulator = 0;
+  }
+
+  /**
+   * Drive the loop from another same-agent window's requestAnimationFrame
+   * (null to go back to this window). Takes effect on the next frame.
+   */
+  setFrameSource(win) {
+    const next = win || null;
+    if (this._frameSource === next) return;
+    this._cancelPendingFrame();
+    this._frameSource = next;
+    // Each window's rAF timestamps count from its own time origin.
+    this._lastTimestamp = null;
+    this._scheduleNextFrame();
+  }
+
+  _getFrameSource() {
+    const src = this._frameSource;
+    return src && !src.closed ? src : globalThis;
+  }
+
+  _cancelPendingFrame() {
+    if (this._frameHandle === null) return;
+    const { win, id } = this._frameHandle;
+    try { win.cancelAnimationFrame(id); } catch { /* window already gone */ }
+    this._frameHandle = null;
   }
 
   setMode(mode) {
@@ -139,11 +166,16 @@ export class RenderLoop {
 
   _scheduleNextFrame() {
     if (!this._running) return;
-    this._frameHandle = requestAnimationFrame((ts) => this._handleFrame(ts));
+    const win = this._getFrameSource();
+    const id = win.requestAnimationFrame((ts) => this._handleFrame(ts, win));
+    this._frameHandle = { win, id };
   }
 
-  _handleFrame(timestampMs) {
+  _handleFrame(timestampMs, win = globalThis) {
     if (!this._running) return;
+    // A frame booked on a source that has since been swapped out.
+    if (this._frameHandle && this._frameHandle.win !== win) return;
+    this._frameHandle = null;
 
     // Book the next frame whatever this one does. The loop is a chain of
     // requestAnimationFrame calls, so a single throw from a frame handler used

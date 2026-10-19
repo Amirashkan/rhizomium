@@ -10,6 +10,7 @@ import { getPresentedFps } from '../core/presentedFrameRate.js';
 import { setIcon } from './iconSprite.js';
 import { clampPanelPosition, keepPanelInBounds } from './utils/windowBounds.js';
 import { makeResizable } from './utils/resizable.js';
+import { canPopOutPreview, openPreviewPopout } from './previewPopout.js';
 
 // Panel chrome: the header strip plus the 1px border on each edge. The canvas
 // area is whatever is left, and the render is fitted into it.
@@ -57,6 +58,7 @@ export class FloatingGPUPreview {
     this._resizeRafId = null;
     this.isCanvasInteractionActive = false;
     this._previewRenderLoopRunning = false;
+    this._popout = null; // { win, fit, close } while the canvas lives in its own window
     this._handlerName = 'floatingGPUPreview'; // Handler name for UnifiedRAFManager
     this._lastRenderTime = 0; // Track last render time for 60 FPS throttling
     
@@ -255,6 +257,11 @@ export class FloatingGPUPreview {
    * only its CSS size changes, so panel size and render size are independent.
    */
   _fitCanvasToPanel(panelSize = this._getPanelSize()) {
+    // Popped out: the window owns the canvas's CSS size.
+    if (this._popout) {
+      this._popout.fit();
+      return { width: this.gpuCanvas.clientWidth, height: this.gpuCanvas.clientHeight };
+    }
     const { baseWidth, baseHeight } = this._getEffectiveResolution();
     const box = this._getCanvasBox(panelSize);
     const { dw, dh } = letterboxRect(baseWidth, baseHeight, box.width, box.height);
@@ -718,6 +725,9 @@ async show() {
   hide() {
     if (!this.isVisible || !this.container) return;
 
+    // Bring the canvas back from its own window before it goes home below.
+    if (this._popout) this._popout.close();
+
     // Closing straight out of fullscreen has to put the app chrome back —
     // otherwise the panel goes away and takes the menu bar with it, leaving no
     // way to reach anything.
@@ -771,6 +781,57 @@ async show() {
 
   toggle() {
     this.isVisible ? this.hide() : this.show();
+  }
+
+  /**
+   * Move the preview into its own OS window. The live canvas itself moves (see
+   * previewPopout.js), so nothing is streamed and nothing renders twice. The
+   * panel steps aside while the canvas is away and returns when the window
+   * closes. Call from a click: opening the window needs the user gesture.
+   */
+  async popOut() {
+    if (this._popout || this._popoutPending || !this.isVisible || !this.container) return;
+    if (this.isFullscreen) return;
+    const box = this._getCanvasBox();
+    this._popoutPending = true;
+    let popout = null;
+    try {
+      popout = await openPreviewPopout({
+        canvas: this.gpuCanvas,
+        width: box.width,
+        height: box.height,
+        onClose: () => this._onPopoutClosed(),
+      });
+    } finally {
+      this._popoutPending = false;
+    }
+    if (!popout) {
+      console.warn("[FloatingGPUPreview] Could not open the pop-out window (blocked?)");
+      return;
+    }
+    this._popout = popout;
+    this.container.style.display = "none";
+    // The editor tab may be hidden behind the pop-out; its rAF would stop.
+    window.renderLoop?.setFrameSource?.(popout.win);
+    if (typeof window.render === "function") window.render();
+  }
+
+  /** Close the pop-out window; the canvas returns to the panel. */
+  popIn() {
+    this._popout?.close();
+  }
+
+  get isPoppedOut() {
+    return !!this._popout;
+  }
+
+  _onPopoutClosed() {
+    this._popout = null;
+    window.renderLoop?.setFrameSource?.(null);
+    if (!this.container) return;
+    this.container.style.display = "";
+    this._fitCanvasToPanel();
+    if (typeof window.render === "function") window.render();
   }
 
   /**
@@ -1226,6 +1287,17 @@ async show() {
 
     controls.appendChild(settingsBtn);
     controls.appendChild(dockBtn);
+
+    if (canPopOutPreview()) {
+      const popoutBtn = this._createButton(
+        "Pop out to its own window", "btn-popout", "second-monitor",
+      );
+      popoutBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.popOut();
+      };
+      controls.appendChild(popoutBtn);
+    }
 
     if (!this.isDocked) {
       const lockBtn = this._createButton(

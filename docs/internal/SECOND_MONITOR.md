@@ -4,8 +4,14 @@ A full-screen output window for a second display. Instead of copying pixels ever
 frame, the viewer **re-renders the shader natively** in its own window from a tiny
 per-frame state broadcast, so the editor keeps full framerate.
 
-This is a desktop (Tauri) feature. The plain browser build has no second viewer (a
-browser popup could only mirror pixels, which we removed).
+This is a desktop (Tauri) feature. In the browser the floating preview has a
+**Pop out** button instead (`src/ui/previewPopout.js`): it moves the live
+`#gpu-canvas` element itself into a Document Picture-in-Picture window (or a
+same-origin `window.open` popup as a fallback). Both share the editor's JS agent, so
+the same `GPURenderer` keeps presenting into the canvas — no pixel stream, no second
+render. While popped out, `RenderLoop.setFrameSource(win)` drives frames from the
+pop-out's `requestAnimationFrame`, so it keeps animating when the editor tab is
+hidden. Tauri webviews share no agent, which is why the desktop path re-renders.
 
 ## Pieces
 
