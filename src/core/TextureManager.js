@@ -505,10 +505,33 @@ isVideoTexture(nodeId) {
  * window-local producer that writes the same slot (the Text rasteriser, re-run when this
  * window compiles a fragment subgraph itself) must leave it alone rather than reuse or
  * destroy a texture it did not create.
+ *
+ * The editor re-sends a node's texture far more often than its size changes — every raster of a
+ * live Text node, and every texture again whenever the shader or the compute graph is rebuilt — so
+ * a same-sized broadcast is copied into the texture already there. Allocating a fresh one each time
+ * and dropping the old without destroying it leaked a full texture per message: with a Text node
+ * feeding a Mix that is ~20 a second, and the window ran out of GPU memory and went black while
+ * the shared GPU dragged the editor's preview down with it.
  */
 async injectExternalTexture(nodeId, bitmap) {
   if (!this.device || !bitmap) return;
   this.releaseVideo(nodeId); // a broadcast frame replaces whatever local source this node had
+  const previous = this.gpuTextures.get(nodeId);
+  const prevInfo = this.textures.get(nodeId);
+  if (previous?.external && previous.texture
+      && previous.texture.width === bitmap.width && previous.texture.height === bitmap.height) {
+    // Same texture, same view: every bind group built around it stays valid, so no rebind.
+    this.device.queue.copyExternalImageToTexture(
+      { source: bitmap },
+      { texture: previous.texture },
+      { width: bitmap.width, height: bitmap.height },
+    );
+    if (prevInfo) {
+      if (prevInfo.bitmap && prevInfo.bitmap !== bitmap) { try { prevInfo.bitmap.close?.(); } catch { /* ignore */ } }
+      prevInfo.bitmap = bitmap;
+    }
+    return;
+  }
   const texture = this.device.createTexture({
     size: { width: bitmap.width, height: bitmap.height },
     format: 'rgba8unorm',
@@ -526,6 +549,20 @@ async injectExternalTexture(nodeId, bitmap) {
   this.gpuTextures.set(nodeId, { texture, textureView, sampler, external: true });
   this.textures.set(nodeId, { texture, textureView, sampler, width: bitmap.width, height: bitmap.height, bitmap, external: true });
   this.bindGroup = null; // force the renderer to rebind on the next frame
+  // The replaced texture (an earlier broadcast at another size, or this window's own Text raster)
+  // is no longer reachable from either map; free it once the GPU has finished any frame that
+  // sampled it. Everything that binds it rebinds from the maps first: the output on the null
+  // bind group above, the fragment bridge on every render.
+  if (prevInfo?.external && prevInfo.bitmap && prevInfo.bitmap !== bitmap) {
+    try { prevInfo.bitmap.close?.(); } catch { /* ignore */ }
+  }
+  const old = previous?.texture;
+  if (old && old !== texture && typeof old.destroy === 'function') {
+    const destroy = () => { try { old.destroy(); } catch { /* already gone */ } };
+    const done = this.device.queue.onSubmittedWorkDone?.();
+    if (done && typeof done.then === 'function') done.then(destroy, destroy);
+    else destroy();
+  }
 }
 
   async initialize(device) {

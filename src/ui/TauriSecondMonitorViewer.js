@@ -127,6 +127,7 @@ export class TauriSecondMonitorViewer {
     this._lastComputeSig = null; // last compute-graph structure signature broadcast
     this._lastFragmentSig = null; // last fragment-subgraph structure signature broadcast
     this._sentFragmentNodes = false; // whether a non-empty FRAGMENT_GRAPH has been sent
+    this._sentTextures = new Map(); // node id -> texture entry last broadcast (see _broadcastAllTextures)
     this._forceFallback = false; // receiver can't render natively → pixels only
     // Latest projection-mapping snapshot, or null while the output is unmapped.
     // Held so a viewer opened (or reconnected) mid-set starts already aligned.
@@ -531,7 +532,8 @@ export class TauriSecondMonitorViewer {
       if (this._mode === 'native-compute') {
         this._broadcastComputeGraph();
         this._broadcastFragmentGraph();
-        this._broadcastAllTextures();
+        // A (re)loaded page holds none of them, whatever we sent before.
+        this._broadcastAllTextures({ force: true });
         this._broadcastFeedbackStates();
       }
       if (this._mode) {
@@ -638,6 +640,7 @@ export class TauriSecondMonitorViewer {
     this._lastComputeSig = null;
     this._lastFragmentSig = null;
     this._sentFragmentNodes = false;
+    this._sentTextures.clear();
     this._sentScene3D = false;
     this._lastFieldMapperIds = [];
     this._mode = null;
@@ -1101,11 +1104,23 @@ export class TauriSecondMonitorViewer {
     return parts.join('|');
   }
 
-  /** Broadcast every currently-loaded image/video texture to the receiver. */
-  _broadcastAllTextures() {
+  /**
+   * Broadcast the loaded image/video textures the receivers do not have yet.
+   *
+   * This runs on every shader change and every compute-graph rewire, and the receivers keep
+   * their textures across both, so only an entry we have not sent — a new node, a new upload, a
+   * new Text raster — goes out. Re-sending all of them each time decoded and cloned every image
+   * again in the editor (the preview stalled on each edit) and handed each window a full new
+   * texture per image. `force` re-sends everything, for a receiver that has just (re)loaded.
+   * @param {{force?: boolean}} [opts]
+   */
+  _broadcastAllTextures({ force = false } = {}) {
     const tm = (typeof window !== 'undefined') ? window.textureManager : null;
     if (!tm || !tm.textures || typeof tm.textures.forEach !== 'function') return;
-    tm.textures.forEach((info, nodeId) => { this._broadcastTexture(nodeId, info); });
+    tm.textures.forEach((info, nodeId) => {
+      if (!force && info && this._sentTextures.get(nodeId) === info) return;
+      this._broadcastTexture(nodeId, info);
+    });
   }
 
   /**
@@ -1181,6 +1196,7 @@ export class TauriSecondMonitorViewer {
 
   async _broadcastTexture(nodeId, info) {
     if (!this._channel || !info) return;
+    this._sentTextures.set(nodeId, info);
     if (info.isVideo) { this._broadcastVideo(nodeId, info); return; }
     const src = info.bitmap || info.image || info.source || info.video;
     if (!src || typeof createImageBitmap !== 'function') return;

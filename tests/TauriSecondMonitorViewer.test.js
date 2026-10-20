@@ -495,6 +495,40 @@ describe('TauriSecondMonitorViewer', () => {
     });
   });
 
+  it('re-sends only new textures on a shader change, and all of them to a receiver that reloads', async () => {
+    stubComputeGlobals({ textures: [{ nodeId: '3', w: 2, h: 2 }] });
+    vi.stubGlobal('createImageBitmap', vi.fn(async (src) => ({ width: src.width, height: src.height, close: vi.fn() })));
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+    const sentTextures = () => channel.posted.filter((m) => m.type === MSG.TEXTURE).map((m) => m.nodeId);
+    renderer.emitState(computeSnap('W1'));
+    await flush();
+    expect(sentTextures()).toEqual(['3']);
+
+    // A rewire recompiles the shader; the receiver still holds texture 3, so only the new one goes.
+    channel.posted.length = 0;
+    window.textureManager.textures.set('4', { bitmap: { width: 2, height: 2 } });
+    renderer.emitState(computeSnap('W2'));
+    await flush();
+    expect(sentTextures()).toEqual(['4']);
+
+    // A replaced entry (a new upload, a new Text raster) is a new texture.
+    channel.posted.length = 0;
+    window.textureManager.textures.set('3', { bitmap: { width: 4, height: 4 } });
+    renderer.emitState(computeSnap('W3'));
+    await flush();
+    expect(sentTextures()).toEqual(['3']);
+
+    // A reloaded page has none of them.
+    channel.posted.length = 0;
+    channel.emit({ type: MSG.READY, screenId: 'main' });
+    await flush();
+    expect(sentTextures().sort()).toEqual(['3', '4']);
+    await viewer.close();
+  });
+
   it('onTextureChanged broadcasts the texture when active and in native-compute', async () => {
     stubComputeGlobals({ textures: [{ nodeId: '3', w: 2, h: 2 }] });
     vi.stubGlobal('createImageBitmap', vi.fn(async (src) => ({ width: src.width, height: src.height, close: vi.fn() })));
