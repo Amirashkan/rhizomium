@@ -403,6 +403,32 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
+  it('carries a grown Mix\'s and Switch\'s pin count to the receiver, and rebroadcasts when it changes', async () => {
+    stubComputeGlobals({ nodes: [{ id: '13', kind: 'ComputeMix', wgsl: 'M', width: 8, height: 8, inputs: ['9', null, null, null] }] });
+    const mix = window.computeNodeRegistry.get('13').node;
+    mix.inputCount = 4;
+    global.window.graph = {
+      getNode: (id) => (String(id) === '9' ? { id: '9', kind: 'Switch', params: {}, inputs: [], inputCount: 3 } : null),
+    };
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('W'));
+    await flush();
+    expect(channel.posted.find((m) => m.type === MSG.COMPUTE_GRAPH).nodes[0].inputCount).toBe(4);
+    expect(channel.posted.find((m) => m.type === MSG.FRAGMENT_GRAPH).nodes[0].inputCount).toBe(3);
+
+    // Adding a pin changes the bind group layout the receiver has to build.
+    channel.posted.length = 0;
+    mix.inputCount = 5;
+    renderer.emitState(computeSnap('W'));
+    await flush();
+    expect(channel.posted.find((m) => m.type === MSG.COMPUTE_GRAPH)?.nodes[0].inputCount).toBe(5);
+    await viewer.close();
+  });
+
   describe('fragment-fed compute', () => {
     // A blur compute node whose only input is fragment node '9' (a SimplexNoise).
     const stubFragmentFed = (params = { scale: 5 }) => {

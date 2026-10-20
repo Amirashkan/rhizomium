@@ -78,6 +78,17 @@ const FIELD_MAPPER_KIND = 'ComputeFieldMapper';
 // fragment subgraph whenever the Output reads them.
 const BRIDGED_CONSUMER_KINDS = new Set([FIELD_MAPPER_KIND, 'ProjectionMap']);
 const MIN_DISPLAY_EDGE = 256;
+
+/**
+ * A node's pin count when it has grown or shrunk its inputs (Mix, Switch and the other
+ * dynamic-input nodes), else undefined. The receiver rebuilds nodes from what we send, and
+ * without this a 4-input Mix came back as 2: its shader samples pins C and D, the layout built
+ * from the default count has no bindings for them, and the invalid pipeline blacked the output.
+ */
+function inputCountOf(node) {
+  const n = Number(node && node.inputCount);
+  return Number.isFinite(n) ? n : undefined;
+}
 const MAX_DISPLAY_EDGE = 7680;
 
 export class TauriSecondMonitorViewer {
@@ -785,7 +796,7 @@ export class TauriSecondMonitorViewer {
       const w = (mgr && mgr.textureWidth) || res[0] || 0;
       const h = (mgr && mgr.textureHeight) || res[1] || 0;
       const inputs = this._broadcastableInputs(node).join(',');
-      parts.push(`${id}:${node.kind}:${inputs}:${w}x${h}`);
+      parts.push(`${id}:${node.kind}:${inputs}:${w}x${h}:${inputCountOf(node) ?? ''}`);
     });
     return parts.join('|');
   }
@@ -923,6 +934,7 @@ export class TauriSecondMonitorViewer {
         height,
         supportsFeedback: !!data.supportsFeedback,
         inputs: this._broadcastableInputs(node),
+        inputCount: inputCountOf(node),
       });
     });
     const executionOrder = Array.isArray(exec.executionOrder) ? exec.executionOrder.slice() : [];
@@ -963,6 +975,7 @@ export class TauriSecondMonitorViewer {
         kind: node.kind,
         params: node.params ? { ...node.params } : {},
         inputs: Array.isArray(node.inputs) ? node.inputs.slice() : [],
+        inputCount: inputCountOf(node),
       });
       if (Array.isArray(node.inputs)) for (const inId of node.inputs) visit(inId);
     };
@@ -1099,7 +1112,7 @@ export class TauriSecondMonitorViewer {
         }
       }
       const inputs = Array.isArray(n.inputs) ? n.inputs.join(',') : '';
-      return `${n.id}:${n.kind}:${inputs}:${exprs.join('&')}`;
+      return `${n.id}:${n.kind}:${inputs}:${n.inputCount ?? ''}:${exprs.join('&')}`;
     });
     return parts.join('|');
   }

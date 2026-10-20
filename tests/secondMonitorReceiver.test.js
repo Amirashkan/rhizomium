@@ -454,6 +454,35 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.executionOrder).toEqual(['1']);
     });
 
+    it('gives rebuilt nodes the pin count the editor grew them to', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+
+      ch.emit({ type: MSG.FRAGMENT_GRAPH, nodes: [{ id: '9', kind: 'Switch', params: {}, inputs: [], inputCount: 3 }] });
+      ch.emit({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [{ id: '13', kind: 'ComputeMix', wgsl: 'W', width: 8, height: 8, inputs: ['9', null, null, null], inputCount: 4 }],
+        executionOrder: ['13'],
+      });
+      await settle();
+
+      // The executor sizes the Mix's bind group layout from this; a 2-pin layout under a
+      // 4-pin shader is an invalid pipeline and a black output.
+      expect(win.graph.getNode('13').inputCount).toBe(4);
+      expect(win.graph.getNode('9').inputCount).toBe(3);
+      const initsBefore = rt.computeExecutor.initialize.mock.calls.length;
+
+      ch.emit({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [{ id: '13', kind: 'ComputeMix', wgsl: 'W', width: 8, height: 8, inputs: ['9', null, null, null, null], inputCount: 5 }],
+        executionOrder: ['13'],
+      });
+      await settle();
+      expect(win.graph.getNode('13').inputCount).toBe(5);
+      expect(rt.computeExecutor.initialize.mock.calls.length).toBeGreaterThan(initsBefore);
+    });
+
     it('clears its own feedback sim on FEEDBACK_RESET (editor reset button / Reset pin)', async () => {
       const rt = installFakeRuntime();
       rt.computeExecutor.resetNodeFeedback = vi.fn();

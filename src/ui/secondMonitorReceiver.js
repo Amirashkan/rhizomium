@@ -384,7 +384,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     const key = JSON.stringify([
       computeMaxDim,
       ourDims,
-      nodes.map((n) => [n.id, n.kind, n.wgsl, ...(isMatchEditor() ? [n.width, n.height] : []), n.inputs || []]),
+      nodes.map((n) => [n.id, n.kind, n.wgsl, ...(isMatchEditor() ? [n.width, n.height] : []), n.inputs || [], n.inputCount ?? null]),
     ]);
     if (key === appliedComputeKey) return; // unchanged graph — skip the costly re-init
     if (!win.computeNodeRegistry) win.computeNodeRegistry = new Map();
@@ -407,6 +407,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         params: {},
         computeResolution: [w, h],
       };
+      // A Mix grown past two pins compiles to a shader that samples the extra ones; the
+      // executor sizes the bind group layout from this, so without it the pipeline is invalid.
+      if (n.inputCount != null) node.inputCount = n.inputCount;
       win.graph.nodes.push(node);
       registry.set(n.id, {
         node,
@@ -596,6 +599,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         kind: n.kind,
         params: n.params || {},
         inputs: Array.isArray(n.inputs) ? n.inputs.slice() : [],
+        // Dynamic-input nodes (Switch, …) compile one branch per pin.
+        ...(n.inputCount != null ? { inputCount: n.inputCount } : {}),
       });
       fragmentNodeIds.add(n.id);
     }
