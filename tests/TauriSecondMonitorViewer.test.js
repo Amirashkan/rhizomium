@@ -345,6 +345,34 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
+  it('re-broadcasts COMPUTE_GRAPH when a compute node recompiles (a baked param like Voronoi mode)', async () => {
+    stubComputeGlobals({ nodes: [
+      { id: '1', kind: 'ComputeVoronoi', wgsl: 'MODE_CELLS', width: 8, height: 8 },
+    ] });
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('WGSL_X'));
+    await flush();
+    channel.posted.length = 0;
+
+    // The node's own shader changes; the editor's main shader does not.
+    window.computeNodeRegistry.get('1').wgslCode = 'MODE_BORDERS';
+    renderer.emitState(computeSnap('WGSL_X'));
+    const cg = channel.posted.find((m) => m.type === MSG.COMPUTE_GRAPH);
+    expect(cg).toBeTruthy();
+    expect(cg.nodes.find((n) => n.id === '1').wgsl).toBe('MODE_BORDERS');
+
+    // Unchanged afterwards → no further re-broadcast.
+    channel.posted.length = 0;
+    renderer.emitState(computeSnap('WGSL_X'));
+    expect(channel.posted.some((m) => m.type === MSG.COMPUTE_GRAPH)).toBe(false);
+
+    await viewer.close();
+  });
+
   it('broadcasts compute graph, textures, and per-frame compute uniforms for a native-compute graph', async () => {
     stubComputeGlobals({
       // registry resolution is small/stale (320x240) but the manager actually

@@ -50,6 +50,7 @@
 // constructed when isTauri() is true (see main.js).
 
 import { isTauri } from '../utils/isTauri.js';
+import { hashWGSL } from '../gpu/ShaderModuleCache.js';
 import { controlInputPinIndices } from '../data/NodeDefs.js';
 import { getOutputOpacity, onOutputOpacityChange } from '../vj/MasterOutput.js';
 import { MAIN_SCREEN_ID, makeScreen } from '../screens/ScreenModel.js';
@@ -136,6 +137,7 @@ export class TauriSecondMonitorViewer {
     this._mode = null;           // 'native' | 'fallback', decided per shader
     this._lastWgsl = undefined;  // last WGSL broadcast (undefined = none yet)
     this._lastComputeSig = null; // last compute-graph structure signature broadcast
+    this._wgslHashes = new WeakMap(); // registry entry → { src, hash } of its WGSL
     this._lastFragmentSig = null; // last fragment-subgraph structure signature broadcast
     this._sentFragmentNodes = false; // whether a non-empty FRAGMENT_GRAPH has been sent
     this._sentTextures = new Map(); // node id -> texture entry last broadcast (see _broadcastAllTextures)
@@ -777,8 +779,10 @@ export class TauriSecondMonitorViewer {
 
   /**
    * Cheap signature of the compute subgraph's STRUCTURE (node ids, kinds, input
-   * wiring and texture sizes). Changes when a node is added/removed, rewired, or
-   * resized — used to re-broadcast COMPUTE_GRAPH so the receiver rebuilds. Does NOT
+   * wiring, texture sizes and per-node WGSL). Changes when a node is added/removed,
+   * rewired, resized, or recompiled — a param the codegen bakes into the shader (a
+   * Voronoi's `mode`, a metric) changes only that node's WGSL, not the editor's
+   * main shader — used to re-broadcast COMPUTE_GRAPH so the receiver rebuilds. Does NOT
    * include per-frame uniforms (those stream separately) or control-pin wiring
    * (resets ride FEEDBACK_RESET; a rebuild would clear the receiver's sims).
    */
@@ -796,9 +800,23 @@ export class TauriSecondMonitorViewer {
       const w = (mgr && mgr.textureWidth) || res[0] || 0;
       const h = (mgr && mgr.textureHeight) || res[1] || 0;
       const inputs = this._broadcastableInputs(node).join(',');
-      parts.push(`${id}:${node.kind}:${inputs}:${w}x${h}:${inputCountOf(node) ?? ''}`);
+      parts.push(`${id}:${node.kind}:${inputs}:${w}x${h}:${inputCountOf(node) ?? ''}:${this._wgslHashOf(data)}`);
     });
     return parts.join('|');
+  }
+
+  /**
+   * Hash of a registry entry's WGSL, recomputed only when the source changes — the
+   * signature runs every frame, and re-hashing a few KB of shader per node per frame
+   * would be waste.
+   */
+  _wgslHashOf(data) {
+    const src = typeof data.wgslCode === 'string' ? data.wgslCode : '';
+    const cached = this._wgslHashes.get(data);
+    if (cached && cached.src === src) return cached.hash;
+    const hash = src ? hashWGSL(src) : '';
+    this._wgslHashes.set(data, { src, hash });
+    return hash;
   }
 
   /** Decide the mirror tier for the current shader (native / native-compute / fallback). */
