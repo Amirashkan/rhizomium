@@ -24,7 +24,7 @@
 // Both directions are pure functions of their input plus the path registry, so
 // the save and load code in SaveLoadManager stays a call each.
 
-import { basename, fileToDataUrl, mimeForName, pathFor, rememberPath } from './mediaPaths.js';
+import { basename, fileToDataUrl, fingerprint, mimeForName, pathFor, rememberPath } from './mediaPaths.js';
 
 /** Node params that hold media as a data: URL. */
 export const MEDIA_PARAMS = ['audioData', 'fontData'];
@@ -296,3 +296,72 @@ async function internalizeGraph(source, read, missing) {
 export function missingNames(missing) {
   return [...new Set((missing || []).map((item) => item?.ref?.name || basename(item?.ref?.path)).filter(Boolean))];
 }
+
+// ---------------------------------------------------------------------------
+// Converting a project saved before this
+// ---------------------------------------------------------------------------
+
+const TEXTURE_KINDS = new Set(['Texture2D', 'TextureCube']);
+
+function isEmbedded(source) {
+  return (typeof source === 'string' && source.startsWith('data:')) || isBlob(source);
+}
+
+/**
+ * Every piece of media the open project still carries inline, with no file
+ * behind it: what SaveLoadManager.storeEmbeddedMedia writes out. A project made before
+ * media was saved by path is all of it; so is anything opened from a browser
+ * save. The same bytes used in several places (a texture captured into every
+ * VJ scene) come back once, with a callback per place.
+ *
+ * @param {object} project
+ * @param {object[]} [project.nodes] the live graph
+ * @param {Map<string, object>} [project.textures] the live texture manager's entries
+ * @param {object[]} [project.scenes] the VJ set's scenes
+ * @param {object[]} [project.tracks] VJ audio tracks: `{ id, name, blob, path }`
+ * @returns {{source: Blob|string, name: string, stored: ((path: string) => void)[]}[]}
+ */
+export function findEmbeddedMedia({ nodes = [], textures = null, scenes = [], tracks = [] } = {}) {
+  const found = new Map();
+  const add = (source, name, stored = null) => {
+    if (!isEmbedded(source) || pathFor(source)) return;
+    const key = typeof source === 'string' ? `data:${fingerprint(source)}` : source;
+    if (!found.has(key)) found.set(key, { source, name, stored: [] });
+    if (stored) found.get(key).stored.push(stored);
+  };
+
+  const fromGraph = (graphNodes, textureOf) => {
+    for (const node of Array.isArray(graphNodes) ? graphNodes : []) {
+      if (TEXTURE_KINDS.has(node?.kind)) {
+        const info = textureOf(node.id);
+        if (info && !pathFor(info.file) && !pathFor(info.dataUrl)) {
+          const remember = (path) => {
+            rememberPath(info.file, path);
+            rememberPath(info.dataUrl, path);
+          };
+          add(isBlob(info.file) ? info.file : info.dataUrl, info.filename || `texture-${node.id}`, remember);
+        }
+      }
+      const params = node?.params || {};
+      if (typeof params.audioData === 'string') {
+        add(params.audioData, params.audioFile || `audio-${node.id}`);
+      }
+      if (typeof params.fontData === 'string') {
+        add(params.fontData, params.fontName || `font-${node.id}`);
+      }
+    }
+  };
+
+  fromGraph(nodes, (id) => textures?.get?.(id) ?? textures?.get?.(String(id)) ?? null);
+  for (const scene of Array.isArray(scenes) ? scenes : []) {
+    const data = scene?.data;
+    if (!data) continue;
+    fromGraph(data.nodes, (id) => data.textures?.[id] ?? null);
+  }
+  for (const track of Array.isArray(tracks) ? tracks : []) {
+    if (!track?.path) add(track?.blob, track?.name || 'track', track?.onStored || null);
+  }
+
+  return [...found.values()];
+}
+

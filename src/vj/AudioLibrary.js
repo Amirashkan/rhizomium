@@ -225,6 +225,22 @@ export class AudioLibrary {
     return this._enqueue(() => this._write(() => this.store.put(record)).then(() => true));
   }
 
+  /**
+   * Record where a track's bytes now live on disk, so a project file names it
+   * by path (SaveLoadManager.storeEmbeddedMedia writes the file, then calls this).
+   */
+  setPath(id, path) {
+    const record = this.tracks.get(id);
+    if (!record || !path || record.path === path) return Promise.resolve(false);
+    record.path = path;
+    return this._enqueue(() => this._write(() => this.store.put(record)).then(() => true));
+  }
+
+  /** Each track's stored record, bytes included, in running order. */
+  records() {
+    return this.order.map((id) => this.tracks.get(id)).filter(Boolean);
+  }
+
   remove(id) {
     if (!this.tracks.has(id)) return Promise.resolve(false);
     this.tracks.delete(id);

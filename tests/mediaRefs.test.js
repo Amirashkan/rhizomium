@@ -10,9 +10,9 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args) => invoke(...args) })
 
 import {
   rememberPath, pathFor, linkSource, fingerprint, readMediaAsFile, fileToDataUrl,
-  MediaReadError, mimeForName, _resetMediaPaths,
+  MediaReadError, mimeForName, nameWithExtension, _resetMediaPaths,
 } from '../src/core/mediaPaths.js';
-import { externalizeMedia, internalizeMedia } from '../src/core/mediaRefs.js';
+import { externalizeMedia, findEmbeddedMedia, internalizeMedia } from '../src/core/mediaRefs.js';
 import { restorePatchTextures } from '../src/core/patchTextures.js';
 import { AudioLibrary } from '../src/vj/AudioLibrary.js';
 import { SaveLoadManager } from '../src/core/SaveLoadManager.js';
@@ -480,5 +480,101 @@ describe('native drops', () => {
       document.elementFromPoint = original;
       zone.remove();
     }
+  });
+});
+
+describe('storing an older project\'s embedded media as files', () => {
+  it('finds each embedded piece of media once, skipping what already has a file', () => {
+    const video = file('clip.mp4', 'video/mp4');
+    rememberPath(FONT, '/fonts/Inter.ttf');
+    const track = { id: 't1', name: 'Bed', blob: file('bed.mp3', 'audio/mpeg') };
+    const items = findEmbeddedMedia({
+      nodes: project().nodes,
+      textures: new Map([
+        ['1', { filename: 'a.png', dataUrl: PNG }],
+        ['2', { filename: 'clip.mp4', dataUrl: null, file: video }],
+      ]),
+      // The scene captured the same image: one file, not two.
+      scenes: [{ data: { nodes: [{ id: '7', kind: 'Texture2D', params: {} }], textures: { 7: { filename: 'a.png', dataUrl: PNG } } } }],
+      tracks: [track, { id: 't2', name: 'Linked', blob: file('l.mp3'), path: '/audio/l.mp3' }],
+    });
+
+    expect(items.map((item) => item.name)).toEqual(['a.png', 'clip.mp4', 'beat.mp3', 'Bed']);
+    expect(items[0].source).toBe(PNG);
+    expect(items[1].source).toBe(video);
+  });
+
+  it('names a written file with an extension for its type', () => {
+    expect(nameWithExtension('Inter', 'font/ttf')).toBe('Inter.ttf');
+    expect(nameWithExtension('beat.mp3', 'audio/mpeg')).toBe('beat.mp3');
+    expect(nameWithExtension('texture-3', 'image/jpeg')).toBe('texture-3.jpg');
+    expect(nameWithExtension('', 'application/x-unknown')).toBe('media');
+  });
+
+  it('writes the media out, after which the project file names it by path', async () => {
+    window.__TAURI_INTERNALS__ = {};
+    const written = [];
+    invoke.mockImplementation(async (command, args, options) => {
+      if (command === 'pick_media_folder') return 'C:\\Show\\media';
+      if (command === 'write_media_file') {
+        const name = decodeURIComponent(options.headers['x-name']);
+        expect(decodeURIComponent(options.headers['x-folder'])).toBe('C:\\Show\\media');
+        expect(args).toBeInstanceOf(Uint8Array);
+        written.push(name);
+        return `C:\\Show\\media\\${name}`;
+      }
+      throw new Error(`unexpected ${command}`);
+    });
+    const { modalManager } = await import('../src/ui/ModalManager.js');
+    vi.spyOn(modalManager, 'custom').mockResolvedValue(undefined);
+
+    const data = project();
+    const textures = new Map([['1', { filename: 'a.png', dataUrl: PNG }]]);
+    const stub = Object.assign(Object.create(SaveLoadManager.prototype), {
+      graph: { nodes: data.nodes },
+      textureManager: { textures },
+      missingMedia: [],
+      markUnsaved: vi.fn(),
+      updateStatus: vi.fn(),
+      exportProject: () => data,
+    });
+
+    const result = await stub.storeEmbeddedMedia();
+
+    expect(result.stored).toBe(3);
+    expect(written).toEqual(['a.png', 'beat.mp3', 'Inter.ttf']);
+    expect(stub.markUnsaved).toHaveBeenCalled();
+
+    const saved = await stub.exportProjectFile();
+    expect(saved.textures[1].ref.path).toBe('C:\\Show\\media\\a.png');
+    expect(saved.nodes[2].params.audioData).toBe('');
+    expect(saved.nodes[3].params.fontData).toBe('');
+    expect(saved.mediaParams.map((entry) => entry.ref.path)).toEqual([
+      'C:\\Show\\media\\beat.mp3', 'C:\\Show\\media\\Inter.ttf',
+    ]);
+    // Much smaller: none of the bytes are in it any more.
+    expect(JSON.stringify(saved)).not.toContain('base64');
+  });
+
+  it('records a stored VJ track\'s path in the library', async () => {
+    const store = { getAll: async () => [], put: vi.fn(async () => {}), delete: async () => {} };
+    const library = new AudioLibrary(store);
+    const [track] = (await library.add([file('bed.mp3', 'audio/mpeg')])).added;
+
+    await library.setPath(track.id, '/show/bed.mp3');
+
+    expect(library.records()[0].path).toBe('/show/bed.mp3');
+    expect(store.put).toHaveBeenLastCalledWith(expect.objectContaining({ path: '/show/bed.mp3' }));
+    const [exported] = await library.exportTracks({ byPath: true });
+    expect(exported.ref.path).toBe('/show/bed.mp3');
+  });
+
+  it('explains itself instead of running in a browser', async () => {
+    const { modalManager } = await import('../src/ui/ModalManager.js');
+    const alert = vi.spyOn(modalManager, 'alert').mockResolvedValue(undefined);
+    const result = await SaveLoadManager.prototype.storeEmbeddedMedia.call({});
+    expect(result).toBeNull();
+    expect(alert).toHaveBeenCalledWith(expect.stringMatching(/desktop app/), 'Store Media as Files');
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

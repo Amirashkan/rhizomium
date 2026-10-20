@@ -30,6 +30,19 @@ const MIME_BY_EXTENSION = {
   ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2', ttc: 'font/collection',
 };
 
+/**
+ * `name` with an extension matching `mime` when it has none of its own - a
+ * file written out of a project needs one for the pickers and for reading its
+ * type back.
+ */
+export function nameWithExtension(name, mime) {
+  const base = String(name || '').trim() || 'media';
+  if (/\.[a-z0-9]{2,5}$/i.test(base)) return base;
+  const type = String(mime || '').toLowerCase();
+  const ext = Object.keys(MIME_BY_EXTENSION).find((key) => MIME_BY_EXTENSION[key] === type);
+  return ext ? `${base}.${ext}` : base;
+}
+
 /** The last segment of a Windows or POSIX path. */
 export function basename(path) {
   return String(path || '').split(/[\\/]/).pop() || '';
@@ -119,9 +132,9 @@ export class MediaReadError extends Error {
   }
 }
 
-async function invoke(command, args) {
+async function invoke(command, args, options) {
   const core = await import('@tauri-apps/api/core');
-  return core.invoke(command, args);
+  return options ? core.invoke(command, args, options) : core.invoke(command, args);
 }
 
 /** Whether media can be picked and read by path here: the desktop app only. */
@@ -199,6 +212,20 @@ export function chooseMediaFiles(kind, options, openWebPicker, onFiles) {
       openWebPicker();
     },
   );
+}
+
+/**
+ * Write media out as a file in a folder from pickMediaFolder(). Never
+ * overwrites a different file of the same name (the Rust side numbers it
+ * instead), and reuses one with the same bytes.
+ *
+ * @returns {Promise<string>} the path written
+ */
+export async function writeMediaFile(folder, name, blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return invoke('write_media_file', bytes, {
+    headers: { 'x-folder': encodeURIComponent(folder), 'x-name': encodeURIComponent(name) },
+  });
 }
 
 /** Pick a folder to search for missing media. Resolves to null on cancel. */

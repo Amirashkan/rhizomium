@@ -10,10 +10,10 @@ import { restorePatchTextures, restoreImageTexture, restoreVideoTexture } from '
 import { encodeProjectFile, decodeProjectFile } from './projectFile.js';
 import { getAnnotationStore } from './AnnotationStore.js';
 import { isTauri } from '../utils/isTauri.js';
-import { externalizeMedia, internalizeMedia } from './mediaRefs.js';
+import { externalizeMedia, findEmbeddedMedia, internalizeMedia } from './mediaRefs.js';
 import {
-  canUseMediaPaths, fileToDataUrl, findMediaInFolder, linkSource, pickMediaFiles, pickMediaFolder,
-  readMediaAsFile, rememberPath,
+  canUseMediaPaths, fileToDataUrl, findMediaInFolder, linkSource, nameWithExtension, pickMediaFiles,
+  pickMediaFolder, readMediaAsFile, rememberPath, writeMediaFile,
 } from './mediaPaths.js';
 import { showMissingMediaDialog } from '../ui/MissingMediaDialog.js';
 
@@ -543,6 +543,82 @@ async exportProjectFile() {
     }
   }
   return mediaForStorage(this, projectData);
+}
+
+/**
+ * A temporary, console-only migration aid - `saveLoadManager.storeEmbeddedMedia()`
+ * in the desktop app's DevTools - with no menu entry on purpose. Remove it once
+ * the old projects have been converted.
+ *
+ * Writes every piece of media the open project still
+ * carries inline out to a folder the artist picks, so the next save names it
+ * by path instead of carrying it. This is how a project made before media was
+ * saved by path gets small: re-saving alone cannot, because nothing knows
+ * where its media came from.
+ *
+ * The project itself is unchanged until that save; this only gives each piece
+ * of media a file behind it.
+ *
+ * @returns {Promise<{stored: number, failed: string[], folder: string}|null>}
+ *          null when there was nothing to do or the artist cancelled
+ */
+async storeEmbeddedMedia() {
+  const title = 'Store Media as Files';
+  if (!canUseMediaPaths()) {
+    await modalManager.alert(
+      'Only the desktop app can save media as files. A browser cannot see where files live, so it keeps media inside the project.',
+      title,
+    );
+    return null;
+  }
+
+  const library = window.vjControlPanel?.audioLibrary;
+  const items = findEmbeddedMedia({
+    nodes: this.graph?.nodes,
+    textures: this.textureManager?.textures,
+    scenes: window.vjControlPanel?.sceneManager?.getAllScenes?.() || [],
+    tracks: (library?.records?.() || []).map((record) => ({
+      ...record,
+      onStored: (path) => library.setPath(record.id, path),
+    })),
+  });
+  if (!items.length) {
+    await modalManager.alert('This project has no embedded media - everything in it is already saved as a file.', title);
+    return null;
+  }
+
+  const folder = await pickMediaFolder();
+  if (!folder) return null;
+
+  let stored = 0;
+  const failed = [];
+  for (const [index, item] of items.entries()) {
+    this.updateStatus(`Storing media ${index + 1} of ${items.length}...`);
+    try {
+      const blob = typeof item.source === 'string' ? dataUrlToBlob(item.source) : item.source;
+      const path = await writeMediaFile(folder, nameWithExtension(item.name, blob.type), blob);
+      rememberPath(item.source, path);
+      for (const done of item.stored) await done(path);
+      stored += 1;
+    } catch (error) {
+      failed.push(item.name);
+      window.errorHandler?.handleError(error, { component: 'store-embedded-media', name: item.name });
+    }
+  }
+
+  if (stored) this.markUnsaved();
+  this.updateStatus(`Stored ${stored} media file${stored === 1 ? '' : 's'}`);
+  // Line breaks matter here (the folder on its own line), and an alert's body
+  // is plain text that collapses them.
+  const summary = document.createElement('div');
+  summary.style.whiteSpace = 'pre-line';
+  summary.textContent =
+    `Stored ${stored} media file${stored === 1 ? '' : 's'} in:\n${folder}\n\n` +
+    (failed.length ? `Could not store: ${failed.join(', ')}\n\n` : '') +
+    'Save the project now - it will refer to these files instead of carrying them, and come out much smaller. ' +
+    'Keep the folder with the project: moving or deleting it will make the media go missing.';
+  await modalManager.custom({ title, body: summary, buttons: [{ label: 'OK', primary: true, onClick: () => true }] });
+  return { stored, failed, folder };
 }
 
 /** Ask the artist about the open project's missing media. */

@@ -352,8 +352,9 @@ async fn pick_media_files(
     Ok(picked)
 }
 
-/// Pick a folder for a relink search. Trusted for this session only, and only
-/// for `find_media_in_folder`: it does not make the files in it readable.
+/// Pick a folder for a relink search, or to store embedded media in. Trusted
+/// for this session only, and only for `find_media_in_folder` and
+/// `write_media_file`: it does not make the files already in it readable.
 #[tauri::command]
 async fn pick_media_folder(
     app: tauri::AppHandle,
@@ -441,6 +442,104 @@ async fn read_media_file(
     std::fs::read(&path)
         .map(tauri::ipc::Response::new)
         .map_err(|err| err.to_string())
+}
+
+/// Undo the frontend's encodeURIComponent: header values must be ASCII, file
+/// names and folders need not be.
+fn percent_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = text.get(i + 1..i + 3)?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// A file name safe to create on any platform, or None when nothing usable is
+/// left of it. Only ever a name: separators are dropped, so it cannot climb
+/// out of the folder it is written into.
+fn safe_file_name(name: &str) -> Option<String> {
+    let cleaned: String = name
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .take(150)
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').trim().to_string();
+    (!cleaned.is_empty()).then_some(cleaned)
+}
+
+/// Write one embedded piece of media out as a file, so the project can name it
+/// by path from then on (SaveLoadManager.storeEmbeddedMedia, a temporary
+/// console-only aid for converting projects saved before media went by path).
+///
+/// The bytes come as the raw request body; the folder and the file name as
+/// percent-encoded `x-folder` / `x-name` headers. The folder must be one the
+/// artist picked this session (`pick_media_folder`), and the name is reduced to
+/// a bare file name. An existing file with the same bytes is reused; one with
+/// different bytes is never overwritten - the new file gets a numbered name.
+/// Answers the path written (or reused), which is granted for reading.
+#[tauri::command]
+fn write_media_file(
+    app: tauri::AppHandle,
+    grants: tauri::State<'_, MediaGrants>,
+    request: tauri::ipc::Request,
+) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Expected the file's bytes".into());
+    };
+    let header = |name: &str| {
+        request
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(percent_decode)
+    };
+    let folder = header("x-folder").ok_or("Missing folder")?;
+    let name = header("x-name").and_then(|name| safe_file_name(&name)).ok_or("Missing file name")?;
+    if !grants.is_folder_granted(&app, &folder) {
+        return Err("not-granted".into());
+    }
+
+    let folder_path = std::path::PathBuf::from(&folder);
+    let (stem, extension) = match name.rfind('.') {
+        Some(dot) if dot > 0 => (name[..dot].to_string(), name[dot..].to_string()),
+        _ => (name.clone(), String::new()),
+    };
+
+    for attempt in 1..1000 {
+        let candidate = if attempt == 1 {
+            folder_path.join(&name)
+        } else {
+            folder_path.join(format!("{stem} ({attempt}){extension}"))
+        };
+        match std::fs::metadata(&candidate) {
+            Ok(existing) => {
+                let same = existing.is_file()
+                    && existing.len() == bytes.len() as u64
+                    && std::fs::read(&candidate).map(|on_disk| on_disk == *bytes).unwrap_or(false);
+                if !same {
+                    continue;
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::write(&candidate, bytes)
+                    .map_err(|err| format!("Could not write {}: {err}", candidate.display()))?;
+            }
+            Err(err) => return Err(err.to_string()),
+        }
+        let path = candidate.to_string_lossy().to_string();
+        grants.grant_files(&app, std::slice::from_ref(&path));
+        return Ok(path);
+    }
+    Err(format!("Too many files named like {name} in {folder}"))
 }
 
 /// A file dropped on the editor: grant it, then tell the frontend where it
@@ -548,6 +647,7 @@ pub fn run() {
             pick_media_folder,
             find_media_in_folder,
             read_media_file,
+            write_media_file,
             app_ready
         ])
         .setup(|app| {
