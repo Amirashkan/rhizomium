@@ -5,7 +5,7 @@
 // validation - so adding a new format version only requires bumping
 // SAVE_FORMAT_VERSION and adding a migration step here.
 
-export const SAVE_FORMAT_VERSION = 9;
+export const SAVE_FORMAT_VERSION = 10;
 
 // Kinds whose multiple channel output pins (RGBA/RGB/R/G/B/A) were collapsed
 // into a single Color output in v4. A node kind is considered collapsed when it
@@ -510,6 +510,15 @@ const migrations = {
       oscBindings: retarget(data.oscBindings),
     };
   },
+
+  // v10 lets the desktop editor save media by path instead of inline (see
+  // mediaRefs.js): a texture entry may carry `ref` with no dataUrl, node params
+  // may be emptied in favour of a top-level `mediaParams`, and VJ audio tracks
+  // may carry `ref` instead of `data`. A v9 file has none of that, so there is
+  // nothing to convert. The bump is for the other direction: an older editor
+  // refuses a v10 file outright instead of opening it with its media missing
+  // and no word as to why.
+  9: (data) => data,
 };
 
 export function migrateProjectData(data) {

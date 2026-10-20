@@ -19,6 +19,7 @@ import { folderPickerKind, readDirectoryHandle, readFileList } from '../performe
 import { readNarrationFolder, planNarration, applySceneTexts } from './NarrationImport.js';
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
 import { AudioLibrary, formatBytes } from './AudioLibrary.js';
+import { chooseMediaFiles } from '../core/mediaPaths.js';
 import { getAudioDeck } from '../audio/audioDeck.js';
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 
@@ -751,7 +752,9 @@ export class VJControlPanel {
     input.accept = 'audio/*';
     input.multiple = true;
     input.onchange = (e) => this.addAudioFiles(e.target.files);
-    input.click();
+    // The native dialog on the desktop, so the project file can name the
+    // tracks by path rather than carry them.
+    chooseMediaFiles('audio', { multiple: true }, () => input.click(), (files) => this.addAudioFiles(files));
   }
 
   async addAudioFiles(files) {
@@ -1990,8 +1993,8 @@ export class VJControlPanel {
    * megabytes, which the stored previous set and the scene store should not
    * carry.
    */
-  exportAudioTracks() {
-    return this.audioLibrary.exportTracks();
+  exportAudioTracks(options) {
+    return this.audioLibrary.exportTracks(options);
   }
 
   /**

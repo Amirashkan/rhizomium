@@ -180,7 +180,7 @@ describe('autosave recovery', () => {
     const ok = await P.loadFromLocal.call(stub);
 
     expect(ok).toBe(true);
-    expect(stub.importProject).toHaveBeenCalledWith(data);
+    expect(stub.importProject).toHaveBeenCalledWith(data, { promptMissingMedia: true });
   });
 
   it('still reads a legacy inline autosave written by an older build', async () => {
@@ -191,7 +191,7 @@ describe('autosave recovery', () => {
     const ok = await P.loadFromLocal.call(stub);
 
     expect(ok).toBe(true);
-    expect(stub.importProject).toHaveBeenCalledWith(data);
+    expect(stub.importProject).toHaveBeenCalledWith(data, { promptMissingMedia: true });
     expect(stub.autosaveStore.get).not.toHaveBeenCalled();
   });
 
@@ -208,7 +208,7 @@ describe('autosave recovery', () => {
     const ok = await P.loadFromLocal.call(stub);
 
     expect(ok).toBe(true);
-    expect(stub.importProject).toHaveBeenCalledWith(data);
+    expect(stub.importProject).toHaveBeenCalledWith(data, { promptMissingMedia: true });
   });
 
   it('hasAutosave and getAutosaveAge read the pointer, not the payload', () => {

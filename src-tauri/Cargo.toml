@@ -16,3 +16,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# Native file and folder pickers for media. Called from Rust only (see
+# pick_media_files in src/lib.rs): the webview's own pickers never reveal a
+# path, and a project now saves its media by path.
+tauri-plugin-dialog = "2"

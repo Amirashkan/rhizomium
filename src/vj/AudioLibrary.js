@@ -11,6 +11,10 @@
  * IndexedDB is missing the library still works, for the session only, and says
  * so through `persistent`.
  *
+ * On the desktop a track picked or dropped from disk also keeps its `path`, so
+ * a project file can name the track by path instead of carrying its bytes
+ * (core/mediaRefs.js).
+ *
  * It does not play anything. Handing a track to the audio system is the
  * panel's job, through the same audio deck the performer uses
  * (src/audio/audioDeck.js), so what the meters read is always one element.
@@ -18,6 +22,7 @@
 
 import { runTransaction, VJ_AUDIO_STORE } from '../core/rhizomiumDB.js';
 import { dataUrlToBlob } from '../core/dataUrl.js';
+import { basename, mimeForName, pathFor, rememberPath } from '../core/mediaPaths.js';
 
 const ORDER_RECORD_ID = '__order';
 
@@ -193,6 +198,8 @@ export class AudioLibrary {
         addedAt: now + i,
         blob: file,
       };
+      const path = pathFor(file);
+      if (path) record.path = path;
       this.tracks.set(record.id, record);
       this.order.push(record.id);
       added.push(record);
@@ -245,13 +252,26 @@ export class AudioLibrary {
    * The tracks in running order, bytes inlined, as a project file carries
    * them. A track that cannot be read is left out rather than failing the save.
    *
-   * @returns {Promise<{name: string, type: string, data: string}[]>}
+   * With `byPath`, a track that came from a file on disk is named by its path
+   * instead (`{ name, type, ref }`) and its bytes are not read at all.
+   *
+   * @param {{byPath?: boolean}} [options]
+   * @returns {Promise<{name: string, type: string, data?: string, ref?: object}[]>}
    */
-  async exportTracks() {
+  async exportTracks({ byPath = false } = {}) {
     const out = [];
     for (const id of [...this.order]) {
       const record = this.tracks.get(id);
       if (!record?.blob) continue;
+      if (byPath && record.path) {
+        const name = basename(record.path);
+        out.push({
+          name: record.name,
+          type: record.type || record.blob.type || '',
+          ref: { path: record.path, name, mime: mimeForName(name) },
+        });
+        continue;
+      }
       try {
         out.push({ name: record.name, type: record.type || record.blob.type || '', data: await blobToDataUrl(record.blob, record.type) });
       } catch {
@@ -263,11 +283,24 @@ export class AudioLibrary {
 
   /**
    * Replace the library with tracks from a project file. Entries that do not
-   * decode are skipped.
+   * decode are skipped. An entry may carry its bytes as a `file` rather than
+   * `data` - a track the desktop editor read back from its path.
    */
   async importTracks(entries) {
     const files = [];
     for (const entry of Array.isArray(entries) ? entries : []) {
+      if (typeof Blob === 'function' && entry?.file instanceof Blob) {
+        const name = String(entry.name || `Track ${files.length + 1}`);
+        const type = entry.type || entry.file.type || '';
+        const file = typeof File === 'function'
+          ? new File([entry.file], name, { type })
+          : Object.assign(entry.file, { name });
+        // Named after the track rather than the file on disk, so it is a new
+        // File: carry the path over to it.
+        rememberPath(file, pathFor(entry.file) || entry.ref?.path);
+        files.push(file);
+        continue;
+      }
       if (typeof entry?.data !== 'string') continue;
       try {
         const blob = dataUrlToBlob(entry.data);

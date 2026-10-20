@@ -10,6 +10,12 @@ import { restorePatchTextures, restoreImageTexture, restoreVideoTexture } from '
 import { encodeProjectFile, decodeProjectFile } from './projectFile.js';
 import { getAnnotationStore } from './AnnotationStore.js';
 import { isTauri } from '../utils/isTauri.js';
+import { externalizeMedia, internalizeMedia } from './mediaRefs.js';
+import {
+  canUseMediaPaths, fileToDataUrl, findMediaInFolder, linkSource, pickMediaFiles, pickMediaFolder,
+  readMediaAsFile, rememberPath,
+} from './mediaPaths.js';
+import { showMissingMediaDialog } from '../ui/MissingMediaDialog.js';
 
 // Re-exported: this module was the decoder's home before the web viewer
 // needed it without the rest of the save/load stack.
@@ -27,6 +33,31 @@ export { dataUrlToBlob };
 const TEXTURE_HOOKS = {
   onTextureChanged: (nodeId) => window.secondMonitorViewer?.onTextureChanged?.(nodeId),
 };
+
+/**
+ * The project as it is written to anything kept on disk - the project file,
+ * the autosave snapshot, a backup: every image, video, audio clip and font
+ * that came from a file the desktop app knows the path of is saved as that
+ * path instead of its bytes (mediaRefs.js). The open project is not changed.
+ *
+ * Nothing here is desktop-gated beyond the registry itself: a browser never
+ * learns a path, so its saves come out inline exactly as before, except that
+ * references it could not resolve on open are written back unchanged.
+ *
+ * A module function rather than a method for the same reason as TEXTURE_HOOKS.
+ */
+function mediaForStorage(manager, projectData) {
+  try {
+    return externalizeMedia(projectData, {
+      textures: manager.textureManager?.textures,
+      missing: manager.missingMedia,
+    });
+  } catch (error) {
+    // Inline is always a correct save, just a bigger one.
+    window.errorHandler?.handleError(error, { component: 'media-externalize' });
+    return projectData;
+  }
+}
 
 export class SaveLoadManager {
   constructor(editor, graph, updateCallback) {
@@ -73,6 +104,11 @@ export class SaveLoadManager {
     // currentProjectName drives the suggested file name and the window title.
     this.currentFileHandle = null;
     this.currentProjectName = null;
+
+    // Media the open project names by path but could not read when it was
+    // opened - moved, renamed, or from another machine. Kept so a save before
+    // the artist relinks it writes the reference back instead of losing it.
+    this.missingMedia = [];
 
     // Full texture dataUrls don't fit in the ~5MB localStorage quota once a
     // project grows, so backups live in IndexedDB and the autosave snapshot
@@ -235,6 +271,12 @@ export class SaveLoadManager {
  * URLs only, one bad texture never costing the rest of the patch.
  */
 async restoreTextures(textureData) {
+  // A video read back from its path arrives as a File; remember where from, so
+  // the next save names the path again instead of inlining it (or, past the
+  // inline cap, dropping it).
+  for (const entry of Object.values(textureData || {})) {
+    if (entry?.file && entry.ref?.path) rememberPath(entry.file, entry.ref.path);
+  }
   await restorePatchTextures(this.textureManager, textureData, TEXTURE_HOOKS);
 }
 
@@ -486,20 +528,129 @@ exportViewerControls() {
 
 /**
  * The project as a saved file carries it: the VJ set, and with it the audio
- * tab's tracks inlined, so the file opens with the playlists built for it.
+ * tab's tracks, so the file opens with the playlists built for it. On the
+ * desktop, media is named by path rather than inlined (see mediaForStorage).
  */
 async exportProjectFile() {
   const projectData = this.exportProject({ includeVJSet: true });
   if (projectData?.vjSet) {
     try {
-      const audio = await window.vjControlPanel?.exportAudioTracks?.();
+      const audio = await window.vjControlPanel?.exportAudioTracks?.({ byPath: canUseMediaPaths() });
       if (Array.isArray(audio) && audio.length) projectData.vjSet.audio = audio;
     } catch (error) {
       // The patch and the rest of the set still save without the tracks.
       window.errorHandler?.handleError(error, { component: 'vj-audio-export' });
     }
   }
-  return projectData;
+  return mediaForStorage(this, projectData);
+}
+
+/** Ask the artist about the open project's missing media. */
+async promptMissingMedia() {
+  if (!this.missingMedia?.length) return;
+  try {
+    await showMissingMediaDialog({
+      missing: this.missingMedia,
+      onLocate: (item) => this.locateMissingMedia(item),
+      onSearchFolder: canUseMediaPaths() ? () => this.searchFolderForMissingMedia() : null,
+    });
+  } catch (error) {
+    window.errorHandler?.handleError(error, { component: 'missing-media-prompt' });
+  }
+}
+
+/** Which picker filter fits a missing entry. */
+_missingMediaKind(item) {
+  if (item.kind === 'audio') return 'audio';
+  if (item.kind === 'param') return item.param === 'fontData' ? 'font' : 'audio';
+  return 'texture';
+}
+
+/**
+ * Let the artist pick the file for one missing entry: the native dialog on
+ * the desktop (so the path is known and saved), a file input in a browser
+ * (where the bytes are all there is, and the media goes back inline).
+ *
+ * @returns {Promise<boolean>} whether it was relinked
+ */
+async locateMissingMedia(item) {
+  const kind = this._missingMediaKind(item);
+  let file = null;
+  if (canUseMediaPaths()) {
+    [file] = await pickMediaFiles(kind);
+  } else {
+    file = await new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = { audio: 'audio/*', font: '.ttf,.otf,.woff,.woff2,.ttc,font/*', texture: 'image/*,video/*' }[kind];
+      input.onchange = () => resolve(input.files?.[0] || null);
+      input.click();
+    });
+  }
+  if (!file) return false;
+  await this.relinkMissingMedia(item, file);
+  return true;
+}
+
+/**
+ * Pick a folder and relink every missing file found in it by name.
+ *
+ * @returns {Promise<number|null>} how many were relinked; null when cancelled
+ */
+async searchFolderForMissingMedia() {
+  const folder = await pickMediaFolder();
+  if (!folder) return null;
+  const names = this.missingMedia.map((item) => item.ref?.name).filter(Boolean);
+  const found = await findMediaInFolder(folder, names);
+
+  let relinked = 0;
+  for (const item of [...this.missingMedia]) {
+    const path = found[item.ref?.name];
+    if (!path) continue;
+    try {
+      await this.relinkMissingMedia(item, await readMediaAsFile(path));
+      relinked += 1;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { component: 'missing-media-relink', path });
+    }
+  }
+  return relinked;
+}
+
+/**
+ * Put `file` where a missing entry's media belonged, the way a fresh pick of
+ * that file would, and drop the entry. The project is then unsaved: the next
+ * save names the new path.
+ */
+async relinkMissingMedia(item, file) {
+  const node = item.nodeId != null
+    ? this.graph.nodes.find((candidate) => String(candidate.id) === String(item.nodeId))
+    : null;
+
+  if (item.kind === 'texture') {
+    if (!node || !this.textureManager) throw new Error('That node is no longer in the project');
+    const textureInfo = await this.textureManager.uploadTexture(node.id, file, node);
+    if (!node.params) node.params = {};
+    node.params.sourceType = textureInfo?.isVideo ? 'video' : 'image';
+    TEXTURE_HOOKS.onTextureChanged(node.id);
+    this.editor?.previewIntegration?.generateNodePreview?.(node);
+    if (typeof window.updateShaderFromGraph === 'function') await window.updateShaderFromGraph();
+  } else if (item.kind === 'param') {
+    if (!node) throw new Error('That node is no longer in the project');
+    const dataUrl = await fileToDataUrl(file);
+    linkSource(file, dataUrl);
+    if (!node.params) node.params = {};
+    node.params[item.param] = dataUrl;
+  } else if (item.kind === 'audio') {
+    await window.vjControlPanel?.addAudioFiles?.([file]);
+  }
+
+  const index = this.missingMedia.indexOf(item);
+  if (index >= 0) this.missingMedia.splice(index, 1);
+
+  this.markUnsaved();
+  if (this.editor?.markDirty) this.editor.markDirty('media-relinked');
+  this.editor?.draw?.();
 }
 
 /**
@@ -540,6 +691,15 @@ async importProject(projectData, options = {}) {
     // for files saved by a newer editor version)
     projectData = migrateProjectData(projectData);
 
+    // Read media saved by path back from disk, so everything below sees the
+    // inline project it always has. What cannot be read is remembered for the
+    // relink prompt and for the next save.
+    const media = await internalizeMedia(projectData, {
+      read: readMediaAsFile,
+      includeVJSet: restoreVJSet,
+    });
+    projectData = media.data;
+
     // Validate project data
     if (validateData) {
       this.validateProjectData(projectData);
@@ -549,6 +709,7 @@ async importProject(projectData, options = {}) {
     if (clearExisting) {
       this.clearGraph();
     }
+    this.missingMedia = [...(this.missingMedia || []), ...media.missing];
 
     // Import core data
     this.importNodes(projectData.nodes || []);
@@ -786,6 +947,12 @@ async importProject(projectData, options = {}) {
     }
 
     this.lastImportSource = options.source || null;
+
+    // Opening a document asks about its missing media; a VJ scene switch
+    // mid-set never puts a dialog in front of the artist.
+    if (options.promptMissingMedia && this.missingMedia?.length) {
+      setTimeout(() => this.promptMissingMedia(), 0);
+    }
     return true;
 
   } catch (error) {
@@ -1585,7 +1752,7 @@ async reinitializeWebGPU() {
           throw new Error(`Unsupported file type: ${extension}`);
       }
 
-      await this.importProject(projectData, { restoreVJSet: true });
+      await this.importProject(projectData, { restoreVJSet: true, promptMissingMedia: true });
 
       // Bind the project to the file we just opened so the title and the next
       // "Save" reflect it. pickProjectFile() may already have set a writable
@@ -1653,7 +1820,7 @@ async reinitializeWebGPU() {
 
     const timestamp = Date.now();
     const record = {
-      data: projectData,
+      data: mediaForStorage(this, projectData),
       timestamp,
       version: SAVE_FORMAT_VERSION,
     };
@@ -1756,7 +1923,7 @@ async reinitializeWebGPU() {
         return false;
       }
 
-      await this.importProject(data);
+      await this.importProject(data, { promptMissingMedia: true });
       const ageText =
         typeof timestamp === "number" ? this.formatAge(Date.now() - timestamp) : null;
       this.updateStatus(
@@ -1790,7 +1957,7 @@ async reinitializeWebGPU() {
       // on values JSON would silently drop (canvases, functions, ...)
       const backup = {
         id: this.generateId(),
-        data: JSON.parse(JSON.stringify(projectData)),
+        data: JSON.parse(JSON.stringify(mediaForStorage(this, projectData))),
         timestamp: Date.now(),
         reason: reason,
         version: SAVE_FORMAT_VERSION,
@@ -1856,7 +2023,7 @@ async reinitializeWebGPU() {
         throw new Error("Backup not found");
       }
 
-      await this.importProject(backup.data);
+      await this.importProject(backup.data, { promptMissingMedia: true });
       this.updateStatus(
         `Restored backup from ${new Date(backup.timestamp).toLocaleString()}`,
       );
@@ -2557,6 +2724,9 @@ importConnections(connectionData) {
 
   clearGraph() {
     try {
+      // The graph that named them is going; a new node reusing one of its ids
+      // must not inherit its missing file.
+      this.missingMedia = [];
       this.graph.nodes = [];
       this.graph.connections = [];
       this.graph.selection = new Set();

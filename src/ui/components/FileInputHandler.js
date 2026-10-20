@@ -2,6 +2,7 @@
 
 import { ACCENT, SEMANTIC, SURFACE, TEXT } from '../../core/theme.js';
 import { isVideoSource } from '../../core/TextureManager.js';
+import { chooseMediaFiles, linkSource } from '../../core/mediaPaths.js';
 
 const AUDIO_EXTENSION = /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|weba)$/i;
 const AUDIO_MIME_BY_EXTENSION = {
@@ -120,9 +121,14 @@ export class FileInputHandler {
 
   _setupEventHandlers(fileInput, dropZone, node, param, valueManager, onChange) {
     // Click to open file dialog
+    // On the desktop the native dialog, so the project can save the file's
+    // path rather than its bytes (core/mediaRefs.js).
     dropZone.addEventListener("click", (e) => {
       e.stopPropagation();
-      fileInput.click();
+      const kind = this._acceptsAudio(param) ? "audio" : this._acceptsVideo(param) ? "texture" : "image";
+      chooseMediaFiles(kind, {}, () => fileInput.click(), ([file]) => {
+        this._handleFileLoad(node, file, dropZone, param, valueManager, onChange);
+      });
     });
 
     // Drag and drop events
@@ -272,6 +278,7 @@ export class FileInputHandler {
     try {
       this._showLoadingState(dropZone);
       const dataUrl = await readAudioAsDataUrl(file);
+      linkSource(file, dataUrl);
 
       if (!node.params) node.params = {};
       const oldFileName = node.params[param.name] || null;

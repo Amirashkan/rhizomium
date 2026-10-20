@@ -154,6 +154,16 @@ export async function restorePatchTextures(textureManager, textureData, options 
   const restorePromises = [];
 
   for (const [nodeId, texInfo] of Object.entries(textureData)) {
+    // A video the desktop editor read back from its path (see mediaRefs.js)
+    // arrives as the File itself. A local object, never a patch's string, so
+    // the data:-only rule above has nothing to say about it.
+    if (texInfo?.isVideo && typeof Blob === 'function' && texInfo.file instanceof Blob) {
+      restorePromises.push(
+        textureManager.uploadVideo(nodeId, texInfo.file).then(() => options.onTextureChanged?.(nodeId)),
+      );
+      continue;
+    }
+
     // A video too large to inline has no dataUrl; the node keeps its name.
     if (!texInfo?.dataUrl) continue;
 

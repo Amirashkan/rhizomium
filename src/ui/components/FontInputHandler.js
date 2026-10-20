@@ -43,6 +43,7 @@ function displayNameFor(fileName) {
 }
 
 import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO } from '../../core/theme.js';
+import { chooseMediaFiles, linkSource } from '../../core/mediaPaths.js';
 
 export class FontInputHandler {
   constructor(undoManager = null) {
@@ -73,7 +74,12 @@ export class FontInputHandler {
     });
 
     const loadBtn = this._button('Load font file…');
-    loadBtn.addEventListener('click', (e) => { e.stopPropagation(); fileInput.click(); });
+    loadBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      chooseMediaFiles('font', {}, () => fileInput.click(), ([file]) => {
+        this._applyFile(file, { node, param, valueManager, onUpdate, status });
+      });
+    });
     buttons.appendChild(loadBtn);
 
     // Only offered where the browser can actually enumerate installed fonts; elsewhere the file
@@ -172,6 +178,8 @@ export class FontInputHandler {
     ctx.status.style.color = SEMANTIC.warn;
     try {
       const dataUrl = await readAsDataUrl(file);
+      // On the desktop the project file then names the font by path.
+      linkSource(file, dataUrl);
       this._commit(displayNameFor(file.name), dataUrl, ctx);
     } catch {
       this._fail(ctx.status, 'Could not read that file');

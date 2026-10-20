@@ -98,6 +98,7 @@ import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
 import { TextNodeProcessor } from "./src/core/TextNodeProcessor.js";
 import { AudioSamplerProcessor } from "./src/core/AudioSamplerProcessor.js";
 import { setupTauriFileAssociation } from "./src/core/tauriFileOpen.js";
+import { setupTauriMediaDrop } from "./src/core/tauriMediaDrop.js";
 import { startCompositionFormatSync } from "./src/core/CompositionFormatSync.js";
 import {
   applyMenuShortcutHints,
@@ -883,6 +884,11 @@ async function initialize() {
     // rest of the boot, and it no-ops in the browser.
     setupTauriFileAssociation(loadProjectFromFile).catch((err) => {
       console.warn('Tauri file association setup failed:', err);
+    });
+    // Files dropped on the desktop window, replayed as DOM drops with their
+    // paths known. Also a no-op in the browser.
+    setupTauriMediaDrop().catch((err) => {
+      console.warn('Tauri media drop setup failed:', err);
     });
 
     // PERFORMANCE: Lightweight uniform update without shader rebuild
@@ -3454,6 +3460,8 @@ function createNewProject() {
   graph.nodes = [];
   graph.connections = [];
   graph.selection = new Set();
+  // The last project's unfound media must not follow its node ids into this one.
+  if (saveLoadManager) saveLoadManager.missingMedia = [];
 
   if (undoManager) {
     undoManager.clear();

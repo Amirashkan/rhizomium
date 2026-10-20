@@ -862,7 +862,7 @@ export class FileManager {
       
       // Load the file into the editor
       if (this.saveLoadManager && projectData) {
-        await this.saveLoadManager.importProject(projectData, { restoreVJSet: true });
+        await this.saveLoadManager.importProject(projectData, { restoreVJSet: true, promptMissingMedia: true });
         this.hide();
         if (typeof window.updateStatus === 'function') {
           window.updateStatus(`Loaded ${filePath}`);

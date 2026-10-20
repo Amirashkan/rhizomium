@@ -197,6 +197,272 @@ fn clear_autosave(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
+/// The media files the artist has handed the app: picked in a native dialog,
+/// dropped on the editor, or found by a relink search in a folder they picked.
+///
+/// A project saves its images, videos, audio and fonts by path rather than
+/// inlining their bytes, so reopening it means reading those paths again.
+/// `read_media_file` is how, and like `read_project_file` it must not become a
+/// way for the webview to read whatever it likes. The check is the same kind:
+/// membership. A path is readable because the artist chose that file, never
+/// because it ends in `.png` — and a project naming paths nobody granted (one
+/// from another machine, or a crafted one) gets a relink prompt instead.
+///
+/// Grants are written to the app data directory so a project saved yesterday
+/// still opens today; the folders picked for a relink search are trusted for
+/// this session only.
+struct MediaGrants {
+    inner: Mutex<MediaGrantsInner>,
+}
+
+#[derive(Default)]
+struct MediaGrantsInner {
+    loaded: bool,
+    files: Vec<String>,
+    folders: HashSet<String>,
+}
+
+/// Where the grants live, one path per line.
+const MEDIA_GRANTS_FILE: &str = "media-grants.txt";
+
+/// Oldest grants are forgotten past this, so the file cannot grow forever.
+const MAX_MEDIA_GRANTS: usize = 20_000;
+
+/// Largest media file read back into the webview. Past this the bytes would
+/// not fit in one ArrayBuffer anyway.
+const MAX_MEDIA_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// How deep, and how far, a relink search walks a picked folder.
+const MEDIA_SEARCH_DEPTH: usize = 8;
+const MEDIA_SEARCH_ENTRIES: usize = 50_000;
+
+/// Event a file dropped on the editor arrives as - after it has been granted.
+const MEDIA_DROP_EVENT: &str = "rhizomium://media-drop";
+
+fn media_grants_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    app.path().app_data_dir().ok().map(|dir| dir.join(MEDIA_GRANTS_FILE))
+}
+
+impl MediaGrants {
+    fn new() -> Self {
+        Self { inner: Mutex::new(MediaGrantsInner::default()) }
+    }
+
+    /// The grants, read from disk the first time anything asks.
+    fn with<T>(&self, app: &tauri::AppHandle, f: impl FnOnce(&mut MediaGrantsInner) -> T) -> Option<T> {
+        let mut inner = self.inner.lock().ok()?;
+        if !inner.loaded {
+            inner.loaded = true;
+            if let Some(contents) = media_grants_path(app).and_then(|p| std::fs::read_to_string(p).ok()) {
+                inner.files = contents.lines().filter(|l| !l.is_empty()).map(str::to_string).collect();
+            }
+        }
+        Some(f(&mut inner))
+    }
+
+    fn grant_files(&self, app: &tauri::AppHandle, paths: &[String]) {
+        let changed = self
+            .with(app, |inner| {
+                let mut changed = false;
+                for path in paths {
+                    // A newline in a path would split it into two grants on reload.
+                    if path.is_empty() || path.contains('\n') {
+                        continue;
+                    }
+                    if let Some(at) = inner.files.iter().position(|p| p == path) {
+                        // Most recent last, so the cap drops the stalest.
+                        let existing = inner.files.remove(at);
+                        inner.files.push(existing);
+                    } else {
+                        inner.files.push(path.clone());
+                    }
+                    changed = true;
+                }
+                if inner.files.len() > MAX_MEDIA_GRANTS {
+                    let excess = inner.files.len() - MAX_MEDIA_GRANTS;
+                    inner.files.drain(..excess);
+                }
+                changed.then(|| inner.files.join("\n"))
+            })
+            .flatten();
+
+        if let (Some(contents), Some(path)) = (changed, media_grants_path(app)) {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(path, contents);
+        }
+    }
+
+    fn grant_folder(&self, app: &tauri::AppHandle, path: &str) {
+        self.with(app, |inner| inner.folders.insert(path.to_string()));
+    }
+
+    fn is_file_granted(&self, app: &tauri::AppHandle, path: &str) -> bool {
+        self.with(app, |inner| inner.files.iter().any(|p| p == path)).unwrap_or(false)
+    }
+
+    fn is_folder_granted(&self, app: &tauri::AppHandle, path: &str) -> bool {
+        self.with(app, |inner| inner.folders.contains(path)).unwrap_or(false)
+    }
+}
+
+/// Extensions offered by the media pickers, per kind of input.
+fn media_filter(kind: &str) -> (&'static str, &'static [&'static str]) {
+    const IMAGE: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "svg"];
+    const IMAGE_AND_VIDEO: &[&str] = &[
+        "png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "svg", "mp4", "m4v", "webm", "ogv", "mov",
+    ];
+    const AUDIO: &[&str] = &["mp3", "wav", "ogg", "oga", "opus", "flac", "m4a", "aac", "weba", "webm", "aif", "aiff"];
+    const FONT: &[&str] = &["ttf", "otf", "woff", "woff2", "ttc"];
+    match kind {
+        "audio" => ("Audio", AUDIO),
+        "font" => ("Fonts", FONT),
+        "texture" => ("Images and videos", IMAGE_AND_VIDEO),
+        _ => ("Images", IMAGE),
+    }
+}
+
+fn path_string(path: tauri_plugin_dialog::FilePath) -> Option<String> {
+    path.into_path().ok().map(|p| p.to_string_lossy().to_string())
+}
+
+/// Pick media files in a native dialog and grant them.
+///
+/// Async so the blocking dialog runs off the main thread, which it would
+/// otherwise deadlock.
+#[tauri::command]
+async fn pick_media_files(
+    app: tauri::AppHandle,
+    grants: tauri::State<'_, MediaGrants>,
+    kind: String,
+    multiple: bool,
+) -> Result<Vec<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (name, extensions) = media_filter(&kind);
+    let dialog = app.dialog().file().add_filter(name, extensions);
+    let picked: Vec<String> = if multiple {
+        dialog.blocking_pick_files().unwrap_or_default().into_iter().filter_map(path_string).collect()
+    } else {
+        dialog.blocking_pick_file().and_then(path_string).into_iter().collect()
+    };
+    grants.grant_files(&app, &picked);
+    Ok(picked)
+}
+
+/// Pick a folder for a relink search. Trusted for this session only, and only
+/// for `find_media_in_folder`: it does not make the files in it readable.
+#[tauri::command]
+async fn pick_media_folder(
+    app: tauri::AppHandle,
+    grants: tauri::State<'_, MediaGrants>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let folder = app.dialog().file().blocking_pick_folder().and_then(path_string);
+    if let Some(folder) = &folder {
+        grants.grant_folder(&app, folder);
+    }
+    Ok(folder)
+}
+
+/// Look for files by name under a folder the artist picked, and grant the
+/// ones found. Answers `{ name: path }` for every name that matched, first
+/// match wins; names are compared without regard to case.
+#[tauri::command]
+async fn find_media_in_folder(
+    app: tauri::AppHandle,
+    grants: tauri::State<'_, MediaGrants>,
+    folder: String,
+    names: Vec<String>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    if !grants.is_folder_granted(&app, &folder) {
+        return Err("not-granted".into());
+    }
+
+    let mut wanted: std::collections::HashMap<String, String> =
+        names.into_iter().map(|name| (name.to_lowercase(), name)).collect();
+    let mut found = std::collections::HashMap::new();
+    let mut stack = vec![(std::path::PathBuf::from(&folder), 0usize)];
+    let mut seen = 0usize;
+
+    while let Some((dir, depth)) = stack.pop() {
+        if wanted.is_empty() || seen >= MEDIA_SEARCH_ENTRIES {
+            break;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            seen += 1;
+            let Ok(file_type) = entry.file_type() else { continue };
+            if file_type.is_dir() {
+                if depth < MEDIA_SEARCH_DEPTH {
+                    stack.push((entry.path(), depth + 1));
+                }
+            } else if file_type.is_file() {
+                let key = entry.file_name().to_string_lossy().to_lowercase();
+                if let Some(name) = wanted.remove(&key) {
+                    found.insert(name, entry.path().to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    let paths: Vec<String> = found.values().cloned().collect();
+    grants.grant_files(&app, &paths);
+    Ok(found)
+}
+
+/// Read a granted media file's bytes, raw rather than as a JSON number array.
+///
+/// Errors are plain codes the frontend tells apart: `not-granted` and
+/// `not-found` both send the file to the relink prompt.
+#[tauri::command]
+async fn read_media_file(
+    app: tauri::AppHandle,
+    grants: tauri::State<'_, MediaGrants>,
+    path: String,
+) -> Result<tauri::ipc::Response, String> {
+    if !grants.is_file_granted(&app, &path) {
+        return Err("not-granted".into());
+    }
+    let metadata = match std::fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Err("not-found".into()),
+        Err(err) => return Err(err.to_string()),
+    };
+    if !metadata.is_file() {
+        return Err("not-found".into());
+    }
+    if metadata.len() > MAX_MEDIA_BYTES {
+        return Err("too-large".into());
+    }
+    std::fs::read(&path)
+        .map(tauri::ipc::Response::new)
+        .map_err(|err| err.to_string())
+}
+
+/// A file dropped on the editor: grant it, then tell the frontend where it
+/// landed so the drop zone under the cursor can take it. Granting happens here,
+/// before the event, so the frontend's read cannot race ahead of it.
+fn handle_drag_drop(window: &tauri::Window, event: &tauri::WindowEvent) {
+    use tauri::{Emitter, Manager};
+
+    let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event else {
+        return;
+    };
+    if window.label() != MAIN_WINDOW {
+        return;
+    }
+    let paths: Vec<String> = paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
+    let app = window.app_handle();
+    if let Some(grants) = app.try_state::<MediaGrants>() {
+        grants.grant_files(app, &paths);
+    }
+    let _ = app.emit_to(MAIN_WINDOW, MEDIA_DROP_EVENT, (paths, position.x, position.y));
+}
+
 /// Whether the splash has already handed over to the editor.
 ///
 /// The handoff must happen exactly once. It has two possible callers — the
@@ -268,13 +534,20 @@ fn handle_opened(handle: &tauri::AppHandle, event: &tauri::RunEvent) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(PendingOpen::new(project_path_from_args()))
+        .manage(MediaGrants::new())
+        .on_window_event(handle_drag_drop)
         .invoke_handler(tauri::generate_handler![
             take_pending_open,
             read_project_file,
             write_autosave,
             read_autosave,
             clear_autosave,
+            pick_media_files,
+            pick_media_folder,
+            find_media_in_folder,
+            read_media_file,
             app_ready
         ])
         .setup(|app| {
