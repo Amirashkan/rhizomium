@@ -70,12 +70,14 @@ function withSceneList(vjSet, list) {
  *        entries, for the File behind a video too large to have a data: URL
  * @param {Array<object>} [context.missing] media the open project names but
  *        could not find (see internalizeMedia). Written back as it was, so
- *        saving before relinking never costs the reference.
+ *        saving before relinking never costs the reference. A VJ scene's
+ *        entries are skipped: the scene still holds its own references.
  * @returns {object}
  */
 export function externalizeMedia(projectData, context = {}) {
   if (!projectData || typeof projectData !== 'object') return projectData;
-  const missing = Array.isArray(context.missing) ? context.missing : [];
+  const missing = (Array.isArray(context.missing) ? context.missing : [])
+    .filter((item) => item?.sceneId == null);
   const out = externalizeGraph(projectData, { textures: context.textures, missing });
 
   if (out.vjSet && typeof out.vjSet === 'object') {
@@ -183,7 +185,9 @@ function externalizeGraph(data, { textures = null, missing = [] }) {
  * @param {(path: string) => Promise<File>} options.read reads a path
  * @param {boolean} [options.includeVJSet] resolve the VJ set's scenes and tracks too
  * @returns {Promise<{data: object, missing: object[]}>} `missing` lists the
- *          references in the open graph and the audio tab that did not resolve
+ *          references in the open graph, the VJ scenes and the audio tab that
+ *          did not resolve. A scene's entries carry its `sceneId` and
+ *          `sceneName`; the scene itself keeps the reference.
  */
 export async function internalizeMedia(projectData, { read, includeVJSet = false } = {}) {
   if (!projectData || typeof projectData !== 'object' || !hasRefs(projectData, includeVJSet)) {
@@ -197,12 +201,17 @@ export async function internalizeMedia(projectData, { read, includeVJSet = false
     let vjSet = data.vjSet;
     const scenes = sceneList(vjSet);
     if (scenes) {
-      // A scene's missing media is not the open graph's: the scene keeps its
-      // references and gets another chance when it is switched to.
-      const resolved = await Promise.all(scenes.map(async (scene) =>
-        scene?.data && typeof scene.data === 'object' && hasRefs(scene.data, false)
-          ? { ...scene, data: await internalizeGraph(scene.data, read, []) }
-          : scene));
+      // A scene's missing media is reported with the scene it is in, so the
+      // relink prompt can offer it: a set built elsewhere (or generated) can
+      // name files in every scene and none in the one on screen. The scene
+      // keeps its references, and tries them again when it is switched to.
+      const resolved = await Promise.all(scenes.map(async (scene) => {
+        if (!(scene?.data && typeof scene.data === 'object' && hasRefs(scene.data, false))) return scene;
+        const lost = [];
+        const data = await internalizeGraph(scene.data, read, lost);
+        for (const item of lost) missing.push({ ...item, sceneId: scene.id, sceneName: scene.name || '' });
+        return { ...scene, data };
+      }));
       vjSet = withSceneList(vjSet, resolved);
     }
     if (Array.isArray(vjSet.audio)) {
@@ -290,6 +299,45 @@ async function internalizeGraph(source, read, missing) {
   if (unresolved.length) data.mediaParams = unresolved;
   else delete data.mediaParams;
   return data;
+}
+
+/**
+ * Put `file` into a VJ scene's data where a missing entry's reference was, the
+ * way opening the project would have had the file been there: a texture as a
+ * data: URL (a video as the File), a param on its node. Changes `data` in
+ * place - it is the scene the set holds - and names the file's own path from
+ * then on, so the next save refers to where it was found.
+ *
+ * @param {object} data the scene's project data
+ * @param {object} item a missing entry from internalizeMedia, with `sceneId`
+ * @param {File} file
+ */
+export async function placeInScene(data, item, file) {
+  const path = pathFor(file);
+  if (item.kind === 'texture') {
+    const entry = data.textures?.[item.nodeId] || item.entry || {};
+    const ref = path ? refFor(path, entry.filename) : entry.ref;
+    if (!data.textures) data.textures = {};
+    if (entry.isVideo || /^video\//.test(file.type)) {
+      data.textures[item.nodeId] = { ...entry, isVideo: true, dataUrl: null, file, ref };
+    } else {
+      const dataUrl = await fileToDataUrl(file);
+      if (path) rememberPath(dataUrl, path);
+      data.textures[item.nodeId] = { ...entry, isVideo: false, dataUrl, ref };
+    }
+  } else if (item.kind === 'param') {
+    const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+    const index = nodes.findIndex((node) => String(node?.id) === String(item.nodeId));
+    if (index < 0) throw new Error('That node is no longer in the scene');
+    const dataUrl = await fileToDataUrl(file);
+    if (path) rememberPath(dataUrl, path);
+    nodes[index] = { ...nodes[index], params: { ...(nodes[index].params || {}), [item.param]: dataUrl } };
+    if (Array.isArray(data.mediaParams)) {
+      data.mediaParams = data.mediaParams.filter((entry) =>
+        !(String(entry?.nodeId) === String(item.nodeId) && entry?.param === item.param));
+      if (!data.mediaParams.length) delete data.mediaParams;
+    }
+  }
 }
 
 /** Every distinct file a list of missing media names, for the relink prompt. */

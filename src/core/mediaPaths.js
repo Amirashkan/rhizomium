@@ -234,12 +234,47 @@ export async function pickMediaFolder() {
 }
 
 /**
- * Find files by name under a folder from pickMediaFolder().
+ * Find files by name under a folder from pickMediaFolder(). Every file of a
+ * name comes back, not just the first: a folder of projects can hold one
+ * `image.png` per project, and closestPath() tells them apart.
  *
- * @returns {Promise<Record<string, string>>} name -> path, for the names found
+ * @returns {Promise<Record<string, string[]>>} name -> paths, for the names found
  */
 export async function findMediaInFolder(folder, names) {
-  return (await invoke('find_media_in_folder', { folder, names: [...new Set(names)] })) || {};
+  const found = (await invoke('find_media_in_folder', { folder, names: [...new Set(names)] })) || {};
+  // An older desktop binary answers with one path per name.
+  return Object.fromEntries(Object.entries(found).map(([name, paths]) =>
+    [name, (Array.isArray(paths) ? paths : [paths]).filter((path) => typeof path === 'string')]));
+}
+
+function pathSegments(path) {
+  return String(path || '').toLowerCase().split(/[\\/]/).filter(Boolean);
+}
+
+/**
+ * Of `candidates`, the one most like `wanted`: the most trailing folders in
+ * common. A moved folder of projects keeps each file's project and media
+ * folders under it, so `/new/show/2026-x/media/image.png` is the match for
+ * `/old/show/2026-x/media/image.png` and its neighbour in `2026-y` is not.
+ * Ties go to the first in sorted order, so the answer does not depend on the
+ * order the disk listed them in.
+ *
+ * @returns {string|null}
+ */
+export function closestPath(wanted, candidates) {
+  const target = pathSegments(wanted).reverse();
+  let best = null;
+  let bestScore = -1;
+  for (const candidate of [...(candidates || [])].sort()) {
+    const segments = pathSegments(candidate).reverse();
+    let score = 0;
+    while (score < target.length && score < segments.length && target[score] === segments[score]) score += 1;
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 /**

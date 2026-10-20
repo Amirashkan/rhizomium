@@ -232,9 +232,11 @@ const MAX_MEDIA_GRANTS: usize = 20_000;
 /// not fit in one ArrayBuffer anyway.
 const MAX_MEDIA_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
-/// How deep, and how far, a relink search walks a picked folder.
+/// How deep, and how far, a relink search walks a picked folder, and how many
+/// files of one name it answers with.
 const MEDIA_SEARCH_DEPTH: usize = 8;
 const MEDIA_SEARCH_ENTRIES: usize = 50_000;
+const MEDIA_SEARCH_MATCHES: usize = 256;
 
 /// Event a file dropped on the editor arrives as - after it has been granted.
 const MEDIA_DROP_EVENT: &str = "rhizomium://media-drop";
@@ -370,22 +372,25 @@ async fn pick_media_folder(
 }
 
 /// Look for files by name under a folder the artist picked, and grant the
-/// ones found. Answers `{ name: path }` for every name that matched, first
-/// match wins; names are compared without regard to case.
+/// ones found. Answers `{ name: [path, ...] }` for every name that matched,
+/// every file of that name rather than the first: a folder of projects holds
+/// an `image.png` in each, and the frontend picks the one whose folders match
+/// the missing path's (closestPath in mediaPaths.js). Names are compared
+/// without regard to case.
 #[tauri::command]
 async fn find_media_in_folder(
     app: tauri::AppHandle,
     grants: tauri::State<'_, MediaGrants>,
     folder: String,
     names: Vec<String>,
-) -> Result<std::collections::HashMap<String, String>, String> {
+) -> Result<std::collections::HashMap<String, Vec<String>>, String> {
     if !grants.is_folder_granted(&app, &folder) {
         return Err("not-granted".into());
     }
 
-    let mut wanted: std::collections::HashMap<String, String> =
+    let wanted: std::collections::HashMap<String, String> =
         names.into_iter().map(|name| (name.to_lowercase(), name)).collect();
-    let mut found = std::collections::HashMap::new();
+    let mut found: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     let mut stack = vec![(std::path::PathBuf::from(&folder), 0usize)];
     let mut seen = 0usize;
 
@@ -403,14 +408,17 @@ async fn find_media_in_folder(
                 }
             } else if file_type.is_file() {
                 let key = entry.file_name().to_string_lossy().to_lowercase();
-                if let Some(name) = wanted.remove(&key) {
-                    found.insert(name, entry.path().to_string_lossy().to_string());
+                if let Some(name) = wanted.get(&key) {
+                    let paths = found.entry(name.clone()).or_default();
+                    if paths.len() < MEDIA_SEARCH_MATCHES {
+                        paths.push(entry.path().to_string_lossy().to_string());
+                    }
                 }
             }
         }
     }
 
-    let paths: Vec<String> = found.values().cloned().collect();
+    let paths: Vec<String> = found.values().flatten().cloned().collect();
     grants.grant_files(&app, &paths);
     Ok(found)
 }

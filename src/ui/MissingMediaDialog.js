@@ -5,9 +5,12 @@
 // path no longer answers. The project still opens - those nodes just come up
 // empty - and this dialog lists what is missing so the artist can point at it:
 //
-//   Locate…         pick one file for one entry
-//   Search folder…  pick a folder; every missing file found in it by name is
-//                   relinked at once (desktop only - a browser cannot search)
+//   Locate…         pick the file for one row
+//   Search folder…  pick a folder; every missing file found in it is relinked
+//                   at once (desktop only - a browser cannot search)
+//
+// A row is one file, however many places use it: the open graph, any number
+// of VJ scenes, the audio tab. Relinking it relinks all of them.
 //
 // Closing it is "skip": the references stay with the project and are saved
 // again, so nothing is lost by deciding later.
@@ -23,6 +26,34 @@ function describe(item) {
   if (item.kind === 'audio') return 'VJ audio track';
   if (item.kind === 'param') return item.param === 'fontData' ? 'Font' : 'Audio clip';
   return item.entry?.isVideo ? 'Video' : 'Image';
+}
+
+/** Where an entry is used, in the artist's words. */
+function place(item) {
+  if (item.sceneId != null) return item.sceneName ? `scene ${item.sceneName}` : 'a scene';
+  if (item.kind === 'audio') return 'the audio tab';
+  return 'the open patch';
+}
+
+/**
+ * `missing` as one row per file: entries naming the same path together, in
+ * the order the first of each was listed.
+ */
+export function groupMissing(missing) {
+  const rows = new Map();
+  for (const item of missing || []) {
+    const key = item?.ref?.path || item;
+    if (!rows.has(key)) rows.set(key, []);
+    rows.get(key).push(item);
+  }
+  return [...rows.values()];
+}
+
+/** The places a row's entries are used, with a long list cut short. */
+export function usedIn(items, max = 4) {
+  const places = [...new Set(items.map(place))];
+  if (places.length <= max) return places.join(', ');
+  return `${places.slice(0, max).join(', ')} and ${places.length - max} more`;
 }
 
 /**
@@ -71,7 +102,8 @@ export function showMissingMediaDialog({ missing, onLocate, onSearchFolder = nul
   };
 
   const render = () => {
-    const count = missing.length;
+    const rows = groupMissing(missing);
+    const count = rows.length;
     intro.textContent = count
       ? `${count} media file${count === 1 ? '' : 's'} this project uses could not be found. ` +
         'Those nodes are empty until you point at the files. Skipping keeps the references, ' +
@@ -79,7 +111,8 @@ export function showMissingMediaDialog({ missing, onLocate, onSearchFolder = nul
       : 'Every missing file has been relinked.';
 
     list.replaceChildren();
-    for (const item of missing) {
+    for (const items of rows) {
+      const [item] = items;
       const row = document.createElement('div');
       row.style.cssText = `
         display: flex; align-items: center; gap: 8px; padding: 6px 8px; box-sizing: border-box;
@@ -98,7 +131,11 @@ export function showMissingMediaDialog({ missing, onLocate, onSearchFolder = nul
       `;
       path.textContent = item.ref?.path || '';
       path.title = item.ref?.path || '';
-      text.append(name, path);
+      const where = document.createElement('div');
+      where.style.cssText = `font-size: 10px; color: ${TEXT.tertiary};`;
+      where.textContent = `Used in ${usedIn(items)}`;
+      where.title = usedIn(items, Infinity);
+      text.append(name, path, where);
 
       const locate = document.createElement('button');
       locate.type = 'button';

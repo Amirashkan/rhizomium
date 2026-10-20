@@ -10,9 +10,9 @@ import { restorePatchTextures, restoreImageTexture, restoreVideoTexture } from '
 import { encodeProjectFile, decodeProjectFile } from './projectFile.js';
 import { getAnnotationStore } from './AnnotationStore.js';
 import { isTauri } from '../utils/isTauri.js';
-import { externalizeMedia, findEmbeddedMedia, internalizeMedia } from './mediaRefs.js';
+import { externalizeMedia, findEmbeddedMedia, internalizeMedia, placeInScene } from './mediaRefs.js';
 import {
-  canUseMediaPaths, fileToDataUrl, findMediaInFolder, linkSource, nameWithExtension, pickMediaFiles,
+  canUseMediaPaths, closestPath, fileToDataUrl, findMediaInFolder, linkSource, nameWithExtension, pickMediaFiles,
   pickMediaFolder, readMediaAsFile, rememberPath, writeMediaFile,
 } from './mediaPaths.js';
 import { showMissingMediaDialog } from '../ui/MissingMediaDialog.js';
@@ -643,9 +643,11 @@ _missingMediaKind(item) {
 }
 
 /**
- * Let the artist pick the file for one missing entry: the native dialog on
- * the desktop (so the path is known and saved), a file input in a browser
- * (where the bytes are all there is, and the media goes back inline).
+ * Let the artist pick the file for one missing entry - and with it every
+ * other entry naming the same path, as the same file is often in several
+ * scenes: the native dialog on the desktop (so the path is known and saved),
+ * a file input in a browser (where the bytes are all there is, and the media
+ * goes back inline).
  *
  * @returns {Promise<boolean>} whether it was relinked
  */
@@ -664,14 +666,41 @@ async locateMissingMedia(item) {
     });
   }
   if (!file) return false;
-  await this.relinkMissingMedia(item, file);
+  await this.relinkMissingPath(item, file);
   return true;
 }
 
 /**
- * Pick a folder and relink every missing file found in it by name.
+ * Relink `item` and every other missing entry naming the same path to
+ * `file`. One entry failing (its node deleted since) does not stop the rest;
+ * it throws only when none could be relinked.
+ */
+async relinkMissingPath(item, file) {
+  const path = item.ref?.path;
+  const group = path
+    ? this.missingMedia.filter((other) => other.ref?.path === path)
+    : [item];
+  let firstError = null;
+  let relinked = 0;
+  for (const entry of group) {
+    try {
+      await this.relinkMissingMedia(entry, file);
+      relinked += 1;
+    } catch (error) {
+      firstError = firstError || error;
+      window.errorHandler?.handleError(error, { component: 'missing-media-relink', path });
+    }
+  }
+  if (!relinked && firstError) throw firstError;
+}
+
+/**
+ * Pick a folder and relink every missing file found in it. Files are looked
+ * up by name; where a name turns up more than once - every project in a
+ * folder of them has its own `image.png` - the one whose folders match the
+ * old path's most closely wins (closestPath).
  *
- * @returns {Promise<number|null>} how many were relinked; null when cancelled
+ * @returns {Promise<number|null>} how many files were relinked; null when cancelled
  */
 async searchFolderForMissingMedia() {
   const folder = await pickMediaFolder();
@@ -679,12 +708,18 @@ async searchFolderForMissingMedia() {
   const names = this.missingMedia.map((item) => item.ref?.name).filter(Boolean);
   const found = await findMediaInFolder(folder, names);
 
+  const firstForPath = new Map();
+  for (const item of this.missingMedia) {
+    const key = item.ref?.path || item;
+    if (!firstForPath.has(key)) firstForPath.set(key, item);
+  }
+
   let relinked = 0;
-  for (const item of [...this.missingMedia]) {
-    const path = found[item.ref?.name];
+  for (const item of firstForPath.values()) {
+    const path = closestPath(item.ref?.path || item.ref?.name, found[item.ref?.name]);
     if (!path) continue;
     try {
-      await this.relinkMissingMedia(item, await readMediaAsFile(path));
+      await this.relinkMissingPath(item, await readMediaAsFile(path));
       relinked += 1;
     } catch (error) {
       window.errorHandler?.handleError(error, { component: 'missing-media-relink', path });
@@ -699,11 +734,21 @@ async searchFolderForMissingMedia() {
  * save names the new path.
  */
 async relinkMissingMedia(item, file) {
-  const node = item.nodeId != null
+  const node = item.nodeId != null && item.sceneId == null
     ? this.graph.nodes.find((candidate) => String(candidate.id) === String(item.nodeId))
     : null;
 
-  if (item.kind === 'texture') {
+  if (item.sceneId != null) {
+    // A VJ scene's media goes into the scene the set holds, ready for when it
+    // is switched to, and the set is stored again with it.
+    const panel = window.vjControlPanel;
+    const scene = panel?.sceneManager?.getScene?.(item.sceneId);
+    if (!scene?.data) {
+      throw new Error(item.sceneName ? `The scene "${item.sceneName}" is no longer in the set` : 'That scene is no longer in the set');
+    }
+    await placeInScene(scene.data, item, file);
+    panel.saveToStorage?.();
+  } else if (item.kind === 'texture') {
     if (!node || !this.textureManager) throw new Error('That node is no longer in the project');
     const textureInfo = await this.textureManager.uploadTexture(node.id, file, node);
     if (!node.params) node.params = {};
