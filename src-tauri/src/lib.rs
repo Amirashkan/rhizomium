@@ -642,6 +642,24 @@ fn handle_opened(handle: &tauri::AppHandle, event: &tauri::RunEvent) {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Reopen the editor where it was closed: same monitor, position, size
+        // and maximized state. Only the editor is tracked — the splash is
+        // always centred, and output screens are placed on their monitor by
+        // ScreenWindow. VISIBLE is left out because the editor starts hidden
+        // and reveal_editor decides when it appears; restoring it here would
+        // show a blank editor in front of the splash. A saved position whose
+        // monitor is no longer connected is skipped, so the window falls back
+        // to the centred default instead of opening off-screen.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .with_filter(|label| label == MAIN_WINDOW)
+                .build(),
+        )
         .manage(PendingOpen::new(project_path_from_args()))
         .manage(MediaGrants::new())
         .on_window_event(handle_drag_drop)

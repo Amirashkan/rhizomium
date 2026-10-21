@@ -20,3 +20,6 @@ tauri = { version = "2", features = [] }
 # pick_media_files in src/lib.rs): the webview's own pickers never reveal a
 # path, and a project now saves its media by path.
 tauri-plugin-dialog = "2"
+# Remembers where the editor window was closed and reopens it there (see
+# run() in src/lib.rs).
+tauri-plugin-window-state = "2"
