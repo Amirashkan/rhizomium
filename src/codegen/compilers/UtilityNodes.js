@@ -9,6 +9,10 @@ import { liveLiteralsFor, LIVE_LITERAL_PARAM_PREFIX } from '../liveCodeLiterals.
 
 // Stands in for a live literal while a CustomGLSL body is rewritten (see compileCustomGLSL).
 const LIVE_LITERAL_PLACEHOLDER = 'rz_live_literal_';
+// A '<' right after one of these opens a template argument list rather than comparing.
+const TEMPLATE_TYPE_BEFORE = /\b(?:vec[234]|mat[234]x[234]|array|ptr|atomic|texture_\w+)\s*$/;
+// An assignment to a plain name (not a member or an index): `x = `, `x += `, `x <<= `, `x++`.
+const ASSIGNMENT_RE = /(^|[^\w.])(\w+)\s*(?:(?:[-+*/%&|^]|<<|>>)?=(?!=)|\+\+|--)/g;
 const LIVE_LITERAL_PLACEHOLDER_RE = /\brz_live_literal_(\d+)\b/g;
 
 // Reduce a node body's last line to the expression it yields.
@@ -914,6 +918,7 @@ export class UtilityNodes {
     let parenDepth = 0;
     let braceDepth = 0;
     let bracketDepth = 0;
+    let templateDepth = 0; // open template brackets, across lines
     
     for (let i = 0; i < linesWithoutComments.length; i++) {
       const line = linesWithoutComments[i];
@@ -924,24 +929,23 @@ export class UtilityNodes {
       let lineBraceDepth = 0;
       let lineBracketDepth = 0;
       
-      for (const char of line) {
+      for (let c = 0; c < line.length; c++) {
+        const char = line[c];
         if (char === '(') lineParenDepth++;
         if (char === ')') lineParenDepth--;
         if (char === '{') lineBraceDepth++;
         if (char === '}') lineBraceDepth--;
-        // KNOWN LIMITATION: '<' and '>' are counted as generic-type delimiters
-        // (vec2<f32>) so that a type spanning lines isn't split mid-expression.
-        // But the same characters are also comparison/shift operators in WGSL,
-        // and this counter cannot tell them apart. A multi-line CustomGLSL
-        // expression that uses '<' or '>' for comparison (e.g. a final line like
-        // "a > b" following an earlier line) leaves bracketDepth != 0, so the
-        // reconstruction never marks the expression "complete" and wrongly merges
-        // it with adjacent lines. Single-line expressions are unaffected (they
-        // fall through to the trailing flush below). Fixing this properly needs a
-        // real tokenizer that distinguishes generic brackets from operators;
-        // left as-is for now since multi-line comparisons in CustomGLSL are rare.
-        if (char === '<') lineBracketDepth++;
-        if (char === '>') lineBracketDepth--;
+        // '<' and '>' are both template brackets (vec2<f32>, which may span lines) and comparison
+        // or shift operators. Only a '<' right after a type name opens a template; counting every
+        // one left `i < 4` in a for header open for good, which merged the loop with the lines
+        // after it — the body's own result included — and no loop ever compiled.
+        if (char === '<' && TEMPLATE_TYPE_BEFORE.test(line.slice(0, c))) {
+          lineBracketDepth++;
+          templateDepth++;
+        } else if (char === '>' && templateDepth > 0 && line[c - 1] !== '-') {
+          lineBracketDepth--;
+          templateDepth--;
+        }
       }
       
       // Update global depths
@@ -977,6 +981,7 @@ export class UtilityNodes {
         parenDepth = 0;
         braceDepth = 0;
         bracketDepth = 0;
+        templateDepth = 0;
       }
     }
     
@@ -1028,10 +1033,12 @@ export class UtilityNodes {
         // Also check which variables are assigned to later (need to be var, not let)
         const assignedVars = new Set();
         otherLines.forEach((line) => {
-          // Check for assignment statements (variable = ...)
-          const assignmentMatch = line.match(/^(\w+)\s*=\s*(.+);?$/);
-          if (assignmentMatch) {
-            assignedVars.add(assignmentMatch[1]);
+          // Any assignment to a name — `x = ...`, `x += ...`, `x++` — including inside a loop or
+          // if body: a `let` that is written again has to be declared `var`.
+          for (const m of line.matchAll(ASSIGNMENT_RE)) {
+            if (!/\b(?:let|var)\s+$/.test(line.slice(0, m.index + m[1].length))) {
+              assignedVars.add(m[2]);
+            }
           }
         });
         
