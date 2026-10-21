@@ -1,0 +1,875 @@
+{
+  "app": "Rhizomium-Web",
+  "connections": [
+    {
+      "from": {
+        "nodeId": "4",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "6",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "4",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "7",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "4",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "8",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "5",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "9",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "6",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "10",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "7",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "11",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "6",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "12",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "8",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "13",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "10",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "14",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "11",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "14",
+        "pin": 1
+      }
+    },
+    {
+      "from": {
+        "nodeId": "12",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "14",
+        "pin": 2
+      }
+    },
+    {
+      "from": {
+        "nodeId": "4",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "14",
+        "pin": 3
+      }
+    },
+    {
+      "from": {
+        "nodeId": "13",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "15",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "4",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "16",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "5",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "16",
+        "pin": 1
+      }
+    },
+    {
+      "from": {
+        "nodeId": "9",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "16",
+        "pin": 2
+      }
+    },
+    {
+      "from": {
+        "nodeId": "14",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "17",
+        "pin": 0
+      }
+    },
+    {
+      "from": {
+        "nodeId": "16",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "17",
+        "pin": 1
+      }
+    },
+    {
+      "from": {
+        "nodeId": "15",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "17",
+        "pin": 2
+      }
+    },
+    {
+      "from": {
+        "nodeId": "4",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "17",
+        "pin": 3
+      }
+    },
+    {
+      "from": {
+        "nodeId": "17",
+        "pin": 0
+      },
+      "to": {
+        "nodeId": "18",
+        "pin": 0
+      }
+    }
+  ],
+  "format": "rhizomium-project",
+  "generator": {
+    "app": "rhizomium"
+  },
+  "metadata": {
+    "connectionCount": 21,
+    "editorVersion": "3.0",
+    "nodeCount": 15
+  },
+  "midiBindings": {
+    "bindings": []
+  },
+  "nodes": [
+    {
+      "id": "4",
+      "inputs": [],
+      "kind": "UV",
+      "params": {},
+      "position": {
+        "x": 80,
+        "y": 370
+      },
+      "size": {
+        "height": 58,
+        "width": 160
+      }
+    },
+    {
+      "id": "5",
+      "inputs": [],
+      "kind": "Time",
+      "params": {},
+      "position": {
+        "x": 80,
+        "y": 950
+      },
+      "size": {
+        "height": 58,
+        "width": 160
+      }
+    },
+    {
+      "id": "6",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "4",
+            "pin": 0
+          },
+          "index": 0
+        },
+        {
+          "connected": false,
+          "index": 1
+        }
+      ],
+      "kind": "Twirl",
+      "params": {
+        "centerX": 0.5,
+        "centerY": 0.5,
+        "radius": 0.85,
+        "strength": 3.2
+      },
+      "position": {
+        "x": 350,
+        "y": 80
+      },
+      "props": {
+        "centerX": 0.5,
+        "centerY": 0.5,
+        "radius": 0.85,
+        "strength": 3.2
+      },
+      "size": {
+        "height": 76,
+        "width": 160
+      }
+    },
+    {
+      "id": "7",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "4",
+            "pin": 0
+          },
+          "index": 0
+        },
+        {
+          "connected": false,
+          "index": 1
+        }
+      ],
+      "kind": "Spherize",
+      "params": {
+        "centerX": 0.5,
+        "centerY": 0.5,
+        "radius": 0.75,
+        "strength": 0.9
+      },
+      "position": {
+        "x": 350,
+        "y": 370
+      },
+      "props": {
+        "centerX": 0.5,
+        "centerY": 0.5,
+        "radius": 0.75,
+        "strength": 0.9
+      },
+      "size": {
+        "height": 76,
+        "width": 169
+      }
+    },
+    {
+      "id": "8",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "4",
+            "pin": 0
+          },
+          "index": 0
+        },
+        {
+          "connected": false,
+          "index": 1
+        }
+      ],
+      "kind": "PolarCoordinates",
+      "params": {
+        "angularScale": 3,
+        "centerX": 0.5,
+        "centerY": 0.5,
+        "radialScale": 2
+      },
+      "position": {
+        "x": 350,
+        "y": 660
+      },
+      "props": {
+        "angularScale": 3,
+        "centerX": 0.5,
+        "centerY": 0.5,
+        "radialScale": 2
+      },
+      "size": {
+        "height": 76,
+        "width": 221
+      }
+    },
+    {
+      "expr": "8.0 + 1.5 * sin(a * 0.17)",
+      "id": "9",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "5",
+            "pin": 0
+          },
+          "index": 0
+        },
+        {
+          "connected": false,
+          "index": 1
+        }
+      ],
+      "kind": "Expr",
+      "label": "Bulb Power",
+      "params": {
+        "expr": "8.0 + 1.5 * sin(a * 0.17)"
+      },
+      "position": {
+        "x": 350,
+        "y": 950
+      },
+      "size": {
+        "height": 94,
+        "width": 182
+      }
+    },
+    {
+      "id": "10",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "6",
+            "pin": 0
+          },
+          "index": 0
+        }
+      ],
+      "kind": "WarpNoise",
+      "params": {
+        "amplitude": 1,
+        "octaves": 5,
+        "scale": 2.2,
+        "warpScale": 3,
+        "warpStrength": 0.65
+      },
+      "position": {
+        "x": 620,
+        "y": 80
+      },
+      "props": {
+        "amplitude": 1,
+        "octaves": 5,
+        "scale": 2.2,
+        "warpScale": 3,
+        "warpStrength": 0.65
+      },
+      "size": {
+        "height": 58,
+        "width": 188
+      }
+    },
+    {
+      "id": "11",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "7",
+            "pin": 0
+          },
+          "index": 0
+        }
+      ],
+      "kind": "FBMNoise",
+      "params": {
+        "amplitude": 1,
+        "gain": 0.5,
+        "lacunarity": 2,
+        "octaves": 7,
+        "offset": 0,
+        "persistence": 0.55,
+        "scale": 5,
+        "warp": 0.9
+      },
+      "position": {
+        "x": 620,
+        "y": 370
+      },
+      "props": {
+        "amplitude": 1,
+        "gain": 0.5,
+        "lacunarity": 2,
+        "octaves": 7,
+        "offset": 0,
+        "persistence": 0.55,
+        "scale": 5,
+        "warp": 0.9
+      },
+      "size": {
+        "height": 58,
+        "width": 183
+      }
+    },
+    {
+      "id": "12",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "6",
+            "pin": 0
+          },
+          "index": 0
+        }
+      ],
+      "kind": "RidgedNoise",
+      "params": {
+        "amplitude": 1,
+        "gain": 0.55,
+        "lacunarity": 2,
+        "octaves": 6,
+        "offset": 1,
+        "scale": 3.5,
+        "threshold": 0
+      },
+      "position": {
+        "x": 620,
+        "y": 660
+      },
+      "props": {
+        "amplitude": 1,
+        "gain": 0.55,
+        "lacunarity": 2,
+        "octaves": 6,
+        "offset": 1,
+        "scale": 3.5,
+        "threshold": 0
+      },
+      "size": {
+        "height": 58,
+        "width": 199
+      }
+    },
+    {
+      "id": "13",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "8",
+            "pin": 0
+          },
+          "index": 0
+        }
+      ],
+      "kind": "VoronoiNoise",
+      "params": {
+        "cellType": 0,
+        "minkowskiP": 2,
+        "outputType": 0,
+        "randomness": 1,
+        "scale": 14,
+        "smoothness": 0
+      },
+      "position": {
+        "x": 620,
+        "y": 950
+      },
+      "props": {
+        "cellType": 0,
+        "minkowskiP": 2,
+        "outputType": 0,
+        "randomness": 1,
+        "scale": 14,
+        "smoothness": 0
+      },
+      "size": {
+        "height": 94,
+        "width": 203
+      }
+    },
+    {
+      "code": "// Deep-space nebula: warped clouds, dust, ridged filaments and a starfield\nlet w = input0.x;\nlet f = input1.x;\nlet rg = input2.x;\nlet q = input3 * 2.0 - vec2<f32>(1.0, 1.0);\nlet neb = pow(clamp(w * 0.9 + f * 0.5 - 0.38, 0.0, 1.5), 2.1);\nvar col = mix(vec3<f32>(0.01, 0.005, 0.03), vec3<f32>(0.42, 0.03, 0.3), smoothstep(0.0, 0.7, neb));\ncol = mix(col, vec3<f32>(0.0, 0.32, 0.55), smoothstep(0.25, 0.75, f * (1.0 - w)) * 0.9);\ncol = col + vec3<f32>(1.0, 0.55, 0.25) * pow(clamp(rg, 0.0, 1.0), 5.0) * neb * 2.2;\nlet cell = floor(input3 * g.resolution * 0.5);\nlet h = fract(sin(dot(cell, vec2<f32>(12.9898, 78.233))) * 43758.5453);\nlet star = pow(h, 1200.0) * 4.0 * (0.6 + 0.4 * sin(g.time * 3.0 + h * 90.0));\ncol = col * (0.3 + 0.7 * smoothstep(1.7, 0.1, length(q))) + vec3<f32>(star, star * 0.9, star * 1.2);\ncol\n",
+      "id": "14",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "10",
+            "pin": 0
+          },
+          "index": 0
+        },
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "11",
+            "pin": 0
+          },
+          "index": 1
+        },
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "12",
+            "pin": 0
+          },
+          "index": 2
+        },
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "4",
+            "pin": 0
+          },
+          "index": 3
+        }
+      ],
+      "kind": "CustomGLSL",
+      "label": "Nebula",
+      "params": {
+        "code": "// Deep-space nebula: warped clouds, dust, ridged filaments and a starfield\nlet w = input0.x;\nlet f = input1.x;\nlet rg = input2.x;\nlet q = input3 * 2.0 - vec2<f32>(1.0, 1.0);\nlet neb = pow(clamp(w * 0.9 + f * 0.5 - 0.38, 0.0, 1.5), 2.1);\nvar col = mix(vec3<f32>(0.01, 0.005, 0.03), vec3<f32>(0.42, 0.03, 0.3), smoothstep(0.0, 0.7, neb));\ncol = mix(col, vec3<f32>(0.0, 0.32, 0.55), smoothstep(0.25, 0.75, f * (1.0 - w)) * 0.9);\ncol = col + vec3<f32>(1.0, 0.55, 0.25) * pow(clamp(rg, 0.0, 1.0), 5.0) * neb * 2.2;\nlet cell = floor(input3 * g.resolution * 0.5);\nlet h = fract(sin(dot(cell, vec2<f32>(12.9898, 78.233))) * 43758.5453);\nlet star = pow(h, 1200.0) * 4.0 * (0.6 + 0.4 * sin(g.time * 3.0 + h * 90.0));\ncol = col * (0.3 + 0.7 * smoothstep(1.7, 0.1, length(q))) + vec3<f32>(star, star * 0.9, star * 1.2);\ncol\n",
+        "inputTypes": [
+          "vec3",
+          "vec3",
+          "vec3",
+          "vec2"
+        ],
+        "outputType": "vec3"
+      },
+      "position": {
+        "x": 890,
+        "y": 80
+      },
+      "props": {
+        "inputTypes": [
+          "vec3",
+          "vec3",
+          "vec3",
+          "vec2"
+        ],
+        "outputType": "vec3"
+      },
+      "size": {
+        "height": 130,
+        "width": 199
+      }
+    },
+    {
+      "expr": "exp(-a * a * 900.0) * 0.9",
+      "id": "15",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "13",
+            "pin": 0
+          },
+          "index": 0
+        },
+        {
+          "connected": false,
+          "index": 1
+        }
+      ],
+      "kind": "Expr",
+      "label": "Crystal Sparks",
+      "params": {
+        "expr": "exp(-a * a * 900.0) * 0.9"
+      },
+      "position": {
+        "x": 890,
+        "y": 950
+      },
+      "size": {
+        "height": 94,
+        "width": 187
+      }
+    },
+    {
+      "code": "// Raymarched Mandelbulb: orbit-trap colour, fresnel rim, volumetric glow\nlet tm = input1;\nlet pw = input2;\nlet sq = input0 * 2.0 - vec2<f32>(1.0, 1.0);\nlet sp = vec2<f32>(sq.x * g.resolution.x / max(g.resolution.y, 1.0), sq.y);\nlet ang = 0.7 + tm * 0.11;\nlet ro = vec3<f32>(sin(ang) * 2.3, 0.65 + 0.3 * sin(tm * 0.19), cos(ang) * 2.3);\nlet fw = normalize(-ro);\nlet rt = normalize(cross(fw, vec3<f32>(0.0, 1.0, 0.0)));\nlet up = cross(rt, fw);\nlet rd = normalize(sp.x * rt + sp.y * up + 1.7 * fw);\nvar t = 0.0;\nvar hit = 0.0;\nvar glow = 0.0;\nvar trapC = vec3<f32>(1.0, 1.0, 1.0);\nvar steps = 0.0;\nfor (var i = 0; i != 120; i = i + 1) {\n  let pos = ro + rd * t;\n  var z = pos;\n  var dr = 1.0;\n  var r = 0.0;\n  var trap = vec3<f32>(10000.0, 10000.0, 10000.0);\n  for (var k = 0; k != 8; k = k + 1) {\n    r = length(z);\n    if (step(2.0, r) == 1.0) { break; }\n    let th = acos(clamp(z.y / r, -1.0, 1.0)) * pw;\n    let ph = atan2(z.z, z.x) * pw;\n    dr = pow(r, pw - 1.0) * pw * dr + 1.0;\n    let zr = pow(r, pw);\n    z = zr * vec3<f32>(sin(th) * cos(ph), cos(th), sin(th) * sin(ph)) + pos;\n    trap = min(trap, abs(z));\n  }\n  let de = 0.5 * log(max(r, 0.000001)) * r / dr;\n  glow = glow + exp(-de * 30.0) * 0.006;\n  steps = steps + 1.0;\n  if (step(de, 0.0005 * t + 0.0001) == 1.0) { hit = 1.0; trapC = trap; break; }\n  t = t + de * 0.9;\n  if (step(6.0, t) == 1.0) { break; }\n}\nlet hp = ro + rd * t;\nvar nrm = vec3<f32>(0.0, 0.0, 0.0);\nfor (var j = 0; j != 4; j = j + 1) {\n  let ev = vec3<f32>(select(-1.0, 1.0, j == 0 || j == 3), select(-1.0, 1.0, j == 2 || j == 3), select(-1.0, 1.0, j == 1 || j == 3));\n  let qp = hp + ev * 0.0007;\n  var z2 = qp;\n  var dr2 = 1.0;\n  var r2 = 0.0;\n  for (var k2 = 0; k2 != 8; k2 = k2 + 1) {\n    r2 = length(z2);\n    if (step(2.0, r2) == 1.0) { break; }\n    let th2 = acos(clamp(z2.y / r2, -1.0, 1.0)) * pw;\n    let ph2 = atan2(z2.z, z2.x) * pw;\n    dr2 = pow(r2, pw - 1.0) * pw * dr2 + 1.0;\n    z2 = pow(r2, pw) * vec3<f32>(sin(th2) * cos(ph2), cos(th2), sin(th2) * sin(ph2)) + qp;\n  }\n  nrm = nrm + ev * (0.5 * log(max(r2, 0.000001)) * r2 / dr2);\n}\nnrm = normalize(nrm + vec3<f32>(0.000001, 0.000001, 0.000001));\nlet ldir = normalize(vec3<f32>(0.6, 0.75, -0.35));\nlet dif = clamp(dot(nrm, ldir), 0.0, 1.0);\nlet bounce = clamp(0.5 - 0.5 * nrm.y, 0.0, 1.0);\nlet occ = pow(clamp(1.0 - steps / 120.0, 0.0, 1.0), 1.6);\nlet fres = pow(clamp(1.0 + dot(nrm, rd), 0.0, 1.0), 3.0);\nlet spec = pow(clamp(dot(reflect(rd, nrm), ldir), 0.0, 1.0), 40.0);\nlet tc = clamp(trapC, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));\nlet base = 0.5 + 0.5 * cos(6.2831 * (vec3<f32>(0.0, 0.1, 0.2) + tc.x * 0.9 + tc.z * 0.6 + 0.45));\nlet gold = mix(base * base, vec3<f32>(1.0, 0.62, 0.22), smoothstep(0.35, 0.85, tc.y));\nlet surf = gold * (0.03 + 1.8 * dif * occ) * occ + bounce * vec3<f32>(0.25, 0.05, 0.35) * occ * occ + fres * occ * vec3<f32>(0.1, 0.35, 0.8) + spec * occ * vec3<f32>(1.6, 1.3, 1.0);\nlet glowCol = (vec3<f32>(0.15, 0.45, 1.3) * glow + vec3<f32>(1.4, 0.3, 0.8) * glow * glow * 0.8) * (1.0 - hit * 0.7);\nvec4<f32>(surf * hit + glowCol, hit)\n",
+      "id": "16",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "4",
+            "pin": 0
+          },
+          "index": 0
+        },
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "5",
+            "pin": 0
+          },
+          "index": 1
+        },
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "9",
+            "pin": 0
+          },
+          "index": 2
+        },
+        {
+          "connected": false,
+          "index": 3
+        }
+      ],
+      "kind": "CustomGLSL",
+      "label": "Mandelbulb",
+      "params": {
+        "code": "// Raymarched Mandelbulb: orbit-trap colour, fresnel rim, volumetric glow\nlet tm = input1;\nlet pw = input2;\nlet sq = input0 * 2.0 - vec2<f32>(1.0, 1.0);\nlet sp = vec2<f32>(sq.x * g.resolution.x / max(g.resolution.y, 1.0), sq.y);\nlet ang = 0.7 + tm * 0.11;\nlet ro = vec3<f32>(sin(ang) * 2.3, 0.65 + 0.3 * sin(tm * 0.19), cos(ang) * 2.3);\nlet fw = normalize(-ro);\nlet rt = normalize(cross(fw, vec3<f32>(0.0, 1.0, 0.0)));\nlet up = cross(rt, fw);\nlet rd = normalize(sp.x * rt + sp.y * up + 1.7 * fw);\nvar t = 0.0;\nvar hit = 0.0;\nvar glow = 0.0;\nvar trapC = vec3<f32>(1.0, 1.0, 1.0);\nvar steps = 0.0;\nfor (var i = 0; i != 120; i = i + 1) {\n  let pos = ro + rd * t;\n  var z = pos;\n  var dr = 1.0;\n  var r = 0.0;\n  var trap = vec3<f32>(10000.0, 10000.0, 10000.0);\n  for (var k = 0; k != 8; k = k + 1) {\n    r = length(z);\n    if (step(2.0, r) == 1.0) { break; }\n    let th = acos(clamp(z.y / r, -1.0, 1.0)) * pw;\n    let ph = atan2(z.z, z.x) * pw;\n    dr = pow(r, pw - 1.0) * pw * dr + 1.0;\n    let zr = pow(r, pw);\n    z = zr * vec3<f32>(sin(th) * cos(ph), cos(th), sin(th) * sin(ph)) + pos;\n    trap = min(trap, abs(z));\n  }\n  let de = 0.5 * log(max(r, 0.000001)) * r / dr;\n  glow = glow + exp(-de * 30.0) * 0.006;\n  steps = steps + 1.0;\n  if (step(de, 0.0005 * t + 0.0001) == 1.0) { hit = 1.0; trapC = trap; break; }\n  t = t + de * 0.9;\n  if (step(6.0, t) == 1.0) { break; }\n}\nlet hp = ro + rd * t;\nvar nrm = vec3<f32>(0.0, 0.0, 0.0);\nfor (var j = 0; j != 4; j = j + 1) {\n  let ev = vec3<f32>(select(-1.0, 1.0, j == 0 || j == 3), select(-1.0, 1.0, j == 2 || j == 3), select(-1.0, 1.0, j == 1 || j == 3));\n  let qp = hp + ev * 0.0007;\n  var z2 = qp;\n  var dr2 = 1.0;\n  var r2 = 0.0;\n  for (var k2 = 0; k2 != 8; k2 = k2 + 1) {\n    r2 = length(z2);\n    if (step(2.0, r2) == 1.0) { break; }\n    let th2 = acos(clamp(z2.y / r2, -1.0, 1.0)) * pw;\n    let ph2 = atan2(z2.z, z2.x) * pw;\n    dr2 = pow(r2, pw - 1.0) * pw * dr2 + 1.0;\n    z2 = pow(r2, pw) * vec3<f32>(sin(th2) * cos(ph2), cos(th2), sin(th2) * sin(ph2)) + qp;\n  }\n  nrm = nrm + ev * (0.5 * log(max(r2, 0.000001)) * r2 / dr2);\n}\nnrm = normalize(nrm + vec3<f32>(0.000001, 0.000001, 0.000001));\nlet ldir = normalize(vec3<f32>(0.6, 0.75, -0.35));\nlet dif = clamp(dot(nrm, ldir), 0.0, 1.0);\nlet bounce = clamp(0.5 - 0.5 * nrm.y, 0.0, 1.0);\nlet occ = pow(clamp(1.0 - steps / 120.0, 0.0, 1.0), 1.6);\nlet fres = pow(clamp(1.0 + dot(nrm, rd), 0.0, 1.0), 3.0);\nlet spec = pow(clamp(dot(reflect(rd, nrm), ldir), 0.0, 1.0), 40.0);\nlet tc = clamp(trapC, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));\nlet base = 0.5 + 0.5 * cos(6.2831 * (vec3<f32>(0.0, 0.1, 0.2) + tc.x * 0.9 + tc.z * 0.6 + 0.45));\nlet gold = mix(base * base, vec3<f32>(1.0, 0.62, 0.22), smoothstep(0.35, 0.85, tc.y));\nlet surf = gold * (0.03 + 1.8 * dif * occ) * occ + bounce * vec3<f32>(0.25, 0.05, 0.35) * occ * occ + fres * occ * vec3<f32>(0.1, 0.35, 0.8) + spec * occ * vec3<f32>(1.6, 1.3, 1.0);\nlet glowCol = (vec3<f32>(0.15, 0.45, 1.3) * glow + vec3<f32>(1.4, 0.3, 0.8) * glow * glow * 0.8) * (1.0 - hit * 0.7);\nvec4<f32>(surf * hit + glowCol, hit)\n",
+        "inputTypes": [
+          "vec2",
+          "f32",
+          "f32",
+          "f32"
+        ],
+        "outputType": "vec4"
+      },
+      "position": {
+        "x": 890,
+        "y": 660
+      },
+      "props": {
+        "inputTypes": [
+          "vec2",
+          "f32",
+          "f32",
+          "f32"
+        ],
+        "outputType": "vec4"
+      },
+      "size": {
+        "height": 130,
+        "width": 199
+      }
+    },
+    {
+      "code": "// Composite, bloom lift, ACES tonemap, vignette, film grain\nlet fr = input1;\nlet q = input3 * 2.0 - vec2<f32>(1.0, 1.0);\nvar col = input0 + vec3<f32>(0.45, 0.75, 1.0) * input2 * 0.6 * (1.0 - fr.w);\ncol = col * (1.0 - fr.w) + fr.xyz;\nlet lum = dot(col, vec3<f32>(0.2126, 0.7152, 0.0722));\ncol = col + col * smoothstep(0.9, 3.0, lum) * 0.35;\ncol = col * 0.9;\ncol = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);\nlet vig = smoothstep(1.8, 0.35, length(q * vec2<f32>(0.85, 1.1)));\nlet grain = fract(sin(dot(input3 * g.resolution + g.time, vec2<f32>(12.9898, 78.233))) * 43758.5453) - 0.5;\ncol = pow(clamp(col * vig, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)), vec3<f32>(0.4545, 0.4545, 0.4545)) + grain * 0.025;\ncol\n",
+      "id": "17",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "14",
+            "pin": 0
+          },
+          "index": 0
+        },
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "16",
+            "pin": 0
+          },
+          "index": 1
+        },
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "15",
+            "pin": 0
+          },
+          "index": 2
+        },
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "4",
+            "pin": 0
+          },
+          "index": 3
+        }
+      ],
+      "kind": "CustomGLSL",
+      "label": "Lens & Grade",
+      "params": {
+        "code": "// Composite, bloom lift, ACES tonemap, vignette, film grain\nlet fr = input1;\nlet q = input3 * 2.0 - vec2<f32>(1.0, 1.0);\nvar col = input0 + vec3<f32>(0.45, 0.75, 1.0) * input2 * 0.6 * (1.0 - fr.w);\ncol = col * (1.0 - fr.w) + fr.xyz;\nlet lum = dot(col, vec3<f32>(0.2126, 0.7152, 0.0722));\ncol = col + col * smoothstep(0.9, 3.0, lum) * 0.35;\ncol = col * 0.9;\ncol = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);\nlet vig = smoothstep(1.8, 0.35, length(q * vec2<f32>(0.85, 1.1)));\nlet grain = fract(sin(dot(input3 * g.resolution + g.time, vec2<f32>(12.9898, 78.233))) * 43758.5453) - 0.5;\ncol = pow(clamp(col * vig, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)), vec3<f32>(0.4545, 0.4545, 0.4545)) + grain * 0.025;\ncol\n",
+        "inputTypes": [
+          "vec3",
+          "vec4",
+          "f32",
+          "vec2"
+        ],
+        "outputType": "vec3"
+      },
+      "position": {
+        "x": 1160,
+        "y": 370
+      },
+      "props": {
+        "inputTypes": [
+          "vec3",
+          "vec4",
+          "f32",
+          "vec2"
+        ],
+        "outputType": "vec3"
+      },
+      "size": {
+        "height": 130,
+        "width": 199
+      }
+    },
+    {
+      "id": "18",
+      "inputs": [
+        {
+          "connected": true,
+          "from": {
+            "nodeId": "17",
+            "pin": 0
+          },
+          "index": 0
+        }
+      ],
+      "kind": "OutputFinal",
+      "params": {},
+      "position": {
+        "x": 1430,
+        "y": 370
+      },
+      "size": {
+        "height": 58,
+        "width": 216
+      }
+    }
+  ],
+  "oscBindings": {
+    "bindings": []
+  },
+  "outputFormat": {
+    "output": {
+      "height": 720,
+      "width": 1280
+    },
+    "simQuality": "full"
+  },
+  "outputScreens": null,
+  "projectionMapping": {
+    "enabled": false,
+    "surfaces": []
+  },
+  "schemaVersion": 10,
+  "textures": {},
+  "timeline": {
+    "enabled": false,
+    "timeline": {
+      "currentTime": 0,
+      "duration": 10,
+      "fps": 60,
+      "loop": true,
+      "loopEnd": 10,
+      "loopStart": 0,
+      "snapToFrames": true,
+      "tracks": []
+    }
+  },
+  "title": "Bulb Nebula",
+  "version": 10,
+  "viewerControls": null,
+  "viewerPage": null,
+  "viewport": {
+    "pan": {
+      "x": 0,
+      "y": 0
+    },
+    "zoom": 1
+  },
+  "viewport3D": {
+    "autoRotate": false,
+    "autoRotateSpeed": 0.25,
+    "camera": {
+      "azimuth": 0.7853981633974483,
+      "distance": 5,
+      "elevation": 0.5235987755982988,
+      "fov": 60,
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "type": "perspective"
+    },
+    "maximized": false,
+    "visible": false,
+    "window": {
+      "height": "460px",
+      "left": "",
+      "right": "16px",
+      "top": "60px",
+      "width": "560px"
+    }
+  }
+}
