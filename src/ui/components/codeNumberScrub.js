@@ -124,22 +124,6 @@ export function formatNumber(number, value, decimals = number.decimals) {
 }
 
 /**
- * The WGSL type a literal can be swapped for while it is dragged, read from a f32 uniform, or null
- * when it has to stay a literal. An unsuffixed integer is abstract — it becomes f32 or i32 from its
- * context (`x * 2` vs `i < 2`), which a uniform can't follow — and `const`/`override` initialisers
- * must be constant expressions.
- */
-export function uniformCastFor(text, number) {
-  if (number.suffix === 'h') return null;
-  if (!number.isFloat && !number.suffix) return null;
-  const lineStart = text.lastIndexOf('\n', number.start - 1) + 1;
-  if (/\b(const|override)\b/.test(text.slice(lineStart, number.start))) return null;
-  if (number.suffix === 'i') return 'i32';
-  if (number.suffix === 'u') return 'u32';
-  return 'f32';
-}
-
-/**
  * Map a pointer position to a character offset in a `white-space: pre` monospace textarea.
  * Returns -1 when the point is outside the text.
  */

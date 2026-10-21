@@ -3,7 +3,7 @@
 
 import { attachNumberScrub } from './codeNumberScrub.js';
 import {
-  scanLiveLiterals, armLiveLiterals, liveLiteralsFor, LIVE_LITERAL_PARAM_PREFIX,
+  armLiveLiterals, liveLiteralsFor, rejectLiveIntegers, LIVE_LITERAL_PARAM_PREFIX,
 } from '../../codegen/liveCodeLiterals.js';
 import { writeParameterUniform } from '../../parameters/ExternalParameterControl.js';
 
@@ -353,20 +353,39 @@ export class GLSLCodeInputHandler {
       const code = textarea.value;
       if (code === armedCode) return armedScan;
       armedCode = code;
-      armedScan = scanLiveLiterals(code);
-      if (!armedScan || typeof window.rebuild !== 'function') return null;
-      const compiled = liveLiteralsFor(node, node.params?.[param.name] ?? '');
-      if (compiled && compiled.skeleton === armedScan.skeleton && node.params[param.name] === code) {
-        return armedScan; // the running shader already reads these literals from uniforms
+      if (typeof window.rebuild !== 'function') return (armedScan = null);
+      if (node.params?.[param.name] === code) {
+        armedScan = liveLiteralsFor(node, code);
+        if (armedScan) return armedScan; // the running shader already reads these from uniforms
       }
       // Typed edits still waiting on the debounce go in with this one recompile.
       stopInputTimer();
       node.params = node.params || {};
       node.params[param.name] = code;
       lastValue = code;
-      armLiveLiterals(node, armedScan.skeleton);
-      window.rebuild();
+      armedScan = armLiveLiterals(node, code);
+      const built = window.rebuild();
+      if (armedScan?.ints) checkArmedShader(built);
       return armedScan;
+    };
+    // An unsuffixed integer's type is read from its context, which can be guessed wrong. If the
+    // armed shader doesn't compile, re-arm without integers rather than leave the output broken —
+    // after the drag when one is under way, since re-arming renumbers the uniforms it writes.
+    let rejectAfterDrag = false;
+    const rejectIntegers = () => {
+      if (rejectLiveIntegers(node, node.params?.[param.name] ?? '') === undefined) return;
+      armedCode = null;
+      window.rebuild();
+    };
+    const checkArmedShader = async (built) => {
+      await built;
+      const renderer = window.gpuRenderer;
+      if (!renderer?.shaderModule?.getCompilationInfo) return;
+      if (!String(renderer._currentWgslCode || '').includes(LIVE_LITERAL_PARAM_PREFIX)) return;
+      const info = await renderer.shaderModule.getCompilationInfo();
+      if (!info.messages.some((m) => m.type === 'error')) return;
+      if (textarea._scrubbing) rejectAfterDrag = true;
+      else rejectIntegers();
     };
     let liveIndex = -1;
     attachNumberScrub(textarea, {
@@ -395,6 +414,10 @@ export class GLSLCodeInputHandler {
       },
       onEnd: () => {
         armedCode = null; // the literal's length may have changed, so its spans need a rescan
+        if (rejectAfterDrag) {
+          rejectAfterDrag = false;
+          rejectIntegers();
+        }
       },
       onCommit: (oldCode, newCode) => {
         if (this.undoManager) {
