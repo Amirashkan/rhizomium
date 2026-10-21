@@ -8,6 +8,21 @@ When one does, its entry says so under **Project files**.
 
 ---
 
+## v0.9.0-beta.5
+
+*October 21, 2026*
+
+### Fixed
+
+- **Desktop:** signing in works. Sign in now opens a Rhizomium window that
+  shows a pairing code, copies it and opens the gallery in your own browser,
+  where you are already signed in. Approve there and the window stores the
+  sign-in and closes. "Manage on the gallery" opens in your browser too.
+- The Account dialog shows your real account while AI debug mode is on,
+  instead of "Not signed in", and says when debug mode is on.
+
+---
+
 ## v0.9.0-beta.4
 
 *October 21, 2026*
