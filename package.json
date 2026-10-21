@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
-    "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/cli": "^2.12.3",
     "@vitest/coverage-v8": "^2.1.8",
     "@vitest/ui": "^2.1.8",
     "eslint": "^10.6.0",
@@ -32,7 +32,7 @@
     "vitest": "^2.1.8"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/api": "^2.12.4",
     "openai": "^7.5.0"
   }
 }

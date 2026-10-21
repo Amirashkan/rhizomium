@@ -158,6 +158,30 @@ correct behaviour, not a bug, though it looks like the app forgetting you.
 
 ---
 
+## Styles the editor injects
+
+Much of the editor's UI styles itself at runtime by appending a `<style>`
+element (the add-node palette, the modal dialogs and others). The CSP allows
+that with `style-src 'unsafe-inline'`, and the meta-tag CSP the web build uses
+keeps working that way.
+
+The packaged app is different. At build time Tauri adds a hash to the CSP for
+every inline `<style>` it finds in the bundled HTML, and a policy that lists a
+hash makes the browser **ignore** `'unsafe-inline'`. Every runtime `<style>` is
+then dropped. `tauri dev` serves from Vite and never shows this, so it only
+appears in an installed build:
+
+- right-click and *Create Node* report "Node creation menu opened", but the
+  unstyled palette sits behind the canvas, out of sight;
+- with unsaved edits the close button waits on a dialog that is just as
+  hidden, so the window will not close.
+
+`app.security.dangerousDisableAssetCspModification: ["style-src"]` in
+`tauri.conf.json` stops Tauri changing `style-src`. Scripts keep their hashes.
+`tests/editorCspEndpoints.test.js` pins it.
+
+---
+
 ## Running it
 
 ### Prerequisites

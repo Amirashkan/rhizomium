@@ -188,3 +188,19 @@ describe('no page runs inline script', () => {
     expect(html).not.toMatch(/["'(]\s*javascript:/i);
   });
 });
+
+// Tauri rewrites the CSP of every bundled page, adding a hash for each inline
+// <style> it finds. A policy that lists a hash makes the browser ignore
+// 'unsafe-inline', so every <style> the editor injects at runtime (the add-node
+// palette, the modal dialogs, ...) is dropped - but only in the packaged app,
+// since `tauri dev` serves from Vite. The palette then renders unstyled behind
+// the canvas, and the unsaved-changes dialog the close button waits on never
+// shows, so the window cannot be closed.
+describe('Tauri CSP keeps runtime styles working', () => {
+  it('leaves style-src alone instead of adding hashes to it', () => {
+    const config = JSON.parse(readFileSync(join(repoRoot, 'src-tauri/tauri.conf.json'), 'utf8'));
+    const opt = config.app?.security?.dangerousDisableAssetCspModification;
+    expect(opt === true || (Array.isArray(opt) && opt.includes('style-src'))).toBe(true);
+    expect(directive(tauriPolicy(), 'style-src')).toContain("'unsafe-inline'");
+  });
+});
