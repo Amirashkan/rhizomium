@@ -1,8 +1,10 @@
 // src/ui/components/GLSLCodeInputHandler.js
 // GLSL/WGSL Code Editor for CustomGLSL node
 
-import { attachNumberScrub, uniformCastFor } from './codeNumberScrub.js';
-import { setLiveLiteral, clearLiveLiteral, LIVE_LITERAL_PARAM } from '../../codegen/liveCodeLiterals.js';
+import { attachNumberScrub } from './codeNumberScrub.js';
+import {
+  scanLiveLiterals, armLiveLiterals, liveLiteralsFor, LIVE_LITERAL_PARAM_PREFIX,
+} from '../../codegen/liveCodeLiterals.js';
 import { writeParameterUniform } from '../../parameters/ExternalParameterControl.js';
 
 // Inject styles for syntax highlighting
@@ -325,10 +327,11 @@ export class GLSLCodeInputHandler {
       e.stopPropagation();
     });
 
-    // Alt+drag a numeric literal to scrub it. A float (or i/u-suffixed) literal compiles as a
-    // uniform for the length of the drag, so each step is a uniform write; other literals fall back
-    // to applying the code live (throttled, each apply recompiles). Either way the final code is
-    // compiled with the literal baked back in, and the whole drag lands as a single undo step.
+    // Alt+drag a numeric literal to scrub it. Pressing Alt arms the node: its float (and i/u
+    // suffixed) literals are recompiled once as uniforms, so a drag on any of them is a uniform
+    // write per frame, and the code is stored on release without another rebuild (the uniform
+    // already shows the final value). Other literals fall back to applying the code live
+    // (throttled, each apply recompiles). Either way the whole drag is a single undo step.
     const applyWithoutUndo = (code, changed) => {
       const savedUndoManager = valueManager.undoManager;
       valueManager.undoManager = null;
@@ -344,31 +347,44 @@ export class GLSLCodeInputHandler {
         inputTimer = null;
       }
     };
-    let liveLiteral = null;
+    let armedCode = null;
+    let armedScan = null;
+    const arm = () => {
+      const code = textarea.value;
+      if (code === armedCode) return armedScan;
+      armedCode = code;
+      armedScan = scanLiveLiterals(code);
+      if (!armedScan || typeof window.rebuild !== 'function') return null;
+      const compiled = liveLiteralsFor(node, node.params?.[param.name] ?? '');
+      if (compiled && compiled.skeleton === armedScan.skeleton && node.params[param.name] === code) {
+        return armedScan; // the running shader already reads these literals from uniforms
+      }
+      // Typed edits still waiting on the debounce go in with this one recompile.
+      stopInputTimer();
+      node.params = node.params || {};
+      node.params[param.name] = code;
+      lastValue = code;
+      armLiveLiterals(node, armedScan.skeleton);
+      window.rebuild();
+      return armedScan;
+    };
+    let liveIndex = -1;
     attachNumberScrub(textarea, {
       previewIntervalMs: 120,
       refresh: () => this.updateEditor(textarea, lineNumbers, highlightOverlay),
+      onArm: arm,
       onScrubStart: (number) => {
-        const code = textarea.value;
-        const cast = uniformCastFor(code, number);
-        if (!cast || typeof window.rebuild !== 'function') return false;
-        stopInputTimer();
-        // Typed edits still waiting on the debounce go in with this one recompile.
-        node.params = node.params || {};
-        node.params[param.name] = code;
-        lastValue = code;
-        liveLiteral = { prefix: code.slice(0, number.start), suffix: code.slice(number.end), cast, value: number.value };
-        setLiveLiteral(node, liveLiteral);
-        window.rebuild();
-        return true;
+        liveIndex = arm()?.literals.findIndex((literal) => literal.start === number.start) ?? -1;
+        return liveIndex !== -1;
       },
       onLiveValue: (code, value) => {
-        liveLiteral.value = value;
-        // The compiled shader reads the literal from its uniform, so the code is stored without
-        // the recompile a parameter write would trigger.
+        // The shader reads the literal from its uniform, so the code is stored without the
+        // recompile a parameter write would trigger.
         node.params[param.name] = code;
         lastValue = code;
-        writeParameterUniform(node.id, LIVE_LITERAL_PARAM, value);
+        armedCode = code; // same skeleton, so the scan's spans still hold for the next drag
+        writeParameterUniform(node.id, `${LIVE_LITERAL_PARAM_PREFIX}${liveIndex}`, value);
+        window.editor?.previewIntegration?._liveDragPreviewUpdate?.(node);
       },
       onPreview: (code) => {
         stopInputTimer();
@@ -377,28 +393,29 @@ export class GLSLCodeInputHandler {
         applyWithoutUndo(code, null);
         lastValue = code;
       },
-      onEnd: (oldCode, newCode) => {
-        if (!liveLiteral) return;
-        liveLiteral = null;
-        clearLiveLiteral(node);
-        // Bake the literal back in. The commit below recompiles when the code changed.
-        if (newCode === oldCode) {
-          window.rebuild?.();
-        } else {
-          node.params[param.name] = oldCode;
-          lastValue = oldCode;
-        }
+      onEnd: () => {
+        armedCode = null; // the literal's length may have changed, so its spans need a rescan
       },
       onCommit: (oldCode, newCode) => {
-        // The last throttled preview may not have gone out yet, and a live drag only stored it.
+        if (this.undoManager) {
+          this.undoManager.recordParameterChange(node.id, param.name, oldCode, newCode);
+        }
+        if (liveIndex !== -1) {
+          liveIndex = -1;
+          // Already stored and on screen. Skip the parameter write and the panel's onChange: each
+          // would recompile a shader that is already showing this value.
+          window.saveLoadManager?.markUnsaved?.();
+          valueManager.eventSystem?.emit('PARAMETER_CHANGED', {
+            node, parameterName: param.name, oldValue: oldCode, newValue: newCode, source: 'user',
+          });
+          return;
+        }
+        // The last throttled preview may not have gone out yet.
         if (lastValue !== newCode) {
           applyWithoutUndo(newCode, null);
           lastValue = newCode;
         }
         onChange?.({ parameterName: param.name, oldValue: oldCode, newValue: newCode });
-        if (this.undoManager) {
-          this.undoManager.recordParameterChange(node.id, param.name, oldCode, newCode);
-        }
       },
     });
   }
@@ -408,12 +425,15 @@ export class GLSLCodeInputHandler {
     const lines = value.split('\n');
     const lineCount = lines.length || 1;
 
-    // Update line numbers
+    // Update line numbers. The list is only rebuilt when the count changes (it doesn't on any
+    // frame of a number drag).
     if (lineNumbers) {
-      const lineNumbersHTML = Array.from({ length: lineCount }, (_, i) => i + 1)
-        .map(num => `<div style="min-height: 18px; line-height: 1.5; ${num % 2 === 0 ? 'background: rgba(255,255,255,0.02);' : ''}">${num}</div>`)
-        .join('');
-      lineNumbers.innerHTML = lineNumbersHTML;
+      if (lineNumbers._lineCount !== lineCount) {
+        lineNumbers._lineCount = lineCount;
+        lineNumbers.innerHTML = Array.from({ length: lineCount }, (_, i) => i + 1)
+          .map(num => `<div style="min-height: 18px; line-height: 1.5; ${num % 2 === 0 ? 'background: rgba(255,255,255,0.02);' : ''}">${num}</div>`)
+          .join('');
+      }
       lineNumbers.style.height = `${textarea.scrollHeight}px`;
     }
 

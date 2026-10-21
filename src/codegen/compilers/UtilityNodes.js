@@ -5,10 +5,11 @@ import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 import { getInputCount } from '../../data/nodeInputs.js';
 import { resolveDiscreteParam } from '../../utils/discreteParams.js';
 import { inferBodyType } from './wgslExprType.js';
-import { getLiveLiteral, LIVE_LITERAL_PARAM } from '../liveCodeLiterals.js';
+import { liveLiteralsFor, LIVE_LITERAL_PARAM_PREFIX } from '../liveCodeLiterals.js';
 
-// Stands in for a dragged literal while a CustomGLSL body is rewritten (see compileCustomGLSL).
-const LIVE_LITERAL_PLACEHOLDER = 'rz_live_literal';
+// Stands in for a live literal while a CustomGLSL body is rewritten (see compileCustomGLSL).
+const LIVE_LITERAL_PLACEHOLDER = 'rz_live_literal_';
+const LIVE_LITERAL_PLACEHOLDER_RE = /\brz_live_literal_(\d+)\b/g;
 
 // Reduce a node body's last line to the expression it yields.
 //
@@ -717,19 +718,20 @@ export class UtilityNodes {
       code = "0.0";
     }
     
-    // A literal being Alt-dragged in the editor reads from a uniform until the drag ends (see
-    // liveCodeLiterals.js). It goes in as a placeholder identifier so the rewrites below leave it
-    // alone, and becomes the uniform reference once the body is assembled.
-    let liveLiteralRef = null;
-    const liveLiteral = getLiveLiteral(node);
-    if (liveLiteral && getParam
-        && code.length >= liveLiteral.prefix.length + liveLiteral.suffix.length
-        && code.startsWith(liveLiteral.prefix) && code.endsWith(liveLiteral.suffix)) {
-      const ref = getParam(LIVE_LITERAL_PARAM, liveLiteral.value);
-      if (typeof ref === 'string' && ref.startsWith('u_params.')) {
-        liveLiteralRef = ref;
-        const value = liveLiteral.cast === 'f32' ? LIVE_LITERAL_PLACEHOLDER : `${liveLiteral.cast}(${LIVE_LITERAL_PLACEHOLDER})`;
-        code = `${liveLiteral.prefix}(${value})${code.slice(code.length - liveLiteral.suffix.length)}`;
+    // A node armed for Alt-dragging reads its literals from uniforms (see liveCodeLiterals.js).
+    // They go in as placeholder identifiers so the rewrites below leave them alone, and become
+    // the uniform references once the body is assembled.
+    let liveLiteralRefs = null;
+    const liveLiterals = getParam ? liveLiteralsFor(node, code) : null;
+    if (liveLiterals) {
+      const refs = liveLiterals.literals.map((literal, i) => getParam(`${LIVE_LITERAL_PARAM_PREFIX}${i}`, literal.value));
+      if (refs.every((ref) => typeof ref === 'string' && ref.startsWith('u_params.'))) {
+        liveLiteralRefs = refs;
+        for (let i = liveLiterals.literals.length - 1; i >= 0; i--) {
+          const { start, end, cast } = liveLiterals.literals[i];
+          const placeholder = LIVE_LITERAL_PLACEHOLDER + i;
+          code = `${code.slice(0, start)}(${cast === 'f32' ? placeholder : `${cast}(${placeholder})`})${code.slice(end)}`;
+        }
       }
     }
 
@@ -1000,7 +1002,7 @@ export class UtilityNodes {
       ['g.audioEnvelopeMids', 'f32'],
       ['g.audioEnvelopeHighs', 'f32'],
       ['g.audioEnvelopeFull', 'f32'],
-      [LIVE_LITERAL_PLACEHOLDER, 'f32'],
+      ...(liveLiteralRefs || []).map((_, i) => [LIVE_LITERAL_PLACEHOLDER + i, 'f32']),
     ]));
     const validOutputType = inferredOutputType || declaredOutputType;
     
@@ -1290,8 +1292,8 @@ export class UtilityNodes {
       });
     }
     
-    if (liveLiteralRef) {
-      compiledCode = compiledCode.split(LIVE_LITERAL_PLACEHOLDER).join(liveLiteralRef);
+    if (liveLiteralRefs) {
+      compiledCode = compiledCode.replace(LIVE_LITERAL_PLACEHOLDER_RE, (_, i) => liveLiteralRefs[Number(i)]);
     }
 
     return {

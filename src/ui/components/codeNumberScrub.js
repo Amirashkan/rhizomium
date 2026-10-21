@@ -75,6 +75,26 @@ export function findNumberAt(text, offset) {
   return null;
 }
 
+/** Every scrubbable numeric literal in `text`, in order. */
+export function findNumbers(text) {
+  const tokens = new RegExp(TOKEN_RE.source, 'g');
+  const numbers = [];
+  let lineStart = 0;
+  while (lineStart <= text.length) {
+    let lineEnd = text.indexOf('\n', lineStart);
+    if (lineEnd === -1) lineEnd = text.length;
+    const line = text.slice(lineStart, lineEnd);
+    let m;
+    while ((m = tokens.exec(line)) !== null) {
+      if (!m[1]) continue;
+      const number = findNumberAt(text, lineStart + m.index);
+      if (number) numbers.push(number);
+    }
+    lineStart = lineEnd + 1;
+  }
+  return numbers;
+}
+
 /** Step size for a literal: one unit of its last written decimal place. */
 export function stepFor(number, { coarse = false, fine = false } = {}) {
   let decimals = number.decimals;
@@ -166,22 +186,28 @@ function measureCharWidth(cs) {
 
 /**
  * Wire Alt+drag scrubbing onto a code textarea.
+ *   onArm() — called when Alt is pressed or held over the editor, ahead of a likely drag
  *   onScrubStart(number) — called on press; return true to receive onLiveValue instead of onPreview
- *   onLiveValue(code, value) — called on every step with the edited code and the literal's value
+ *   onLiveValue(code, value) — called once per frame with the edited code and the literal's value
  *   onPreview(code) — called (throttled) with the edited code while dragging
  *   onEnd(oldCode, newCode) — called once on release, before onCommit
  *   onCommit(oldCode, newCode) — called once on release if the code changed
  *   refresh() — re-render highlighting/line numbers after the text changes
  */
 export function attachNumberScrub(textarea, {
-  onScrubStart, onLiveValue, onPreview, onEnd, onCommit, refresh, previewIntervalMs = 100,
+  onArm, onScrubStart, onLiveValue, onPreview, onEnd, onCommit, refresh, previewIntervalMs = 100,
 }) {
   const hit = (e) => findNumberAt(textarea.value, offsetFromPoint(textarea, e.clientX, e.clientY));
 
   // Show the drag cursor while Alt is held over a number.
   textarea.addEventListener('mousemove', (e) => {
     if (textarea._scrubbing) return;
-    textarea.style.cursor = e.altKey && hit(e) ? 'ew-resize' : '';
+    const overNumber = e.altKey && hit(e);
+    textarea.style.cursor = overNumber ? 'ew-resize' : '';
+    if (overNumber) onArm?.();
+  });
+  textarea.addEventListener('keydown', (e) => {
+    if (e.key === 'Alt' && !e.repeat) onArm?.();
   });
   textarea.addEventListener('mouseleave', () => {
     if (!textarea._scrubbing) textarea.style.cursor = '';
@@ -240,19 +266,31 @@ export function attachNumberScrub(textarea, {
       const next = prefix + text + suffix;
       if (next === currentCode) return;
       currentCode = next;
+      liveText = text;
+      // Mouse moves can outpace the display; the text, highlighting and render catch up once a frame.
+      if (!frame) frame = requestAnimationFrame(applyFrame);
+    };
+
+    let liveText = number.text;
+    let frame = 0;
+    let appliedCode = originalCode;
+    const applyFrame = () => {
+      frame = 0;
+      if (currentCode === appliedCode) return;
+      appliedCode = currentCode;
 
       const scrollTop = textarea.scrollTop;
       const scrollLeft = textarea.scrollLeft;
       textarea.value = currentCode;
       const shift = currentCode.length - originalCode.length;
-      const map = (pos) => (pos >= number.end ? pos + shift : Math.min(pos, number.start + text.length));
+      const map = (pos) => (pos >= number.end ? pos + shift : Math.min(pos, number.start + liveText.length));
       textarea.setSelectionRange(map(selectionStart), map(selectionEnd));
       textarea.scrollTop = scrollTop;
       textarea.scrollLeft = scrollLeft;
       refresh?.();
 
       if (live) {
-        onLiveValue?.(currentCode, parseFloat(text));
+        onLiveValue?.(currentCode, parseFloat(liveText));
         return;
       }
       const wait = previewIntervalMs - (performance.now() - lastPreview);
@@ -267,6 +305,8 @@ export function attachNumberScrub(textarea, {
     const onUp = () => {
       window.removeEventListener('mousemove', onMove, true);
       window.removeEventListener('mouseup', onUp, true);
+      if (frame) cancelAnimationFrame(frame);
+      applyFrame();
       if (previewTimer) clearTimeout(previewTimer);
       previewTimer = null;
       textarea._scrubbing = false;

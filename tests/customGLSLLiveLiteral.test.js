@@ -1,11 +1,13 @@
 // Alt-dragging a number in the Custom GLSL editor used to recompile the whole shader on every step,
-// dropping the editor under 5 fps. While a drag lasts, the dragged literal now compiles as a uniform
-// (so each step is a buffer write) and is baked back into the code on release.
+// dropping the editor under 5 fps. Arming a node compiles its float literals as uniforms once, so a
+// drag is a uniform write, and the code is stored on release without another rebuild.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { buildWGSL } from '../src/codegen/glslBuilder.js';
-import { setLiveLiteral, clearLiveLiteral } from '../src/codegen/liveCodeLiterals.js';
-import { findNumberAt, uniformCastFor } from '../src/ui/components/codeNumberScrub.js';
+import {
+  scanLiveLiterals, armLiveLiterals, disarmLiveLiterals, MAX_LIVE_LITERALS,
+} from '../src/codegen/liveCodeLiterals.js';
+import { findNumberAt, findNumbers, uniformCastFor } from '../src/ui/components/codeNumberScrub.js';
 
 function build(node) {
   const graph = {
@@ -17,44 +19,38 @@ function build(node) {
   return { wgsl, line: wgsl.split('\n').filter((l) => l.includes('node_31 =')).join('\n') };
 }
 
-function startDrag(node, needle) {
-  const code = node.params.code;
-  const number = findNumberAt(code, code.indexOf(needle));
-  const cast = uniformCastFor(code, number);
-  setLiveLiteral(node, { prefix: code.slice(0, number.start), suffix: code.slice(number.end), cast, value: number.value });
-  return number;
-}
-
+const arm = (node) => armLiveLiterals(node, scanLiveLiterals(node.params.code).skeleton);
 const customNode = (code) => ({ id: '31', kind: 'CustomGLSL', params: { code, outputType: 'f32' }, inputs: [] });
 
-describe('Custom GLSL live literal', () => {
+describe('Custom GLSL live literals', () => {
   let node;
-  afterEach(() => clearLiveLiteral(node));
+  afterEach(() => disarmLiveLiterals(node));
 
-  it('compiles the dragged literal as a uniform and keeps the rest of the code', () => {
-    node = customNode('sin(uv.x * 10.5) * 0.25');
-    startDrag(node, '0.25');
+  it('compiles every float literal of an armed node as a uniform', () => {
+    node = customNode('sin(uv.x * 10.5) * 0.25 + 2');
+    arm(node);
     const { line, wgsl } = build(node);
-    expect(line).toContain('10.5');
+    expect(line).not.toContain('10.5');
     expect(line).not.toContain('0.25');
-    expect(line).toMatch(/u_params\._31_liveLiteral/);
+    expect(line).toContain('2'); // an abstract integer stays a literal
+    expect(line).toMatch(/u_params\._31_liveLiteral0/);
+    expect(line).toMatch(/u_params\._31_liveLiteral1/);
     expect(line).not.toContain('rz_live_literal');
-    expect(wgsl).toMatch(/_31_liveLiteral\s*:\s*f32/);
+    expect(wgsl).toMatch(/_31_liveLiteral1\s*:\s*f32/);
   });
 
-  it('compiles the same shader whatever value the literal is dragged to', () => {
+  it('compiles the same shader whatever values the literals hold', () => {
     node = customNode('input0 * 0.5 + 1.0');
-    startDrag(node, '0.5');
+    arm(node);
     const before = build(node).wgsl;
-    node.params.code = 'input0 * 0.73 + 1.0';
+    node.params.code = 'input0 * -0.73 + 1.0';
     expect(build(node).wgsl).toBe(before);
   });
 
-  it('bakes the literal back once the drag ends', () => {
+  it('bakes the literals again once the code changes shape', () => {
     node = customNode('input0 * 0.5');
-    startDrag(node, '0.5');
-    node.params.code = 'input0 * 0.8';
-    clearLiveLiteral(node);
+    arm(node);
+    node.params.code = 'input0 * 0.8 + uv.x';
     const { line } = build(node);
     expect(line).toContain('0.8');
     expect(line).not.toMatch(/liveLiteral/);
@@ -62,8 +58,25 @@ describe('Custom GLSL live literal', () => {
 
   it('casts suffixed integer literals', () => {
     node = customNode('f32(abs(-3i)) * input0');
-    startDrag(node, '3i');
-    expect(build(node).line).toMatch(/i32\(u_params\._31_liveLiteral\)/);
+    arm(node);
+    expect(build(node).line).toMatch(/i32\(u_params\._31_liveLiteral0\)/);
+  });
+
+  it('leaves an unarmed node baked', () => {
+    node = customNode('input0 * 0.5');
+    expect(build(node).line).toContain('0.5');
+  });
+});
+
+describe('scanLiveLiterals', () => {
+  it('skips comments and caps the count', () => {
+    expect(scanLiveLiterals('x * 0.5 // 0.25').literals.map((l) => l.text)).toEqual(['0.5']);
+    const many = Array.from({ length: MAX_LIVE_LITERALS + 1 }, (_, i) => `${i}.5`).join(' + ');
+    expect(scanLiveLiterals(many)).toBeNull();
+  });
+
+  it('finds every number in order', () => {
+    expect(findNumbers('a(1.0, -2.5)\nb * 3 // 4').map((n) => n.text)).toEqual(['1.0', '-2.5', '3']);
   });
 });
 
