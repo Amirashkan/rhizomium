@@ -157,13 +157,13 @@ describe('openExternal', () => {
     // A different page under that label. Tauri has no navigate(), so focusing
     // the old window would show the artist the wrong page — which is exactly
     // what left a stale /gallery window standing in for the pairing page.
-    await openExternal('https://gallery.test/desktop?code=RZXK-4M7P', {
+    await openExternal('https://gallery.test/desktop', {
       label: 'gallery-account',
     });
     expect(closed).toHaveLength(1);
     expect(created).toEqual([
       'https://gallery.test/login',
-      'https://gallery.test/desktop?code=RZXK-4M7P',
+      'https://gallery.test/desktop',
     ]);
 
     vi.doUnmock('@tauri-apps/api/webviewWindow');
@@ -291,13 +291,12 @@ describe('the web sign-in flow', () => {
   });
 });
 
-describe('the desktop pairing flow', () => {
+describe('the desktop pairing handshake', () => {
   beforeEach(() => vi.resetModules());
 
   afterEach(() => {
     setTauri(false);
     vi.unstubAllGlobals();
-    vi.doUnmock('../src/utils/openExternal.js');
     try {
       window.localStorage.clear();
     } catch {
@@ -341,49 +340,40 @@ describe('the desktop pairing flow', () => {
     });
   }
 
-  async function loadDesktop(fetchImpl, page) {
+  async function load(fetchImpl) {
     setTauri(true);
     vi.stubGlobal('fetch', fetchImpl);
-    vi.doMock('../src/utils/openExternal.js', () => ({
-      openExternal: vi.fn().mockResolvedValue(page),
-    }));
     return {
-      account: await import('../src/ui/accountSession.js'),
+      pairing: await import('../src/ai/desktopPairing.js'),
       token: await import('../src/ai/desktopToken.js'),
+      account: await import('../src/ui/accountSession.js'),
     };
   }
 
-  function fakePage() {
-    const page = { handler: null, close: vi.fn().mockResolvedValue(undefined) };
-    page.onClosed = (cb) => { page.handler = cb; };
-    return page;
-  }
-
-  it('pairs, stores the token, and sends it as a bearer header afterwards', async () => {
+  it('pairs, and the token it stores is sent as a bearer header afterwards', async () => {
     const fetchImpl = galleryStub({ approveAfter: 1 });
-    const { account, token } = await loadDesktop(fetchImpl, fakePage());
+    const { pairing, token } = await load(fetchImpl);
 
-    await expect(account.signInToGallery()).resolves.toBe(true);
-    expect(token.getDesktopToken()).toBe('tok-secret');
+    const started = await pairing.startPairing();
+    expect(started.pairing.userCode).toBe('RZXK-4M7P');
+
+    const issued = await pairing.waitForToken(started.pairing.pairingId);
+    expect(issued).toBe('tok-secret');
+    token.setDesktopToken(issued);
 
     // The point of the whole exercise: the editor's own gallery calls now
     // carry a credential, which a cookie could never have done from here.
-    //
-    // The *last* such call, not the first: signInToGallery reads the
-    // entitlements before it pairs, to see whether there is anything to do, and
-    // that read necessarily predates the token.
-    const entitlementsCalls = fetchImpl.mock.calls.filter((call) =>
-      String(call[0]).includes('/api/entitlements')
-    );
-    const afterPairing = entitlementsCalls.at(-1);
-    expect(afterPairing?.[1]?.headers?.Authorization).toBe('Bearer tok-secret');
+    const { entitlements } = await import('../src/ai/entitlements.js');
+    await entitlements.refresh();
+    const call = fetchImpl.mock.calls.find((c) => String(c[0]).includes('/api/entitlements'));
+    expect(call?.[1]?.headers?.Authorization).toBe('Bearer tok-secret');
   });
 
   it('keeps polling while the gallery says pending', async () => {
     const fetchImpl = galleryStub({ approveAfter: 3 });
-    const { account } = await loadDesktop(fetchImpl, fakePage());
+    const { pairing } = await load(fetchImpl);
 
-    await expect(account.signInToGallery()).resolves.toBe(true);
+    await expect(pairing.waitForToken('pair-1')).resolves.toBe('tok-secret');
     const polls = fetchImpl.mock.calls.filter((call) =>
       String(call[0]).includes('/pair/poll')
     );
@@ -395,25 +385,174 @@ describe('the desktop pairing flow', () => {
       startStatus: 503,
       startBody: { error: 'nope', code: 'not_configured' },
     });
-    const { account, token } = await loadDesktop(fetchImpl, fakePage());
+    const { pairing } = await load(fetchImpl);
 
-    const said = [];
-    await expect(account.signInToGallery({ onStatus: (m) => said.push(m) })).resolves.toBe(false);
-    expect(said.join(' ')).toMatch(/not set up for desktop sign-in/i);
-    // Nothing stored on a failed pairing — a half-signed-in app is worse than
-    // a signed-out one, because only one of them offers you a way in.
-    expect(token.getDesktopToken()).toBeNull();
+    const started = await pairing.startPairing();
+    expect(started.pairing).toBeUndefined();
+    expect(started.error).toMatch(/not set up for desktop sign-in/i);
   });
 
   it('signs out by forgetting the token', async () => {
-    const fetchImpl = galleryStub({ approveAfter: 1 });
-    const { account, token } = await loadDesktop(fetchImpl, fakePage());
+    const { account, token } = await load(galleryStub());
 
-    await account.signInToGallery();
+    token.setDesktopToken('tok-secret');
     expect(token.getDesktopToken()).toBe('tok-secret');
 
     await expect(account.signOut()).resolves.toBe(true);
     expect(token.getDesktopToken()).toBeNull();
+  });
+});
+
+describe('the desktop sign-in window', () => {
+  beforeEach(() => vi.resetModules());
+
+  afterEach(() => {
+    setTauri(false);
+    vi.unstubAllGlobals();
+    vi.doUnmock('../src/utils/openExternal.js');
+    try {
+      window.localStorage.clear();
+    } catch {
+      /* no storage in this environment */
+    }
+  });
+
+  /**
+   * A stand-in for the sign-in window. `finish` plays the part of its page: it
+   * may store a token on the shared origin, the way editor/account.html does
+   * from its own webview, and then it closes.
+   */
+  function fakeWindow() {
+    const page = { handler: null, close: vi.fn().mockResolvedValue(undefined) };
+    page.onClosed = (cb) => {
+      page.handler = cb;
+    };
+    page.finish = async (storedToken) => {
+      for (let i = 0; i < 50 && !page.handler; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      if (!page.handler) throw new Error('nothing subscribed to the window closing');
+      if (storedToken) {
+        window.localStorage.setItem('rhizomium.gallery.desktopToken', storedToken);
+      }
+      page.handler();
+    };
+    return page;
+  }
+
+  async function loadDesktop(page) {
+    setTauri(true);
+    // Signed in exactly when a token is being sent, as the real gallery is.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, init) => {
+        if (!String(url).includes('/api/entitlements')) throw new Error(`unexpected fetch: ${url}`);
+        const authed = Boolean(init?.headers?.Authorization);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ authenticated: authed, tier: 'free', features: [], catalog: [] }),
+        };
+      })
+    );
+    const openExternal = vi.fn().mockResolvedValue(page);
+    vi.doMock('../src/utils/openExternal.js', () => ({
+      openExternal,
+      openGalleryInBrowser: vi.fn().mockResolvedValue(true),
+    }));
+    return {
+      openExternal,
+      account: await import('../src/ui/accountSession.js'),
+      token: await import('../src/ai/desktopToken.js'),
+    };
+  }
+
+  it('opens the app\'s own sign-in page, not the gallery, in a window of its own', async () => {
+    const page = fakeWindow();
+    const { account, openExternal } = await loadDesktop(page);
+
+    const pending = account.signInToGallery();
+    await page.finish('tok-secret');
+    await pending;
+
+    // The gallery in a webview window was the bug: no browser session, magic
+    // links landing elsewhere, and no way back to the code once signed in.
+    const [url, options] = openExternal.mock.calls[0];
+    expect(url).toMatch(/\/account\.html$/);
+    expect(url).not.toMatch(/tenderworld/);
+    expect(options.label).toBe('account');
+  });
+
+  it('is signed in once the window has stored a token and closed', async () => {
+    const page = fakeWindow();
+    const { account, token } = await loadDesktop(page);
+
+    const said = [];
+    const pending = account.signInToGallery({ onStatus: (m) => said.push(m) });
+    await page.finish('tok-secret');
+
+    await expect(pending).resolves.toBe(true);
+    // Read from storage, not from what the editor had cached before the
+    // window opened — the window wrote it from another webview.
+    expect(token.getDesktopToken()).toBe('tok-secret');
+    expect(said.at(-1)).toBe('Signed in.');
+  });
+
+  it('stays signed out when the window is closed without approving', async () => {
+    const page = fakeWindow();
+    const { account, token } = await loadDesktop(page);
+
+    const pending = account.signInToGallery();
+    await page.finish(null);
+
+    await expect(pending).resolves.toBe(false);
+    expect(token.getDesktopToken()).toBeNull();
+  });
+
+  it('does not count a token it already had as a new sign-in', async () => {
+    // A token the gallery no longer honours reads as signed out, so the
+    // artist signs in again — and cancels. That old token is not a success.
+    window.localStorage.setItem('rhizomium.gallery.desktopToken', 'tok-stale');
+    const page = fakeWindow();
+    const { account } = await loadDesktop(page);
+
+    // The stub calls any bearer token signed in; make the stale one fail.
+    const { entitlements } = await import('../src/ai/entitlements.js');
+    vi.spyOn(entitlements, 'load').mockResolvedValue({ authenticated: false });
+    vi.spyOn(entitlements, 'refresh').mockResolvedValue({ authenticated: false });
+    vi.spyOn(entitlements, 'authenticated', 'get').mockReturnValue(false);
+
+    const pending = account.signInToGallery();
+    await page.finish(null);
+    await expect(pending).resolves.toBe(false);
+  });
+
+  it('is a page the desktop build ships, with a capability of its own', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const root = process.cwd();
+
+    // Without the entry the packaged app has no account.html, and the window
+    // opens onto a missing asset.
+    expect(readFileSync(resolve(root, 'vite.config.js'), 'utf8')).toContain(
+      "account: resolve(__dirname, 'editor/account.html')"
+    );
+    expect(readFileSync(resolve(root, 'editor/account.html'), 'utf8')).toContain(
+      'src="../src/ui/accountWindow.js"'
+    );
+
+    // It closes itself on success, which a window with no capability cannot.
+    const capability = JSON.parse(
+      readFileSync(resolve(root, 'src-tauri/capabilities/account.json'), 'utf8')
+    );
+    expect(capability.windows).toEqual(['account']);
+    expect(capability.permissions).toContain('core:window:allow-close');
+
+    // And it is not the editor: no creating windows, no output screens.
+    const main = JSON.parse(
+      readFileSync(resolve(root, 'src-tauri/capabilities/default.json'), 'utf8')
+    );
+    expect(main.windows).not.toContain('account');
   });
 });
 

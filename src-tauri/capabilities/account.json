@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "account",
+  "description": "Permissions for the desktop sign-in window (editor/account.html). It is one of the app's own pages, not the gallery's, so it may talk to the app: it closes itself once the pairing is approved, and the gallery page it opens goes to the artist's browser through the open_gallery_page command. Nothing else — it has no business creating windows or touching the output screens.",
+  "windows": ["account"],
+  "permissions": ["core:default", "core:window:allow-close"]
+}

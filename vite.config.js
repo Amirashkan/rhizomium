@@ -149,7 +149,13 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: {
           ...(isDesktop
-            ? { splash: resolve(__dirname, 'splash.html') }
+            ? {
+                splash: resolve(__dirname, 'splash.html'),
+                // The sign-in window (see src/ui/accountSession.js). Desktop
+                // only: the web editor signs in with the gallery's cookie and
+                // has no window of its own for it.
+                account: resolve(__dirname, 'editor/account.html'),
+              }
             : {
                 main: resolve(__dirname, 'index.html'),
                 // The web patch viewer (/viewer). Its own entry so Rollup keeps

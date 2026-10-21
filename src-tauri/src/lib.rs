@@ -612,6 +612,70 @@ fn app_ready(app: tauri::AppHandle) {
     reveal_editor(&app);
 }
 
+/// The gallery, which owns accounts. Mirrors GALLERY_ORIGIN in
+/// src/utils/galleryEndpoint.js.
+const GALLERY_ORIGIN: &str = "https://art.tenderworld.org";
+
+/// The gallery URL for `path`, or None unless it is a plain absolute path:
+/// letters, digits, `/`, `-` and `_`. No query, no fragment, no `..`, and no
+/// leading `//`, which a browser would read as another host.
+fn gallery_url(path: &str) -> Option<String> {
+    let plain = path.starts_with('/')
+        && !path.starts_with("//")
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_'));
+    plain.then(|| format!("{GALLERY_ORIGIN}{path}"))
+}
+
+/// Open a gallery page in the artist's own browser.
+///
+/// Signing the desktop app in means approving a pairing code on the gallery
+/// while signed in there (see src/ui/accountSession.js). A webview window of
+/// ours cannot do that well: it has none of the browser's sessions, the magic
+/// link the gallery emails opens in the default browser rather than in it, and
+/// the gallery's sign-in lands on /gallery with no address bar to get back. The
+/// browser has all of that already, so the approval happens there.
+///
+/// Only paths on the gallery are accepted, and only plain ones — this is not a
+/// general "open a URL" command, and a webview that could hand the OS an
+/// arbitrary string to launch would be a much larger grant.
+#[tauri::command]
+fn open_gallery_page(path: String) -> Result<(), String> {
+    let url = gallery_url(&path).ok_or_else(|| format!("not a gallery path: {path}"))?;
+
+    // The platform's own "open this with the default handler". rundll32 rather
+    // than `cmd /c start`, which would reparse the URL as a command line.
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = std::process::Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", &url]);
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = std::process::Command::new("open");
+        c.arg(&url);
+        c
+    };
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let mut command = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(&url);
+        c
+    };
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("could not open the browser: {error}"))?;
+    // The launcher exits as soon as it has handed the URL over; reap it so it
+    // does not linger as a zombie for the life of the editor.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 /// macOS delivers file-association opens as an event rather than as arguments,
 /// both on a cold launch and while the editor is already open.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -674,7 +738,8 @@ pub fn run() {
             find_media_in_folder,
             read_media_file,
             write_media_file,
-            app_ready
+            app_ready,
+            open_gallery_page
         ])
         .setup(|app| {
             // Dead man's switch for the splash — see SPLASH_TIMEOUT.
@@ -702,4 +767,36 @@ pub fn run() {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         handle_opened(_handle, &_event);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gallery_url;
+
+    #[test]
+    fn gallery_url_takes_plain_paths_only() {
+        assert_eq!(
+            gallery_url("/desktop").as_deref(),
+            Some("https://art.tenderworld.org/desktop")
+        );
+        assert_eq!(
+            gallery_url("/user/my-space_1").as_deref(),
+            Some("https://art.tenderworld.org/user/my-space_1")
+        );
+
+        for refused in [
+            "",
+            "desktop",
+            "//evil.example/x",
+            "/../etc",
+            "/desktop?code=1",
+            "/desktop#x",
+            "/a b",
+            "/a\\b",
+            "/a&calc",
+            "/a\"b",
+        ] {
+            assert_eq!(gallery_url(refused), None, "{refused:?} should be refused");
+        }
+    }
 }

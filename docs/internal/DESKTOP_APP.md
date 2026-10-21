@@ -96,34 +96,52 @@ it solves — no callback URL of its own:
 ```
   Tools → Account… → Sign in
     │
-    ├─ POST /api/desktop/pair/start ──► { pairingId, userCode }
-    │
-    ├─ opens art.tenderworld.org/desktop?pairing=USERCODE
-    │     └─ the artist approves it there, signed in to the gallery
-    │
-    └─ GET /api/desktop/pair/poll?pairingId=… (every 3s)
-          └─ { status: 'approved', token } — once; the pairing is then deleted
+    └─ opens the sign-in window (editor/account.html, label "account")
+          │
+          ├─ POST /api/desktop/pair/start ──► { pairingId, userCode }
+          │
+          ├─ shows the code; "Copy code & open the gallery" puts it on the
+          │  clipboard and opens art.tenderworld.org/desktop in the artist's
+          │  own browser (the open_gallery_page command)
+          │     └─ the artist pastes it there and approves, signed in
+          │
+          ├─ GET /api/desktop/pair/poll?pairingId=… (every 3s)
+          │     └─ { status: 'approved', token } — once; the pairing is then deleted
+          │
+          └─ stores the token (desktopToken.js) and closes itself
                 │
-                └─ stored by desktopToken.js, sent as Authorization: Bearer
+                └─ the editor re-reads the account when the window closes;
+                   requests then carry Authorization: Bearer
 ```
 
-The code is prefilled, but the gallery still waits for a click — a prefilled
-code arriving by link is exactly the shape a phishing attempt would take, and
-a human reading what approval does is the only boundary there is.
+**Why the approval is in the browser, not a webview window.** It used to open
+the gallery's /desktop page in a `WebviewWindow`, and nobody could finish there.
+The webview has none of the browser's sessions, so it asked the artist to sign
+in again; the magic link the gallery emails opened in their default browser,
+not in it; and signing in landed on /gallery with no address bar to get back to
+the page that takes the code. Every route ended with the app still signed out.
+The browser already has the session and receives the magic link, so the app
+keeps only what is its own — the code and the wait — in a window of its own.
 
-The parameter is `pairing` and not `code` for a reason worth keeping: `code` is
-what Supabase names its OAuth callback parameter, and the gallery mounts a
-handler on every page that scans for it. It read the pairing code as an auth
-code and navigated the approval page to `/gallery` a second after it drew.
+The gallery no longer prefills the code from the URL: it has to be typed (or
+pasted) on /desktop. A prefilled code arriving by link is exactly the shape a
+phishing attempt would take, and someone reading eight characters off a window
+they opened themselves is the only boundary there is.
+
+`open_gallery_page` (src-tauri/src/lib.rs) only takes plain paths on the
+gallery — no query, no fragment, no other host — so the sign-in window cannot
+use it as a general "launch this URL". "Manage on the gallery" goes to the
+browser the same way, for the same reason.
 
 **Signing out is real here**, unlike on the web: the credential is ours, so the
 Account dialog forgets it and the app is signed out at once. The token is left
 valid on the gallery rather than revoked — revoking would need an endpoint a
 stolen token could also call, and "this machine forgets" is what was asked for.
 
-The sign-in window is deliberately **not** listed in
-`src-tauri/capabilities/default.json`. The remote page it loads therefore has no
-Tauri commands available to it — it is a browser tab, not part of the app.
+The sign-in window is one of the app's own pages, and has a capability file of
+its own (`src-tauri/capabilities/account.json`): it may close itself, and
+nothing else. It is deliberately **not** in `default.json` — it has no business
+creating windows or driving the output screens.
 
 Coverage: `tests/desktopAccount.test.js`, and the CSP origins in
 `tests/editorCspEndpoints.test.js`.

@@ -34,6 +34,15 @@ const STORAGE_KEY = 'rhizomium.gallery.desktopToken';
 /** Cached, so the common path does not touch storage on every request. */
 let cached;
 
+// The desktop sign-in window stores the token from a webview of its own, on
+// this same origin. Drop the cache when it does, so the editor's next request
+// carries it rather than whatever was read before the window opened.
+if (typeof window !== 'undefined') {
+  window.addEventListener?.('storage', (event) => {
+    if (event.key === STORAGE_KEY || event.key === null) cached = undefined;
+  });
+}
+
 /**
  * Whether this client authenticates with a bearer token rather than a cookie.
  *

@@ -20,10 +20,14 @@
 //   web      open the gallery's sign-in page, poll until the entitlements come
 //            back authenticated. The cookie is the credential.
 //
-//   desktop  pair for a bearer token (`pairDesktop`), modelled on the OAuth
-//            device flow: open a pairing, have the artist approve its code on
-//            the gallery's /desktop page, poll for the token, store it. See
-//            ../ai/desktopToken.js and the gallery's /api/desktop/pair/*.
+//   desktop  pair for a bearer token, modelled on the OAuth device flow: open a
+//            pairing, have the artist approve its code on the gallery's
+//            /desktop page, poll for the token, store it. In the app this runs
+//            in a sign-in window of its own (`signInInWindow`) that sends the
+//            artist to their browser to approve; a `npm run dev` browser does
+//            it from a gallery tab (`pairInBrowser`). See
+//            ../ai/desktopPairing.js, ../ai/desktopToken.js and the gallery's
+//            /api/desktop/pair/*.
 //
 // Signing out differs the same way. On the web it is the gallery's own page —
 // the editor never had a route to the gallery's sign-out and guessing one would
@@ -31,13 +35,14 @@
 // sign-out, and it is immediate.
 
 import { modalManager } from './ModalManager.js';
-import { openExternal } from '../utils/openExternal.js';
+import { openExternal, openGalleryInBrowser } from '../utils/openExternal.js';
 import { isTauri } from '../utils/isTauri.js';
 import { entitlements, GALLERY_ORIGIN } from '../ai/entitlements.js';
-import { galleryApiUrl } from '../utils/galleryEndpoint.js';
+import { APPROVAL_PATH, startPairing, waitForToken } from '../ai/desktopPairing.js';
 import {
   clearDesktopToken,
   getDesktopToken,
+  resetDesktopTokenCache,
   setDesktopToken,
   usesBearerToken,
 } from '../ai/desktopToken.js';
@@ -48,6 +53,13 @@ const SIGN_IN_URL = `${GALLERY_ORIGIN}/login`;
 
 /** One window, reused: a second click raises it rather than opening another. */
 const WINDOW_LABEL = 'gallery-account';
+
+/**
+ * The desktop sign-in window (editor/account.html). Its own label, because it
+ * is the one window here that is ours: src-tauri/capabilities/account.json
+ * names it, so it may close itself and ask for the browser.
+ */
+const ACCOUNT_WINDOW_LABEL = 'account';
 
 /** How often to re-read the entitlements while the sign-in window is open. */
 const POLL_INTERVAL_MS = 3000;
@@ -108,6 +120,16 @@ function openGalleryWindow() {
  * @returns {Promise<boolean>} whether the page opened.
  */
 export async function openGalleryAccount() {
+  // Not a webview window in the app: the account there is a token, and a
+  // webview pointed at the gallery has no session and would only ask the
+  // artist to sign in all over again. Their browser has one. There is no close
+  // to wait for across that boundary, so re-read when they come back.
+  if (isTauri()) {
+    if (!(await openGalleryInBrowser(APPROVAL_PATH))) return false;
+    window.addEventListener('focus', () => entitlements.refresh().catch(() => {}), { once: true });
+    return true;
+  }
+
   const page = await openGalleryWindow();
   if (!page) return false;
 
@@ -138,10 +160,12 @@ export async function signInToGallery({ onStatus } = {}) {
 
   // On a deployed web build the cookie is the credential and opening the
   // sign-in page is the whole flow. The desktop app cannot use that cookie at
-  // all — it is a different site — so it pairs for a token instead, and so
-  // does a `npm run dev` browser, which reaches the gallery through a
-  // server-side proxy no cookie rides along with. See usesBearerToken().
-  return usesBearerToken() ? pairDesktop({ onStatus }) : signInWithCookie({ onStatus });
+  // all — it is a different site — so it pairs for a token instead, in a
+  // window of its own; and so does a `npm run dev` browser, which reaches the
+  // gallery through a server-side proxy no cookie rides along with. See
+  // usesBearerToken().
+  if (isTauri()) return signInInWindow({ onStatus });
+  return usesBearerToken() ? pairInBrowser({ onStatus }) : signInWithCookie({ onStatus });
 }
 
 /** The web flow: sign in on the gallery, and the cookie does the rest. */
@@ -168,71 +192,97 @@ async function signInWithCookie({ onStatus }) {
 }
 
 /**
- * The desktop flow: pair with the gallery and collect a bearer token.
+ * The desktop flow: the app's own sign-in window.
  *
- * Three steps, modelled on the OAuth device flow because the desktop app has
- * the same problem it solves — no callback URL of its own to be redirected to:
+ * It used to open the gallery's /desktop page in a webview window and wait
+ * there, and the artist could not finish in it. The webview had none of the
+ * browser's sessions, so it asked them to sign in again; the magic link the
+ * gallery emails opened in their browser instead of in it; and signing in
+ * landed on /gallery, with no address bar to get back to the page that takes
+ * the code. Every route ended with the app still signed out.
  *
- *   1. open a pairing and get an id (ours) and a short code (the artist's),
- *   2. open /desktop with that code so they can approve it while signed in,
- *   3. poll until the token appears, then store it.
- *
- * The approval is deliberately theirs to make. We prefill the code but the
- * gallery still waits for a click, because a prefilled code arriving by link
- * is exactly what a phishing attempt looks like.
+ * editor/account.html is ours instead. It runs the pairing itself, shows the
+ * code, and sends the artist to /desktop in their own browser, where they are
+ * most likely signed in already. All the editor does is wait for it to close
+ * and re-read the account, which works because the window stores the token on
+ * the app's own origin, where desktopToken.js reads it.
  */
-async function pairDesktop({ onStatus }) {
+async function signInInWindow({ onStatus }) {
+  const before = getDesktopToken();
+
+  const page = await openExternal(accountPageUrl(), {
+    label: ACCOUNT_WINDOW_LABEL,
+    title: 'Sign in to Rhizomium',
+    width: 520,
+    height: 600,
+  });
+  if (!page) {
+    onStatus?.('Could not open the sign-in window.');
+    return false;
+  }
+
+  onStatus?.('Finish signing in in the Sign in to Rhizomium window…');
+  await new Promise((resolve) => page.onClosed(resolve));
+
+  // The window wrote the token from another webview; drop ours so the read
+  // below sees it rather than what was cached before the window opened.
+  resetDesktopTokenCache();
+  const token = getDesktopToken();
+  await entitlements.refresh().catch(() => {});
+
+  if (!token || token === before) {
+    onStatus?.('Sign-in was not completed.');
+    return false;
+  }
+  onStatus?.('Signed in.');
+  return true;
+}
+
+/**
+ * The sign-in window's page, as a sibling of the editor page this is running
+ * in — the same resolution TauriSecondMonitorViewer uses for its receiver, so
+ * it holds under `tauri dev` (served by Vite) and in a packaged build alike.
+ */
+function accountPageUrl() {
+  try {
+    const { pathname } = window.location;
+    const dir = pathname.endsWith('/') ? pathname : pathname.replace(/[^/]*$/, '');
+    return `${dir}account.html`;
+  } catch {
+    return '/editor/account.html';
+  }
+}
+
+/**
+ * A `npm run dev` browser: pair the same way, approving in a gallery tab.
+ *
+ * A real browser tab has the artist's sessions and receives their magic links,
+ * so none of what broke the desktop webview applies, and the code can stay a
+ * line in whatever status surface asked.
+ */
+async function pairInBrowser({ onStatus }) {
   onStatus?.('Starting sign-in…');
 
-  let pairing;
-  try {
-    const res = await fetch(galleryApiUrl('/api/desktop/pair/start'), {
-      method: 'POST',
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      onStatus?.(
-        body.code === 'not_configured'
-          ? 'The gallery is not set up for desktop sign-in yet.'
-          : `Could not start sign-in (${res.status}).`
-      );
-      return false;
-    }
-    pairing = await res.json();
-  } catch {
-    // A CORS rejection and an offline machine are the same TypeError here, and
-    // the origin is what tells them apart — it is the thing the gallery has to
-    // be told to accept, and it differs between a dev run (localhost:5173) and
-    // an installed one (tauri.localhost). Put it in the message so the answer
-    // is on screen rather than in devtools.
-    onStatus?.(
-      `Could not reach the gallery from ${window.location.origin}. ` +
-      'Either this machine is offline, or the gallery does not accept that origin yet.'
-    );
+  const started = await startPairing();
+  if (started.error) {
+    onStatus?.(started.error);
     return false;
   }
+  const { pairing } = started;
 
-  if (!pairing?.pairingId || !pairing?.userCode) {
-    onStatus?.('The gallery did not return a pairing code.');
-    return false;
-  }
-
-  // `pairing`, not `code`. `code` is what Supabase names its OAuth callback
-  // parameter, and the gallery mounts a handler on every page that looks for
-  // it — it redeemed the pairing code as an auth code and navigated the
-  // approval page away to /gallery a second after it drew.
-  const page = await openExternal(
-    `${GALLERY_ORIGIN}/desktop?pairing=${encodeURIComponent(pairing.userCode)}`,
-    { label: WINDOW_LABEL, title: 'Rhizomium — Connect', width: 720, height: 720 }
-  );
+  const page = await openExternal(`${GALLERY_ORIGIN}${APPROVAL_PATH}`, {
+    label: WINDOW_LABEL,
+    title: 'Rhizomium — Connect',
+    width: 720,
+    height: 720,
+  });
   if (!page) {
     onStatus?.('Could not open the approval page.');
     return false;
   }
 
-  onStatus?.(`Approve the code ${pairing.userCode} in the window that opened…`);
-  const token = await waitForToken(pairing.pairingId, page);
+  onStatus?.(`Enter the code ${pairing.userCode} on the gallery page that opened, and approve it…`);
+  const token = await waitForToken(pairing.pairingId, { page });
 
   if (!token) {
     onStatus?.('Sign-in was not completed.');
@@ -244,70 +294,6 @@ async function pairDesktop({ onStatus }) {
   await page.close();
   onStatus?.('Signed in.');
   return true;
-}
-
-/**
- * Poll for the token until it appears, the artist closes the window, or the
- * wait runs out.
- *
- * A closed window ends the wait but is checked once more first: approving and
- * immediately closing is the normal way to finish, and the poll that would
- * have collected the token may not have come round yet.
- */
-function waitForToken(pairingId, page) {
-  return new Promise((resolve) => {
-    let finished = false;
-    let timer = null;
-    const deadline = Date.now() + POLL_TIMEOUT_MS;
-
-    const finish = (value) => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
-      resolve(value);
-    };
-
-    const check = async () => {
-      if (finished) return null;
-      try {
-        const res = await fetch(
-          galleryApiUrl(`/api/desktop/pair/poll?pairingId=${encodeURIComponent(pairingId)}`),
-          { headers: { Accept: 'application/json' } }
-        );
-        if (!res.ok) return null;
-
-        const body = await res.json();
-        if (body.status === 'approved' && body.token) {
-          finish(body.token);
-          return body.token;
-        }
-        // 'expired' and 'unknown' are both dead ends: the code will never be
-        // approved now, so stop rather than poll a pairing that cannot answer.
-        if (body.status === 'expired' || body.status === 'unknown') finish(null);
-      } catch {
-        // Keep waiting. The artist may be mid-approval and one failed poll
-        // says nothing about the next.
-      }
-      return null;
-    };
-
-    const poll = async () => {
-      await check();
-      if (finished) return;
-      if (Date.now() >= deadline) {
-        finish(null);
-        return;
-      }
-      timer = setTimeout(poll, POLL_INTERVAL_MS);
-    };
-
-    page.onClosed(async () => {
-      await check();
-      finish(null);
-    });
-
-    timer = setTimeout(poll, POLL_INTERVAL_MS);
-  });
 }
 
 /**

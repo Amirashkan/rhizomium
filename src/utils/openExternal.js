@@ -22,6 +22,11 @@
 //     src-tauri/capabilities/default.json, so the remote page it loads gets no
 //     Tauri commands at all. It is a browser tab, not part of the application.
 //
+// The one local page opened through here is the desktop sign-in window
+// (editor/account.html), which has a narrow capability file of its own. Pages
+// that need the artist signed in to the gallery go to their real browser
+// instead — see openGalleryInBrowser below.
+//
 // '@tauri-apps/api' is reached through dynamic import() because it is a bare
 // specifier the un-bundled deployments cannot resolve — the same rule the rest
 // of the Tauri integration follows (AutosaveStore.js, tauriSplash.js).
@@ -74,6 +79,30 @@ const CREATE_TIMEOUT_MS = 5000;
  */
 export async function openExternal(url, options = {}) {
   return isTauri() ? openInTauri(url, options) : openInBrowser(url);
+}
+
+/**
+ * Open a page on the gallery in the artist's own browser, from the desktop app.
+ *
+ * The webview window above is the wrong place for anything that needs the
+ * artist signed in to the gallery: it shares none of the browser's sessions,
+ * and the magic link the gallery emails opens in the browser, not in it. The
+ * desktop sign-in sends the approval here for that reason (see
+ * accountSession.js). Gallery paths only — the `open_gallery_page` command in
+ * src-tauri/src/lib.rs refuses anything else.
+ *
+ * @param {string} path a plain path on the gallery, e.g. '/desktop'.
+ * @returns {Promise<boolean>} whether the browser was asked to open it.
+ */
+export async function openGalleryInBrowser(path) {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('open_gallery_page', { path });
+    return true;
+  } catch (error) {
+    console.warn('[openExternal] Could not open the browser:', error);
+    return false;
+  }
 }
 
 function openInBrowser(url) {
