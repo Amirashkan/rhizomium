@@ -1,7 +1,9 @@
 // src/ui/components/GLSLCodeInputHandler.js
 // GLSL/WGSL Code Editor for CustomGLSL node
 
-import { attachNumberScrub } from './codeNumberScrub.js';
+import { attachNumberScrub, uniformCastFor } from './codeNumberScrub.js';
+import { setLiveLiteral, clearLiveLiteral, LIVE_LITERAL_PARAM } from '../../codegen/liveCodeLiterals.js';
+import { writeParameterUniform } from '../../parameters/ExternalParameterControl.js';
 
 // Inject styles for syntax highlighting
 if (!document.getElementById('glsl-editor-styles')) {
@@ -323,8 +325,10 @@ export class GLSLCodeInputHandler {
       e.stopPropagation();
     });
 
-    // Alt+drag a numeric literal to scrub it. The code is applied live (throttled, each apply
-    // recompiles) while dragging, and the whole drag lands as a single undo step on release.
+    // Alt+drag a numeric literal to scrub it. A float (or i/u-suffixed) literal compiles as a
+    // uniform for the length of the drag, so each step is a uniform write; other literals fall back
+    // to applying the code live (throttled, each apply recompiles). Either way the final code is
+    // compiled with the literal baked back in, and the whole drag lands as a single undo step.
     const applyWithoutUndo = (code, changed) => {
       const savedUndoManager = valueManager.undoManager;
       valueManager.undoManager = null;
@@ -334,21 +338,59 @@ export class GLSLCodeInputHandler {
         valueManager.undoManager = savedUndoManager;
       }
     };
+    const stopInputTimer = () => {
+      if (inputTimer) {
+        clearTimeout(inputTimer);
+        inputTimer = null;
+      }
+    };
+    let liveLiteral = null;
     attachNumberScrub(textarea, {
       previewIntervalMs: 120,
       refresh: () => this.updateEditor(textarea, lineNumbers, highlightOverlay),
+      onScrubStart: (number) => {
+        const code = textarea.value;
+        const cast = uniformCastFor(code, number);
+        if (!cast || typeof window.rebuild !== 'function') return false;
+        stopInputTimer();
+        // Typed edits still waiting on the debounce go in with this one recompile.
+        node.params = node.params || {};
+        node.params[param.name] = code;
+        lastValue = code;
+        liveLiteral = { prefix: code.slice(0, number.start), suffix: code.slice(number.end), cast, value: number.value };
+        setLiveLiteral(node, liveLiteral);
+        window.rebuild();
+        return true;
+      },
+      onLiveValue: (code, value) => {
+        liveLiteral.value = value;
+        // The compiled shader reads the literal from its uniform, so the code is stored without
+        // the recompile a parameter write would trigger.
+        node.params[param.name] = code;
+        lastValue = code;
+        writeParameterUniform(node.id, LIVE_LITERAL_PARAM, value);
+      },
       onPreview: (code) => {
-        if (inputTimer) {
-          clearTimeout(inputTimer);
-          inputTimer = null;
-        }
+        stopInputTimer();
         // Writing the code param already recompiles the shader. The panel's onChange is a
         // debounced refresh that would keep restarting mid-drag, so it runs once on release.
         applyWithoutUndo(code, null);
         lastValue = code;
       },
+      onEnd: (oldCode, newCode) => {
+        if (!liveLiteral) return;
+        liveLiteral = null;
+        clearLiveLiteral(node);
+        // Bake the literal back in. The commit below recompiles when the code changed.
+        if (newCode === oldCode) {
+          window.rebuild?.();
+        } else {
+          node.params[param.name] = oldCode;
+          lastValue = oldCode;
+        }
+      },
       onCommit: (oldCode, newCode) => {
-        // The last throttled preview may not have gone out yet.
+        // The last throttled preview may not have gone out yet, and a live drag only stored it.
         if (lastValue !== newCode) {
           applyWithoutUndo(newCode, null);
           lastValue = newCode;

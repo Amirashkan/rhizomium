@@ -104,6 +104,22 @@ export function formatNumber(number, value, decimals = number.decimals) {
 }
 
 /**
+ * The WGSL type a literal can be swapped for while it is dragged, read from a f32 uniform, or null
+ * when it has to stay a literal. An unsuffixed integer is abstract — it becomes f32 or i32 from its
+ * context (`x * 2` vs `i < 2`), which a uniform can't follow — and `const`/`override` initialisers
+ * must be constant expressions.
+ */
+export function uniformCastFor(text, number) {
+  if (number.suffix === 'h') return null;
+  if (!number.isFloat && !number.suffix) return null;
+  const lineStart = text.lastIndexOf('\n', number.start - 1) + 1;
+  if (/\b(const|override)\b/.test(text.slice(lineStart, number.start))) return null;
+  if (number.suffix === 'i') return 'i32';
+  if (number.suffix === 'u') return 'u32';
+  return 'f32';
+}
+
+/**
  * Map a pointer position to a character offset in a `white-space: pre` monospace textarea.
  * Returns -1 when the point is outside the text.
  */
@@ -150,11 +166,16 @@ function measureCharWidth(cs) {
 
 /**
  * Wire Alt+drag scrubbing onto a code textarea.
+ *   onScrubStart(number) — called on press; return true to receive onLiveValue instead of onPreview
+ *   onLiveValue(code, value) — called on every step with the edited code and the literal's value
  *   onPreview(code) — called (throttled) with the edited code while dragging
+ *   onEnd(oldCode, newCode) — called once on release, before onCommit
  *   onCommit(oldCode, newCode) — called once on release if the code changed
  *   refresh() — re-render highlighting/line numbers after the text changes
  */
-export function attachNumberScrub(textarea, { onPreview, onCommit, refresh, previewIntervalMs = 100 }) {
+export function attachNumberScrub(textarea, {
+  onScrubStart, onLiveValue, onPreview, onEnd, onCommit, refresh, previewIntervalMs = 100,
+}) {
   const hit = (e) => findNumberAt(textarea.value, offsetFromPoint(textarea, e.clientX, e.clientY));
 
   // Show the drag cursor while Alt is held over a number.
@@ -185,6 +206,7 @@ export function attachNumberScrub(textarea, { onPreview, onCommit, refresh, prev
     let lastPreview = 0;
     let previewTimer = null;
     let currentCode = originalCode;
+    const live = !!onScrubStart?.(number);
 
     textarea._scrubbing = true;
     textarea.style.cursor = 'ew-resize';
@@ -229,6 +251,10 @@ export function attachNumberScrub(textarea, { onPreview, onCommit, refresh, prev
       textarea.scrollLeft = scrollLeft;
       refresh?.();
 
+      if (live) {
+        onLiveValue?.(currentCode, parseFloat(text));
+        return;
+      }
       const wait = previewIntervalMs - (performance.now() - lastPreview);
       if (wait <= 0) {
         if (previewTimer) clearTimeout(previewTimer);
@@ -247,6 +273,7 @@ export function attachNumberScrub(textarea, { onPreview, onCommit, refresh, prev
       textarea.style.cursor = '';
       document.body.style.cursor = '';
       document.body.style.userSelect = previousUserSelect;
+      onEnd?.(originalCode, currentCode);
       if (currentCode !== originalCode) onCommit?.(originalCode, currentCode);
     };
 
