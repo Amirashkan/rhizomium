@@ -325,29 +325,49 @@ export class EventHandler {
     this._lastInteractionTime = now;
   }
 
+  // Ends a canvas pan. Called from mouseup, and also whenever the pan turns out
+  // to have outlived its button press (see the mousemove check below).
+  _endPan() {
+    const wasPanning = this._isPanning;
+    this.viewport.stopPan();
+    // Clear panning state and reset frame counter
+    this._isPanning = false;
+    // STEP 4: Invalidate cache when panning state changes
+    if (wasPanning) {
+      this._invalidateInteractionStateCache();
+    }
+    this._panFrameCounter = 0;
+    // Update interaction state manager
+    this.interactionStateManager.setPanning(false);
+    // Clear any pending pan updates
+    this._pendingPanUpdate = null;
+    this._panUpdateScheduled = false;
+
+    // Force final redraw when panning stops to ensure final state is rendered
+    if (wasPanning) {
+      this._requestDraw('pan-end');
+    }
+  }
+
   _setupPanEvents() {
+    // A pan lasts exactly as long as the left button is held, and it used to end
+    // only on `mouseup`. In the desktop (WebView2) build that mouseup can be
+    // swallowed — dragging the window onto a display with a different scale
+    // factor is the reliable way to lose it — and the canvas then stayed glued
+    // to the cursor until the next click. Every mousemove carries the real
+    // button state, so a pan whose button is no longer down is ended there, and
+    // losing focus ends it too.
+    window.addEventListener("blur", () => {
+      if (this.viewport.isPanning()) {
+        this._panCandidate = null;
+        this._endPan();
+      }
+    });
+
     window.addEventListener(
       "mouseup",
       (e) => {
-        const wasPanning = this._isPanning;
-        this.viewport.stopPan();
-        // Clear panning state and reset frame counter
-        this._isPanning = false;
-        // STEP 4: Invalidate cache when panning state changes
-        if (wasPanning) {
-          this._invalidateInteractionStateCache();
-        }
-        this._panFrameCounter = 0;
-        // Update interaction state manager
-        this.interactionStateManager.setPanning(false);
-        // Clear any pending pan updates
-        this._pendingPanUpdate = null;
-        this._panUpdateScheduled = false;
-        
-        // Force final redraw when panning stops to ensure final state is rendered
-        if (wasPanning) {
-          this._requestDraw('pan-end');
-        }
+        this._endPan();
 
         if (this._panCandidate && e.button === 0) {
           if (!this._panCandidate.moved) {
@@ -373,6 +393,14 @@ export class EventHandler {
     window.addEventListener(
       "mousemove",
       (e) => {
+        // A pan whose left button is already up missed its mouseup — end it
+        // instead of dragging the canvas along with a released mouse.
+        if (this.viewport.isPanning() && (e.buttons & 1) === 0) {
+          this._panCandidate = null;
+          this._endPan();
+          return;
+        }
+
         // Check if we're currently panning
         if (this.viewport.isPanning()) {
           // Set panning flag if not already set
