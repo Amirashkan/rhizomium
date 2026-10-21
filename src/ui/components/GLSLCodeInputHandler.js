@@ -1,6 +1,8 @@
 // src/ui/components/GLSLCodeInputHandler.js
 // GLSL/WGSL Code Editor for CustomGLSL node
 
+import { attachNumberScrub } from './codeNumberScrub.js';
+
 // Inject styles for syntax highlighting
 if (!document.getElementById('glsl-editor-styles')) {
   const style = document.createElement('style');
@@ -224,7 +226,8 @@ export class GLSLCodeInputHandler {
       <strong>Tips:</strong><br>
       • Use <code>input0</code>, <code>input1</code>, <code>input2</code>, <code>input3</code> to reference inputs<br>
       • Write WGSL code (e.g., <code>sin(input0) * 2.0</code>)<br>
-      • Last line should be the expression to output
+      • Last line should be the expression to output<br>
+      • Alt+drag a number left/right to change it (Shift: coarse, Ctrl/Cmd: fine)
     `;
     return help;
   }
@@ -318,6 +321,43 @@ export class GLSLCodeInputHandler {
     // Prevent clicks from propagating to editor
     textarea.addEventListener('click', (e) => {
       e.stopPropagation();
+    });
+
+    // Alt+drag a numeric literal to scrub it. The code is applied live (throttled, each apply
+    // recompiles) while dragging, and the whole drag lands as a single undo step on release.
+    const applyWithoutUndo = (code, changed) => {
+      const savedUndoManager = valueManager.undoManager;
+      valueManager.undoManager = null;
+      try {
+        valueManager.updateNodeParameter(node, param.name, code, changed);
+      } finally {
+        valueManager.undoManager = savedUndoManager;
+      }
+    };
+    attachNumberScrub(textarea, {
+      previewIntervalMs: 120,
+      refresh: () => this.updateEditor(textarea, lineNumbers, highlightOverlay),
+      onPreview: (code) => {
+        if (inputTimer) {
+          clearTimeout(inputTimer);
+          inputTimer = null;
+        }
+        // Writing the code param already recompiles the shader. The panel's onChange is a
+        // debounced refresh that would keep restarting mid-drag, so it runs once on release.
+        applyWithoutUndo(code, null);
+        lastValue = code;
+      },
+      onCommit: (oldCode, newCode) => {
+        // The last throttled preview may not have gone out yet.
+        if (lastValue !== newCode) {
+          applyWithoutUndo(newCode, null);
+          lastValue = newCode;
+        }
+        onChange?.({ parameterName: param.name, oldValue: oldCode, newValue: newCode });
+        if (this.undoManager) {
+          this.undoManager.recordParameterChange(node.id, param.name, oldCode, newCode);
+        }
+      },
     });
   }
 
