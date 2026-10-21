@@ -25,6 +25,7 @@
   * [Keyboard Shortcuts](shortcuts.md)
   * [Frame Rate & Display Refresh](frame-rate.md)
   * [FAQ](faq-web.md)
+  * [Changelog](changelog.md)
 
 * Advanced Topics
   * [Shader Compilation](shader-compilation.md)
