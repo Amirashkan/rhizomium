@@ -60,6 +60,7 @@ import { PRIORITY } from './src/core/UnifiedRAFManager.js';
 import { PerformerEngine } from './src/performer/PerformerEngine.js';
 import { PerformerDirector } from './src/performer/PerformerDirector.js';
 import { getPerformerPanel } from './src/ui/PerformerPanel.js';
+import { isFeatureEnabled, setFeatureFlag } from './src/core/featureFlags.js';
 import * as audioAnalysisTaps from './src/audio/audioAnalysisTaps.js';
 import { replaceGraphWithPatch, patchToProjectData } from './src/ai/applyResult.js';
 import { ensureIconSprite } from './src/ui/iconSprite.js';
@@ -707,15 +708,23 @@ async function initialize() {
       // dropped the first time the artist changed the frame rate.
       registerPerformerFrameHandler();
 
-      performerPanel = getPerformerPanel(performerEngine, {
-        oscManager: window.oscManager || null,
-        vjPanel: vjControlPanel,
-        eventSystem: editor.eventSystem,
-        // Built above, at the same point in boot as the rest of the editor's
-        // windows, so a set that drives the timeline can show it.
-        timelinePanel,
-      });
-      window.performerPanel = performerPanel;
+      // The panel is held back behind a feature flag until it is ready to
+      // ship. Not building it leaves window.performerPanel null, which the
+      // layout manager already reads as "closed", and its menu row stays
+      // hidden, so its shortcut falls through too.
+      window.setFeatureFlag = setFeatureFlag;
+      if (isFeatureEnabled('coPerformer')) {
+        performerPanel = getPerformerPanel(performerEngine, {
+          oscManager: window.oscManager || null,
+          vjPanel: vjControlPanel,
+          eventSystem: editor.eventSystem,
+          // Built above, at the same point in boot as the rest of the editor's
+          // windows, so a set that drives the timeline can show it.
+          timelinePanel,
+        });
+        window.performerPanel = performerPanel;
+        document.getElementById("btn-toggle-performer")?.style.removeProperty("display");
+      }
     } catch (error) {
       console.error("ERROR creating coPerformer:", error);
       console.error("Error stack:", error.stack);
