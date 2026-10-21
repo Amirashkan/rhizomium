@@ -47,6 +47,7 @@ import {
   usesBearerToken,
 } from '../ai/desktopToken.js';
 import { TIER_LABELS } from '../ai/tiers.js';
+import { isAIDebugMode } from '../ai/debugMode.js';
 
 /** The gallery's sign-in page. */
 const SIGN_IN_URL = `${GALLERY_ORIGIN}/login`;
@@ -91,7 +92,7 @@ export const DESKTOP_ORIGIN_HINT =
  *
  * @param {Object} [state] entitlements payload; defaults to the current one.
  */
-export function accountSummary(state = entitlements.current) {
+export function accountSummary(state = entitlements.account) {
   const tier = state.tierLabel || TIER_LABELS[state.tier] || 'Free';
 
   if (state.authenticated) return `Signed in · ${tier}`;
@@ -126,7 +127,7 @@ export async function openGalleryAccount() {
   // to wait for across that boundary, so re-read when they come back.
   if (isTauri()) {
     if (!(await openGalleryInBrowser(APPROVAL_PATH))) return false;
-    window.addEventListener('focus', () => entitlements.refresh().catch(() => {}), { once: true });
+    window.addEventListener('focus', () => entitlements.refreshAccount().catch(() => {}), { once: true });
     return true;
   }
 
@@ -134,7 +135,7 @@ export async function openGalleryAccount() {
   if (!page) return false;
 
   page.onClosed(() => {
-    entitlements.refresh().catch(() => {});
+    entitlements.refreshAccount().catch(() => {});
   });
   return true;
 }
@@ -152,8 +153,8 @@ export async function openGalleryAccount() {
  */
 export async function signInToGallery({ onStatus } = {}) {
   // Already signed in — nothing to do but say so.
-  await entitlements.load().catch(() => {});
-  if (entitlements.authenticated) {
+  await entitlements.loadAccount().catch(() => {});
+  if (entitlements.account.authenticated) {
     onStatus?.('Already signed in.');
     return true;
   }
@@ -228,7 +229,7 @@ async function signInInWindow({ onStatus }) {
   // below sees it rather than what was cached before the window opened.
   resetDesktopTokenCache();
   const token = getDesktopToken();
-  await entitlements.refresh().catch(() => {});
+  await entitlements.refreshAccount().catch(() => {});
 
   if (!token || token === before) {
     onStatus?.('Sign-in was not completed.');
@@ -290,7 +291,7 @@ async function pairInBrowser({ onStatus }) {
   }
 
   setDesktopToken(token);
-  await entitlements.refresh().catch(() => {});
+  await entitlements.refreshAccount().catch(() => {});
   await page.close();
   onStatus?.('Signed in.');
   return true;
@@ -321,7 +322,7 @@ function waitForSession(page) {
     const check = async () => {
       if (finished) return false;
       try {
-        const state = await entitlements.refresh();
+        const state = await entitlements.refreshAccount();
         if (state.authenticated) {
           finish(true);
           return true;
@@ -371,7 +372,7 @@ export async function signOut() {
   if (!usesBearerToken() || !getDesktopToken()) return false;
 
   clearDesktopToken();
-  await entitlements.refresh().catch(() => {});
+  await entitlements.refreshAccount().catch(() => {});
   return true;
 }
 
@@ -384,7 +385,7 @@ export async function signOut() {
 export async function showAccountDialog() {
   // Draw with whatever is cached, then re-read: an artist opening this dialog
   // is usually opening it *because* they suspect the cached answer is stale.
-  await entitlements.load().catch(() => {});
+  await entitlements.loadAccount().catch(() => {});
 
   const body = document.createElement('div');
   body.className = 'account-dialog';
@@ -398,8 +399,19 @@ export async function showAccountDialog() {
   body.appendChild(detail);
 
   const paint = () => {
-    const state = entitlements.current;
+    const state = entitlements.account;
     status.textContent = accountSummary(state);
+
+    // This dialog reports the real account, but nothing else in the editor
+    // does while debug mode is on — say so, or the AI panel's unlocked admin
+    // features contradict what is written here.
+    if (isAIDebugMode()) {
+      detail.textContent =
+        'AI debug mode is on, so the editor is unlocking every AI feature ' +
+        'locally whatever your plan says. aiDebugMode.off() in the console ' +
+        'turns it off.';
+      return;
+    }
 
     if (state.authenticated) {
       detail.textContent =
@@ -443,12 +455,12 @@ export async function showAccountDialog() {
 
   const buttons = [
     {
-      label: entitlements.authenticated ? 'Manage on the gallery' : 'Sign in',
+      label: entitlements.account.authenticated ? 'Manage on the gallery' : 'Sign in',
       primary: true,
       onClick: () => {
         // Someone already signed in is not signing in again — they want the
         // gallery, and that window is theirs to close.
-        if (entitlements.authenticated) {
+        if (entitlements.account.authenticated) {
           openGalleryAccount().catch((error) =>
             console.warn('[account] Could not open the gallery:', error)
           );
@@ -473,7 +485,7 @@ export async function showAccountDialog() {
     {
       label: 'Re-check',
       onClick: () => {
-        entitlements.refresh().catch(() => {});
+        entitlements.refreshAccount().catch(() => {});
         return false;
       },
     },

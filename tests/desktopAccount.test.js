@@ -238,9 +238,9 @@ describe('the web sign-in flow', () => {
 
     // Signed out on the first read, signed in on the next: the artist typing a
     // password in the window we just opened.
-    vi.spyOn(entitlements, 'load').mockResolvedValue({ authenticated: false });
-    vi.spyOn(entitlements, 'refresh').mockResolvedValue({ authenticated: true });
-    vi.spyOn(entitlements, 'authenticated', 'get').mockReturnValue(false);
+    vi.spyOn(entitlements, 'loadAccount').mockResolvedValue({ authenticated: false });
+    vi.spyOn(entitlements, 'refreshAccount').mockResolvedValue({ authenticated: true });
+    vi.spyOn(entitlements, 'account', 'get').mockReturnValue({ authenticated: false });
 
     const pending = account.signInToGallery();
     // The close is what ends the wait promptly; without it the poll would get
@@ -255,9 +255,9 @@ describe('the web sign-in flow', () => {
     const page = fakePage();
     const { account, entitlements } = await loadWithPage(page);
 
-    vi.spyOn(entitlements, 'load').mockResolvedValue({ authenticated: false });
-    vi.spyOn(entitlements, 'refresh').mockResolvedValue({ authenticated: false });
-    vi.spyOn(entitlements, 'authenticated', 'get').mockReturnValue(false);
+    vi.spyOn(entitlements, 'loadAccount').mockResolvedValue({ authenticated: false });
+    vi.spyOn(entitlements, 'refreshAccount').mockResolvedValue({ authenticated: false });
+    vi.spyOn(entitlements, 'account', 'get').mockReturnValue({ authenticated: false });
 
     const pending = account.signInToGallery();
     await page.userClosesIt();
@@ -273,8 +273,8 @@ describe('the web sign-in flow', () => {
     const { account, entitlements } = await loadWithPage(page);
     const { openExternal } = await import('../src/utils/openExternal.js');
 
-    vi.spyOn(entitlements, 'load').mockResolvedValue({ authenticated: true });
-    vi.spyOn(entitlements, 'authenticated', 'get').mockReturnValue(true);
+    vi.spyOn(entitlements, 'loadAccount').mockResolvedValue({ authenticated: true });
+    vi.spyOn(entitlements, 'account', 'get').mockReturnValue({ authenticated: true });
 
     await expect(account.signInToGallery()).resolves.toBe(true);
     expect(openExternal).not.toHaveBeenCalled();
@@ -518,9 +518,9 @@ describe('the desktop sign-in window', () => {
 
     // The stub calls any bearer token signed in; make the stale one fail.
     const { entitlements } = await import('../src/ai/entitlements.js');
-    vi.spyOn(entitlements, 'load').mockResolvedValue({ authenticated: false });
-    vi.spyOn(entitlements, 'refresh').mockResolvedValue({ authenticated: false });
-    vi.spyOn(entitlements, 'authenticated', 'get').mockReturnValue(false);
+    vi.spyOn(entitlements, 'loadAccount').mockResolvedValue({ authenticated: false });
+    vi.spyOn(entitlements, 'refreshAccount').mockResolvedValue({ authenticated: false });
+    vi.spyOn(entitlements, 'account', 'get').mockReturnValue({ authenticated: false });
 
     const pending = account.signInToGallery();
     await page.finish(null);
@@ -553,6 +553,54 @@ describe('the desktop sign-in window', () => {
       readFileSync(resolve(root, 'src-tauri/capabilities/default.json'), 'utf8')
     );
     expect(main.windows).not.toContain('account');
+  });
+});
+
+describe('the account under AI debug mode', () => {
+  beforeEach(() => vi.resetModules());
+
+  afterEach(async () => {
+    const { setAIDebugMode } = await import('../src/ai/debugMode.js');
+    setAIDebugMode(false);
+    setTauri(false);
+    vi.unstubAllGlobals();
+    try {
+      window.localStorage.clear();
+    } catch {
+      /* no storage in this environment */
+    }
+  });
+
+  it('still reports who is signed in, while the tiers stay overridden', async () => {
+    // Debug mode invents an admin tier that "is not an account". The Account
+    // dialog read that invention too, so an artist who had just paired was
+    // told "Not signed in · Admin allowance" by a dialog that never asked.
+    setTauri(true);
+    window.localStorage.setItem('rhizomium.gallery.desktopToken', 'tok-secret');
+    const fetchImpl = vi.fn(async (_url, init) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        authenticated: Boolean(init?.headers?.Authorization),
+        tier: 'free',
+        tierLabel: 'Free',
+        features: [],
+        catalog: [],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchImpl);
+
+    const { setAIDebugMode } = await import('../src/ai/debugMode.js');
+    const { entitlements } = await import('../src/ai/entitlements.js');
+    const { accountSummary } = await import('../src/ui/accountSession.js');
+    setAIDebugMode(true);
+
+    await entitlements.loadAccount();
+
+    expect(accountSummary()).toBe('Signed in · Free');
+    // Everything that draws features keeps the debug answer.
+    expect(entitlements.tier).toBe('admin');
+    expect(entitlements.current.debug).toBe(true);
   });
 });
 

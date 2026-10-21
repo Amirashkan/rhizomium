@@ -164,6 +164,19 @@ export class EntitlementsClient {
     return this.entitlements || fallbackEntitlements('not_loaded');
   }
 
+  /**
+   * Who the gallery last said the caller is — the real answer, even while AI
+   * debug mode is standing in for it everywhere else.
+   *
+   * Debug mode invents an admin tier and reports it as "not an account", which
+   * is right for drawing features and wrong for the Account dialog: there it
+   * read as "Not signed in" to someone who had just signed in, because nothing
+   * was asking the gallery any more. The account surface reads this instead.
+   */
+  get account() {
+    return this.entitlements || fallbackEntitlements('not_loaded');
+  }
+
   get tier() {
     return this.current.tier;
   }
@@ -188,7 +201,15 @@ export class EntitlementsClient {
     // answers, and one that outlived the mode would leave the panel holding a
     // Studio tier nobody has until something forced a re-read.
     if (isAIDebugMode()) return debugEntitlements();
+    return this.loadAccount({ force });
+  }
 
+  /**
+   * The real answer from the gallery, debug mode or not — see `account`.
+   * load() is this plus the debug override; the cache only ever holds what the
+   * gallery actually said.
+   */
+  async loadAccount({ force = false } = {}) {
     if (!force && this.entitlements && !this.entitlements.degraded) {
       return this.entitlements;
     }
@@ -254,6 +275,11 @@ export class EntitlementsClient {
   /** Re-read after a sign-in, a sign-out, or a return from the upgrade page. */
   async refresh() {
     return this.load({ force: true });
+  }
+
+  /** Re-read the real account, debug mode or not. */
+  async refreshAccount() {
+    return this.loadAccount({ force: true });
   }
 
   /** The catalog row for a feature, from the live payload when there is one. */
