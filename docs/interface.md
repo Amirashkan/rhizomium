@@ -501,7 +501,7 @@ Store whole graphs as scenes and switch between them during a performance.
 
 ![The VJ Control panel: Scenes, Presets and Playlist tabs, two saved scenes, transition settings, BPM tap tempo, and opacity and speed sliders](images/panel-vj-control.webp)
 
-**Tabs** - **Scenes**, **Presets** and **Playlist**.
+**Tabs** - **Scenes**, **Presets**, **Playlist** and **Audio**.
 
 **Scenes** - each saved scene is listed with its duration and a **Load** button,
 plus a red button to remove it. Below the list:
@@ -509,6 +509,26 @@ plus a red button to remove it. Below the list:
 - **Load Scene** - bring a scene in from a file
 - **Capture Current** - save the graph as it stands right now into a new scene
 - **Save All** - write every scene out
+
+Each scene also has:
+
+- **Override** - replace the scene with the editor's current state
+- **Auto** - while the scene is live, save your edits back into it as you make them
+
+Right-click a scene, preset or playlist row, or click its **⋯** button, to rename,
+duplicate, remove or move it. You can also drag rows to reorder all three lists.
+
+**Playlist** - **Narration from Folder…** reads a show's narration from its folder
+and writes it into the Text nodes of the playlist's scenes, in order. It shows
+what will change before writing anything.
+
+**Audio** - a list of audio files to load into the audio system and play. Add
+them with **Add Audio Files…** or drop them onto the tab. The play and stop
+buttons control the same track as the [Audio panel](#audio-settings-panel).
+
+The VJ set (scenes, presets and playlist) and the audio list are saved in the
+project file. **Restore Previous Set** brings back a set you replaced by
+importing another one.
 
 **Transition** - how one scene gives way to the next (for example Crossfade),
 and how long the transition takes in seconds.

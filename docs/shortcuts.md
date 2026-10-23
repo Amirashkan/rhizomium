@@ -270,6 +270,20 @@ When parameter panel is open:
 | `Enter` | Apply Expression | Confirm expression |
 | `Esc` | Cancel Edit | Close parameter panel |
 
+### Code Editor
+
+In the Custom GLSL code editor:
+
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `Alt+Drag` on a number | Scrub Value | Drag left or right to change the number by one unit of its last decimal place, watching the output as you go |
+| `Alt+Shift+Drag` | Coarse Scrub | Steps 10 times larger |
+| `Alt+Ctrl+Drag` | Fine Scrub | Steps one decimal place smaller (decimals only) |
+
+Scrubbing works on decimals and on whole numbers, which change by whole steps. It skips numbers inside
+`//` comments, hex literals and digits that are part of a name such as `vec3` or `input0`. The
+shader isn't recompiled on every step, so the drag stays smooth.
+
 ### Timeline & Animation
 
 | Shortcut | Action | Description |
