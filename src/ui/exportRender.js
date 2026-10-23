@@ -24,6 +24,7 @@ import {
   openAudioTap,
   selectRecordingMimeType,
 } from '../audio/recordingAudio.js';
+import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 import {
   buildExportFilename,
   formatFileSize,
@@ -93,9 +94,23 @@ export function isVideoExportSupported() {
   );
 }
 
+/**
+ * The Audio panel's capture client. window.audioCapture is the usual handle, but
+ * it is only set once something has asked for the singleton, so fall back to the
+ * getter rather than reporting a loaded track as missing.
+ */
+export function getAudioCapture() {
+  if (window.audioCapture) return window.audioCapture;
+  try {
+    return getBrowserAudioCapture();
+  } catch {
+    return null;
+  }
+}
+
 /** Is there a loaded audio track a recording could carry? */
 export function canRecordAudio() {
-  return hasRecordableAudio(window.audioCapture);
+  return hasRecordableAudio(getAudioCapture());
 }
 
 /**
@@ -229,9 +244,10 @@ export async function exportAnimation(options = {}) {
   // a recording of an audio-reactive patch that plays silent is a recording of
   // something dancing to nothing.
   let audioTap = null;
-  if (settings.includeAudio && hasRecordableAudio(window.audioCapture)) {
+  const audioCapture = getAudioCapture();
+  if (settings.includeAudio && hasRecordableAudio(audioCapture)) {
     try {
-      audioTap = await openAudioTap(window.audioCapture);
+      audioTap = await openAudioTap(audioCapture);
     } catch (err) {
       console.warn('Could not tap the audio graph, recording without sound:', err);
     }

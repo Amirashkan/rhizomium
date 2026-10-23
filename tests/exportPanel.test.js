@@ -194,7 +194,7 @@ describe('the export panel', () => {
   it('explains that a silent patch records silent, and offers nothing to tick', () => {
     expect(panel.controls.audio.input.disabled).toBe(true);
     expect(panel.controls.audio.input.checked).toBe(false);
-    expect(panel.controls.audioNote.textContent).toContain('No audio file is loaded');
+    expect(panel.controls.audioNote.textContent).toContain('No audio is loaded');
   });
 
   it('offers the audio track once there is one', () => {
@@ -204,6 +204,35 @@ describe('the export panel', () => {
     expect(panel.controls.audio.input.disabled).toBe(false);
     expect(panel.controls.audio.input.checked).toBe(true);
     expect(summaryText()).toContain('with audio');
+  });
+
+  it('notices a track loaded in the Audio panel while it is open', () => {
+    panel.destroy();
+    const listeners = {};
+    const capture = {
+      on: (event, cb) => (listeners[event] = cb),
+      off: vi.fn(),
+    };
+    window.audioCapture = capture;
+    panel = new ExportPanel();
+    panel.show();
+    expect(panel.controls.audio.input.disabled).toBe(true);
+
+    Object.assign(capture, { audioContext: {}, source: {}, audioElement: {} });
+    listeners.loaded();
+
+    expect(panel.controls.audio.input.disabled).toBe(false);
+    expect(panel.controls.audioNote.textContent).toContain('in sync');
+  });
+
+  it('opens at the output format even after a custom export', () => {
+    setExportTarget({ mode: 'custom', width: 1000, height: 500 }, 'test');
+    panel.hide();
+    panel.show();
+
+    expect(getExportTarget().mode).toBe('output');
+    expect(resolveResolution('export')).toEqual({ width: 1920, height: 1080 });
+    expect(panel.controls.sizeSelect.value).toBe('1');
   });
 
   it('names the file the way the export will', () => {

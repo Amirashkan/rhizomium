@@ -24,7 +24,7 @@
 
 import { makeDraggable } from './utils/draggable.js';
 import { makeResizable } from './utils/resizable.js';
-import { canRecordAudio, isVideoExportSupported, runExport } from './exportRender.js';
+import { canRecordAudio, getAudioCapture, isVideoExportSupported, runExport } from './exportRender.js';
 import { AUDIO_BITRATE, selectRecordingMimeType } from '../audio/recordingAudio.js';
 import {
   MAX_HEIGHT,
@@ -415,9 +415,14 @@ export class ExportPanel {
   }
 
   show() {
+    // Every export starts at the Output Format set in the Preview / Export
+    // Settings window; a custom size is a choice for one export, not a new default.
+    this.customMode = false;
+    setExportTarget({ mode: 'output' }, 'exportPanel');
+
     if (this.panel) {
       this.panel.style.display = 'flex';
-      requestAnimationFrame(() => this.panel.classList.add('visible'));
+      requestAnimationFrame(() => this.panel?.classList.add('visible'));
       this._refresh();
       return;
     }
@@ -537,9 +542,23 @@ export class ExportPanel {
       subscribeOutputFormat(() => this._refresh()),
       subscribeExportSettings(() => this._refresh()),
       subscribeExportDestination(() => this._refreshDestination()),
+      this._followAudio(),
     );
     // A folder chosen in an earlier desktop session.
     loadExportDestination();
+  }
+
+  /**
+   * Repaint the audio row when a track is loaded, started or stopped from the
+   * Audio panel, so it never claims there is no audio while one is loaded.
+   */
+  _followAudio() {
+    const capture = getAudioCapture();
+    if (typeof capture?.on !== 'function') return () => {};
+    const refresh = () => this._refresh();
+    const events = ['loaded', 'started', 'stopped'];
+    events.forEach((event) => capture.on(event, refresh));
+    return () => events.forEach((event) => capture.off?.(event, refresh));
   }
 
   _buildFormatField() {
@@ -916,7 +935,7 @@ export class ExportPanel {
     if (audioNote) {
       audioNote.textContent = audioAvailable
         ? 'The video carries the music the patch is reacting to, in sync. Playback starts from where the playhead sits now.'
-        : 'No audio file is loaded, so the recording will be silent.';
+        : 'No audio is loaded in the Audio panel, so the recording will be silent.';
     }
 
     if (this.controls.filename && document.activeElement !== this.controls.filename) {
