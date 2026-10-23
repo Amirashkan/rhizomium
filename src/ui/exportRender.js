@@ -30,6 +30,7 @@ import {
   getExportSettings,
   resolveVideoBitrate,
 } from './exportSettings.js';
+import { saveExport } from './exportDestination.js';
 
 function getPreview() {
   return window.floatingPreview || null;
@@ -71,13 +72,10 @@ function blitCapture({ pixels, bytesPerRow }, width, height) {
   return exportCanvas;
 }
 
-function downloadBlob(blob, filename, revokeAfterMs = 100) {
-  const link = document.createElement('a');
-  link.download = filename;
-  link.href = URL.createObjectURL(blob);
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), revokeAfterMs);
-  return link.download;
+/** Where a saved export went, for the toast that says so. */
+function savedTo({ location, fellBack }) {
+  if (fellBack) return ' — the chosen folder could not be written, so it went to Downloads';
+  return location === 'Downloads' ? '' : ` → ${location}`;
 }
 
 /**
@@ -162,9 +160,9 @@ export async function exportPNG(options = {}) {
       return { ok: false, error: 'encode-failed' };
     }
 
-    progress.update(95, 'Preparing download...', `File size: ${formatFileSize(blob.size)}`);
+    progress.update(95, 'Saving file...', `File size: ${formatFileSize(blob.size)}`);
 
-    const filename = downloadBlob(
+    const saved = await saveExport(
       blob,
       buildExportFilename({
         prefix: settings.filenamePrefix,
@@ -173,11 +171,12 @@ export async function exportPNG(options = {}) {
         extension: 'png',
       })
     );
+    const { filename } = saved;
 
     progress.update(100, 'Export complete!', filename);
     setTimeout(() => {
       progress.close();
-      modalManager.toast(`PNG exported: ${filename}`, 'success', 'Export Complete');
+      modalManager.toast(`PNG exported: ${filename}${savedTo(saved)}`, 'success', 'Export Complete');
     }, 500);
 
     return { ok: true, filename, width, height, size: blob.size };
@@ -454,9 +453,9 @@ export async function exportAnimation(options = {}) {
     const blob = new Blob(chunks, { type: mimeType });
     const recordedSeconds = Math.min(duration, (Date.now() - startTime) / 1000);
 
-    progress.update(95, 'Preparing download...', `File size: ${formatFileSize(blob.size)}`);
+    progress.update(95, 'Saving file...', `File size: ${formatFileSize(blob.size)}`);
 
-    const filename = downloadBlob(
+    const saved = await saveExport(
       blob,
       buildExportFilename({
         prefix: settings.filenamePrefix,
@@ -465,16 +464,17 @@ export async function exportAnimation(options = {}) {
         fps,
         extension: fileExt,
       }),
-      1000
+      { revokeAfterMs: 1000 }
     );
+    const { filename } = saved;
 
     progress.update(100, 'Export complete!', filename);
     setTimeout(() => {
       progress.close();
       modalManager.toast(
         stopRequested
-          ? `Animation exported (stopped at ${recordedSeconds.toFixed(1)}s): ${filename}`
-          : `Animation exported: ${filename}`,
+          ? `Animation exported (stopped at ${recordedSeconds.toFixed(1)}s): ${filename}${savedTo(saved)}`
+          : `Animation exported: ${filename}${savedTo(saved)}`,
         'success',
         'Export Complete'
       );
