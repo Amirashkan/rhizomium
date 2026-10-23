@@ -192,6 +192,68 @@ A clock-driven random number source.
   - `Speed` (float, default: 1.0) - How fast the value churns
 - **Description**: Outputs a time-driven pseudo-random value in the 0–1 range. Higher `Speed` produces a new-looking value more often. Distinct from the **Random** generator node, which produces a spatial random field over UV coordinates.
 
+#### Wave
+An LFO: one animated value with a choice of wave shape.
+
+- **Category**: Input
+- **Inputs**:
+  - `sync` (f32) - A pulse here restarts the cycle from `Phase`
+- **Outputs**:
+  - `out` (f32) - The wave value
+- **Parameters**:
+  - `Shape` (select: Sine/Triangle/Square/Saw/Ramp Down, default: Sine)
+  - `Frequency (Hz)` (float, default: 1.0, range: 0-20)
+  - `Amplitude` (float, default: 1.0)
+  - `Offset` (float, default: 0.0)
+  - `Phase (cycles)` (float, default: 0.0, range: 0-1) - 0.25 is a quarter cycle
+  - `Unipolar (0..1)` (bool, default: false)
+  - `Pulse Width` (float, default: 0.5, range: 0-1) - Fraction of each cycle spent high (Square only)
+  - `Sync Threshold` (float, default: 0.5, range: 0-1) - Level `sync` must cross to restart (active once `sync` is connected)
+- **Description**: Runs freely with nothing wired in. Connect a Trigger, or the Kick Trigger channel of an Audio Value node, to `sync` to lock the wave to a beat. Every shape swings from -1 to 1 and is phase-aligned with the sine, so changing shape keeps the motion in step. Turn on **Unipolar** when the wave drives something that must stay positive, such as a radius or a mix amount. It remaps to 0–1 before `Amplitude` and `Offset` are applied. Two Waves at the same frequency with phases 0.25 apart give the sine/cosine pair for circular motion.
+
+### Audio
+
+These nodes connect a patch to the live audio analysis. See [Working with Audio](audio-web.md) for the full workflow.
+
+#### Audio
+The audio analysis settings for the whole patch.
+
+- **Category**: Input
+- **Inputs**: None
+- **Outputs**: None
+- **Parameters**:
+  - Triggers: `Kick Thresh`, `Snare Thresh`, `Hat Thresh` (float, default: 0.5, range: 0-1)
+  - Meter Shape (collapsed): `Attack (ms)` (default: 8, range: 1-200), `Release (ms)` (default: 120, range: 1-2000), `Gain` (default: 1, range: 0-8)
+  - `Open Audio Setup…` (button) - Opens the Audio panel with the source and live meters
+- **Description**: The only place the analysis settings live. One analysis engine serves the whole patch, so a patch needs one Audio node however many Audio Value nodes read from it. Because these are node parameters, you can MIDI-map them, drive them with expressions, undo them, and save them with the patch. Set each threshold above where its meter idles between hits and below where it peaks on one. With `Gain` at 0 every meter reads zero.
+
+#### Audio Value
+One channel of the live audio analysis, as a number.
+
+- **Category**: Input
+- **Inputs**: None
+- **Outputs**:
+  - `out` (f32) - The channel's current value, 0–1
+- **Parameters**:
+  - `Channel` (select, default: Level) - Level, Low, Mid, High, Kick, Kick Trigger, Snare, Snare Trigger, Hat, Hat Trigger, Kick Meter, Snare Meter, Hat Meter, Brightness, Noisiness
+  - `Open Audio Setup…` (button)
+- **Description**: Not in the add-node menu. Add it from the Audio panel by pressing **＋** next to the meter you want, so you pick a channel by watching it move. It has no threshold of its own. The triggers use the thresholds on the Audio node, so two nodes reading Kick Trigger fire on the same frame. Switching channels does not recompile the shader.
+
+#### Audio Sampler
+Plays an audio file when its scene starts.
+
+- **Category**: Input
+- **Inputs**: None
+- **Outputs**: None
+- **Parameters**:
+  - `Audio File` (file) - The clip to play
+  - `Play When Scene Starts` (bool, default: true)
+  - `Loop` (bool, default: false)
+  - `Volume` (float, default: 1.0, range: 0-1)
+  - `Speed` (float, default: 1.0, range: 0.0625-16)
+  - `Play` / `Stop` (buttons) - Play the clip from the start, or stop and rewind it
+- **Description**: Makes sound rather than a signal, so it has no outputs. The clip starts when the patch is opened or when a [VJ scene](interface.md#vj-control-panel) holding the node is switched to, and it stops when the scene is switched away. `Loop`, `Volume` and `Speed` accept [expressions](parameter-expressions.md). The Audio and Audio Value nodes keep listening to whatever source the Audio panel is set to, so a sampler does not change what the analysis hears.
+
 ---
 
 ## Output Nodes
@@ -618,6 +680,27 @@ Calculates the reciprocal (1/x).
 - **Outputs**:
   - `out` (dynamic) - 1/x
 - **Description**: Returns the multiplicative inverse. Works component-wise for vectors.
+
+### Logic Gates
+
+**AND**, **OR**, **XOR**, **NAND**, **NOR**, **XNOR** (inputs `A`, `B`) and **NOT** (input `x`).
+
+- **Category**: Math
+- **Outputs**:
+  - `out` (dynamic) - 0.0 or 1.0, matching the input type
+- **Parameters**:
+  - `Threshold` (float, default: 0.5) - An input counts as true when it is at or above this value
+- **Description**: Each input is treated as true or false by comparing it with `Threshold`, and the gate outputs exactly 0 or 1. That makes a gate's output a clean mask, a Mix factor, a Select condition, or the input to another gate. Vectors are compared component by component. Combine them with Trigger, Hold and Count, or with the Kick, Snare and Hat triggers from an Audio Value node, to build beat logic such as "kick AND NOT snare".
+
+| Gate | Output is 1 when |
+|------|------------------|
+| AND | both inputs are true |
+| OR | either input is true |
+| XOR | exactly one input is true |
+| NOT | the input is false |
+| NAND | not both inputs are true |
+| NOR | neither input is true |
+| XNOR | both inputs agree |
 
 ### Vector Math Operations
 
@@ -1171,6 +1254,24 @@ Generates Voronoi diagrams and Worley noise as a texture.
   - `animate` (boolean, default: true) - Animate the points
   - `speed` (float, default: 0.1, range: 0-2) - Animation speed
 - **Description**: GPU-computed cellular patterns with animated feature points.
+
+### Text
+
+#### Text
+Draws a string, including live values, into a texture.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Coordinates to sample the text at (defaults to screen UV)
+- **Outputs**:
+  - `Color` (vec4) - The rendered text over its background
+  - `Mask` (f32) - Text coverage, 1 inside the glyphs and 0 outside
+- **Parameters**:
+  - Content: `Text` (default: TEXT), `Decimals` (int, default: 2, range: 0-8), `Font` (select: sans-serif/serif/monospace/cursive/fantasy), `Custom Font` (font file), `Bold`, `Italic`
+  - Layout: `Size` (float, default: 0.25, range: 0.01-2), `Line Height` (default: 1.2), `Letter Spacing` (default: 0), `Align` (select: left/center/right, default: center), `Shrink to Fit` (bool, default: true), `Position X` / `Position Y` (default: 0.5), `Fit` (select: contain/cover/stretch, default: contain)
+  - Style: `Fill` (color, default: white), `Outline Width` (default: 0), `Outline Color`, `Background` (color, default: transparent)
+  - Texture: `Resolution` (int, default: 0 = auto, max: 4096), `Wrap` (select: clamp/repeat/mirror), `Filter` (select: linear/nearest)
+- **Description**: `Shift+Enter` in the text field adds a line break. Put a node or variable in braces to show its live value, as in `BPM {node_4}` or `{time}`, rounded to `Decimals` places. A field that starts with `=` is evaluated as one [expression](parameter-expressions.md). `Size` is a fraction of the texture, so the layout holds when the resolution changes. With `Resolution` at 0, the texture matches the output's pixel size, which keeps text sharp at high resolutions. `Custom Font` loads a .ttf, .otf or .woff file, or a font installed on this machine.
 
 ---
 
@@ -1843,7 +1944,20 @@ Runs custom shader code.
 - **Parameters**:
   - `Code` (glsl) - Custom GLSL/WGSL expression or statements
   - `Output Type` (select: f32/vec2/vec3/vec4, default: f32) - Output data type
-- **Description**: Escape hatch for writing shader code directly. Reference the four input pins as `input0`–`input3`, e.g. `sin(input0) * 2.0`.
+- **Description**: Escape hatch for writing shader code directly. Reference the four input pins as `input0`–`input3`, e.g. `sin(input0) * 2.0`. You can add more inputs, up to 8 (`input4` to `input7`). Hold **Alt** and drag a number in the code left or right to change it while you watch the output (see [Keyboard Shortcuts](shortcuts.md#code-editor)).
+
+### Projection
+
+#### Projection Map
+Corner-pins up to six sources onto physical surfaces for projection mapping.
+
+- **Category**: Utility
+- **Inputs**:
+  - `Surface 1` … `Surface 6` - The source shown on each mapped surface
+- **Outputs**:
+  - `out` (vec4) - The mapped frame, ready for the Output node
+- **Parameters**: None you edit on the node. You set corners, crops, masks, opacity and edge softness in the **Projection Mapping** panel (**View → Projection Mapping**, `Ctrl+Shift+M`).
+- **Description**: Opening the panel creates this node, wires it into the Output node and keeps it up to date; whatever was on the output becomes the first surface's source. Each surface shows its source inside a four-corner quad, cropped and optionally masked by a polygon of up to 16 points. While you align a rig, the node draws outlines, an alignment grid and crosshairs into its own output, so you see them on the wall rather than only in the editor. Dragging a corner never recompiles the shader.
 
 ### Compute Utility
 

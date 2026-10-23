@@ -31,7 +31,21 @@ A `.rz` file holds the whole project:
 - All nodes, their positions and their connections
 - All parameter values and expressions
 - Timeline keyframes and MIDI bindings
+- The VJ set (scenes, presets and playlist) and the VJ audio list
 - Project name and metadata
+
+### Media is saved by path
+
+Images, videos, audio clips and fonts are not copied into the `.rz` file. The
+project records **where each file is on your disk** and reads it from there when
+you open the project. This keeps project files small and lets you use videos of
+any size. Autosaves and backups work the same way.
+
+Fonts installed on your system, and media with no known file location, are still
+stored in the project.
+
+Because the media stays where it is, **moving or renaming a media file breaks
+the link**. See [Missing media](#missing-media) below.
 
 ### Autosave and backups
 
@@ -137,6 +151,20 @@ was moved; choose **File → Save As…** and pick another location.
 1. Update Rhizomium to the latest release
 2. Try a copy you kept elsewhere, or restore from **File → Backups**
 
+Projects saved by v0.9.0-beta.2 or later don't open in beta.1.
+
+### Missing media
+
+If a project uses an image, video, audio file or font that has moved, the
+project still opens, and a **Missing media** dialog lists each missing file,
+its last known path and the nodes that use it:
+
+- **Locate…** - point at the file for one row
+- **Search folder…** - pick a folder; every missing file found in it is
+  relinked. Files with the same name in different folders are told apart.
+- **Close** - skip for now. The nodes stay empty, but the references are kept,
+  so the next save still names the original files.
+
 ---
 
 ## Sharing Projects
@@ -149,6 +177,13 @@ was moved; choose **File → Save As…** and pick another location.
    - Cloud storage link
    - Direct file transfer
 3. The recipient opens it with **File → Open Project…** or drags it onto the canvas
+
+If the project uses images, videos, audio or custom fonts, send those files
+too, because the `.rz` file only records their paths. The recipient opens the
+project, then uses **Search folder…** in the
+[Missing media](#missing-media) dialog to point at the folder they saved them
+to. A patch [published to the gallery](#publishing-a-patch-to-the-gallery)
+carries its textures inside it.
 
 ### Collaborate
 
