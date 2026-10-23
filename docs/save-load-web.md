@@ -1,138 +1,78 @@
 # Saving Your Work
 
-Learn how to save, load, and manage your Rhizomium projects in the browser.
+Learn how to save, open and manage your Rhizomium projects.
 
 ---
 
 ## Quick Save
 
-**Keyboard Shortcut**: `Ctrl+S` (Windows/Linux) or `Cmd+S` (Mac)
+**Keyboard Shortcut**: `Ctrl+S`
 
 **Menu**: **File → Save**
 
-Your project is saved to your browser's local storage instantly!
+The first time you save a project, Rhizomium asks where to put it. After that,
+`Ctrl+S` writes straight back to the same file.
 
 ---
 
 ## How It Works
 
-### Browser Storage
+### Projects are files
 
-Rhizomium saves your projects in your browser's **Local Storage**:
+A Rhizomium project is a `.rz` file on your disk, saved wherever you choose:
 
-- **Fast** - Instant save and load
-- **Private** - Stored only on your computer
-- **No account needed** - Works offline
-- **Browser-specific** - Projects are tied to your browser
-- **Limited space** - Usually 5-10MB per site
+- **Yours** - An ordinary file you can copy, back up, email or put in Git
+- **Private** - Stays on your computer unless you publish it
+- **No account needed** - Saving and opening work offline
 
 ### What Gets Saved
 
-When you save, Rhizomium stores:
-- All nodes and their positions
-- All connections between nodes
-- All parameter values
+A `.rz` file holds the whole project:
+- All nodes, their positions and their connections
+- All parameter values and expressions
+- Timeline keyframes and MIDI bindings
 - Project name and metadata
 
-### What Doesn't Get Saved
+### Autosave and backups
 
-- Undo/redo history
-- Canvas zoom and position (resets on load)
-- Audio settings (resets on load)
+Separately from your project file, Rhizomium keeps a safety net:
+
+- **Autosave** - Your current work is snapshotted about every 30 seconds while
+  you edit. If Rhizomium closes unexpectedly, the welcome dialog offers
+  **Continue Last Session** the next time it starts.
+- **Backups** - The last 10 automatic backups are listed under
+  **File → Backups** (`Ctrl+B`), where you can restore one.
+
+These live in Rhizomium's own app data, not next to your project. They are a
+safety net, not a substitute for saving.
 
 ---
 
 ## Saving Projects
 
-### Creating a New Save
+### Save
 
 1. Build your visual in the editor
-2. Click **Save** button or press `Ctrl+S`
-3. Enter a project name when prompted
-4. Click **Save**
+2. Choose **File → Save** or press `Ctrl+S`
+3. The first time, pick a folder and a file name
+4. Later saves overwrite that file without asking
 
-Your project is now saved!
+### Save As
 
-### Updating an Existing Project
-
-1. Make changes to your visual
-2. Click **Save** or press `Ctrl+S`
-3. Choose to **overwrite** existing or **save as new**
+**File → Save As…** (`Ctrl+Shift+S`) always asks for a location and name.
+Use it to make a copy or a new version (`my_visual_v2.rz`); from then on,
+`Ctrl+S` saves to the new file.
 
 ---
 
-## Loading Projects
+## Opening Projects
 
-### Load Menu
+### Open
 
-1. Choose **File → Open Project…**
-2. Browse your saved projects
-3. Click a project name to load it
+1. Choose **File → Open Project…** (`Ctrl+O`)
+2. Pick a `.rz` file (older `.json` projects open too)
 
-### What Happens
-
-- Current graph is cleared (you'll be warned if unsaved)
-- Saved project is restored
-- All nodes and parameters are restored
-- Canvas view resets to default
-
----
-
-## Managing Projects
-
-### Renaming Projects
-
-Most versions support renaming in the Load menu:
-1. Open Load menu
-2. Right-click project name (if supported)
-3. Choose "Rename"
-
-Or save with a new name to create a copy.
-
-### Deleting Projects
-
-1. Open Load menu
-2. Find the project you want to delete
-3. Click the **delete/trash icon** next to it
-4. Confirm deletion
-
-**Warning**: Deleted projects cannot be recovered!
-
----
-
-## Exporting Projects
-
-### Download as JSON
-
-To backup or share your project:
-
-1. **Method A** - Export Button:
-   - Choose **File → Export**
-   - Choose save location
-   - Project downloads as `.json` file
-
-2. **Method B** - Console Export:
-   - Press `F12` to open console
-   - Find your project in Application → Local Storage
-   - Copy the JSON data
-   - Save to a text file with `.json` extension
-
-### Why Export?
-
-- **Backup** - Protect against browser data loss
-- **Sharing** - Send projects to friends
-- **Migration** - Move projects to another browser/computer
-- **Version Control** - Track changes with Git
-
----
-
-## Importing Projects
-
-### Upload JSON File
-
-1. Choose **File → Open Project…**
-2. Select a `.json` file from your computer
-3. Project loads immediately
+You'll be warned first if the current graph has unsaved changes.
 
 ### Drag and Drop
 
@@ -140,8 +80,10 @@ Drag a `.rz` or `.json` project file onto the canvas and it loads immediately.
 This is the quickest way to reopen a patch you downloaded from a gallery
 artwork.
 
-On the desktop build you can also double-click a `.rz` file in your file
-browser — Rhizomium is registered as its handler.
+### Double-click
+
+Double-click a `.rz` file in File Explorer — Rhizomium is registered as its
+handler.
 
 ---
 
@@ -149,127 +91,51 @@ browser — Rhizomium is registered as its handler.
 
 ### 1. Save Frequently
 
-Don't lose work - save every few minutes:
+Don't lose work - press `Ctrl+S` every few minutes:
 - After creating something you like
 - Before making major changes
-- Before closing the browser
+- Before closing Rhizomium
 
 ### 2. Use Descriptive Names
 
-Good: `audio_reactive_circles_v2`
-Bad: `project1`
+Good: `audio_reactive_circles_v2.rz`
+Bad: `project1.rz`
 
-### 3. Export Important Work
+### 3. Keep Copies of Important Work
 
-Download JSON backups of projects you care about:
-- Before making big changes
-- After completing a project
-- Monthly backups of all projects
+Project files are only as safe as the disk they're on. Keep copies of the ones
+you care about in cloud storage (Dropbox, Google Drive) or in Git.
 
-### 4. Organize with Names
+### 4. Version Your Work
 
-Use prefixes to organize:
-- `exp_` - Experiments
-- `show_` - Performance pieces
-- `wip_` - Works in progress
-- `final_` - Completed works
-
-### 5. Version Your Work
-
-Keep multiple versions:
-- `my_visual_v1`
-- `my_visual_v2`
-- `my_visual_final`
-
----
-
-## Storage Limits
-
-### Browser Quota
-
-Typical limits:
-- **Chrome/Edge**: 5-10MB per origin
-- **Firefox**: 10MB per origin
-- **Safari**: 5MB per origin
-
-### How Much Space Do Projects Use?
-
-- Simple project: 5-20 KB
-- Medium project: 20-50 KB
-- Complex project: 50-200 KB
-
-You can typically store 50-200 projects!
-
-### Check Your Usage
-
-Open browser console (F12):
-```javascript
-// Check Local Storage size
-let size = 0;
-for (let key in localStorage) {
-  size += localStorage[key].length;
-}
-console.log('Storage used:', Math.round(size / 1024), 'KB');
-```
-
----
-
-## Data Safety
-
-### Risks
-
-Projects can be lost if:
-- **Browser cache is cleared** - Clears all projects!
-- **Incognito/Private mode** - Not saved permanently
-- **Different browser** - Projects don't transfer
-- **Browser uninstall** - Removes all data
-- **Computer crash** - Rare, but possible
-
-### Protect Your Work
-
-**Export important projects** as JSON files
-**Keep backups** in cloud storage (Dropbox, Google Drive)
-**Don't rely solely on browser storage**
-**Avoid clearing browser data** for studio.tenderworld.org
+Use **Save As** to keep multiple versions:
+- `my_visual_v1.rz`
+- `my_visual_v2.rz`
+- `my_visual_final.rz`
 
 ---
 
 ## Troubleshooting
 
-### "Failed to save"
+### "Save failed"
 
-**Cause**: Browser storage is full
-
-**Solutions**:
-1. Delete old projects
-2. Export and delete some projects
-3. Clear other site data (carefully!)
+The status bar shows the reason. Most often the folder is read-only or the file
+was moved; choose **File → Save As…** and pick another location.
 
 ### "Project disappeared"
 
-**Cause**: Browser data was cleared
-
-**Solutions**:
-- Check if you exported it before
-- Check browser trash/recovery
-- Unfortunately, un-exported projects are gone
+- Look where you saved it - **File → Open Project…** usually opens in the last
+  folder you used
+- Check the Recycle Bin
+- If it was never saved, open **File → Backups** and restore the latest backup
 
 ### "Can't load project"
 
-**Cause**: Corrupted data or incompatible version
+**Cause**: Corrupted file or a project from a newer version of Rhizomium
 
 **Solutions**:
-1. Try refreshing the page
-2. Check browser console for errors
-3. If you have JSON backup, try importing it
-
-### Multiple browsers show different projects
-
-**This is normal!** Each browser stores data separately:
-- Chrome projects ≠ Edge projects
-- Regular mode ≠ Incognito mode
-
-Export projects to share between browsers.
+1. Update Rhizomium to the latest release
+2. Try a copy you kept elsewhere, or restore from **File → Backups**
 
 ---
 
@@ -277,18 +143,16 @@ Export projects to share between browsers.
 
 ### Share with Others
 
-1. Export your project as JSON
-2. Share the file via:
+1. Save your project
+2. Share the `.rz` file via:
    - Email attachment
-   - GitHub Gist
    - Cloud storage link
    - Direct file transfer
-
-3. Recipient imports the JSON file
+3. The recipient opens it with **File → Open Project…** or drags it onto the canvas
 
 ### Collaborate
 
-- Share JSON files back and forth
+- Share `.rz` files back and forth
 - Use version numbers to track changes
 - Consider using Git for version control
 
@@ -312,8 +176,7 @@ work.
 - Textures, **embedded in the file** — so the patch opens on a machine that has
   never seen your source images
 
-Removed before upload: wall-clock timestamps, your browser and platform
-details, and anything that looks like a credential or a path on your machine.
+Removed before upload: wall-clock timestamps, your platform details, and anything that looks like a credential or a path on your machine.
 
 ### Patches are public
 
@@ -345,13 +208,12 @@ to update rather than loading it half-way. Updating fixes it.
 ## Privacy
 
 Projects you save are **private by default**:
-- Stored only in your browser
+- Stored only on your computer, where you saved them
 - Not sent to any server
 - Not accessible to anyone else
-- Not tracked or analyzed
 
 The one exception is **publishing**: when you publish to the gallery, both the
-render and the attached patch become public. Nothing leaves your browser until
+render and the attached patch become public. Nothing leaves your computer until
 you choose to publish.
 
 ---
@@ -364,4 +226,4 @@ you choose to publish.
 
 ---
 
-_Save early, save often, and export your best work!_
+_Save early, save often, and keep copies of your best work!_

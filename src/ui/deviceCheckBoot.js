@@ -13,6 +13,7 @@
 // set below (see startWhenDeviceCheckReady in main.js).
 
 import { DeviceDetector } from '../utils/DeviceDetector.js';
+import { isTauri } from '../utils/isTauri.js';
 
 async function checkDeviceSupport() {
   const overlay = document.getElementById('device-warning-overlay');
@@ -45,6 +46,22 @@ async function checkDeviceSupport() {
           <li>Please use a desktop or laptop computer</li>
           <li>Use Chrome 113+, Edge 113+, or Opera 99+</li>
           <li>Ensure WebGPU is enabled in your browser</li>
+        </ul>
+      `;
+    } else if (support.reason === 'webgpu' && isTauri()) {
+      // The installed app renders in the system WebView, so browser advice
+      // (update Chrome, flip a flag) is no help here.
+      title = 'WebGPU Not Available';
+      message = 'Your graphics card or driver does not support WebGPU, which Rhizomium needs to render.';
+      details = `
+        <strong>Device Type:</strong> ${support.details.deviceType}
+      `;
+      solutions = `
+        <h3>To enable WebGPU:</h3>
+        <ul>
+          <li>Update your graphics driver from NVIDIA, AMD or Intel</li>
+          <li>Install the latest Windows updates</li>
+          <li>Restart Rhizomium afterwards</li>
         </ul>
       `;
     } else if (support.reason === 'webgpu') {

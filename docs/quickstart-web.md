@@ -4,16 +4,19 @@ Get started with Rhizomium in just 5 minutes! This guide will help you create yo
 
 ---
 
-## Step 1: Open Rhizomium
+## Step 1: Install and open Rhizomium
 
-Visit **[https://studio.tenderworld.org/](https://studio.tenderworld.org/)** in Chrome or Edge.
+Rhizomium is a desktop app for Windows 10 or later (64-bit). There is no web
+version. Download the installer from the
+**[latest release](https://github.com/Amirashkan/rhizomium/releases/latest)**,
+run it, and open Rhizomium from the Start menu.
 
-A welcome dialog greets you on first load:
+A welcome dialog greets you on first launch:
 
 ![The welcome dialog shown on first load](images/welcome-dialog.webp)
 
-Choose **Start New Graph**. (**Open Project File** loads a `.json` you exported
-earlier, and **Manage Backups** opens the autosaves the editor keeps as you work.)
+Choose **Start New Graph**. (**Open Project File** opens a `.rz` project you
+saved earlier, and **Manage Backups** opens the autosaves the editor keeps as you work.)
 
 Under **Start From A Patch** are three finished graphs — *Aurora Field*, *Mirror
 Cells* and *Dot Bloom* — each built around a different move: one source feeding
@@ -33,8 +36,6 @@ You then land in the editor:
 
 A new graph is not empty - it starts with **Compute Noise → Gradient → Output**
 already wired up, so there is something on screen immediately.
-
-**No installation required** - it runs entirely in your browser!
 
 ---
 
@@ -184,7 +185,7 @@ Ready to learn more?
 
 - **Black preview?** Make sure you have an Output node connected
 - **Can't add nodes?** Try right-clicking on an empty area
-- **Browser not supported?** Use Chrome 113+ or Edge 113+
+- **"WebGPU not supported"?** Update Windows and your graphics driver
 - **More questions?** Check the **[FAQ](faq-web.md)**
 
 ---

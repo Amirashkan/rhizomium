@@ -2,7 +2,7 @@
 
 **Visual Synthesis, Rhizome-Style**
 
-Welcome to Rhizomium - a node-based visual synthesis environment that runs entirely in your browser. Create stunning real-time generative visuals by connecting nodes together, no coding required.
+Welcome to Rhizomium - a node-based visual synthesis environment for Windows. Create stunning real-time generative visuals by connecting nodes together, no coding required.
 
 ---
 
@@ -29,11 +29,11 @@ Rhizomium is a **GPU-powered visual programming tool** where you create shaders 
 
 Ready to create? You're just a few clicks away:
 
-1. **[Open Rhizomium](https://studio.tenderworld.org/)** - Launch the editor
+1. **[Download Rhizomium](https://github.com/Amirashkan/rhizomium/releases/latest)** - The Windows installer
 2. **[Quick Start Guide](quickstart-web.md)** - Create your first visual in 5 minutes
 3. **[Your First Graph](guide.md)** - Step-by-step tutorial
 
-**No installation needed** - runs entirely in your browser with WebGPU.
+Rhizomium is a desktop app - there is no web version.
 
 ---
 
@@ -85,19 +85,15 @@ Create and perform with visuals in real-time, perfect for VJ work and live shows
 - **Real-Time** - Instant visual feedback as you create
 - **Node-Based** - Visual programming, no coding required
 - **Save/Load** - Manage multiple projects
-- **Browser-Based** - Works in Chrome and Edge
-- **No Installation** - Start creating immediately
+- **Desktop App** - A native Windows app, no account needed
 
 ---
 
 ## System Requirements
 
-- **Browser**: Chrome 113+ or Edge 113+ (with WebGPU support)
-- **GPU**: Any modern graphics card (last 5-7 years)
+- **OS**: Windows 10 or later (64-bit)
+- **GPU**: A graphics card with WebGPU support (most from the last 5-7 years)
 - **RAM**: 4GB minimum
-- **OS**: Windows, macOS, or Linux
-
-**Check compatibility**: Visit [webgpu.io](https://webgpu.io/) to test your browser.
 
 ---
 
@@ -121,7 +117,7 @@ There's no "right" way to create - explore, experiment, and evolve.
 
 ## Quick Links
 
-- **[Open Rhizomium Studio](https://studio.tenderworld.org/)** - Start creating now
+- **[Download Rhizomium](https://github.com/Amirashkan/rhizomium/releases/latest)** - The Windows installer
 - **[GitHub Repository](https://github.com/Amirashkan/rhizomium)** - Source code
 - **[Quick Start Tutorial](quickstart-web.md)** - Your first visual
 

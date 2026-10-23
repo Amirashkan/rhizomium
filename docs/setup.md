@@ -1,6 +1,9 @@
 # Installation & Setup
 
-This guide covers everything you need to know to install and set up Rhizomium on your local machine.
+This guide covers running Rhizomium from source on your local machine. To just
+use Rhizomium, install the Windows desktop app from the
+[latest release](https://github.com/Amirashkan/rhizomium/releases/latest) -
+there is no web version.
 
 ---
 
@@ -8,7 +11,7 @@ This guide covers everything you need to know to install and set up Rhizomium on
 
 ### Browser Requirements
 
-Rhizomium requires a **WebGPU-capable browser**:
+The development server runs the editor in a **WebGPU-capable browser**:
 
 - **Chrome** 113 or later
 - **Edge** 113 or later
@@ -42,15 +45,13 @@ For local development/server:
 
 ## Quick Installation
 
-### Option 1: Cloud Access (Easiest)
+### Option 1: Desktop App (Easiest)
 
-No installation required! Access Rhizomium directly:
+Download and run the Windows installer from the
+[latest release](https://github.com/Amirashkan/rhizomium/releases/latest).
+Nothing else is needed.
 
-**Live Demo**: [https://studio.tenderworld.org/](https://studio.tenderworld.org/)
-
-**Note**: Some features like the External Viewer require local installation.
-
-### Option 2: Local Installation (Recommended)
+### Option 2: Run from Source
 
 #### Step 1: Clone or Download
 

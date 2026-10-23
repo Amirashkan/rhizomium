@@ -10,7 +10,7 @@ There is no TypeScript build. Everything is plain ES modules, loaded by Vite.
 
 ## The one-paragraph version
 
-A **graph** of nodes is edited in the browser. On every change the graph is
+A **graph** of nodes is edited on a canvas. On every change the graph is
 compiled to a single **WGSL shader** by a tree of small per-category compilers.
 That shader is handed to a **WebGPU renderer** which owns the device, the
 pipelines and the uniform buffers, and which draws a full-screen quad every
