@@ -16,8 +16,9 @@
  *   - output size and sim quality are part of the ARTWORK (resolution-dependent
  *     sims look different at a different size), so they are saved in the project
  *     file and mirrored to localStorage only as the between-projects default;
- *   - preview quality and the export target belong to the MACHINE, so they live
- *     in localStorage and never travel with a project.
+ *   - preview quality belongs to the MACHINE, so it lives in localStorage and
+ *     never travels with a project;
+ *   - the export target is per-session: it starts at the output format.
  */
 
 export const MIN_WIDTH = 128;
@@ -115,13 +116,11 @@ function writeStorage(key, value) {
 const storedOutput = readStorage(OUTPUT_STORAGE_KEY);
 if (storedOutput) state.output = sanitizeSize(storedOutput, DEFAULT_OUTPUT);
 
+// The export target is deliberately not restored: each session's exports start
+// at the output format, and a custom size lasts only as long as it is wanted.
 const storedMachine = readStorage(MACHINE_STORAGE_KEY);
 if (storedMachine) {
   state.previewQuality = sanitizeQuality(storedMachine.previewQuality);
-  const target = storedMachine.exportTarget;
-  if (target?.mode === "custom") {
-    state.exportTarget = { mode: "custom", ...sanitizeSize(target, state.output) };
-  }
 }
 
 /** Roles whose resolution moves when the given setting changes. */

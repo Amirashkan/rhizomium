@@ -1092,11 +1092,9 @@ export function getBrowserAudioCapture() {
  * Get the current audio envelope value (convenience function)
  */
 export function getAudioEnvelope() {
-    if (!instance) {
-        instance = new BrowserAudioCapture();
-    }
-    const value = instance.getValue();
-    return value;
+    // Through the getter, so a singleton first made here is still the one window.audioCapture
+    // names - the exporters look for the loaded track there.
+    return getBrowserAudioCapture().getValue();
 }
 
 export default BrowserAudioCapture;

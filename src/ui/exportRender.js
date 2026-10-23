@@ -24,12 +24,14 @@ import {
   openAudioTap,
   selectRecordingMimeType,
 } from '../audio/recordingAudio.js';
+import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 import {
   buildExportFilename,
   formatFileSize,
   getExportSettings,
   resolveVideoBitrate,
 } from './exportSettings.js';
+import { saveExport } from './exportDestination.js';
 
 function getPreview() {
   return window.floatingPreview || null;
@@ -71,13 +73,10 @@ function blitCapture({ pixels, bytesPerRow }, width, height) {
   return exportCanvas;
 }
 
-function downloadBlob(blob, filename, revokeAfterMs = 100) {
-  const link = document.createElement('a');
-  link.download = filename;
-  link.href = URL.createObjectURL(blob);
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), revokeAfterMs);
-  return link.download;
+/** Where a saved export went, for the toast that says so. */
+function savedTo({ location, fellBack }) {
+  if (fellBack) return ' — the chosen folder could not be written, so it went to Downloads';
+  return location === 'Downloads' ? '' : ` → ${location}`;
 }
 
 /**
@@ -95,9 +94,23 @@ export function isVideoExportSupported() {
   );
 }
 
+/**
+ * The Audio panel's capture client. window.audioCapture is the usual handle, but
+ * it is only set once something has asked for the singleton, so fall back to the
+ * getter rather than reporting a loaded track as missing.
+ */
+export function getAudioCapture() {
+  if (window.audioCapture) return window.audioCapture;
+  try {
+    return getBrowserAudioCapture();
+  } catch {
+    return null;
+  }
+}
+
 /** Is there a loaded audio track a recording could carry? */
 export function canRecordAudio() {
-  return hasRecordableAudio(window.audioCapture);
+  return hasRecordableAudio(getAudioCapture());
 }
 
 /**
@@ -162,9 +175,9 @@ export async function exportPNG(options = {}) {
       return { ok: false, error: 'encode-failed' };
     }
 
-    progress.update(95, 'Preparing download...', `File size: ${formatFileSize(blob.size)}`);
+    progress.update(95, 'Saving file...', `File size: ${formatFileSize(blob.size)}`);
 
-    const filename = downloadBlob(
+    const saved = await saveExport(
       blob,
       buildExportFilename({
         prefix: settings.filenamePrefix,
@@ -173,11 +186,12 @@ export async function exportPNG(options = {}) {
         extension: 'png',
       })
     );
+    const { filename } = saved;
 
     progress.update(100, 'Export complete!', filename);
     setTimeout(() => {
       progress.close();
-      modalManager.toast(`PNG exported: ${filename}`, 'success', 'Export Complete');
+      modalManager.toast(`PNG exported: ${filename}${savedTo(saved)}`, 'success', 'Export Complete');
     }, 500);
 
     return { ok: true, filename, width, height, size: blob.size };
@@ -230,9 +244,10 @@ export async function exportAnimation(options = {}) {
   // a recording of an audio-reactive patch that plays silent is a recording of
   // something dancing to nothing.
   let audioTap = null;
-  if (settings.includeAudio && hasRecordableAudio(window.audioCapture)) {
+  const audioCapture = getAudioCapture();
+  if (settings.includeAudio && hasRecordableAudio(audioCapture)) {
     try {
-      audioTap = await openAudioTap(window.audioCapture);
+      audioTap = await openAudioTap(audioCapture);
     } catch (err) {
       console.warn('Could not tap the audio graph, recording without sound:', err);
     }
@@ -454,9 +469,9 @@ export async function exportAnimation(options = {}) {
     const blob = new Blob(chunks, { type: mimeType });
     const recordedSeconds = Math.min(duration, (Date.now() - startTime) / 1000);
 
-    progress.update(95, 'Preparing download...', `File size: ${formatFileSize(blob.size)}`);
+    progress.update(95, 'Saving file...', `File size: ${formatFileSize(blob.size)}`);
 
-    const filename = downloadBlob(
+    const saved = await saveExport(
       blob,
       buildExportFilename({
         prefix: settings.filenamePrefix,
@@ -465,16 +480,17 @@ export async function exportAnimation(options = {}) {
         fps,
         extension: fileExt,
       }),
-      1000
+      { revokeAfterMs: 1000 }
     );
+    const { filename } = saved;
 
     progress.update(100, 'Export complete!', filename);
     setTimeout(() => {
       progress.close();
       modalManager.toast(
         stopRequested
-          ? `Animation exported (stopped at ${recordedSeconds.toFixed(1)}s): ${filename}`
-          : `Animation exported: ${filename}`,
+          ? `Animation exported (stopped at ${recordedSeconds.toFixed(1)}s): ${filename}${savedTo(saved)}`
+          : `Animation exported: ${filename}${savedTo(saved)}`,
         'success',
         'Export Complete'
       );

@@ -17,11 +17,14 @@
  * multiple of the composition rather than free pixels, so an export cannot
  * quietly acquire an aspect ratio the piece was never composed in. Custom is
  * still there for the case that needs it, with the ratio held by default.
+ *
+ * Where the file lands is the last field: the download folder unless a folder
+ * has been chosen (exportDestination.js).
  */
 
 import { makeDraggable } from './utils/draggable.js';
 import { makeResizable } from './utils/resizable.js';
-import { canRecordAudio, isVideoExportSupported, runExport } from './exportRender.js';
+import { canRecordAudio, getAudioCapture, isVideoExportSupported, runExport } from './exportRender.js';
 import { AUDIO_BITRATE, selectRecordingMimeType } from '../audio/recordingAudio.js';
 import {
   MAX_HEIGHT,
@@ -48,6 +51,15 @@ import {
   setExportSettings,
   subscribeExportSettings,
 } from './exportSettings.js';
+import {
+  canChooseExportFolder,
+  chooseExportFolder,
+  ensureExportPermission,
+  getExportDestination,
+  loadExportDestination,
+  resetExportDestination,
+  subscribeExportDestination,
+} from './exportDestination.js';
 
 /**
  * Export sizes offered as multiples of the composition. A multiple is the
@@ -305,6 +317,48 @@ function injectStyles() {
     #export-panel .ep-export:hover:not(:disabled) { background: var(--rz-accent-hover, #d7f877); }
     #export-panel .ep-export:disabled { opacity: 0.45; cursor: not-allowed; }
 
+    #export-panel .ep-path {
+      flex: 1;
+      min-width: 0;
+      padding: 7px 8px;
+      background: var(--rz-well, #0f0c0a);
+      border: 1px solid var(--rz-line-strong, rgba(255,244,230,0.13));
+      border-radius: var(--rz-r-field, 8px);
+      font-family: var(--rz-font-mono, monospace);
+      font-size: 11.5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      direction: rtl;
+      text-align: left;
+    }
+
+    #export-panel .ep-browse {
+      flex: 0 0 auto;
+      padding: 7px 12px;
+      background: var(--rz-fill-soft, rgba(255,244,230,0.05));
+      border: 1px solid var(--rz-line-strong, rgba(255,244,230,0.13));
+      border-radius: var(--rz-r-field, 8px);
+      color: var(--rz-text, #f3ede4);
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #export-panel .ep-browse:hover:not(:disabled) { background: var(--rz-hover, rgba(255,244,230,0.07)); }
+    #export-panel .ep-browse:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #export-panel .ep-link {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--rz-text-3, #8f867a);
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    #export-panel .ep-link:hover { color: var(--rz-text, #f3ede4); }
+
     #export-panel .ep-reset {
       display: block;
       margin: 8px auto 0;
@@ -361,9 +415,14 @@ export class ExportPanel {
   }
 
   show() {
+    // Every export starts at the Output Format set in the Preview / Export
+    // Settings window; a custom size is a choice for one export, not a new default.
+    this.customMode = false;
+    setExportTarget({ mode: 'output' }, 'exportPanel');
+
     if (this.panel) {
       this.panel.style.display = 'flex';
-      requestAnimationFrame(() => this.panel.classList.add('visible'));
+      requestAnimationFrame(() => this.panel?.classList.add('visible'));
       this._refresh();
       return;
     }
@@ -420,6 +479,7 @@ export class ExportPanel {
       this._buildSizeField(),
       this._buildVideoFields(),
       this._buildFilenameField(),
+      this._buildDestinationField(),
     );
 
     const footer = document.createElement('div');
@@ -447,6 +507,7 @@ export class ExportPanel {
     reset.onclick = () => {
       resetExportSettings('exportPanel');
       setExportTarget({ mode: 'output' }, 'exportPanel');
+      resetExportDestination();
       this.lockAspect = true;
       this.customMode = false;
       this._refresh();
@@ -480,7 +541,24 @@ export class ExportPanel {
     this.unsubscribes.push(
       subscribeOutputFormat(() => this._refresh()),
       subscribeExportSettings(() => this._refresh()),
+      subscribeExportDestination(() => this._refreshDestination()),
+      this._followAudio(),
     );
+    // A folder chosen in an earlier desktop session.
+    loadExportDestination();
+  }
+
+  /**
+   * Repaint the audio row when a track is loaded, started or stopped from the
+   * Audio panel, so it never claims there is no audio while one is loaded.
+   */
+  _followAudio() {
+    const capture = getAudioCapture();
+    if (typeof capture?.on !== 'function') return () => {};
+    const refresh = () => this._refresh();
+    const events = ['loaded', 'started', 'stopped'];
+    events.forEach((event) => capture.on(event, refresh));
+    return () => events.forEach((event) => capture.off?.(event, refresh));
   }
 
   _buildFormatField() {
@@ -718,6 +796,53 @@ export class ExportPanel {
     return field;
   }
 
+  _buildDestinationField() {
+    const field = document.createElement('div');
+    field.className = 'ep-field';
+
+    const label = document.createElement('label');
+    label.className = 'ep-label';
+    label.textContent = 'Save to';
+
+    const row = document.createElement('div');
+    row.className = 'ep-row';
+
+    const path = document.createElement('div');
+    path.className = 'ep-path';
+
+    const browse = document.createElement('button');
+    browse.className = 'ep-browse';
+    browse.textContent = 'Choose…';
+    browse.onclick = async () => {
+      browse.disabled = true;
+      try {
+        await chooseExportFolder();
+      } catch (err) {
+        console.warn('[ExportPanel] could not choose a folder:', err);
+      } finally {
+        browse.disabled = !canChooseExportFolder();
+      }
+    };
+
+    row.append(path, browse);
+
+    const note = document.createElement('div');
+    note.className = 'ep-note';
+
+    const useDownloads = document.createElement('button');
+    useDownloads.className = 'ep-link';
+    useDownloads.textContent = 'Use the download folder';
+    useDownloads.onclick = () => resetExportDestination();
+
+    field.append(label, row, note, useDownloads);
+
+    this.controls.destinationPath = path;
+    this.controls.destinationBrowse = browse;
+    this.controls.destinationNote = note;
+    this.controls.destinationReset = useDownloads;
+    return field;
+  }
+
   // --------------------------------------------------------------- controls
 
   _numberInput(min, max, placeholder) {
@@ -810,14 +935,42 @@ export class ExportPanel {
     if (audioNote) {
       audioNote.textContent = audioAvailable
         ? 'The video carries the music the patch is reacting to, in sync. Playback starts from where the playhead sits now.'
-        : 'No audio file is loaded, so the recording will be silent.';
+        : 'No audio is loaded in the Audio panel, so the recording will be silent.';
     }
 
     if (this.controls.filename && document.activeElement !== this.controls.filename) {
       this.controls.filename.value = settings.filenamePrefix;
     }
 
+    this._refreshDestination();
     this._refreshSummary();
+  }
+
+  _refreshDestination() {
+    const { destinationPath, destinationBrowse, destinationNote, destinationReset } = this.controls;
+    if (!destinationPath) return;
+
+    const destination = getExportDestination();
+    const isFolder = destination.kind === 'folder';
+    const canChoose = canChooseExportFolder();
+
+    // Bidi-isolated so the rtl ellipsis trims the start of a long path, not
+    // its end, without reordering the path's own characters.
+    destinationPath.textContent = `\u2068${isFolder ? destination.path || destination.label : 'Downloads'}\u2069`;
+    destinationPath.title = isFolder ? destination.path || destination.label : 'Downloads';
+    destinationBrowse.disabled = !canChoose;
+    destinationReset.style.display = isFolder ? 'inline' : 'none';
+
+    if (!canChoose) {
+      destinationNote.textContent =
+        'This browser saves exports to its download folder; it cannot be pointed at another one.';
+    } else if (isFolder) {
+      destinationNote.textContent = destination.path
+        ? 'Existing files are never overwritten - a clash gets a numbered name.'
+        : 'Existing files are never overwritten. The browser forgets this folder when the tab closes.';
+    } else {
+      destinationNote.textContent = 'Wherever the browser puts downloads.';
+    }
   }
 
   _refreshSizeControls() {
@@ -934,6 +1087,10 @@ export class ExportPanel {
       exportBtn.disabled = true;
       exportBtn.textContent = 'Exporting…';
     }
+
+    // Asked now, while the click still counts as the artist's: the browser will
+    // not show its permission prompt at the end of a recording.
+    await ensureExportPermission();
 
     // Out of the way: the panel sits over the preview, and the exporter resizes
     // the very canvas the artist wants to watch while it records.

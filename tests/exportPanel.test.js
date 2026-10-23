@@ -194,7 +194,7 @@ describe('the export panel', () => {
   it('explains that a silent patch records silent, and offers nothing to tick', () => {
     expect(panel.controls.audio.input.disabled).toBe(true);
     expect(panel.controls.audio.input.checked).toBe(false);
-    expect(panel.controls.audioNote.textContent).toContain('No audio file is loaded');
+    expect(panel.controls.audioNote.textContent).toContain('No audio is loaded');
   });
 
   it('offers the audio track once there is one', () => {
@@ -204,6 +204,35 @@ describe('the export panel', () => {
     expect(panel.controls.audio.input.disabled).toBe(false);
     expect(panel.controls.audio.input.checked).toBe(true);
     expect(summaryText()).toContain('with audio');
+  });
+
+  it('notices a track loaded in the Audio panel while it is open', () => {
+    panel.destroy();
+    const listeners = {};
+    const capture = {
+      on: (event, cb) => (listeners[event] = cb),
+      off: vi.fn(),
+    };
+    window.audioCapture = capture;
+    panel = new ExportPanel();
+    panel.show();
+    expect(panel.controls.audio.input.disabled).toBe(true);
+
+    Object.assign(capture, { audioContext: {}, source: {}, audioElement: {} });
+    listeners.loaded();
+
+    expect(panel.controls.audio.input.disabled).toBe(false);
+    expect(panel.controls.audioNote.textContent).toContain('in sync');
+  });
+
+  it('opens at the output format even after a custom export', () => {
+    setExportTarget({ mode: 'custom', width: 1000, height: 500 }, 'test');
+    panel.hide();
+    panel.show();
+
+    expect(getExportTarget().mode).toBe('output');
+    expect(resolveResolution('export')).toEqual({ width: 1920, height: 1080 });
+    expect(panel.controls.sizeSelect.value).toBe('1');
   });
 
   it('names the file the way the export will', () => {
@@ -241,5 +270,31 @@ describe('the export panel', () => {
     select.onchange();
 
     expect(warningEl().textContent).toContain('large file');
+  });
+});
+
+describe('the export panel destination', () => {
+  it('starts at the download folder', () => {
+    expect(panel.controls.destinationPath.textContent).toContain('Downloads');
+    expect(panel.controls.destinationReset.style.display).toBe('none');
+  });
+
+  it('shows a chosen folder and offers the way back', async () => {
+    window.showDirectoryPicker = vi.fn(async () => ({ name: 'renders' }));
+    panel._refresh();
+    expect(panel.controls.destinationBrowse.disabled).toBe(false);
+
+    panel.controls.destinationBrowse.click();
+    await vi.waitFor(() => expect(panel.controls.destinationPath.textContent).toContain('renders'));
+    expect(panel.controls.destinationReset.style.display).toBe('inline');
+
+    panel.controls.destinationReset.click();
+    await vi.waitFor(() => expect(panel.controls.destinationPath.textContent).toContain('Downloads'));
+    delete window.showDirectoryPicker;
+  });
+
+  it('says so when the browser cannot pick a folder', () => {
+    expect(panel.controls.destinationBrowse.disabled).toBe(true);
+    expect(panel.controls.destinationNote.textContent).toContain('download folder');
   });
 });

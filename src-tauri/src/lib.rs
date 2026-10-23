@@ -550,6 +550,112 @@ fn write_media_file(
     Err(format!("Too many files named like {name} in {folder}"))
 }
 
+/// Where exports go, when the artist has picked somewhere other than the
+/// webview's download folder. One folder, chosen in a native dialog and kept in
+/// the app data directory so it is still chosen tomorrow.
+///
+/// The webview never names the folder it writes into: `write_export_file` takes
+/// a file name and nothing else, and this is the only folder it can reach.
+const EXPORT_FOLDER_FILE: &str = "export-folder.txt";
+
+fn export_folder_file(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    app.path().app_data_dir().ok().map(|dir| dir.join(EXPORT_FOLDER_FILE))
+}
+
+/// The chosen export folder, or None when there is none or it has gone.
+fn stored_export_folder(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    let contents = std::fs::read_to_string(export_folder_file(app)?).ok()?;
+    let folder = std::path::PathBuf::from(contents.trim());
+    (!contents.trim().is_empty() && folder.is_dir()).then_some(folder)
+}
+
+/// The export folder the artist chose, if it still exists.
+#[tauri::command]
+fn get_export_folder(app: tauri::AppHandle) -> Option<String> {
+    stored_export_folder(&app).map(|folder| folder.to_string_lossy().to_string())
+}
+
+/// Pick the export folder in a native dialog. Cancelling keeps the current one.
+#[tauri::command]
+async fn pick_export_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let mut dialog = app.dialog().file();
+    if let Some(current) = stored_export_folder(&app) {
+        dialog = dialog.set_directory(current);
+    }
+    let Some(folder) = dialog.blocking_pick_folder().and_then(path_string) else {
+        return Ok(None);
+    };
+    let file = export_folder_file(&app).ok_or("No app data directory")?;
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    std::fs::write(&file, &folder).map_err(|err| format!("Could not remember the folder: {err}"))?;
+    Ok(Some(folder))
+}
+
+/// Go back to the download folder.
+#[tauri::command]
+fn clear_export_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let Some(file) = export_folder_file(&app) else { return Ok(()) };
+    match std::fs::remove_file(file) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
+/// Write an export into the chosen folder.
+///
+/// The bytes come as the raw request body and the file name as a
+/// percent-encoded `x-name` header, reduced to a bare name. An existing file is
+/// never overwritten - the new one gets a numbered name. Answers the path
+/// written. `no-folder` means there is no chosen folder (any more), and the
+/// frontend falls back to a download.
+#[tauri::command]
+fn write_export_file(app: tauri::AppHandle, request: tauri::ipc::Request) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Expected the file's bytes".into());
+    };
+    let name = request
+        .headers()
+        .get("x-name")
+        .and_then(|value| value.to_str().ok())
+        .and_then(percent_decode)
+        .and_then(|name| safe_file_name(&name))
+        .ok_or("Missing file name")?;
+    let folder = stored_export_folder(&app).ok_or("no-folder")?;
+
+    let (stem, extension) = match name.rfind('.') {
+        Some(dot) if dot > 0 => (name[..dot].to_string(), name[dot..].to_string()),
+        _ => (name.clone(), String::new()),
+    };
+
+    for attempt in 1..1000 {
+        let candidate = if attempt == 1 {
+            folder.join(&name)
+        } else {
+            folder.join(format!("{stem} ({attempt}){extension}"))
+        };
+        // create_new, so a file that appears between a check and the write is
+        // still never clobbered.
+        let file = std::fs::OpenOptions::new().write(true).create_new(true).open(&candidate);
+        match file {
+            Ok(mut file) => {
+                use std::io::Write;
+                file.write_all(bytes)
+                    .map_err(|err| format!("Could not write {}: {err}", candidate.display()))?;
+                return Ok(candidate.to_string_lossy().to_string());
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(format!("Could not write {}: {err}", candidate.display())),
+        }
+    }
+    Err(format!("Too many files named like {name} in {}", folder.display()))
+}
+
 /// A file dropped on the editor: grant it, then tell the frontend where it
 /// landed so the drop zone under the cursor can take it. Granting happens here,
 /// before the event, so the frontend's read cannot race ahead of it.
@@ -738,6 +844,10 @@ pub fn run() {
             find_media_in_folder,
             read_media_file,
             write_media_file,
+            get_export_folder,
+            pick_export_folder,
+            clear_export_folder,
+            write_export_file,
             app_ready,
             open_gallery_page
         ])
