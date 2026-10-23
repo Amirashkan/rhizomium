@@ -1,6 +1,6 @@
 # Audio Reactivity
 
-Make your visuals react to music and sound! Rhizomium includes built-in audio analysis that works directly in your browser.
+Make your visuals react to music and sound! Rhizomium includes built-in audio analysis, with no extra software needed.
 
 ---
 
@@ -103,15 +103,12 @@ back to the speakers, so there is no feedback loop.
 
 **Best for**: Spotify, YouTube, a DJ app — anything already playing
 
-Press **Listen**, then pick a tab, window or screen in the browser's picker and
+Press **Listen**, then pick a window or screen in the share picker and
 **tick the share-audio box**. Without that tick the stream arrives with no
 audio track at all; the panel says so rather than sitting silently at zero.
 
-What the picker offers depends on the browser and OS — Chrome shows "Share tab
-audio" when you pick a tab and "Share system audio" when you pick a screen.
-Sharing a tab is the most widely supported; if no audio tick appears for a
-whole screen, share the tab instead. Nothing is played back — you still hear it
-from its own tab.
+Nothing is played back — you still hear the audio from the app that is
+playing it.
 
 No loopback driver, "Stereo Mix" device or third-party routing software is
 needed for any of this.
@@ -281,7 +278,8 @@ patch just has no audio in it. The way out depends on the tab you are on:
 2. On **Mic / line-in** or **System**, press **Listen**
 3. On **System**, check you ticked the share-audio box in the picker — without
    it the stream carries no audio track
-4. Check browser permissions for the microphone, and test it in another app
+4. Check Windows **Settings → Privacy & security → Microphone**, and test the
+   mic in another app
 5. Check **Gain** is not at 0 — it kills every meter. It is on the Audio node,
    not in the panel
 
@@ -342,24 +340,12 @@ Safe to use even with complex visuals!
 
 ---
 
-## Browser Compatibility
-
-| Browser | Audio Support | Notes |
-|---------|--------------|-------|
-| **Chrome 113+** | Full | Best experience |
-| **Edge 113+** | Full | Recommended |
-| **Opera** | Full | Works well |
-| **Firefox** | Limited | WebGPU issues |
-| **Safari** | Limited | WebGPU partial |
-
----
-
 ## Privacy & Security
 
 - **Microphone access** is required for audio reactivity
-- Audio is **processed locally** in your browser
+- Audio is **processed locally** on your computer
 - **No data is sent** to any server
-- You can revoke microphone permission anytime in browser settings
+- You can revoke microphone access anytime in Windows **Settings → Privacy & security → Microphone**
 
 ---
 

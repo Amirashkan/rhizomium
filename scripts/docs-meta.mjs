@@ -18,6 +18,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const SITE = 'https://studio.tenderworld.org';
+const RELEASES = 'https://github.com/Amirashkan/rhizomium/releases/latest';
 
 // Subdirectories of docs/ that ship in the repository but never on the site.
 // vite.config.js filters these out of the copy into dist/docs; the generators
@@ -85,9 +86,9 @@ export function renderDocsFallback(pages, sections) {
   html += '<p>Rhizomium is a modular GPU node environment for real-time generative ' +
           'visuals, built on WebGPU and WGSL. Shaders are composed visually by ' +
           'connecting nodes; parameters can be driven by expressions, audio, MIDI or ' +
-          'a keyframe timeline. It runs in the browser (Chrome or Edge 113+) with no ' +
-          'installation, and as a desktop app.</p>\n';
-  html += `<p>The editor is at <a href="${SITE}/studio">${SITE}/studio</a>. ` +
+          'a keyframe timeline. It is a desktop app for Windows 10 or later (64-bit); ' +
+          'there is no web version.</p>\n';
+  html += `<p>Download it from <a href="${RELEASES}">${RELEASES}</a>. ` +
           'This index is the plain-text version of the documentation; the pages below ' +
           'are the markdown sources, which read without JavaScript.</p>\n';
   for (const [section, list] of sections) {
@@ -122,9 +123,9 @@ export function generate(docsDir, outDir) {
   let llms = `# Rhizomium\n\n`;
   llms += `> A modular GPU node environment for real-time generative visuals, built on `;
   llms += `WebGPU and WGSL. Shaders are composed visually by connecting nodes; parameters `;
-  llms += `can be driven by expressions, audio, MIDI or a keyframe timeline. Runs in the `;
-  llms += `browser (Chrome/Edge 113+) with no installation, and as a Tauri desktop app.\n\n`;
-  llms += `The editor is at ${SITE}/studio and the documentation at ${SITE}/docs.\n`;
+  llms += `can be driven by expressions, audio, MIDI or a keyframe timeline. A desktop app `;
+  llms += `for Windows 10 or later (64-bit); there is no web version.\n\n`;
+  llms += `Download it from ${RELEASES}; the documentation is at ${SITE}/docs.\n`;
   llms += `Every page below is also readable as plain markdown at the URL given.\n\n`;
   for (const [section, list] of bySection) {
     llms += `## ${section || 'Documentation'}\n\n`;

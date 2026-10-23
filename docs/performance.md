@@ -319,41 +319,18 @@ No special optimization needed for audio. Use freely!
 
 ---
 
-## Browser Performance
+## System Performance
 
-### Best Browsers
+Rhizomium is a desktop app for Windows; there is no web version. Keep your
+graphics driver up to date - WebGPU performance depends on it.
 
-**Recommended:**
-1. **Chrome 113+** - Best WebGPU performance
-2. **Edge 113+** - Equal to Chrome (same engine)
-3. **Opera 99+** - Chromium-based, good performance
+### Free Up the GPU
 
-**Not Recommended:**
-- **Firefox** - WebGPU experimental, slower
-- **Safari** - Limited WebGPU support
-- **Older browsers** - No WebGPU at all
-
-### Browser Optimization
-
-1. **Close Unused Tabs**
-   - Each tab uses RAM
-   - GPU acceleration applies to all tabs
-   - Close Twitter, YouTube, etc.
-
-2. **Disable Extensions**
-   - Some extensions slow down canvas rendering
-   - Try incognito mode to test
-   - Especially ad blockers, video downloaders
-
-3. **Enable Hardware Acceleration**
-   - Chrome → Settings → System
-   - "Use hardware acceleration when available"
-   - Should be ON
-
-4. **Update Browser**
-   - Newer versions = better WebGPU
-   - Chrome updates improve GPU performance
-   - Always use latest stable version
+1. **Close other GPU-heavy apps** - Games, video editors and browsers with many
+   video tabs all compete for the same GPU
+2. **Use the dedicated GPU on laptops** - In Windows **Settings → System →
+   Display → Graphics**, set Rhizomium to *High performance*
+3. **Update your graphics driver** - Newer drivers improve WebGPU performance
 
 ---
 

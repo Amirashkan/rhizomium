@@ -727,7 +727,7 @@ export class WelcomeWindow {
               <li><strong>Connect Nodes:</strong> Drag from output pins to input pins. Drag works both ways!</li>
               <li><strong>Move Around:</strong> Pan with middle mouse button or Space+Drag</li>
               <li><strong>Undo/Redo:</strong> Use Cmd+Z / Cmd+Y or the History buttons</li>
-              <li><strong>Auto-Save:</strong> Your work is automatically saved in the browser</li>
+              <li><strong>Auto-Save:</strong> Your work is saved automatically as you go</li>
               <li><strong>Backups:</strong> Automatic backups are created as you work</li>
             </ul>
           </div>

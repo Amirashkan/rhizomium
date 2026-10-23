@@ -65,7 +65,7 @@ export class BackupDialog {
         </div>
         
         <div class="backup-footer">
-          <span class="backup-info">Backups are stored locally in your browser</span>
+          <span class="backup-info">Backups are stored locally on this computer</span>
         </div>
       </div>
     `;

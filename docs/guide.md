@@ -19,11 +19,11 @@ By the end of this guide, you'll have created a colorful, animated circular patt
 
 Before you start, make sure you have:
 
-1. Rhizomium running locally or accessed via the web
-2. A browser with WebGPU support (Chrome 113+ or Edge 113+)
-3. The node editor open (usually at `/studio` or `/editor`)
+1. The Rhizomium desktop app installed (Windows 10 or later, 64-bit)
+2. A graphics card with WebGPU support
+3. The editor open
 
-If you haven't set up Rhizomium yet, check out the [Quick Start guide](quickstart.md).
+If you haven't set up Rhizomium yet, check out the [Quick Start guide](quickstart-web.md).
 
 ---
 

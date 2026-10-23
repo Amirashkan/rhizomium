@@ -4,14 +4,14 @@ A node editor for real-time generative visuals. Build a shader by connecting
 nodes, drive any parameter from audio, MIDI, OSC or a timeline, and push the
 result to a projector, a video wall or an NDI feed.
 
-Runs in the browser on WebGPU. No installation, no account.
+A desktop app for Windows, rendering on WebGPU. No account needed.
 
-[**Open the editor →**](https://studio.tenderworld.org/studio) ·
+[**Download for Windows →**](https://github.com/Amirashkan/rhizomium/releases/latest) ·
 [Documentation](https://studio.tenderworld.org/docs) ·
 [Contributing](CONTRIBUTING.md) · [Architecture](ARCHITECTURE.md)
 
-> **Requires WebGPU:** Chrome or Edge 113+. Firefox and Safari support is
-> arriving but is not there yet. Nothing else is needed to try it.
+> **Requires:** Windows 10 or later (64-bit) and a graphics card with WebGPU
+> support. There is no web version — the editor is the installed app.
 
 ---
 
@@ -25,7 +25,7 @@ npm run dev
 ```
 
 That is the whole development setup. The editor opens on
-`http://localhost:5173`, renders locally, and saves `.rz` patches to disk. No
+`http://localhost:5173` (Chrome or Edge 113+, for WebGPU), renders locally, and saves `.rz` patches to disk. No
 Python, no account, no API key.
 
 The Python servers in this repository are **optional bridges** for things a
@@ -109,7 +109,8 @@ unsure whether something is wanted, open an issue before writing the patch.
 
 ## Desktop app (Tauri)
 
-The editor also runs as a native app, **shipped for Windows**. It opens
+The editor ships as a native app, **for Windows only** — there is no hosted
+web version. It opens
 straight into the editor; the landing page is left out of the bundle and a
 small loading window (`splash.html`) shows while the editor boots.
 

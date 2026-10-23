@@ -1,6 +1,6 @@
-# FAQ - Web Version
+# FAQ
 
-Frequently asked questions for Rhizomium web users at [https://studio.tenderworld.org](https://studio.tenderworld.org)
+Frequently asked questions about Rhizomium, the desktop app for Windows.
 
 ---
 
@@ -8,7 +8,7 @@ Frequently asked questions for Rhizomium web users at [https://studio.tenderworl
 
 ### What is Rhizomium?
 
-Rhizomium is a node-based visual shader editor that runs entirely in your browser. It uses WebGPU and WGSL to create real-time generative visuals through a visual programming interface - no code required!
+Rhizomium is a node-based visual shader editor, installed as a desktop app on Windows. It uses WebGPU and WGSL to create real-time generative visuals through a visual programming interface - no code required!
 
 ### Do I need to know programming?
 
@@ -18,29 +18,27 @@ No! Rhizomium is designed to be accessible through its visual node interface. Yo
 
 Yes, Rhizomium is open-source and free to use. Check the repository license for commercial use terms.
 
+### Is there a web version?
+
+No. Rhizomium is a desktop app for Windows 10 or later (64-bit). Download the
+installer from the [latest release](https://github.com/Amirashkan/rhizomium/releases/latest).
+
 ### Can I use Rhizomium offline?
 
-The web version requires an internet connection to load initially. Once loaded, the editor works without internet, but you can't save/load projects without connection to the site. For offline use, run Rhizomium locally (requires technical setup).
+Yes. The editor runs, renders and saves projects without an internet
+connection. Only account features (signing in, publishing, the AI tools) need
+to be online.
 
 ---
 
-## Browser & Technical Requirements
+## System Requirements
 
-### What browsers are supported?
+### What do I need to run Rhizomium?
 
-Rhizomium requires WebGPU support:
+- **Windows 10 or later (64-bit)**
+- **A graphics card with WebGPU support** (see below)
 
-- **Chrome 113+** (Recommended)
-- **Edge 113+** (Recommended)
-- **Opera 99+**
-- **Firefox** - Experimental WebGPU, limited support
-- **Safari** - Partial WebGPU, may not work
-
-**Bottom line:** Use Chrome or Edge for best experience.
-
-### How do I check if my browser supports WebGPU?
-
-Visit [webgpu.io](https://webgpu.io/) to test your browser's WebGPU support. If it shows a colorful cube, you're good to go!
+macOS and Linux are not supported yet.
 
 ### What GPU do I need?
 
@@ -54,15 +52,14 @@ Any modern GPU from the last 5-7 years should work:
 **Integrated Graphics:**
 - Intel Iris Xe (11th gen+)
 - AMD Vega (Ryzen APU)
-- Apple M1/M2
 
 ### Can I run Rhizomium on integrated graphics?
 
-Yes! Modern integrated graphics (Intel Iris Xe, AMD Vega, Apple M1) support WebGPU and can run Rhizomium. Performance may be lower with complex graphs, so use lower resolution settings (1280×720 or 960×540).
+Yes! Modern integrated graphics (Intel Iris Xe, AMD Vega) support WebGPU and can run Rhizomium. Performance may be lower with complex graphs, so use lower resolution settings (1280×720 or 960×540).
 
 ### Does Rhizomium work on mobile/tablets?
 
-WebGPU support on mobile browsers is very limited currently. Desktop browsers provide the best experience. Mobile support may improve as WebGPU adoption grows.
+No. Rhizomium is a Windows desktop app; there is no mobile or tablet version.
 
 ---
 
@@ -103,8 +100,8 @@ Connections between copied nodes are preserved!
 
 1. **No Output node** - You need an Output node connected to your graph
 2. **Broken connections** - Check that all wires are properly connected
-3. **Shader error** - Check console (F12) for error messages
-4. **WebGPU not initialized** - Try refreshing the page
+3. **Shader error** - Check the status bar for the error message
+4. **WebGPU not initialized** - Restart Rhizomium, and update your graphics driver
 
 **Fix:** Make sure you have: `[Your Nodes] → Output`
 
@@ -134,75 +131,53 @@ Undo works for node creation, deletion, movement, connections, and parameter cha
 
 ### Where are my projects saved?
 
-Projects save to your browser's **Local Storage** - stored only on your computer, in that specific browser.
-
-**Important:** Projects are browser-specific:
-- Chrome projects ≠ Edge projects
-- Regular mode ≠ Incognito mode
-- Different computers have separate storage
+Projects are ordinary `.rz` files, saved wherever you choose on your computer.
+Rhizomium also autosaves your current work and keeps backups as you go
+(**File → Backups**), but those are a safety net, not a substitute for saving.
 
 ### How do I save my work?
 
-Choose **File → Save**, or press **Ctrl+S**. Enter a project name when prompted.
-
-Your project saves instantly to browser storage!
+Choose **File → Save**, or press **Ctrl+S**. The first time, pick a folder and
+a name; after that, Ctrl+S writes straight back to the same file.
+**File → Save As…** (Ctrl+Shift+S) saves a copy under a new name.
 
 ### How do I load a saved project?
 
-Choose **File → Open Project…**. Browse your saved projects and click one to load it.
+Choose **File → Open Project…** (Ctrl+O) and pick a `.rz` file. You can also
+drop a project file onto the window.
 
 **Warning:** Loading replaces your current graph. Save first if you have unsaved changes!
 
-### Can I export my projects?
+### Can I move projects to another computer?
 
-Yes! Choose **File → Export**. Your project downloads as a `.json` file that you can:
-- Backup to cloud storage
-- Share with others
-- Move to another computer
-- Version control with Git
+Yes - a project is just a file. Copy the `.rz` file however you like (USB
+stick, cloud storage, Git) and open it on the other machine.
 
-**Always export important projects!**
+### How do I open an older `.json` project?
 
-### How do I import a project file?
-
-Choose **File → Open Project…**, then select a `.json` file from your computer. The project loads immediately.
+Choose **File → Open Project…** and select it; `.json` exports open the same
+way as `.rz` files.
 
 ### My saved projects disappeared! What happened?
 
-**Common causes:**
-- Browser cache was cleared (deletes all projects!)
-- Used incognito/private mode (doesn't save permanently)
-- Switched browsers (projects don't transfer)
-- Browser was uninstalled
+Saved projects are files, so look where you saved them - **File → Open
+Project…** usually opens in the last folder you used. If you never saved,
+open **File → Backups** (Ctrl+B): Rhizomium keeps automatic backups and offers
+to restore the autosave when it starts.
 
 **Prevention:**
-- Export important projects as JSON backups
-- Don't clear browser data for studio.tenderworld.org
-- Keep backups in cloud storage (Dropbox, Google Drive)
-
-### How much storage space do I have?
-
-Browser storage limits:
-- Chrome/Edge: 5-10MB per site
-- Firefox: ~10MB per site
-- Safari: ~5MB per site
-
-**Project sizes:**
-- Simple: 5-20 KB
-- Medium: 20-50 KB
-- Complex: 50-200 KB
-
-You can store **50-200+ projects** easily!
+- Save with Ctrl+S, don't rely on autosave alone
+- Keep copies of important projects in cloud storage (Dropbox, Google Drive)
 
 ### Can I share projects with others?
 
-Yes! Export your project as JSON, then share the file via:
+Yes! Send the `.rz` file via:
 - Email attachment
 - GitHub Gist
 - Cloud storage link (Dropbox, Google Drive)
 - Direct file transfer
 
-Recipients import the JSON file to use it.
+Recipients open it with **File → Open Project…**.
 
 ---
 
@@ -220,7 +195,7 @@ See [Audio Reactivity Guide](audio-web.md) for detailed instructions.
 
 ### What audio sources can I use?
 
-**Microphone:** Works in all browsers with permission
+**Microphone:** Allow access when asked
 - Speak, sing, or play music near mic
 - Good for live performances
 
@@ -236,10 +211,9 @@ See [Audio Reactivity Guide](audio-web.md) for detailed instructions.
 **Troubleshooting:**
 
 1. **No input detected**
-   - Refresh page and allow microphone again
-   - Check browser microphone permissions
+   - Restart Rhizomium and allow the microphone again
+   - Check Windows **Settings → Privacy & security → Microphone**
    - Test microphone in other apps
-   - Try different browser
 
 2. **Visuals not reacting**
    - Make sure Audio Settings is enabled
@@ -296,8 +270,8 @@ question.
 1. **Lower resolution** - Change to 1280×720 or 960×540
 2. **Reduce noise nodes** - Limit to 2-3 per graph
 3. **Disable node previews** - Click eye buttons on nodes
-4. **Close other tabs** - Free up GPU resources
-5. **Update browser** - Use latest Chrome/Edge
+4. **Close other GPU-heavy apps** - Free up GPU resources
+5. **Update your graphics driver**
 
 See [Performance Tips](performance.md) for detailed optimization guide.
 
@@ -332,12 +306,6 @@ See [Performance Tips](performance.md) for detailed optimization guide.
 - **3840×2160** - Enthusiast GPUs only (RTX 4080+, RX 7900+)
 
 **Remember:** Higher resolution = more pixels = slower performance!
-
-### Does Chrome perform better than other browsers?
-
-Yes! Chrome and Edge (which uses Chrome's engine) have the best WebGPU performance. Firefox and Safari have experimental/partial support and are generally slower.
-
-For best performance: **Use Chrome 113+ or Edge 113+**
 
 ---
 
@@ -396,9 +364,8 @@ Yes! Use the **Texture 2D** node:
 Yes! Rhizomium supports MIDI controllers via the Web MIDI API. Connect your MIDI controller and map knobs/sliders to any parameter. See the [MIDI Controller Integration Guide](midi.md) for setup instructions.
 
 **Requirements:**
-- Chrome 43+ or Edge 79+ (Web MIDI API support)
 - MIDI controller connected via USB
-- Browser permission granted for MIDI access
+- MIDI access allowed when Rhizomium asks
 
 ### What about VR/AR support?
 
@@ -413,18 +380,12 @@ VR/AR is not currently supported. Rhizomium focuses on 2D generative visuals. We
 **Possible causes:**
 
 1. **WebGPU not supported**
-   - Update browser to Chrome 113+ or Edge 113+
-   - Enable WebGPU in `chrome://flags`
-   - Check [webgpu.io](https://webgpu.io/)
+   - Update Windows (Windows Update)
+   - Check that your GPU is on the list above
 
-2. **JavaScript errors**
-   - Press F12 to open console
-   - Look for red error messages
-   - Try refreshing page
-
-3. **GPU drivers outdated**
+2. **GPU drivers outdated**
    - Update graphics drivers
-   - Restart browser after update
+   - Restart Rhizomium after the update
 
 ### Canvas is zoomed in/out too much
 
@@ -454,18 +415,15 @@ VR/AR is not currently supported. Rhizomium focuses on 2D generative visuals. We
 **Check if:**
 
 1. **In input field** - Click canvas or press Esc first
-2. **Browser intercepts** - Some shortcuts used by browser
-3. **Wrong modifier** - Use Ctrl (Windows) or Cmd (Mac)
-4. **Focus on body** - Click canvas to restore focus
+2. **Focus on body** - Click canvas to restore focus
 
 ### Project won't load
 
 **Troubleshooting:**
 
-1. **Refresh page** - May fix temporary issues
-2. **Check console** - F12 for error messages
-3. **JSON corrupted** - Try backup if you have one
-4. **Version mismatch** - Very old projects may not load
+1. **Restart Rhizomium** - May fix temporary issues
+2. **File corrupted** - Try a backup (**File → Backups**) if you have one
+3. **Version mismatch** - Very old projects may not load
 
 ---
 
@@ -474,7 +432,7 @@ VR/AR is not currently supported. Rhizomium focuses on 2D generative visuals. We
 ### Workflow Tips
 
 1. **Save frequently** - Ctrl+S every few minutes
-2. **Export important work** - Download JSON backups
+2. **Back up important work** - Keep copies of your `.rz` files
 3. **Use descriptive names** - `audio_reactive_circles_v2` not `project1`
 4. **Version your work** - Keep multiple saves (v1, v2, final)
 5. **Test performance early** - Don't wait until graph is huge
@@ -518,9 +476,8 @@ VR/AR is not currently supported. Rhizomium focuses on 2D generative visuals. We
 Create an issue on [GitHub](https://github.com/Amirashkan/rhizomium/issues) with:
 1. Description of the bug
 2. Steps to reproduce
-3. Browser and OS version
-4. Console errors (F12 → Console)
-5. Screenshots if applicable
+3. Rhizomium version (**Help → About**) and Windows version
+4. Screenshots if applicable
 
 ### Can I contribute to Rhizomium?
 
@@ -536,7 +493,7 @@ Check the GitHub repository for links to community channels, Discord servers, or
 
 ### What is WebGPU?
 
-WebGPU is the modern successor to WebGL - a web API for GPU acceleration. It's:
+WebGPU is the modern successor to WebGL - a GPU API from the web platform, which Rhizomium uses through the Windows WebView. It's:
 - Faster and more efficient
 - Better GPU utilization
 - Modern API design
@@ -556,40 +513,21 @@ Yes! Open **View → Show Console** to view the WGSL code generated from your no
 
 ### Is my data private?
 
-**100% private!** Everything runs in your browser:
-- Projects stored locally only
-- No data sent to servers
-- No tracking or analytics
-- Microphone audio processed locally, not uploaded
+Everything runs on your computer:
+- Projects are files on your disk
+- Microphone audio is processed locally, not uploaded
 
-Only you can access your work!
+Nothing leaves your machine unless you use an account feature such as
+publishing or the AI tools.
 
 ---
 
 ## Limitations & Known Issues
 
-### Web Version Limitations
+### Platforms
 
-**Not available in web version:**
-- External Viewer (requires local Python server)
-- Server-side file management
-- Multi-window output (browser security)
-
-**Available only locally:**
-- Dual-screen mode (External Viewer)
-- Some advanced features
-
-For full features, run Rhizomium locally (requires technical setup).
-
-### Browser Compatibility
-
-WebGPU is still rolling out:
-- Chrome/Edge: Full support
-- Firefox: Experimental
-- Safari: Partial
-- Mobile: Limited
-
-Use Chrome/Edge for best experience.
+Rhizomium ships for Windows only. There is no web, macOS, Linux or mobile
+version yet.
 
 ### Performance Limits
 

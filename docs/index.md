@@ -12,15 +12,16 @@ combining mathematical, procedural, and organic structures in real time.
 
 ## Quick Start
 
-### Requirements
-- **Browser:** Chrome 113+ or Edge 113+ (WebGPU enabled)
-- **Node.js:** v18 or later
-- **GPU:** Any device supporting WebGPU & WGSL  
-  *(No WebGL fallback)*
+### Install
+Rhizomium is a desktop app for **Windows 10 or later (64-bit)**; there is no
+web version. Download the installer from the
+[latest release](https://github.com/Amirashkan/rhizomium/releases/latest).
+It needs a GPU with WebGPU support *(no WebGL fallback)*.
 
-### Setup
+### Build from source
+Requires Node.js 18 or later; the dev server runs in Chrome or Edge 113+.
 ```bash
-git clone https://github.com/<your-repo>/rhizomium.git
+git clone https://github.com/Amirashkan/rhizomium.git
 cd rhizomium
 npm install
 npm run dev
