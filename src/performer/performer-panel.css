@@ -398,6 +398,11 @@
 
 .rz-perf-director-status[data-error="true"] { color: #ff9a8b; }
 
+/* On, but something else is holding it. Not a fault, so not the error red —
+   but not the quiet grey of a working readout either, because the whole point
+   is that it is the line the artist has to read. */
+.rz-perf-director-status[data-held="true"] { color: #ffc86b; }
+
 .rz-perf-director-note {
   font-size: 11px;
   color: #d9a6ff;
