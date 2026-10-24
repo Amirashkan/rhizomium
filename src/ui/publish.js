@@ -37,6 +37,14 @@ function uploadEndpoint() {
 }
 
 /**
+ * Media above this goes straight to the gallery's storage instead of in the
+ * upload request. The gallery runs on Vercel, which refuses a request body over
+ * 4.5MB before the route ever sees it; this leaves room for the patch and the
+ * multipart framing that ride in the same request.
+ */
+export const DIRECT_UPLOAD_MIN_BYTES = 4 * 1024 * 1024;
+
+/**
  * How large a published video may be. The recording bitrate is scaled to land
  * under it, and a file that still comes out above it asks before uploading.
  * The gallery's own upload limit has to be at least this, or a file the editor
@@ -224,8 +232,192 @@ function captureSize(canvas) {
 }
 
 /**
+ * Send media to the gallery's storage directly, resolving with its path.
+ *
+ * Three steps: the gallery signs an upload for one path in the artist's own
+ * folder (`/api/rhizo-upload/sign`, name and size only); the bytes go to
+ * Supabase's resumable endpoint in chunks, so a dropped chunk is retried rather
+ * than costing the whole video; and the caller then hands the path to
+ * `/api/rhizo-upload` as `mediaPath`, where the gallery checks what was stored.
+ *
+ * Resolves with null when the gallery has no signing route yet (404), so the
+ * caller can fall back to the single request an older gallery understands.
+ */
+async function uploadMediaDirect(blob, filename, onProgress) {
+  const endpoint = galleryApiUrl('/api/rhizo-upload/sign');
+  let res;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...desktopAuthHeaders() },
+      body: JSON.stringify({ filename, size: blob.size }),
+    });
+  } catch {
+    throw new UploadBlockedError(pageOrigin(), endpoint);
+  }
+  if (res.status === 404) return null;
+
+  const slot = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = slot?.error || '';
+    const err = new Error(detail ? `${detail} (${res.status})` : `Upload failed (${res.status})`);
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
+
+  await resumableUpload(blob, slot, onProgress);
+  return slot.path;
+}
+
+/** Waits before each retry of a failed chunk; one entry per retry. */
+const RESUMABLE_RETRY_DELAYS_MS = [0, 1000, 3000, 5000];
+
+/**
+ * The tus protocol, as much of it as Supabase's resumable endpoint needs.
+ *
+ * Written out rather than taken from tus-js-client: the editor is also served
+ * unbundled, where a bare package import cannot resolve (see
+ * tests/unbundledBareImports.test.js). It is small: one POST creates the
+ * upload and names it in `Location`, then each chunk is a PATCH at the offset
+ * the server last confirmed. A chunk that fails on the network or with a 5xx is
+ * retried after asking the server (HEAD) how much it really has, so a dropped
+ * connection costs one chunk, not the video. A 4xx is a refusal and is final.
+ */
+async function resumableUpload(blob, slot, onProgress) {
+  const auth = { apikey: slot.apiKey, 'x-signature': slot.token, 'Tus-Resumable': '1.0.0' };
+  const metadata = {
+    bucketName: slot.bucket,
+    objectName: slot.path,
+    contentType: slot.contentType,
+    cacheControl: '3600',
+  };
+
+  const created = await withRetries(() =>
+    fetch(slot.resumableUrl, {
+      method: 'POST',
+      headers: {
+        ...auth,
+        'x-upsert': 'false',
+        'Upload-Length': String(blob.size),
+        'Upload-Metadata': Object.entries(metadata)
+          .map(([key, value]) => `${key} ${base64(value)}`)
+          .join(','),
+      },
+    }));
+  const location = created.headers.get('Location');
+  if (!location) throw new Error('Upload failed: storage did not say where to send the file.');
+  const uploadUrl = new URL(location, slot.resumableUrl).href;
+
+  let offset = 0;
+  let failures = 0;
+  while (offset < blob.size) {
+    let res = null;
+    try {
+      res = await fetch(uploadUrl, {
+        method: 'PATCH',
+        headers: {
+          ...auth,
+          'Upload-Offset': String(offset),
+          'Content-Type': 'application/offset+octet-stream',
+        },
+        body: blob.slice(offset, offset + slot.chunkSize),
+      });
+    } catch {
+      // Network failure: retried below like a 5xx.
+    }
+
+    if (res?.ok) {
+      const confirmed = Number(res.headers.get('Upload-Offset'));
+      offset = Number.isFinite(confirmed) && confirmed > offset
+        ? confirmed
+        : Math.min(blob.size, offset + slot.chunkSize);
+      failures = 0;
+      onProgress?.(offset, blob.size);
+      continue;
+    }
+
+    // 409 is tus for "not the offset I have", which the HEAD below resolves.
+    if (res && res.status < 500 && res.status !== 409) throw await storageUploadError(res);
+    if (failures >= RESUMABLE_RETRY_DELAYS_MS.length) throw await storageUploadError(res);
+    await sleep(RESUMABLE_RETRY_DELAYS_MS[failures++]);
+
+    // Resume from what the server has rather than from what we sent: the
+    // failed request may have landed some or all of the chunk.
+    try {
+      const head = await fetch(uploadUrl, { method: 'HEAD', headers: auth });
+      const confirmed = Number(head.headers.get('Upload-Offset'));
+      if (head.ok && Number.isFinite(confirmed)) offset = confirmed;
+    } catch {
+      // Could not ask; the retry itself will say whether storage is back.
+    }
+  }
+}
+
+/**
+ * Run a storage request, retrying a network failure or a 5xx. Resolves with
+ * the successful response; rejects with storage's own reason otherwise.
+ */
+async function withRetries(send) {
+  for (let attempt = 0; ; attempt++) {
+    let res = null;
+    try {
+      res = await send();
+    } catch {
+      // Network failure: retried like a 5xx.
+    }
+    if (res?.ok) return res;
+    if (res && res.status < 500) throw await storageUploadError(res);
+    if (attempt >= RESUMABLE_RETRY_DELAYS_MS.length) throw await storageUploadError(res);
+    await sleep(RESUMABLE_RETRY_DELAYS_MS[attempt]);
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** tus metadata values are base64, of UTF-8. */
+function base64(value) {
+  let binary = '';
+  for (const byte of new TextEncoder().encode(String(value))) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/**
+ * An Error for a failed storage request, carrying storage's own reason. Storage
+ * answers a refusal with JSON ("The object exceeded the maximum allowed size");
+ * a failure with no response at all never reached it.
+ */
+async function storageUploadError(res) {
+  if (!res) {
+    const err = new Error('Upload failed: could not reach the gallery storage. Check your connection and try again.');
+    err.status = 0;
+    return err;
+  }
+  const text = await res.text().catch(() => '');
+  let detail = text;
+  try {
+    const body = JSON.parse(text);
+    detail = body.message || body.error || '';
+  } catch {
+    // Not JSON; the text is the reason, if there is one.
+  }
+  const err = res.status === 413
+    ? new Error(`File too large for the gallery storage.${detail ? ` (${detail})` : ''}`)
+    : new Error(`Upload failed (${res.status})${detail ? `: ${detail}` : ''}`);
+  err.status = res.status;
+  err.detail = detail;
+  return err;
+}
+
+/**
  * Upload the media (and, when present, the `.rz` patch) with progress
  * reporting. Resolves with the parsed response.
+ *
+ * `media` is either `{blob, filename}`, sent in this request, or `{path}`, for
+ * media uploadMediaDirect already put in storage.
  *
  * Both objects go in one request: that is a single round trip and one shared
  * timestamp, so the gallery stores them as a matched pair.
@@ -238,9 +430,10 @@ function captureSize(canvas) {
  * app could read its entitlements and then not publish — the request arrived
  * anonymous and the gallery answered 401.
  */
-function uploadBlob(blob, filename, onProgress, patch = null) {
+function uploadBlob(media, onProgress, patch = null) {
   const formData = new FormData();
-  formData.append('file', blob, filename);
+  if (media.path) formData.append('mediaPath', media.path);
+  else formData.append('file', media.blob, media.filename);
   if (patch) formData.append('patch', patch.blob, patch.filename);
 
   const xhr = new XMLHttpRequest();
@@ -257,7 +450,7 @@ function uploadBlob(blob, filename, onProgress, patch = null) {
           resolve({});
         }
       } else if (xhr.status === 413) {
-        const fileSizeMB = blob.size / 1024 / 1024;
+        const fileSizeMB = (media.blob?.size || 0) / 1024 / 1024;
         const err = new Error(`File too large (${fileSizeMB.toFixed(2)} MB). Server limit exceeded. Try a smaller export size.`);
         err.status = xhr.status;
         reject(err);
@@ -337,14 +530,28 @@ export function isPatchAttributable(err) {
  * `patchDropped`, so the caller can tell the artist what they actually got.
  */
 export async function uploadArtwork(blob, filename, onProgress, patch) {
+  let media = { blob, filename };
+  let requestProgress = onProgress;
+  if (blob.size > DIRECT_UPLOAD_MIN_BYTES) {
+    const path = await uploadMediaDirect(blob, filename, onProgress);
+    if (path) {
+      media = { path };
+      // The media's progress has been reported; what is left is the patch, and
+      // starting the bar again from zero for it would read as a second upload.
+      requestProgress = null;
+    }
+  }
+
   try {
-    const data = await uploadBlob(blob, filename, onProgress, patch);
+    const data = await uploadBlob(media, requestProgress, patch);
     return { data, patchDropped: false };
   } catch (err) {
     if (!patch || !isPatchAttributable(err)) throw err;
 
     console.warn('Patch rejected by the gallery, retrying without it:', err);
-    const data = await uploadBlob(blob, filename, onProgress, null);
+    // Only the request is repeated: media already in storage is named again by
+    // its path, not uploaded twice.
+    const data = await uploadBlob(media, requestProgress, null);
     return { data, patchDropped: true, patchError: err };
   }
 }
