@@ -63,6 +63,9 @@ const REQUIRED_ORIGINS = [
   // to name by origin rather than by path once it is not the page's own host.
   ['gallery entitlements', 'https://art.tenderworld.org'],
   ['AI backend', 'https://studio.tenderworld.org'],
+  // A published video goes straight to the gallery's storage, not through the
+  // gallery: Vercel refuses a request body over 4.5MB (src/ui/publish.js).
+  ['gallery storage', 'https://*.supabase.co'],
 ];
 
 describe('editor CSP allows the sockets the editor opens', () => {
