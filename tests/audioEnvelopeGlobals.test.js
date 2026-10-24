@@ -145,3 +145,90 @@ describe('the audioEnvelope globals', () => {
     expect(capture.getAudioEnvelopeFull()).toBe(0);
   });
 });
+
+// The band variables used to be their own measurement — RMS of the byte spectrum, x3, square-root —
+// and since those bytes are already dB-scaled, ordinary music pinned bass and mids at 1.0, so
+// `0.15 + audioEnvelopeBass * 0.3` held still. They now read the panel's Low / Mid / High / Level
+// meters, which are calibrated and follow the Audio node's Attack / Release / Gain.
+describe('the band variables', () => {
+  /** A capture fed a fixed spectrum: `db(hz)` gives each bin's level in dBFS. */
+  function playing(db) {
+    const capture = new BrowserAudioCapture();
+    const bins = 1024;
+    const sampleRate = 48000;
+    const fill = (out) => {
+      for (let i = 0; i < out.length; i++) out[i] = db((i * sampleRate) / 2 / bins);
+    };
+    capture.audioContext = { sampleRate };
+    capture.analyser = {
+      frequencyBinCount: bins,
+      getByteFrequencyData: (out) => out.fill(200),
+      getFloatTimeDomainData: (out) => out.fill(0.3),
+    };
+    capture._fluxAnalyser = { frequencyBinCount: bins, getFloatFrequencyData: fill };
+    capture.isPlaying = true;
+    return capture;
+  }
+
+  function run(capture, frames = 30) {
+    for (let i = 0; i < frames; i++) {
+      capture._lastUpdateTime = performance.now() - 8;
+      capture._processAudio();
+    }
+  }
+
+  // Loud everywhere, as a mastered mix is.
+  const loud = (hz) => (hz < 250 ? -12 : hz < 2000 ? -24 : -40);
+
+  it('are the panel meters, so an expression reads the number its meter shows', () => {
+    const capture = playing(loud);
+    run(capture);
+
+    const bands = window._audioBands;
+    expect(capture.getAudioEnvelopeBass()).toBe(bands.low);
+    expect(capture.getAudioEnvelopeMids()).toBe(bands.mid);
+    expect(capture.getAudioEnvelopeHighs()).toBe(bands.high);
+    expect(capture.getAudioEnvelopeFull()).toBe(bands.level);
+    expect(window._audioEnvelopeBass).toBe(bands.low);
+    expect(window._audioEnvelopeMids).toBe(bands.mid);
+  });
+
+  it('do not sit on the clamp for loud input', () => {
+    const capture = playing(loud);
+    run(capture);
+
+    expect(capture.getAudioEnvelopeBass()).toBeGreaterThan(0);
+    expect(capture.getAudioEnvelopeBass()).toBeLessThan(1);
+    expect(capture.getAudioEnvelopeMids()).toBeGreaterThan(0);
+    expect(capture.getAudioEnvelopeMids()).toBeLessThan(1);
+  });
+
+  it('read the same for the same mix 12 dB quieter', () => {
+    const at0 = playing(loud);
+    const atMinus12 = playing((hz) => loud(hz) - 12);
+    run(at0);
+    run(atMinus12);
+
+    expect(atMinus12.getAudioEnvelopeBass()).toBeCloseTo(at0.getAudioEnvelopeBass(), 2);
+    expect(atMinus12.getAudioEnvelopeMids()).toBeCloseTo(at0.getAudioEnvelopeMids(), 2);
+  });
+
+  it("follow the Audio node's Gain", () => {
+    const base = playing(loud);
+    const hot = playing(loud);
+    hot.updateConfig({ analysis: { gain: 1.5 } });
+    run(base);
+    run(hot);
+
+    expect(hot.getAudioEnvelopeBass()).toBeGreaterThan(base.getAudioEnvelopeBass());
+  });
+
+  it('fall back to zero on stop', () => {
+    const capture = playing(loud);
+    run(capture);
+    capture.stop();
+
+    for (const name of GLOBALS) expect(window[name], name).toBe(0);
+    expect(capture.getAudioEnvelopeBass()).toBe(0);
+  });
+});

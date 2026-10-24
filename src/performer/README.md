@@ -462,8 +462,9 @@ makes one **playable**, on top of everything above:
 - **Which audio a parameter can hear, and which needs a node.** `reactsTo` is
   written in the tap vocabulary (`low`, `kickTrig`, `centroid`…), and only
   four of those bands have a counterpart an expression can name — under a
-  different name, and as the same part of the spectrum under a different
-  envelope rather than as the same number.
+  different name (`level`, `low`, `mid`, `high` are `audioEnvelopeFull`,
+  `audioEnvelopeBass`, `audioEnvelopeMids`, `audioEnvelopeHighs`), reading the
+  same number as the channel.
   A look told to answer `low` can do it with `"=0.35+audioEnvelopeBass*0.5"`;
   a look told to answer `kickTrig` needs an Audio Value node, because
   `"=kickTrig"` compiles to zero and holds there all night without a warning.
