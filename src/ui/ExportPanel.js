@@ -849,7 +849,7 @@ export class ExportPanel {
     const input = document.createElement('input');
     input.type = 'number';
     input.min = String(min);
-    input.max = String(max);
+    if (Number.isFinite(max)) input.max = String(max);
     input.step = '1';
     input.placeholder = placeholder;
     return input;

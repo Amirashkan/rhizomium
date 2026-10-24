@@ -21,7 +21,11 @@
 export const MIN_FPS = 1;
 export const MAX_FPS = 120;
 export const MIN_DURATION = 1;
-export const MAX_DURATION = 300;
+/**
+ * No ceiling: a local export is a file on the artist's own disk, and how long
+ * (and so how large) it is is theirs to decide. Stop & Save ends one early.
+ */
+export const MAX_DURATION = Infinity;
 
 /** Frame rates worth one click. Anything else is typed into the box. */
 export const FPS_PRESETS = [24, 25, 30, 50, 60];

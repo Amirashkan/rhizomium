@@ -36,6 +36,14 @@ function uploadEndpoint() {
   return galleryApiUrl('/api/rhizo-upload');
 }
 
+/**
+ * How large a published video may be. The recording bitrate is scaled to land
+ * under it, and a file that still comes out above it asks before uploading.
+ * The gallery's own upload limit has to be at least this, or a file the editor
+ * was happy with is refused with a 413 after it has been recorded.
+ */
+const PUBLISH_MAX_VIDEO_MB = 500;
+
 function getPreview() {
   return window.floatingPreview || null;
 }
@@ -389,7 +397,7 @@ async function handleUploadError(err, sizeHint) {
 
   if (message.includes('413') || message.includes('too large') || message.includes('File too large')) {
     await modalManager.alert(
-      `Upload failed: file is too large.\n\n${sizeHint}\n\nThe server limit is around 50-100 MB.`,
+      `Upload failed: file is too large.\n\n${sizeHint}\n\nPublished videos can be up to ${PUBLISH_MAX_VIDEO_MB} MB.`,
       'File Too Large'
     );
     return;
@@ -590,7 +598,7 @@ export async function publishAnimation() {
   // The audio rides in the same file, so it comes out of the same budget.
   const audioBitrate = audioTap ? AUDIO_BITRATE : 0;
   const estimatedFileSizeMB = ((estimatedBitrate + audioBitrate) * duration) / (8 * 1024 * 1024);
-  const maxTargetSizeMB = 50;
+  const maxTargetSizeMB = PUBLISH_MAX_VIDEO_MB;
 
   let adaptiveBitrate = estimatedBitrate;
   if (estimatedFileSizeMB > maxTargetSizeMB) {
@@ -794,7 +802,7 @@ export async function publishAnimation() {
     const blob = new Blob(chunks, { type: mimeType });
     const filename = `shader-${targetWidth}x${targetHeight}-${fps}fps-${Date.now()}.${fileExt}`;
     const fileSizeMB = blob.size / 1024 / 1024;
-    const maxFileSizeMB = 100;
+    const maxFileSizeMB = PUBLISH_MAX_VIDEO_MB;
 
     progress.update(80, 'Preparing upload...', `File size: ${fileSizeMB.toFixed(2)} MB`);
 

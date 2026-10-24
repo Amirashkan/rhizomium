@@ -35,9 +35,9 @@ describe('the settings store', () => {
     expect(getExportSettings()).toEqual({ ...DEFAULT_EXPORT_SETTINGS, duration: 12 });
   });
 
-  it('clamps a frame rate and a duration into range', () => {
+  it('clamps a frame rate and a duration into range, with no ceiling on duration', () => {
     setExportSettings({ fps: 900, duration: 10_000 }, 'test');
-    expect(getExportSettings()).toMatchObject({ fps: 120, duration: 300 });
+    expect(getExportSettings()).toMatchObject({ fps: 120, duration: 10_000 });
 
     setExportSettings({ fps: 0, duration: 0 }, 'test');
     expect(getExportSettings()).toMatchObject({ fps: 1, duration: 1 });
