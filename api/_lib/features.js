@@ -1400,12 +1400,12 @@ function describeRig(input = {}) {
  * loads, the section runs, and the one thing the look was built to do never
  * happens.
  *
- * Counterpart, not equal. A tap is a scaled band meter out of
- * RealtimeAudioAnalysis; the audioEnvelope* globals are BrowserAudioCapture's
- * own followers over the same part of the spectrum. They rise and fall
- * together and they are not the same number, which is all a look needs — it is
- * choosing where to listen, not matching a reading — so both halves are said
- * rather than implying an equality that is not there.
+ * Equal, not just a counterpart. The four band variables are read straight
+ * off the panel's Level / Low / Mid / High meters out of RealtimeAudioAnalysis,
+ * so an expression hears the same number a tap on that channel would. Level
+ * maps to audioEnvelopeFull rather than audioEnvelope for that reason:
+ * audioEnvelope is a separate gated, self-normalising follower and reads
+ * differently.
  *
  * This lives here, beside the other things the features know about the editor,
  * rather than with the manifest that names the channels: which identifiers the
@@ -1416,7 +1416,7 @@ function describeRig(input = {}) {
  * channel is a failed test rather than a look that quietly stops listening.
  */
 const EXPRESSION_AUDIO = Object.freeze({
-  level: 'audioEnvelope',
+  level: 'audioEnvelopeFull',
   low: 'audioEnvelopeBass',
   mid: 'audioEnvelopeMids',
   high: 'audioEnvelopeHighs',
@@ -1435,7 +1435,7 @@ function audioRouting(channels) {
   if (inExpressions.length) {
     lines.push(
       `Inside a parameter expression ${inExpressions.join(', ')} — those names, not the channel names. `
-        + 'Same part of the spectrum under a different envelope, so it moves with the channel rather than reading the same number as it.'
+        + 'Each reads the same 0..1 number as that channel.'
     );
   }
   if (needNodes.length) {

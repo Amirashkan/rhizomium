@@ -28,12 +28,20 @@ The parameter now follows the audio level every frame. See [Parameter Expression
 Several audio variables are available in expressions:
 
 - `audioEnvelope` - Overall intensity (smoothed)
-- `audioEnvelopeBass` - Low frequencies (kick drums, bass)
-- `audioEnvelopeMids` - Middle frequencies (vocals, guitars)
-- `audioEnvelopeHighs` - High frequencies (hi-hats, cymbals)
-- `audioEnvelopeFull` - Total energy
+- `audioEnvelopeBass` - Low frequencies (kick drums, bass) — the panel's **Low** meter
+- `audioEnvelopeMids` - Middle frequencies (vocals, guitars) — the panel's **Mid** meter
+- `audioEnvelopeHighs` - High frequencies (hi-hats, cymbals) — the panel's **High** meter
+- `audioEnvelopeFull` - Total energy — the panel's **Level** meter
 
 All values range from **0.0 to 1.0**.
+
+The four band variables read exactly the number their meter in the Audio panel
+shows, so watching the meter tells you what an expression will get. They are
+levelled automatically: a loud master and a quiet mic land in the same range,
+sitting around the middle on ordinary music and rising toward the top on hits.
+The Audio node's **Attack**, **Release** and **Gain** shape them the same way
+they shape the meters (see [Meter Shape](#meter-shape)). `audioEnvelope` is a
+separate, self-normalising follower and is not affected by those settings.
 
 ---
 
@@ -142,7 +150,11 @@ section is headed *"defaults — no Audio node"*. The button under it adds one
 | **Gain** | 0-8 | 1 | How hot the meters read. At 0 every meter is dead |
 
 These change what the meters *look like*, which in turn changes what a threshold
-has to be set to. They are not a second detector. On the Audio node they sit
+has to be set to. They are not a second detector. They also shape the
+`audioEnvelopeBass`, `audioEnvelopeMids`, `audioEnvelopeHighs` and
+`audioEnvelopeFull` expression variables, which read the Low, Mid, High and
+Level meters — raise **Release** for a slower, smoother pulse, raise **Gain** if
+a band barely moves. `audioEnvelope` is not affected. On the Audio node they sit
 under a **Meter Shape** group, collapsed — set once and left alone.
 
 ### Channels
@@ -180,10 +192,14 @@ Every tap on a channel reads the same number its meter shows, and the drums are
 thresholded once for the whole patch — two nodes reading Kick Trigger are two
 views of one kick and fire on the same frame.
 
-> Expressions and channels are two routes to the same analysis. `audioEnvelope`
-> and its band variables work in any parameter expression; the channels above —
-> including the drum triggers, which have no expression variable — are reached by
-> deploying an Audio Value node.
+> Expressions and channels are two routes to the same analysis. The band
+> variables work in any parameter expression and read the same numbers as the
+> Level, Low, Mid and High rows (`audioEnvelopeFull`, `audioEnvelopeBass`,
+> `audioEnvelopeMids`, `audioEnvelopeHighs`). The other channels — including the
+> drum triggers and meters, which have no expression variable — are reached by
+> deploying an Audio Value node. For something that sits at zero between kicks
+> and jumps on each one, use the **Kick** meter that way rather than
+> `audioEnvelopeBass`, which also hears the bassline.
 
 ---
 
@@ -285,13 +301,15 @@ patch just has no audio in it. The way out depends on the tab you are on:
 
 ### Audio Not Reacting
 
-**Problem**: An `=audioEnvelope` expression is set but nothing happens
+**Problem**: An `=audioEnvelope…` expression is set but nothing happens
 
 **Solutions**:
 1. Check the panel's meters are moving — if they are not, see above
 2. Check the expression starts with `=` and uses a valid variable name
-3. Raise **Gain** on the Audio node (add one from the Audio panel if the patch
-   has none)
+3. For a band variable, watch its meter (Low for `audioEnvelopeBass`, Mid,
+   High, Level for `audioEnvelopeFull`): it is the same number. If the meter
+   barely moves, raise **Gain** on the Audio node (add one from the Audio panel
+   if the patch has none)
 4. Try a different frequency band
 
 ### Too Sensitive
@@ -299,8 +317,9 @@ patch just has no audio in it. The way out depends on the tab you are on:
 **Problem**: Visual reacts too much to audio
 
 **Solutions**:
-1. Lower **Gain** on the Audio node
-2. Raise **Release** on the Audio node so the meters fall more slowly
+1. Lower **Gain** on the Audio node (band variables only)
+2. Raise **Release** on the Audio node so the meters, and the band variables,
+   fall more slowly
 3. Clamp the expression, e.g. `=clamp(audioEnvelope * 2, 0, 1)`
 4. Scale it down, e.g. `=audioEnvelope * 0.5`
 
@@ -309,7 +328,7 @@ patch just has no audio in it. The way out depends on the tab you are on:
 **Problem**: Barely visible reactions
 
 **Solutions**:
-1. Raise **Gain** on the Audio node
+1. Raise **Gain** on the Audio node (band variables only)
 2. Multiply audio value (×2, ×5, ×10)
 3. Use different frequency band (Bass often strongest)
 4. Check audio source volume

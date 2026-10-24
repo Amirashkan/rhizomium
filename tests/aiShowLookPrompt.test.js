@@ -251,7 +251,7 @@ describe('routing a look to the audio it has to answer', () => {
     expect(message).toContain('low is "audioEnvelopeBass"');
     expect(message).toContain('mid is "audioEnvelopeMids"');
     expect(message).toContain('high is "audioEnvelopeHighs"');
-    expect(message).toContain('level is "audioEnvelope"');
+    expect(message).toContain('level is "audioEnvelopeFull"');
     expect(message).not.toMatch(/only through an AudioValue node/);
   });
 

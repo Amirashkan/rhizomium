@@ -637,7 +637,7 @@ export class BrowserAudioCapture {
      */
     _runRealtimeAnalysis(dt) {
         if (!this._analysis) this._analysis = new RealtimeAudioAnalysis();
-        if (!this._fluxAnalyser) return;
+        if (!this._fluxAnalyser) return null;
         this._analysis.setSampleRate(this.audioContext.sampleRate);
         const a = this._analysis.process(this._fluxAnalyser, dt, {
             attackMs: this.config.analysis?.attack_ms ?? 8,
@@ -645,6 +645,7 @@ export class BrowserAudioCapture {
             gain: this.config.analysis?.gain ?? 1,
         });
         this._publishAnalysis(a);
+        return a;
     }
 
     /**
@@ -761,21 +762,12 @@ export class BrowserAudioCapture {
             return;
         }
 
-        // One spectrum per frame, shared by the band reads below.
+        // One spectrum per frame, however many band reads ask for it (see _spectrum).
         this._analysisFrame = (this._analysisFrame || 0) + 1;
 
-        // Calculate RMS for all frequency bands
-        const rmsBass = this._getFrequencyBandRMS('bass');
-        const rmsMids = this._getFrequencyBandRMS('mids');
-        const rmsHighs = this._getFrequencyBandRMS('highs');
-        const rmsFull = this._getFrequencyBandRMS('fullband');
-
         // The band the follower runs on. `config.frequency.mode` has no UI any more and is always
-        // 'fullband', so asking for it again would repeat the read just done above — take the one
-        // already in hand whenever the mode matches, which today is always.
-        const mode = this.config.frequency.mode;
-        const measured = { bass: rmsBass, mids: rmsMids, highs: rmsHighs, fullband: rmsFull };
-        const rms = measured[mode] !== undefined ? measured[mode] : this._getFrequencyBandRMS();
+        // 'fullband'.
+        const rms = this._getFrequencyBandRMS();
 
         // Time delta
         const dt = this._frameDelta();
@@ -789,23 +781,22 @@ export class BrowserAudioCapture {
         // ADSR
         this._updateADSR(gate, dt);
 
-        // Process envelope for each band (using simpler approach without gating)
-        const processEnvelope = (rmsValue) => {
-            // Scale up RMS for better range
-            let raw = rmsValue * 3.0;
+        // Real-time band meters for the Audio panel and the Audio Value node (see
+        // RealtimeAudioAnalysis), which the band envelopes below are read from.
+        const bands = this._runRealtimeAnalysis(dt);
 
-            // Apply exponential shaping for better response
-            raw = this._applyShaping(raw);
-
-            // Clamp to 0-1
-            return Math.max(0, Math.min(1, raw));
-        };
-
-        // Update all band envelopes with smooth values
-        this._envelopeBass = processEnvelope(rmsBass);
-        this._envelopeMids = processEnvelope(rmsMids);
-        this._envelopeHighs = processEnvelope(rmsHighs);
-        this._envelopeFull = processEnvelope(rmsFull);
+        // The four band variables ARE the panel's Low / Mid / High / Level meters. They used to be
+        // computed separately — RMS of getByteFrequencyData, times 3, square-rooted — but those
+        // bytes are already dB-scaled, so any audible band read 0.5-0.8 before the x3 and the
+        // result sat on the 1.0 clamp: measured on mastered music, bass and mids read 1.00 at p50
+        // and p90 alike, and `0.15 + audioEnvelopeBass * 0.3` held still instead of pulsing. The
+        // meters are auto-gained and scaled per band, so they land in range whatever the input
+        // level, and they follow the Audio node's Attack / Release / Gain. An expression now reads
+        // the number its meter shows, which is also how a threshold like `> 0.6` gets found.
+        this._envelopeBass = bands?.low || 0;
+        this._envelopeMids = bands?.mid || 0;
+        this._envelopeHighs = bands?.high || 0;
+        this._envelopeFull = bands?.level || 0;
 
         // Current envelope uses full follower+ADSR processing (backwards compatibility)
         let raw = this._adsrValue * this._followerValue;
@@ -817,9 +808,6 @@ export class BrowserAudioCapture {
         }
         raw = this._applyShaping(raw);
         this._envelopeValue = Math.max(0, Math.min(1, raw));
-
-        // Real-time band meters for the Audio Analysis node (see RealtimeAudioAnalysis).
-        this._runRealtimeAnalysis(dt);
 
         this._publishEnvelopes();
 

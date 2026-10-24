@@ -74,7 +74,9 @@ Audio envelope value (0.0 to 1.0) - requires audio input enabled
 
 #### Frequency bands
 
-Per-band envelope values (0.0 to 1.0) are also available:
+Per-band envelope values (0.0 to 1.0) are also available. Each reads the same
+number as its meter in the Audio panel (Low, Mid, High, Level) and follows the
+Audio node's Attack, Release and Gain:
 
 - `audioEnvelopeBass` - Low frequencies (kick drums, bass)
 - `audioEnvelopeMids` - Middle frequencies (vocals, guitars)
