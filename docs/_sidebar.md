@@ -31,7 +31,6 @@
   * [Shader Compilation](shader-compilation.md)
   * [Performance Tips](performance.md)
   * [Performance Profiler](profiler.md)
-  * [Frame Rate & Display Refresh](frame-rate.md)
   * [Frame Timing Monitoring](frame-timing-monitoring.md)
   * [Camera Controls](camera-controls.md)
 
@@ -39,14 +38,8 @@
 
 * For Developers
   * [Local Installation](setup.md)
-  * [Deployment Guide](deployment.md)
   * [Vercel Deployment](vercel.md)
-  * [External Viewer Setup](external-viewer.md)
-  * [Dual Screen Setup](dual-screen.md)
-  * [Audio Server Setup](audio.md)
   * [Audio Analysis Design](audio-analysis-design.md)
-  * [Troubleshooting](troubleshooting.md)
-  * [Windows Fixes](windows-fix.md)
 
 ---
 

@@ -485,7 +485,7 @@ last fact is why the prompt asks for four moves rather than forty.
 `viewer.web` is catalogued with `surface: 'gallery'`, and it still is one — the
 gallery decides which published works offer a live view. But the page that runs
 the patch ships from this project, at `/viewer`, because this is where the
-codegen and the renderer live. See [docs/web-viewer.md](docs/web-viewer.md).
+codegen and the renderer live. See [docs/web-viewer.md](../web-viewer.md).
 
 The `surface` field is untouched: it is the gallery's word for whose UI lists
 the feature, and the AI panel filters on `surface === 'editor'` to build itself.

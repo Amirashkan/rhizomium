@@ -205,10 +205,6 @@ another machine. Run `npm run ndi`, then **View → NDI Output**
 missing rather than leaving a dead toggle. Details in
 [src/output/README.md](src/output/README.md).
 
-**External viewer** — IPC frame streaming to a native window. Run
-`python rhizo_server.py`, then **Open External Viewer** in the toolbar. See
-[docs/internal/RHIZOMIUM_VIEWER_SETUP.md](docs/internal/RHIZOMIUM_VIEWER_SETUP.md).
-
 **MIDI** needs no bridge — it is Web MIDI. See
 [src/midi/README.md](src/midi/README.md).
 

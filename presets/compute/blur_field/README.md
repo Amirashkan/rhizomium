@@ -181,4 +181,4 @@ Where σ (sigma) = radius / 2.0
 ## See Also
 - [NoiseField](../noise_field/) - Generate source textures
 - [ReactionDiffusion](../reaction_diffusion/) - Complex patterns to blur
-- [ComputeFeedback](../../docs/nodes/ComputeFeedback.md) - Create trails with blur
+- [ComputeFeedback](../../../docs/compute-nodes.md#spotlight-compute-feedback) - Create trails with blur

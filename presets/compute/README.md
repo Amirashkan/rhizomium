@@ -342,7 +342,7 @@ struct Uniforms {
 
 ### Documentation
 - [Compute Node API](../../docs/COMPUTE_NODE_API.md)
-- [Compute System Architecture](../../COMPUTE_NODES.md)
+- [Compute System Architecture](../../docs/internal/COMPUTE_NODES.md)
 - [WGSL Specification](https://www.w3.org/TR/WGSL/)
 
 ### Node Type References

@@ -138,5 +138,5 @@ and shown as "not connected". Plug the display back in, or reassign the screen.
 ## See also
 
 - [Projection Mapping](node-reference.md#projection-map) — corner-pinning onto physical surfaces with the Projection Map node
-- [Dual Screen Setup](dual-screen.md) — the WebSocket streaming path, for remote displays
+- [Web Patch Viewer](web-viewer.md) — a shareable full-screen link, for a display on another machine
 - [Frame Rate & Display Refresh](frame-rate.md)

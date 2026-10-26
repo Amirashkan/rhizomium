@@ -346,7 +346,6 @@ Existing `markDirty()` calls continue to work but are now throttled:
 
 ## References
 
-- [Performance Analysis Report](https://github.com/Amirashkan/rhizomium/blob/main/PERFORMANCE_ANALYSIS.md)
 - [Redraw Trigger Detection](./REDRAW_TRIGGER_DETECTION.md)
 - [Renderer Implementation](https://github.com/Amirashkan/rhizomium/blob/main/src/core/Renderer.js)
 - [Editor Implementation](https://github.com/Amirashkan/rhizomium/blob/main/src/core/Editor.js)

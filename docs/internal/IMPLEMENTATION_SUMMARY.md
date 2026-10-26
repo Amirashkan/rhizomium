@@ -416,7 +416,7 @@ Potential improvements:
 
 - [COMPUTE_PROFILER.md](./COMPUTE_PROFILER.md) - Profiler API documentation
 - [GPU_PERFORMANCE_GUIDE.md](./GPU_PERFORMANCE_GUIDE.md) - User guide
-- [FieldVisualization.md](./docs/FieldVisualization.md) - Field visualization docs
+- [FieldVisualization.md](../FieldVisualization.md) - Field visualization docs
 
 ---
 

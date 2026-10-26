@@ -1,6 +1,12 @@
 # Audio Envelope Server
 
-Real-time audio envelope extraction for GLSL shader integration.
+Real-time audio envelope extraction, as a standalone Python process.
+
+> **The editor does not use this server.** Audio analysis runs in the browser
+> (see [src/audio/](../src/audio/README.md) and
+> [docs/audio-web.md](../docs/audio-web.md)), from a file, microphone or shared
+> system audio, with nothing to install. This server is kept for driving other
+> software over WebSocket/HTTP.
 
 ## Features
 

@@ -84,7 +84,7 @@ const stats = window.renderLoop?.rafManager?.getFrameStats();
 **Automatic Warnings:**
 The system automatically logs warnings when frames exceed the 60fps budget, identifying slow handlers.
 
-**See [Frame Timing Monitoring Guide](docs/frame-timing-monitoring.md) for complete documentation.**
+**See [Frame Timing Monitoring Guide](../frame-timing-monitoring.md) for complete documentation.**
 
 ### GPU Performance Monitor Setup
 
@@ -542,7 +542,7 @@ async function initialize() {
 ## Additional Resources
 
 - [COMPUTE_PROFILER.md](./COMPUTE_PROFILER.md) - Detailed profiler documentation
-- [FieldVisualization.md](./docs/FieldVisualization.md) - Field visualization guide
+- [FieldVisualization.md](../FieldVisualization.md) - Field visualization guide
 - [REALTIME_3D_UPDATE_SUMMARY.md](./REALTIME_3D_UPDATE_SUMMARY.md) - Real-time updates
 
 ---

@@ -262,4 +262,4 @@ With h = 1/resolution and default diffusion rates, timestep should stay below ~2
 ## See Also
 - [NoiseField](../noise_field/) - Simpler procedural patterns
 - [BlurField](../blur_field/) - Smooth RD outputs
-- [ComputeFeedback](../../docs/nodes/ComputeFeedback.md) - Temporal effects
+- [ComputeFeedback](../../../docs/compute-nodes.md#spotlight-compute-feedback) - Temporal effects

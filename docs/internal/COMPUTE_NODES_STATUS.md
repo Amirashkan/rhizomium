@@ -209,7 +209,6 @@ black/white.
 **Outputs:** 3D Geometry
 
 **Documentation:**
-- `INTEGRATION-COMPLETE.md`
 - `3D-VISUALIZATION-GUIDE.md`
 - `QUICK-START-3D.md`
 
@@ -458,7 +457,6 @@ No shader generator implementation. Falls back to `generateFallbackShader()`.
 #### User Guides
 - `COMPUTE_PROFILER.md` - Performance monitoring and optimization guide
 - `3D-VISUALIZATION-GUIDE.md` - 3D field visualization documentation
-- `INTEGRATION-COMPLETE.md` - Integration status and testing guide
 - `QUICK-START-3D.md` - Quick start guide for 3D features
 
 #### Presets with Documentation
