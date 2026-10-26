@@ -8,6 +8,50 @@ When one does, its entry says so under **Project files**.
 
 ---
 
+## v0.9.0-beta.6
+
+*October 26, 2026*
+
+### New
+
+- **Timeline Record mode.** Arm Record and every change you make to a number
+  on the open node, or to a parameter that already has keyframes, becomes a
+  keyframe while the timeline plays. The playhead keeps moving while you drag.
+  Right-click a keyframe diamond to change its interpolation or delete it, and
+  lanes now draw the eased curve.
+- **Choose where exports are saved.** The Export panel has a **Save to** field
+  with a **Choose…** button. On desktop the folder is remembered across
+  restarts. Existing files are never overwritten (a clash gets a numbered
+  name), and if the folder can't be written the export is downloaded instead.
+- Local exports no longer have a length limit. **Stop & Save** still ends a
+  recording early.
+- Publishing budgets videos at 500 MB (was 50 MB), and long videos now
+  upload reliably, resuming after a dropped connection.
+
+### Fixed
+
+- The `audioEnvelopeBass`, `Mids`, `Highs` and `Full` variables read the
+  Audio panel's Low / Mid / High / Level meters, so they pulse with the music
+  instead of sitting at 1.0. The Audio node's Attack, Release and Gain apply
+  to them.
+- The Export panel sees the track loaded in the Audio panel and records it,
+  and the export size opens at the Output Format from Preview / Export Settings.
+- The Compute Profiler measures real GPU time per node instead of reading
+  ~0 ms for everything. Its overlay and docs list the shortcuts the editor
+  actually binds (Ctrl+Alt+P and Ctrl+Alt+Shift+…).
+- The installed app's "no GPU device" screen no longer tells you to update
+  Chrome.
+
+### Docs
+
+- Reference entries for Audio, Audio Value, Audio Sampler, Wave, the logic
+  gates, Text and Projection Map; more on desktop project files, relinking
+  missing media and VJ Control.
+- Pages for systems that no longer exist are gone, and setup is rewritten
+  around the desktop app.
+
+---
+
 ## v0.9.0-beta.5
 
 *October 21, 2026*
