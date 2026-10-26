@@ -77,4 +77,4 @@ The preset follows Rhizomium's compute node architecture:
 ## See Also
 - [ComputeBlur](../blur_field/) - Blur the noise output
 - [ReactionDiffusion](../reaction_diffusion/) - Complex pattern generation
-- [ComputeFeedback](../../docs/nodes/ComputeFeedback.md) - Create feedback loops
+- [ComputeFeedback](../../../docs/compute-nodes.md#spotlight-compute-feedback) - Create feedback loops

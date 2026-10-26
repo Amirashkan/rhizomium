@@ -1,4 +1,4 @@
-# Local-only Python viewer/streaming tooling (see DEPLOYMENT_NOTES.md) —
+# Local-only Python viewer/streaming tooling (rhizo_server.py, rhizo_viewer.py, the bridges) —
 # keep it out of the Vercel build context so Python auto-detection
 # doesn't run "uv pip install" on packages that need local GL/audio libs.
 *.py

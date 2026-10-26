@@ -420,7 +420,7 @@ Rhizomium recompiles shaders in real-time as you edit:
 
 - **[Node System](nodes.md)** - Understand nodes better
 - **[Node Reference](node-reference.md)** - See what code each node generates
-- **[Performance Tips](faq.md#performance)** - Optimize your shaders
+- **[Performance Tips](performance.md)** - Optimize your shaders
 
 ---
 

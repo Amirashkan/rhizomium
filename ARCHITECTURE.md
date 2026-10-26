@@ -122,8 +122,7 @@ Around it:
 
 Compute nodes are a substantially separate path from fragment nodes, and the
 interaction between the two is the fiddliest part of the codebase. If you are
-touching it, read `docs/internal/SHADER_INTEROP_ANALYSIS.md` and
-`docs/internal/FRAGMENT_COMPUTE_INTEROP_ISSUES.md` first.
+touching it, read `docs/internal/FRAGMENT_COMPUTE_INTEROP_ISSUES.md` first.
 
 ## 4. Redraw and invalidation
 

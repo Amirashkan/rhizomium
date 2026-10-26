@@ -200,4 +200,3 @@ The system logs to console with `[ShaderPreviewManager]`, `[PreviewThrottler]`, 
 
 - [GLSL Architecture Overview](./GLSL_ARCHITECTURE_OVERVIEW.md)
 - [ComputeNodeBase Documentation](./COMPUTE_NODE_BASE_ARCHITECTURE.md)
-- [Quick Reference Guide](./QUICK_REFERENCE_GUIDE.md)

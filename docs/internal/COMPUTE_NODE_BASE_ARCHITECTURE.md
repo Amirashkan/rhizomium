@@ -563,7 +563,6 @@ The architecture enables seamless integration of GPU compute operations into the
 
 ## References
 
-- [COMPUTE_NODE_API.md](./docs/COMPUTE_NODE_API.md) - Complete API reference
+- [COMPUTE_NODE_API.md](../COMPUTE_NODE_API.md) - Complete API reference
 - [UNIFIED_COMPUTE_API.md](./UNIFIED_COMPUTE_API.md) - Implementation summary
-- [ComputeNodeExample.js](./src/gpu/examples/ComputeNodeExample.js) - Usage examples
 - [WGSL Specification](https://www.w3.org/TR/WGSL/) - WebGPU Shading Language

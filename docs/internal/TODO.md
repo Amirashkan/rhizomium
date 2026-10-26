@@ -102,10 +102,9 @@ From `COMPUTE_NODES_STATUS.md` (infrastructure is complete; follow the pattern i
 
 ## Thread separation — remaining integrations
 
-From `THREAD_SEPARATION_PROGRESS.md` (PreviewComputer + expression evaluation
-are integrated; verify current state before starting — the doc predates some
-work and `workers/save-load-worker.js` / `workers/undo-manager-worker.js`
-already exist):
+PreviewComputer and expression evaluation are integrated; verify current
+state before starting (`workers/save-load-worker.js` and
+`workers/undo-manager-worker.js` already exist):
 
 - [ ] SaveLoadManager worker integration
 - [ ] UndoManager worker integration
@@ -114,20 +113,17 @@ already exist):
 
 ## Performance — known open items
 
-- [ ] Canvas node-editor rendering still costs 5–20 ms/frame during interactions; the accepted long-term fix is WebGPU-based UI rendering (or layered canvas) — see `ACTUAL_FIX_NEEDED.md` and `DEEP_REARCHITECTURE.md` (Option 1 recommended). Big architectural item, post-beta.
+- [ ] Canvas node-editor rendering still costs 5–20 ms/frame during interactions; the accepted long-term fix is WebGPU-based UI rendering (or layered canvas). Big architectural item, post-beta.
 - [ ] Time-node-referenced parameter thumbnails refresh at ~10 fps (cosmetic; live output is GPU-clock smooth). Revisit per the ordered options in `TIME_NODE_REFERENCE_NOTES.md` — make per-thumbnail GPU readback async first, don't just raise the cadence.
 - [ ] Verify presented FPS with a Time node driving a parameter (perf report measured dispatch, not presented frames — `TIME_NODE_REFERENCE_NOTES.md`)
 - [ ] Code-split the 1.2 MB editor chunk (dynamic `import()` for compute/preview subsystems)
 
-## Dual-screen & external viewer — issue backlogs (need re-triage)
+## Fragment/compute interop — issue backlog (needs re-triage)
 
-These docs predate later fixes (e.g. letterboxing and fragment-fed compute now
-have tests); re-check each item against current code before working on it:
+This doc predates later fixes; re-check each item against current code before
+working on it:
 
-- [ ] `DUAL_SCREEN_ISSUES.md`: 15 filed issues — headline ones: `broadcastFrameStream` never initialized in cloud mode (critical), silent error swallowing, no connection-state monitoring, offscreen-canvas + send-queue memory leaks, no cleanup on stop-streaming
 - [ ] `FRAGMENT_COMPUTE_INTEROP_ISSUES.md`: 8 filed issues — headline ones: fragment nodes re-rendered every frame (cache exists but invalidation gaps), fragment param changes not detected, fragment/compute resolution mismatch, circular-dependency handling
-- [ ] `EXTERNAL_VIEWER_ISSUES.md` testing matrix: resolutions, aspect ratios, fullscreen, IPC vs WebSocket modes
-- [ ] `COMPUTE_NODE_EXTERNAL_VIEWER_FIXES.md` verification checklist (live param drag → viewer uniforms)
 
 ## Testing — future enhancements
 
@@ -202,7 +198,5 @@ Not blocked, already done from real captures: every `node-*` image, the
 
 ## Housekeeping (nice to have)
 
-- [ ] Move the ~90 internal design/investigation `.md` files from the repo root into `docs/` and archive the stale ones (`NEXT_STEPS.md` is outdated — the InteractionStateManager fixes it asks for are done and all tests pass)
-- [ ] Decide whether `glsl-node-editor.docx` (232 KB) belongs in the repo
 - [ ] Define `window.updateStatus` once (e.g. wire up `src/ui/StatusManager.js`, currently never instantiated) so the status messages in FileManager/PreferencesWindow/ParameterPanel actually show
-- [ ] Stale root scripts to review: `fix-gpu-test.js`, `show-test-cube.js`, `test.html`, `check-gpu-init.html`, `GPUCanvas.py`
+- [ ] Stale root scripts to review: `show-test-cube.js`, `GPUCanvas.py`

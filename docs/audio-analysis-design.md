@@ -149,7 +149,9 @@ thresholds near 0.5 should land better than before, but they are worth a fresh l
 
 - [`tests/realtimeAudioAnalysis.test.js`](../tests/realtimeAudioAnalysis.test.js) — the meters,
   including the cross-band independence that was the original bug, and the no-latch invariant.
-- [`tests/audioAnalysisProcessor.test.js`](../tests/audioAnalysisProcessor.test.js) — the trigger
+- [`tests/audioNodeProcessor.test.js`](../tests/audioNodeProcessor.test.js) — the trigger
   decision, including that an instrument can never latch shut.
+- [`tests/audioTriggerClock.test.js`](../tests/audioTriggerClock.test.js) — triggers decided on
+  the analysis clock rather than the render frame.
 - [`tests/browserAudioCaptureFrameDelta.test.js`](../tests/browserAudioCaptureFrameDelta.test.js) —
   the frame clock's bounds.

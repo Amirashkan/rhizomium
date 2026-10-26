@@ -315,7 +315,6 @@ console.log(`1000 lookups: ${end - start}ms`);
 
 ## References
 
-- D1 Findings: `PERFORMANCE_FINDINGS.md`, `PERFORMANCE_ANALYSIS.md`
 - InvalidationManager: `src/core/InvalidationManager.js`
 - Subtask D2.B: `INVALIDATION_IMPLEMENTATION.md`
 

@@ -147,5 +147,5 @@ your patch:
 - [Performance Tips](performance.md)
 - [Performance Profiler](profiler.md)
 - [Frame Timing Monitoring](frame-timing-monitoring.md)
-- [Dual Screen Setup](dual-screen.md)
-- [Troubleshooting](troubleshooting.md)
+- [Multi-Screen Output](multi-screen.md)
+- [FAQ](faq-web.md)
