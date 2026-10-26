@@ -10,6 +10,46 @@ import { InterpolationSystem } from '../utils/InterpolationSystem.js';
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { writeParameterUniform } from '../parameters/ExternalParameterControl.js';
 
+// Record mode. While playing, a moving value is captured on a 0.1 s grid: a slider held for two
+// seconds is twenty keyframes, not a hundred and twenty. Paused, the keyframe lands on the playhead.
+const RECORD_STEP = 0.1;
+// How long after the artist's last edit the timeline keeps its hands off that parameter, so a value
+// being held still is not snapped back to the recorded curve between two mouse moves.
+const RECORD_HOLD_MS = 300;
+
+/** A literal number from a parameter value (drags write strings), or null for anything else. */
+function recordableNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string' || value.trim().startsWith('=')) return null;
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function numericParamDef(node, paramName) {
+  const def = keyframeParamDef(node, paramName, node.params?.[paramName], false);
+  return def && (def.type === 'float' || def.type === 'int') ? def : null;
+}
+
+/**
+ * The definition a keyframe is typed by. Usually the node's own, but the parameter panel also
+ * shows a few controls of its own that no node definition lists - the Circle's Softness is
+ * `epsilon`, which the shape compilers read ahead of the node's `smoothness`. A number there is
+ * keyframed as a float rather than refused.
+ */
+function keyframeParamDef(node, paramName, value, strict = true) {
+  const nodeDef = globalThis.NodeDefs?.[node.kind];
+  const def = nodeDef?.params?.find((p) => p.name === paramName);
+  if (def) return def;
+  if (recordableNumber(value ?? node.params?.[paramName]) !== null) {
+    return { name: paramName, type: 'float' };
+  }
+  if (!strict) return null;
+  if (!nodeDef || !nodeDef.params) {
+    throw new Error(`Node definition for ${node.kind} not found`);
+  }
+  throw new Error(`Parameter ${paramName} not found in ${node.kind}`);
+}
+
 /**
  * TimelineManager - manages timeline state and keyframe evaluation
  */
@@ -25,7 +65,21 @@ export class TimelineManager {
     this.onPlayStateChange = null;      // Callback when play state changes
     this.lastPanelUpdateTime = 0;       // Throttle parameter panel updates
     this.panelUpdateInterval = 100;     // Update panel max once per 100ms
-    
+
+    // Record mode: while armed, an edit to a number becomes a keyframe at the playhead.
+    this.recording = false;
+    this.onRecordStateChange = null;    // Callback when record is armed or disarmed
+    this._recordSeen = new Map();       // "nodeId.param" -> the number last applied or observed
+    this._recordTouched = new Map();    // "nodeId.param" -> performance.now() of the artist's last edit
+    this._recordBefore = null;          // Tracks as they stood when the pass began, for one undo step
+
+    // Committed edits (a typed value, the end of a drag) arrive here whether or not the
+    // timeline is playing; edits mid-drag are caught by the frame loop instead (update()).
+    editor?.eventSystem?.on?.('PARAMETER_CHANGED', (data) => {
+      if (data?.source !== 'user' || !data.node) return;
+      this.recordParameterChange(data.node.id, data.parameterName, data.newValue);
+    });
+
     // Interaction state manager integration
     this.interactionStateManager = getInteractionStateManager();
     this._pausedForInteraction = false;
@@ -83,6 +137,7 @@ export class TimelineManager {
    * Disable timeline (deactivates keyframe evaluation)
    */
   disable() {
+    this.setRecording(false);
     this.enabled = false;
     this.evaluatedValues.clear();
     // Restore original parameter values
@@ -156,6 +211,7 @@ export class TimelineManager {
     if (this.enabled) {
       this.evaluateAllTracks();
     } else {
+      this.setRecording(false);
       this.evaluatedValues.clear();
     }
     return this.enabled;
@@ -270,6 +326,12 @@ export class TimelineManager {
       return;
     }
 
+    // Before the playhead moves and the tracks are applied: whatever the artist changed since
+    // last frame is still sitting in node.params, at the time it was changed.
+    if (this.recording) {
+      this._captureRecordedChanges();
+    }
+
     this.timeline.advanceTime(deltaTime);
     this.evaluateAllTracks();
 
@@ -358,15 +420,7 @@ export class TimelineManager {
       throw new Error(`Node ${nodeId} not found`);
     }
 
-    const nodeDef = window.NodeDefs[node.kind];
-    if (!nodeDef || !nodeDef.params) {
-      throw new Error(`Node definition for ${node.kind} not found`);
-    }
-
-    const paramDef = nodeDef.params.find(p => p.name === paramName);
-    if (!paramDef) {
-      throw new Error(`Parameter ${paramName} not found in ${node.kind}`);
-    }
+    const paramDef = keyframeParamDef(node, paramName, value);
 
     // Convert value to proper type
     const typedValue = this.convertValueToType(value, paramDef.type);
@@ -427,15 +481,7 @@ export class TimelineManager {
       throw new Error(`Node ${nodeId} not found`);
     }
 
-    const nodeDef = window.NodeDefs[node.kind];
-    if (!nodeDef || !nodeDef.params) {
-      throw new Error(`Node definition for ${node.kind} not found`);
-    }
-
-    const paramDef = nodeDef.params.find(p => p.name === paramName);
-    if (!paramDef) {
-      throw new Error(`Parameter ${paramName} not found in ${node.kind}`);
-    }
+    const paramDef = keyframeParamDef(node, paramName, value);
 
     // Create track if it doesn't exist
     let track = this.timeline.findTrack(nodeId, paramName);
@@ -656,7 +702,14 @@ export class TimelineManager {
     // Only those need the graph rebuilding; see below.
     let needsRebuild = false;
 
+    const now = this.recording ? performance.now() : 0;
+
     for (const [key, value] of this.evaluatedValues) {
+      // A parameter the artist is recording into right now belongs to them, not the curve.
+      if (this.recording && now - (this._recordTouched.get(key) ?? -Infinity) < RECORD_HOLD_MS) {
+        continue;
+      }
+
       const [nodeId, paramName] = key.split('.');
       const node = this.editor.graph.nodes.find(n => n.id === nodeId);
 
@@ -692,17 +745,225 @@ export class TimelineManager {
         this.editor.markDirty('timeline-update');
       }
 
-      // Update parameter panel if the changed node is currently selected (throttled)
-      const now = Date.now();
-      if (changedNodeId && this.editor.paramPanel && this.editor.paramPanel.selectedNode) {
+      // Update parameter panel if the changed node is currently selected (throttled). Not while
+      // a field is being dragged: re-rendering would replace the very input under the mouse.
+      const panelNow = Date.now();
+      if (changedNodeId && this.editor.paramPanel && this.editor.paramPanel.selectedNode
+        && !this.editor._parameterDragging) {
         if (this.editor.paramPanel.selectedNode.id === changedNodeId) {
-          if (now - this.lastPanelUpdateTime > this.panelUpdateInterval) {
+          if (panelNow - this.lastPanelUpdateTime > this.panelUpdateInterval) {
             this.editor.paramPanel.renderParameters(this.editor.paramPanel.selectedNode);
-            this.lastPanelUpdateTime = now;
+            this.lastPanelUpdateTime = panelNow;
           }
         }
       }
     }
+
+    if (this.recording) {
+      this._rememberRecordCandidates();
+    }
+  }
+
+  // --- record mode ------------------------------------------------------------
+
+  /**
+   * Arm or disarm record mode. Arming switches the timeline on, since recording into a
+   * timeline that does not play back would capture keyframes nobody can see.
+   * @param {boolean} on
+   */
+  setRecording(on) {
+    on = Boolean(on);
+    if (on === this.recording) return;
+
+    if (on) {
+      if (!this.enabled) this.enable();
+      this.recording = true;
+      this._recordBefore = this._snapshotTracks();
+      this._recordTouched.clear();
+      this._recordSeen.clear();
+      this._rememberRecordCandidates();
+    } else {
+      this.recording = false;
+      this._finishRecordingPass();
+    }
+
+    if (this.onRecordStateChange) {
+      this.onRecordStateChange(this.recording);
+    }
+  }
+
+  /** @returns {boolean} New record state */
+  toggleRecording() {
+    this.setRecording(!this.recording);
+    return this.recording;
+  }
+
+  /** @returns {boolean} Whether record mode is armed */
+  isRecording() {
+    return this.recording;
+  }
+
+  /**
+   * A committed edit while recording: write it as a keyframe at the playhead.
+   * @param {string} nodeId - Node ID
+   * @param {string} paramName - Parameter name
+   * @param {*} value - The new parameter value
+   */
+  recordParameterChange(nodeId, paramName, value) {
+    if (!this.recording || !this.enabled) return;
+    const number = recordableNumber(value);
+    if (number === null) return;
+
+    const key = `${nodeId}.${paramName}`;
+    if (this._writeRecordedKeyframe(nodeId, paramName, number, this._recordTime())) {
+      this._recordTouched.set(key, performance.now());
+      this._recordSeen.set(key, number);
+    }
+  }
+
+  /** Where a recorded keyframe lands: on the 0.1 s grid while playing, on the playhead when not. */
+  _recordTime() {
+    const time = this.timeline.currentTime;
+    return this.timeline.playing ? Math.round(time / RECORD_STEP) * RECORD_STEP : time;
+  }
+
+  _writeRecordedKeyframe(nodeId, paramName, value, time) {
+    const node = this.editor.graph.nodes.find(n => n.id === nodeId);
+    const def = node && numericParamDef(node, paramName);
+    if (!def) return false;
+
+    if (!this.timeline.findTrack(nodeId, paramName)) {
+      this.timeline.addTrack(nodeId, paramName, def.type);
+    }
+    if (this.timeline.snapToFrames) {
+      time = this.timeline.snapToFrame(time);
+    }
+
+    // Re-recording over a keyframe replaces its value but keeps the easing chosen for it.
+    const existing = this.timeline.getKeyframeAt(nodeId, paramName, time);
+    const typed = def.type === 'int' ? Math.round(value) : value;
+    const keyframe = this.timeline.addKeyframe(nodeId, paramName, time, typed, existing?.interpolation || 'linear');
+
+    if (this.onKeyframeChange) {
+      this.onKeyframeChange('record', { nodeId, paramName, keyframe });
+    }
+    return true;
+  }
+
+  /**
+   * The parameters a recording pass watches: every number on the node open in the parameter
+   * panel, plus everything already animated, wherever it lives.
+   */
+  _recordCandidates() {
+    const nodes = this.editor.graph?.nodes || [];
+    const selected = this.editor.paramPanel?.selectedNode || null;
+    const out = [];
+
+    if (selected) {
+      for (const p of globalThis.NodeDefs?.[selected.kind]?.params || []) {
+        if (p.type === 'float' || p.type === 'int') {
+          out.push({ node: selected, name: p.name, key: `${selected.id}.${p.name}` });
+        }
+      }
+    }
+    for (const track of this.timeline.tracks) {
+      if (selected && track.nodeId === selected.id) continue;
+      const node = nodes.find(n => n.id === track.nodeId);
+      if (node) out.push({ node, name: track.paramName, key: `${track.nodeId}.${track.paramName}` });
+    }
+    return out;
+  }
+
+  /** Keyframe whatever changed since the timeline last applied or saw it. */
+  _captureRecordedChanges() {
+    const now = performance.now();
+    for (const { node, name, key } of this._recordCandidates()) {
+      const value = recordableNumber(node.params?.[name]);
+      if (value === null) continue;
+
+      const seen = this._recordSeen.get(key);
+      if (seen !== undefined && Math.abs(value - seen) > 1e-9) {
+        if (this._writeRecordedKeyframe(node.id, name, value, this._recordTime())) {
+          this._recordTouched.set(key, now);
+        }
+      }
+      this._recordSeen.set(key, value);
+    }
+  }
+
+  _rememberRecordCandidates() {
+    for (const { node, name, key } of this._recordCandidates()) {
+      const value = recordableNumber(node.params?.[name]);
+      if (value !== null) this._recordSeen.set(key, value);
+    }
+  }
+
+  _snapshotTracks() {
+    return JSON.stringify(this.timeline.toJSON().tracks);
+  }
+
+  _restoreTracks(snapshot) {
+    this.timeline.fromJSON({ ...this.timeline.toJSON(), tracks: JSON.parse(snapshot) });
+    if (this.enabled) this.evaluateAllTracks();
+    if (this.onKeyframeChange) {
+      this.onKeyframeChange('restore', {});
+    }
+  }
+
+  /** A whole recording pass undoes in one step, however many keyframes it wrote. */
+  _finishRecordingPass() {
+    const before = this._recordBefore;
+    this._recordBefore = null;
+    this._recordTouched.clear();
+    if (before === null) return;
+
+    const after = this._snapshotTracks();
+    if (after === before) return;
+
+    this.recordUndoAction({
+      type: 'RECORD_KEYFRAMES',
+      undo: () => this._restoreTracks(before),
+      redo: () => this._restoreTracks(after),
+    });
+  }
+
+  // --- interpolation ------------------------------------------------------------
+
+  /**
+   * Set how a keyframe eases into the next one.
+   * @param {string} nodeId - Node ID
+   * @param {string} paramName - Parameter name
+   * @param {number} time - Time of the keyframe
+   * @param {string} interpolation - "linear", "ease-in", "ease-out", "ease-in-out" or "step"
+   * @param {boolean} recordUndo - Whether to record an undo action (default: true)
+   * @returns {boolean} True if the keyframe changed
+   */
+  setKeyframeInterpolation(nodeId, paramName, time, interpolation, recordUndo = true) {
+    const keyframe = this.timeline.getKeyframeAt(nodeId, paramName, time);
+    if (!keyframe) return false;
+
+    const previous = keyframe.interpolation || 'linear';
+    if (previous === interpolation) return false;
+    keyframe.interpolation = interpolation;
+
+    if (recordUndo) {
+      this.recordUndoAction({
+        type: 'SET_KEYFRAME_INTERPOLATION',
+        nodeId,
+        paramName,
+        time,
+        undo: () => this.setKeyframeInterpolation(nodeId, paramName, time, previous, false),
+        redo: () => this.setKeyframeInterpolation(nodeId, paramName, time, interpolation, false),
+      });
+    }
+
+    if (this.enabled) {
+      this.evaluateAllTracks();
+    }
+    if (this.onKeyframeChange) {
+      this.onKeyframeChange('interpolation', { nodeId, paramName, time, interpolation });
+    }
+    return true;
   }
 
   /**

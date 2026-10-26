@@ -3980,16 +3980,18 @@ function handleRenderFrame(frameState) {
   const shouldThrottleUIPanels = interactionStateManager?.shouldThrottleOperation('uiPanels') || false;
 
   // PERFORMANCE: Skip expensive operations during drag/pan, but keep basic rendering
-  // Update timeline manager (skip during panning/dragging)
+  // Update timeline manager (skip during panning/dragging). Recording is the exception: a
+  // parameter drag is the very gesture being recorded, so the playhead has to keep moving under it.
+  const isRecordingTimeline = timelineManager?.isRecording?.() || false;
   runFrameStage('timeline', () => {
-    if (!shouldThrottleTimeline && !isDragging && timelineManager && timelineManager.isEnabled()) {
+    if (!shouldThrottleTimeline && (!isDragging || isRecordingTimeline) && timelineManager && timelineManager.isEnabled()) {
       timelineManager.update(frameState.deltaTime);
     }
   });
 
   // Update timeline panel visualization (skip during panning/dragging)
   runFrameStage('timelinePanel', () => {
-    if (!shouldThrottleUIPanels && !isDragging && timelinePanel) {
+    if (!shouldThrottleUIPanels && (!isDragging || isRecordingTimeline) && timelinePanel) {
       timelinePanel.update();
     }
   });

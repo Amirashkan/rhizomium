@@ -21,7 +21,7 @@ The Timeline lets you **record parameter changes over time** and play them back 
 
 ### Step 1: Open the Timeline
 
-1. Choose **View → Timeline** (or press `Ctrl+T`)
+1. Choose **View → Timeline** (or press `Ctrl+Alt+T`)
 2. The timeline panel appears at the bottom of the screen
 
 ### Step 2: Enable Timeline Mode
@@ -34,7 +34,7 @@ The Timeline lets you **record parameter changes over time** and play them back 
 1. **Set the playhead** to your desired time (e.g., 2 seconds)
 2. **Click on a node** to select it
 3. **Adjust a parameter** (e.g., change Radius from 0.3 to 0.7)
-4. **Click "Add Keyframe"** (or press `K`)
+4. **Click the round keyframe button** beside the parameter
 5. A keyframe is created at the current time!
 
 ### Step 4: Play Animation
@@ -84,10 +84,14 @@ Keyframes appear as **diamonds** on the timeline:
 
 **Automatic keyframe creation:**
 
-1. Enable **Record Mode** (red circle button)
-2. Click Play
-3. Adjust parameters while timeline plays
-4. Keyframes are created automatically!
+1. Open the node you want to animate in the parameter panel
+2. Click **Record** (the round button after Loop). It turns red while armed, and switches the timeline on
+3. Click Play
+4. Change a value while the timeline plays: type it, or hold **Shift** and drag up or down on the field (add **Alt** for ten times the step)
+5. Every change becomes a keyframe, ten per second. The timeline leaves a parameter alone while you are moving it
+6. Click **Record** again to stop
+
+While paused, a value you change lands as one keyframe at the playhead. Record watches every number on the node open in the parameter panel, plus every parameter that already has keyframes. A whole recording pass undoes in one step (`Ctrl+Z`).
 
 **Best for:** Live performance, improvisation
 
@@ -154,10 +158,11 @@ Custom curve control
 
 ### Changing Interpolation
 
-1. Select a keyframe
-2. Right-click (or use interpolation menu)
-3. Choose interpolation type
-4. Changes apply to the segment after the keyframe
+1. Right-click a keyframe diamond
+2. Choose Linear, Ease In, Ease Out, Ease In-Out or Step (the current one is ticked)
+3. Changes apply to the segment after the keyframe
+
+Each lane draws the animated value as a line through its keyframes, so the easing shows on the timeline. The same menu has **Delete keyframe**. Bezier exists in saved projects but has no editor in the menu yet.
 
 ---
 

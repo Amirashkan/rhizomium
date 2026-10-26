@@ -88,7 +88,8 @@
 }
 
 .timeline-duration-input,
-.timeline-fps-input {
+.timeline-fps-input,
+.timeline-loop-input {
   width: 60px;
   padding: 5px 7px;
   background: var(--rz-well);
@@ -100,10 +101,27 @@
 }
 
 .timeline-duration-input:focus,
-.timeline-fps-input:focus {
+.timeline-fps-input:focus,
+.timeline-loop-input:focus {
   outline: none;
   border-color: var(--rz-accent-30);
   box-shadow: 0 0 0 2px var(--rz-accent-10);
+}
+
+.timeline-display-mode-toggle {
+  padding: 5px 10px;
+  background: var(--rz-fill-soft);
+  color: var(--rz-text-2);
+  border: 1px solid var(--rz-line);
+  border-radius: var(--rz-r-field);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.timeline-display-mode-toggle:hover {
+  background: var(--rz-hover-strong);
+  color: #ffffff;
 }
 
 .timeline-enable-toggle {
@@ -241,4 +259,13 @@
   height: 1px;
   background: rgba(255, 244, 230, 0.09);
   margin: 6px;
+}
+
+/* Record. Red is the error colour everywhere else in the app, but a red dot is what every
+   recorder uses for "this is capturing", and only an armed button wears it. */
+.timeline-record-button.active {
+  background: var(--rz-error-soft);
+  color: var(--rz-error);
+  border-color: var(--rz-error-line);
+  box-shadow: 0 0 10px var(--rz-error-soft);
 }

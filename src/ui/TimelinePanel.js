@@ -1,6 +1,7 @@
 import { setIcon } from './iconSprite.js';
 import { getPerfProbe } from '../utils/PerfProbe.js';
 import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
+import { InterpolationSystem } from '../utils/InterpolationSystem.js';
 /**
  * TimelinePanel.js
  *
@@ -10,6 +11,15 @@ import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/th
 
 /** How tall the docked timeline opens, in CSS pixels. */
 const DEFAULT_HEIGHT = 200;
+
+/** The easings the keyframe menu offers, in the order it lists them (see InterpolationSystem). */
+const INTERPOLATIONS = [
+  { id: 'linear', label: 'Linear' },
+  { id: 'ease-in', label: 'Ease In' },
+  { id: 'ease-out', label: 'Ease Out' },
+  { id: 'ease-in-out', label: 'Ease In-Out' },
+  { id: 'step', label: 'Step' },
+];
 
 export class TimelinePanel {
   constructor(editor) {
@@ -82,10 +92,13 @@ export class TimelinePanel {
     this.playButton = this.createButton('', 'Play/Pause', () => this.togglePlay(), 'play');
     this.stopButton = this.createButton('', 'Stop', () => this.stop(), 'stop');
     this.loopButton = this.createButton('⟲', 'Toggle Loop', () => this.toggleLoop());
+    this.recordButton = this.createButton('', 'Record: every change to a number becomes a keyframe', () => this.toggleRecord(), 'record');
+    this.recordButton.classList.add('timeline-record-button');
 
     this.controls.appendChild(this.playButton);
     this.controls.appendChild(this.stopButton);
     this.controls.appendChild(this.loopButton);
+    this.controls.appendChild(this.recordButton);
 
     // Time display
     this.timeDisplay = document.createElement('div');
@@ -265,6 +278,7 @@ export class TimelinePanel {
     this.canvas.addEventListener('mouseup', (e) => this.onCanvasMouseUp(e));
     this.canvas.addEventListener('mouseleave', (e) => this.onCanvasMouseLeave(e));
     this.canvas.addEventListener('wheel', (e) => this.onCanvasWheel(e));
+    this.canvas.addEventListener('contextmenu', (e) => this.onCanvasContextMenu(e));
 
     // Global mouse events for dragging
     window.addEventListener('mousemove', (e) => {
@@ -291,6 +305,13 @@ export class TimelinePanel {
 
     this.timelineManager.onKeyframeChange = () => {
       this.render();
+    };
+
+    this.timelineManager.onRecordStateChange = (recording) => {
+      this.recordButton.classList.toggle('active', recording);
+      this.recordButton.title = recording
+        ? 'Recording: every change to a number becomes a keyframe. Click to stop'
+        : 'Record: every change to a number becomes a keyframe';
     };
 
     this.timelineManager.onPlayStateChange = (playing) => {
@@ -343,6 +364,10 @@ export class TimelinePanel {
   onCanvasMouseDown(e) {
     // Stop propagation to prevent node deselection
     e.stopPropagation();
+
+    // The right button opens the keyframe menu (onCanvasContextMenu); it must not also pick the
+    // keyframe up and drag it along with the pointer.
+    if (e.button !== 0) return;
 
     const rect = this.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -552,6 +577,91 @@ export class TimelinePanel {
     const loop = !this.timelineManager.getLoop();
     this.timelineManager.setLoop(loop);
     this.loopButton.style.opacity = loop ? '1' : '0.5';
+  }
+
+  /**
+   * Arm or disarm record mode
+   */
+  toggleRecord() {
+    this.timelineManager.toggleRecording();
+  }
+
+  /**
+   * Right-click on a keyframe: choose its interpolation, or delete it
+   */
+  onCanvasContextMenu(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = this.canvas.getBoundingClientRect();
+    const hit = this.getKeyframeAt(e.clientX - rect.left, e.clientY - rect.top);
+    if (!hit) return;
+
+    const track = this.timelineManager.timeline.tracks[hit.trackIndex];
+    const keyframe = track?.keyframes[hit.keyframeIndex];
+    if (keyframe) this.showKeyframeMenu(e.clientX, e.clientY, track, keyframe);
+  }
+
+  showKeyframeMenu(clientX, clientY, track, keyframe) {
+    this.closeKeyframeMenu();
+
+    const { nodeId, paramName } = track;
+    const time = keyframe.time;
+    const current = keyframe.interpolation || 'linear';
+
+    const menu = document.createElement('div');
+    menu.className = 'timeline-context-menu';
+    menu.style.position = 'fixed';
+
+    const addItem = (label, onPick, checked = false) => {
+      const item = document.createElement('div');
+      item.className = 'timeline-context-menu-item';
+      item.dataset.label = label;
+      item.textContent = checked ? `✓ ${label}` : label;
+      if (!checked) item.style.paddingLeft = '25px';
+      item.addEventListener('mousedown', (ev) => ev.stopPropagation());
+      item.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        this.closeKeyframeMenu();
+        onPick();
+      });
+      menu.appendChild(item);
+    };
+
+    for (const { id, label } of INTERPOLATIONS) {
+      addItem(label, () => this.timelineManager.setKeyframeInterpolation(nodeId, paramName, time, id), id === current);
+    }
+    const separator = document.createElement('div');
+    separator.className = 'timeline-context-menu-separator';
+    menu.appendChild(separator);
+    addItem('Delete keyframe', () => this.timelineManager.removeKeyframe(nodeId, paramName, time));
+
+    document.body.appendChild(menu);
+
+    // The timeline sits at the bottom of the window, so the menu usually opens upwards.
+    const box = menu.getBoundingClientRect();
+    const left = Math.min(clientX, window.innerWidth - box.width - 8);
+    const top = clientY + box.height > window.innerHeight - 8 ? clientY - box.height : clientY;
+    menu.style.left = `${Math.max(8, left)}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
+
+    const dismiss = (ev) => {
+      if (ev.type === 'keydown' && ev.key !== 'Escape') return;
+      if (ev.type === 'mousedown' && menu.contains(ev.target)) return;
+      this.closeKeyframeMenu();
+    };
+    window.addEventListener('mousedown', dismiss, true);
+    window.addEventListener('keydown', dismiss, true);
+    this.keyframeMenu = { menu, dismiss };
+  }
+
+  closeKeyframeMenu() {
+    if (!this.keyframeMenu) return;
+    const { menu, dismiss } = this.keyframeMenu;
+    window.removeEventListener('mousedown', dismiss, true);
+    window.removeEventListener('keydown', dismiss, true);
+    menu.remove();
+    this.keyframeMenu = null;
   }
 
   /**
@@ -848,16 +958,76 @@ export class TimelinePanel {
       this.ctx.fillRect(0, y, width, this.trackHeight);
 
       // Track label
-      const node = this.editor.graph.nodes.find(n => n.id === track.nodeId);
-      const label = node ? `${node.kind}.${track.paramName}` : `${track.nodeId}.${track.paramName}`;
+      const label = this.trackLabel(track);
 
       this.ctx.fillStyle = TEXT.secondary;
       this.ctx.font = `11px ${FONT_UI}`;
       this.ctx.fillText(label, 5, y + this.trackHeight / 2 + 4);
 
+      // The value between the keyframes, so the easing on each one can be seen
+      this.drawValueCurve(track, y);
+
       // Draw keyframes
       this.drawKeyframes(track, i, y);
     }
+  }
+
+  /**
+   * A lane's name as the parameter panel words it: "Circle · Softness", not "Circle.epsilon".
+   * The panel's own list is the only place a few controls are named at all, so it is asked
+   * first. Cached: this runs for every lane on every repaint during playback.
+   */
+  trackLabel(track) {
+    const node = this.editor.graph.nodes.find(n => n.id === track.nodeId);
+    if (!node) return `${track.nodeId}.${track.paramName}`;
+
+    if (!this._trackLabels) this._trackLabels = new Map();
+    const key = `${node.id}.${node.kind}.${track.paramName}`;
+    if (this._trackLabels.has(key)) return this._trackLabels.get(key);
+
+    const nodeDef = globalThis.NodeDefs?.[node.kind];
+    let panelDef = null;
+    try {
+      panelDef = this.editor.paramPanel?.getParameterDefinitions?.(node)
+        ?.find((p) => p.name === track.paramName) || null;
+    } catch {
+      // A panel that cannot describe this node leaves the node definition to name it.
+    }
+    const def = panelDef || nodeDef?.params?.find((p) => p.name === track.paramName);
+    const label = `${nodeDef?.label || node.kind} · ${def?.displayName || def?.label || track.paramName}`;
+    this._trackLabels.set(key, label);
+    return label;
+  }
+
+  /**
+   * Draw a track's animated value across its keyframes, scaled to the lane's height
+   */
+  drawValueCurve(track, y) {
+    const keyframes = track.keyframes;
+    if (keyframes.length < 2 || keyframes.some((kf) => typeof kf.value !== 'number')) return;
+
+    const values = keyframes.map((kf) => kf.value);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const pad = 5;
+    const toY = (v) => (max > min
+      ? y + this.trackHeight - pad - ((v - min) / (max - min)) * (this.trackHeight - pad * 2)
+      : y + this.trackHeight / 2);
+
+    const x0 = Math.max(0, this.timeToX(keyframes[0].time));
+    const x1 = Math.min(this.canvas.width / (window.devicePixelRatio || 1), this.timeToX(keyframes[keyframes.length - 1].time));
+    if (x1 <= x0) return;
+
+    this.ctx.strokeStyle = withAlpha(ACCENT.base, 0.6);
+    this.ctx.lineWidth = 1.5;
+    this.ctx.beginPath();
+    for (let x = x0; x <= x1 + 1; x += 2) {
+      const value = InterpolationSystem.evaluateTrack(keyframes, this.xToTime(Math.min(x, x1)));
+      if (x === x0) this.ctx.moveTo(x, toY(value));
+      else this.ctx.lineTo(Math.min(x, x1), toY(value));
+    }
+    this.ctx.stroke();
+    this.ctx.lineWidth = 1;
   }
 
   /**
