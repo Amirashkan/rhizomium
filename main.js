@@ -293,7 +293,11 @@ async function initialize() {
     // Ask for more than the spec's 16 sampled textures per stage where the
     // machine allows it: a patch with more texture-ish nodes than that compiled
     // to a shader naming bindings the device would not grant, and died.
-    const device = await requestDeviceWithTextureLimits(adapter);
+    // timestamp-query is what lets the Compute Profiler time each dispatch on
+    // the GPU. Without it every dispatch reads as the CPU time it took to
+    // encode, which is ~0 however heavy the node.
+    const requiredFeatures = adapter.features.has("timestamp-query") ? ["timestamp-query"] : [];
+    const device = await requestDeviceWithTextureLimits(adapter, { requiredFeatures });
     // Retain the adapter: if it gets garbage-collected, Chromium drops the
     // Dawn instance behind it and later buffer.mapAsync calls fail with "A
     // valid external Instance reference no longer exists" (breaks 3D readback)

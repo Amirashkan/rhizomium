@@ -162,7 +162,7 @@ export class ComputeProfilerOverlay {
       font-size: 10px;
       color: ${TEXT.faint};
     `;
-    this.footer.textContent = 'Press Ctrl+P to toggle | + for details';
+    this.footer.textContent = 'Press Ctrl+Alt+P to toggle | + for details';
 
     // Assemble overlay
     this.overlayElement.appendChild(header);
@@ -401,11 +401,11 @@ export class ComputeProfilerOverlay {
     if (this.expanded) {
       this.detailsSection.style.display = 'block';
       setIcon(this.expandButton, 'collapse', { size: 12, label: 'Collapse' });
-      this.footer.textContent = 'Press Ctrl+P to toggle';
+      this.footer.textContent = 'Press Ctrl+Alt+P to toggle';
     } else {
       this.detailsSection.style.display = 'none';
       setIcon(this.expandButton, 'expand', { size: 12, label: 'Expand' });
-      this.footer.textContent = 'Press Ctrl+P to toggle | + for details';
+      this.footer.textContent = 'Press Ctrl+Alt+P to toggle | + for details';
     }
   }
 

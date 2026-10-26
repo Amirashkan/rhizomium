@@ -138,14 +138,14 @@ The profiler automatically warns when:
 ### Reset Metrics
 
 **Clear statistics:**
-- Press **Ctrl+Shift+R** to reset
+- Press **Ctrl+Alt+Shift+R** to reset
 - Clears min/max/average values
 - Starts fresh measurement
 
 ### Enable/Disable Profiling
 
 **Turn profiling on/off:**
-- Press **Ctrl+Shift+E** to toggle
+- Press **Ctrl+Alt+Shift+E** to toggle
 - Disabling improves performance slightly
 - Metrics stop updating when disabled
 
@@ -221,9 +221,9 @@ The profiler automatically warns when:
 ### Keyboard Shortcuts
 
 - **Ctrl+Alt+P** - Toggle profiler overlay
-- **Ctrl+Shift+P** - Run performance tests
-- **Ctrl+Shift+R** - Reset profiler statistics
-- **Ctrl+Shift+E** - Enable/disable profiling
+- **Ctrl+Alt+Shift+P** - Run performance tests
+- **Ctrl+Alt+Shift+R** - Reset profiler statistics
+- **Ctrl+Alt+Shift+E** - Enable/disable profiling
 - **+** (in overlay) - Expand dispatch details
 - **−** (in overlay) - Collapse dispatch details
 
@@ -241,7 +241,7 @@ The profiler automatically warns when:
 ### Run Performance Tests
 
 **Automated testing:**
-1. Press **Ctrl+Shift+P**
+1. Press **Ctrl+Alt+Shift+P**
 2. Tests run automatically
 3. Results displayed in console
 4. Check for warnings/errors
@@ -323,10 +323,10 @@ Tests verify:
 **Problem:** Values stay the same
 
 **Solutions:**
-- Check if profiling is enabled (Ctrl+Shift+E)
+- Check if profiling is enabled (Ctrl+Alt+Shift+E)
 - Verify graph is rendering
 - Check for errors in console
-- Try resetting profiler (Ctrl+Shift+R)
+- Try resetting profiler (Ctrl+Alt+Shift+R)
 
 ### Inaccurate Readings
 
@@ -343,7 +343,7 @@ Tests verify:
 **Problem:** Profiler itself causes slowdown
 
 **Solutions:**
-- Disable when not needed (Ctrl+Shift+E)
+- Disable when not needed (Ctrl+Alt+Shift+E)
 - Use compact view (less overhead)
 - Close expanded breakdown
 - Check CPU usage
