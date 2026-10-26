@@ -1523,6 +1523,7 @@ export class GPURenderer {
       // PERFORMANCE: Submit command buffer immediately without waiting
       // This allows the render loop to continue while GPU processes the frame
       this.device.queue.submit([encoder.finish()]);
+      this.profiler?.afterSubmit();
 
       // Frame tap for external mirrors (the second-monitor viewer). Capture here,
       // immediately after submit and before the next getCurrentTexture(), while the

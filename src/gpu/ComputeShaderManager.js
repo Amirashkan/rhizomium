@@ -1153,7 +1153,8 @@ export class ComputeShaderManager {
 
     // Create compute pass
     const computePass = commandEncoder.beginComputePass({
-      label: 'Compute Pass'
+      label: 'Compute Pass',
+      timestampWrites: profiler?.timestampWrites(dispatchId),
     });
 
     computePass.setPipeline(this.computePipeline);

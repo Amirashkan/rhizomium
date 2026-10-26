@@ -209,19 +209,32 @@ export class ComputeProfiler {
       queryIndex: -1
     };
 
-    // Use timestamp queries if supported
+    // Two query slots per dispatch (start, end), written by the pass itself:
+    // see timestampWrites().
     if (this.supportsTimestamps && this.querySet && dispatchId * 2 + 1 < this.maxQueries) {
-      dispatch.queryIndex = dispatchId * 2; // Two queries per dispatch (start, end)
-
-      try {
-        commandEncoder.writeTimestamp(this.querySet, dispatch.queryIndex);
-      } catch {
-
-      }
+      dispatch.queryIndex = dispatchId * 2;
     }
 
     this.currentFrameDispatches.push(dispatch);
     return dispatchId;
+  }
+
+  /**
+   * The `timestampWrites` for the compute pass that runs this dispatch, or
+   * undefined when it isn't being GPU-timed.
+   *
+   * Timestamps are written by the pass, not the encoder: Chrome removed
+   * GPUCommandEncoder.writeTimestamp(), and calling it throws.
+   */
+  timestampWrites(dispatchId) {
+    if (!this.enabled || dispatchId < 0 || !this.querySet) return undefined;
+    const dispatch = this.currentFrameDispatches.find(d => d.id === dispatchId);
+    if (!dispatch || dispatch.queryIndex < 0) return undefined;
+    return {
+      querySet: this.querySet,
+      beginningOfPassWriteIndex: dispatch.queryIndex,
+      endOfPassWriteIndex: dispatch.queryIndex + 1,
+    };
   }
 
   /**
@@ -237,15 +250,6 @@ export class ComputeProfiler {
 
     dispatch.endTime = performance.now();
     dispatch.duration = dispatch.endTime - dispatch.startTime;
-
-    // Write end timestamp
-    if (this.supportsTimestamps && this.querySet && dispatch.queryIndex >= 0) {
-      try {
-        commandEncoder.writeTimestamp(this.querySet, dispatch.queryIndex + 1);
-      } catch {
-
-      }
-    }
   }
 
   /**
@@ -254,6 +258,13 @@ export class ComputeProfiler {
    */
   async endFrame(commandEncoder) {
     if (!this.enabled) return;
+
+    // A read still queued here means its frame's submit failed, so the copy
+    // it would map never happened.
+    if (this._toRead) {
+      this._toRead = null;
+      this._readPending = false;
+    }
 
     // Calculate total dispatch time and workgroups from CPU timing (fallback)
     let totalDispatchTime = 0;
@@ -268,13 +279,22 @@ export class ComputeProfiler {
       }
     }
 
-    this.metrics.totalDispatchTime = totalDispatchTime;
-    this.metrics.dispatches = [...this.currentFrameDispatches];
     this.metrics.activeWorkgroups = this.currentFrameDispatches.length;
     this.metrics.totalWorkgroups = totalWorkgroups;
 
-    // Resolve GPU timestamp queries if available
-    if (this.supportsTimestamps && this.querySet && this.currentFrameDispatches.length > 0) {
+    // With GPU timing, the times shown are the last frame whose timestamps
+    // have been read back. Replacing them with this frame's CPU times would
+    // show ~0 for every dispatch until the read lands, which is every frame.
+    const timed = this.currentFrameDispatches.some(d => d.queryIndex >= 0);
+    if (!timed) {
+      this.metrics.totalDispatchTime = totalDispatchTime;
+      this.metrics.dispatches = [...this.currentFrameDispatches];
+    }
+
+    // Resolve this frame's timestamps, unless the readback buffer is still
+    // mapped (or waiting to be) for an earlier frame: copying into it then is
+    // a validation error that fails the whole submit.
+    if (timed && !this._readPending) {
       try {
         const queryCount = this.dispatchIndex * 2; // Two timestamps per dispatch
 
@@ -296,12 +316,25 @@ export class ComputeProfiler {
           Math.min(queryCount * 8, this.queryBuffer.size)
         );
 
-        // Schedule async read
-        this._scheduleQueryRead(this.currentFrameDispatches.slice());
+        // Read once the frame is submitted: see afterSubmit().
+        this._readPending = true;
+        this._toRead = this.currentFrameDispatches.slice();
       } catch {
 
       }
     }
+  }
+
+  /**
+   * Call right after submitting the encoder endFrame() was given. Mapping the
+   * readback buffer has to wait until then: a buffer with a map pending can't
+   * be used by the submit that fills it.
+   */
+  afterSubmit() {
+    const dispatches = this._toRead;
+    if (!dispatches) return;
+    this._toRead = null;
+    this._scheduleQueryRead(dispatches).finally(() => { this._readPending = false; });
   }
 
   /**
@@ -328,12 +361,12 @@ export class ComputeProfiler {
         }
       }
 
-      // Update metrics with GPU timing if available
-      if (totalGPUTime > 0) {
-        this.metrics.totalDispatchTime = totalGPUTime;
-      }
-
       this.queryBuffer.unmap();
+
+      if (this.enabled) {
+        this.metrics.totalDispatchTime = totalGPUTime;
+        this.metrics.dispatches = dispatches;
+      }
     } catch {
 
       // Buffer might still be mapped, try to unmap
