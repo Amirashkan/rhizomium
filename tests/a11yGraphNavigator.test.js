@@ -359,6 +359,74 @@ describe('GraphNavigator', () => {
     expect(navigator.renderFocus()).toBeNull();
   });
 
+  it('comes back to the node last selected with the mouse, and scrolls it into view', () => {
+    navigator.focus();
+    expect(activeKey()).toBe(`node:${patch.time.id}`);
+    const elsewhere = document.createElement('button');
+    document.body.appendChild(elsewhere);
+    elsewhere.focus();
+
+    // A click selects Sin; the view is then panned far away from it.
+    patch.graph.selection = new Set([patch.sin.id]);
+    editor.canvas.getBoundingClientRect = () => ({ left: 0, top: 40, right: 1200, bottom: 900, width: 1200, height: 860 });
+    editor.viewport.offsetX = -3000;
+    editor.viewport.setViewport.mockClear();
+
+    navigator.focus();
+    expect(activeKey()).toBe(`node:${patch.sin.id}`);
+    expect([...patch.graph.selection]).toEqual([patch.sin.id]);
+    expect(editor.viewport.setViewport).toHaveBeenCalled();
+  });
+
+  it('keeps the item a screen reader moves focus straight onto', () => {
+    navigator.focus();
+    const elsewhere = document.createElement('button');
+    document.body.appendChild(elsewhere);
+    elsewhere.focus();
+    patch.graph.selection = new Set([patch.sin.id]);
+
+    editor.canvas.querySelector(`[data-key="node:${patch.out.id}"]`).focus();
+    expect(activeKey()).toBe(`node:${patch.out.id}`);
+    expect([...patch.graph.selection]).toEqual([patch.out.id]);
+  });
+
+  it('scrolls a node out from under the key hint and the status bar, though clicks pass through them', () => {
+    const box = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
+    const canvasBox = box(0, 40, 1200, 860);
+    editor.canvas.getBoundingClientRect = () => canvasBox;
+    Object.assign(editor.viewport, { offsetX: 100, offsetY: 100 });
+    // On screen: Time at y 790–850 over a status bar grown to 76px (200% interface size), Sin at
+    // y 440–520 under the hint, Add in the clear at the top.
+    Object.assign(patch.time, { y: 650, w: 180, h: 60 });
+    Object.assign(patch.sin, { w: 180, h: 80 });
+    Object.assign(patch.add, { w: 180, h: 100 });
+    const statusBar = document.createElement('div');
+    statusBar.className = 'rz-statusbar';
+    statusBar.getBoundingClientRect = () => box(0, 824, 1200, 76);
+    document.body.appendChild(statusBar);
+    const hint = box(300, 490, 600, 40);
+    navigator.hintEl.getBoundingClientRect = () => hint;
+
+    const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    const landsClear = (node) => {
+      const [scale, offsetX, offsetY] = editor.viewport.setViewport.mock.calls.at(-1);
+      const at = box(canvasBox.left + node.x * scale + offsetX, canvasBox.top + node.y * scale + offsetY, node.w, node.h);
+      return !overlaps(at, hint) && !overlaps(at, statusBar.getBoundingClientRect());
+    };
+
+    navigator.focusNode(patch.time.id);
+    expect(editor.viewport.setViewport).toHaveBeenCalled();
+    expect(landsClear(patch.time)).toBe(true);
+
+    editor.viewport.setViewport.mockClear();
+    navigator.focusNode(patch.add.id);
+    expect(editor.viewport.setViewport).not.toHaveBeenCalled();
+
+    navigator.focusNode(patch.sin.id);
+    expect(editor.viewport.setViewport).toHaveBeenCalled();
+    expect(landsClear(patch.sin)).toBe(true);
+  });
+
   it('notices edits made elsewhere on the next repaint', async () => {
     vi.useFakeTimers();
     try {

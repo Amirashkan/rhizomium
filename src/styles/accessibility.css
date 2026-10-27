@@ -267,6 +267,38 @@
   transform-origin: top left;
 }
 
+/* A zoomed status bar is narrower in its own pixels, and its equal thirds no
+   longer hold their readouts. Share the bar by content instead; when even that
+   runs short, the middle keeps its width, the left clips, and the right runs
+   off the window's edge rather than over the middle. (Only the left can clip:
+   the TYPES and frame-rate tooltips hang above the other two.) */
+:root[data-rz-scaled] .rz-sb-section {
+  flex: 1 1 auto;
+}
+
+:root[data-rz-scaled] .rz-sb-center {
+  flex-shrink: 0;
+}
+
+:root[data-rz-scaled] .rz-sb-left {
+  overflow: hidden;
+}
+
+:root[data-rz-scaled] .rz-sb-right {
+  justify-content: safe flex-end;
+}
+
+/* The bar is 38px times the size, so what floats just above it (the WGSL
+   toggle, and the console it opens above that) climbs by as much. */
+:root[data-rz-scaled] .floating-toggle-btn {
+  bottom: calc(20px + 38px * var(--rz-ui-scale));
+}
+
+:root[data-rz-scaled] #code-console {
+  bottom: calc(80px + 38px * var(--rz-ui-scale));
+  max-height: calc(100vh - 120px - 38px * var(--rz-ui-scale));
+}
+
 /* ---- Colour vision ------------------------------------------------------
    The filter itself is an <feColorMatrix> the colour-vision module keeps in
    the document (src/accessibility/colorVision.js). Only the artist's view is

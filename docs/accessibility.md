@@ -175,3 +175,5 @@ view is filtered: exports, published work and output screens always keep their r
   frames of floating panels keep the size you gave them, so drag their edges to make room. Long
   menus are zoomed only as far as still fits the window.
 - The menu bar keeps its height at every size, so panels placed just below it stay clear of it.
+- In a narrow window at a large size, the status bar shortens the cursor position first, then lets
+  the frame rate run off its right edge.

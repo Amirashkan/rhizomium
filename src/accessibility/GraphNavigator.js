@@ -437,10 +437,15 @@ export class GraphNavigator {
   _onFocusIn(event) {
     const arriving = !this.root.contains(event.relatedTarget);
     this._focused = true;
+    // Arriving on the outline's own current item (Tab, Focus Patch Canvas, a dialog closing)
+    // resumes where the canvas is now. Arriving on any other item (a screen reader's own
+    // navigation) means that item.
+    const resuming =
+      arriving && (event.target === this.root || event.target?.dataset?.key === this._activeKey);
     if (arriving) {
       // Someone may have edited with the mouse since the outline was last looked at, or selected
       // a different node: start from the canvas's current state.
-      this._syncActiveToSelection();
+      if (resuming) this._syncActiveToSelection();
       this.refresh();
       if (this._mode?.type === "connect") {
         const from = this._node(this._mode.from.nodeId);
@@ -451,13 +456,15 @@ export class GraphNavigator {
         }
       }
     }
-    if (event.target === this.root && this._items.length) {
+    if (resuming || (event.target === this.root && this._items.length)) {
       this._focusActive();
     } else if (event.target?.dataset?.key && event.target.dataset.key !== this._activeKey) {
       // Focus moved by something other than the keys below (a screen reader's own navigation).
       this._setActive(event.target.dataset.key, { focus: false });
     }
     this._updateHint();
+    const item = resuming ? this._activeItem() : null;
+    if (item) this._reveal(item);
     this._redraw("a11y-focus");
   }
 
@@ -497,8 +504,9 @@ export class GraphNavigator {
     }
     const item = this._activeItem();
     if (item && select && this._mode?.type !== "move") this._selectOnly(item.nodeId);
-    if (item && reveal) this._reveal(item);
+    // The hint first: its new text sets how much of the canvas it covers.
     this._updateHint();
+    if (item && reveal) this._reveal(item);
     this._redraw("a11y-focus");
     return true;
   }
@@ -642,8 +650,9 @@ export class GraphNavigator {
    * when the node is already in the clear, so walking a row of visible nodes never scrolls.
    *
    * Panels are found by asking the page what is on top at a few points of the node's on-screen
-   * box, rather than by listing them: whatever covers the canvas, this sees it. Readouts that let
-   * clicks through (the status bar, the key hint) do not count — they are see-through by design.
+   * box, rather than by listing them: whatever covers the canvas, this sees it. That asking passes
+   * through the readouts that let clicks through (the status bar, the key hint), which hide what
+   * is under them all the same, and grow with the interface size; those are measured instead.
    */
   _reveal(item) {
     const node = this._node(item.nodeId);
@@ -659,12 +668,16 @@ export class GraphNavigator {
     const nodeW = (node.w || 0) * scale;
     const nodeH = (node.h || 0) * scale;
     const margin = 40;
-    // The status bar sits over the bottom of the canvas.
-    const bottomInset = 48;
+    const readouts = this._readoutBoxes();
 
     const fits = (left, top) =>
-      left >= margin && top >= margin && left + nodeW <= width - margin && top + nodeH <= height - bottomInset;
-    const clear = (left, top) => !this._covered(canvas, rect, left, top, nodeW, nodeH);
+      left >= margin && top >= margin && left + nodeW <= width - margin && top + nodeH <= height - margin;
+    const clear = (left, top) => {
+      const x = rect.left + left;
+      const y = rect.top + top;
+      const under = readouts.some((r) => x < r.right && x + nodeW > r.left && y < r.bottom && y + nodeH > r.top);
+      return !under && !this._covered(canvas, rect, left, top, nodeW, nodeH);
+    };
 
     const left = node.x * scale + viewport.offsetX;
     const top = node.y * scale + viewport.offsetY;
@@ -693,6 +706,14 @@ export class GraphNavigator {
     }
     const [toLeft, toTop] = target || [width / 2 - nodeW / 2, height / 2 - nodeH / 2];
     viewport.setViewport?.(scale, toLeft - node.x * scale, toTop - node.y * scale);
+  }
+
+  /** On-screen boxes of the click-through readouts over the canvas: the status bar and the key hint. */
+  _readoutBoxes() {
+    return [this.doc.querySelector?.(".rz-statusbar"), this.hintEl]
+      .filter((el) => el && !el.hidden)
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0);
   }
 
   /** Whether something other than the canvas is on top anywhere in this on-canvas box. */
