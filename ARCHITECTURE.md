@@ -179,6 +179,15 @@ Drivers: `src/audio/`, `src/midi/`, `src/osc/`, `src/core/TimelineManager.js`,
   it reads as the manifest it implies, and the patches are built into the
   artist's own scenario rather than a new one. `src/performer/README.md`.
 - `src/collab/` — multi-user editing.
+- `src/accessibility/` — the keyboard and screen-reader layer, and the
+  accessibility settings. The patch outline (`GraphNavigator.js`) is an ARIA tree
+  built inside `#ui-canvas` as its fallback content; it drives the selection and
+  has the renderer ring the focused node (`Renderer._renderKeyboardFocus`). The
+  settings store (`a11ySettings.js`) is what the live contrast palette in
+  `theme.js` and `src/styles/accessibility.css` follow. The motion check
+  (`motionSafety.js`) holds a newly opened patch while frames rendered ahead by
+  `GPURenderer.captureFrameSequence` are measured for flashing.
+  [docs/accessibility.md](docs/accessibility.md).
 - `src/ai/` — AI features. See [Open-core boundary](#open-core-boundary).
 
 A pointer position crosses three spaces on its way in — client, graph and

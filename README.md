@@ -216,6 +216,8 @@ missing rather than leaving a dead toggle. Details in
 - [docs/frame-rate.md](docs/frame-rate.md) — **read this if the fps readout is
   below your monitor's refresh rate**
 - [docs/node-reference.md](docs/node-reference.md) — every node
+- [docs/accessibility.md](docs/accessibility.md) — keyboard-only editing,
+  screen readers, contrast and size, flashing warnings, colour vision
 - [docs/compute-nodes.md](docs/compute-nodes.md) — the compute path
 - [docs/multi-screen.md](docs/multi-screen.md),
   [docs/web-viewer.md](docs/web-viewer.md)

@@ -135,8 +135,11 @@ export function offsetFromPoint(textarea, clientX, clientY) {
   const charWidth = measureCharWidth(cs) || fontSize * 0.6;
   const tabSize = parseInt(cs.tabSize, 10) || 2;
 
-  const x = clientX - rect.left - (parseFloat(cs.borderLeftWidth) || 0) - (parseFloat(cs.paddingLeft) || 0) + textarea.scrollLeft;
-  const y = clientY - rect.top - (parseFloat(cs.borderTopWidth) || 0) - (parseFloat(cs.paddingTop) || 0) + textarea.scrollTop;
+  // The pointer arrives in screen pixels; the textarea's own metrics are in its CSS pixels. They
+  // differ when Preferences → Accessibility → Interface size zooms the panel the field sits in.
+  const zoom = textarea.currentCSSZoom || 1;
+  const x = (clientX - rect.left) / zoom - (parseFloat(cs.borderLeftWidth) || 0) - (parseFloat(cs.paddingLeft) || 0) + textarea.scrollLeft;
+  const y = (clientY - rect.top) / zoom - (parseFloat(cs.borderTopWidth) || 0) - (parseFloat(cs.paddingTop) || 0) + textarea.scrollTop;
   if (x < 0 || y < 0) return -1;
 
   const lines = textarea.value.split('\n');

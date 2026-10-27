@@ -24,16 +24,19 @@ import {
   ANNOTATION_PIN_INK,
   ANNOTATION_RESOLVED_COLOR,
   ANNOTATION_TAGS,
+  NODE_CHROME,
   NODE_STYLE,
   SEMANTIC,
   SURFACE,
   TEXT,
   categoryColor,
+  paletteVersion,
   typeColor,
   withAlpha,
   FONT_UI,
   FONT_MONO,
 } from "./theme.js";
+import { colorVisionCanvasFilter } from "../accessibility/colorVision.js";
 import { getAnnotationStore } from "./AnnotationStore.js";
 import {
   getDynamicInputSpec,
@@ -75,9 +78,9 @@ const MAX_TITLE_W = 220;
 const NODE_TITLE_PX = 12;
 const NODE_META_PX = 9;
 
-// Wire weight. Wires are the one thing on the canvas that must stay readable at every zoom level,
-// so they are drawn a touch heavier than the hairlines around them.
-const WIRE_WIDTH = 2.5;
+// Wire weight lives in NODE_CHROME.wireWidth (theme.js). Wires are the one thing on the canvas that
+// must stay readable at every zoom level, so they are drawn a touch heavier than the hairlines around
+// them — and heavier again at the higher contrast levels.
 
 // Review-annotation pins. The geometry itself lives in pinLayout.js, with the
 // rest of the node anatomy the hit-tester also has to agree with; only how the
@@ -283,6 +286,12 @@ export class Renderer {
       this._renderSelectionBox(renderState.boxSelect);
     }
 
+    // Keyboard focus from the patch outline (src/accessibility/GraphNavigator.js). Last, so it sits
+    // over every node and wire, and only present while the outline holds focus.
+    if (renderState.keyboardFocus) {
+      this._renderKeyboardFocus(renderState.keyboardFocus, nodeMap);
+    }
+
     ctx.restore();
 
     // PERFORMANCE: Mark viewport as clean after rendering
@@ -337,7 +346,8 @@ export class Renderer {
  // Screen pixels per grid unit
 
     // Cache key based on grid size and scale (scale affects visual appearance)
-    const cacheKey = `${gridSize}_${scale.toFixed(2)}`;
+    // The palette version is part of the key: a contrast change recolours the dots.
+    const cacheKey = `${gridSize}_${scale.toFixed(2)}_${paletteVersion()}`;
     const needsRegenerate = !this._gridCanvas ||
                            this._gridCacheKey !== cacheKey;
 
@@ -419,7 +429,7 @@ export class Renderer {
         return;
       }
 
-      gridCtx.fillStyle = `rgba(255, 240, 220, ${alpha})`;
+      gridCtx.fillStyle = `rgba(${NODE_CHROME.gridDot}, ${alpha})`;
       gridCtx.beginPath();
       for (let y = 0; y <= tileSizePixels; y += spacing) {
         for (let x = 0; x <= tileSizePixels; x += spacing) {
@@ -432,8 +442,8 @@ export class Renderer {
       gridCtx.fill();
     };
 
-    drawDots(minorSpacing, 1, 0.06);
-    drawDots(majorSpacing, 1.4, 0.11);
+    drawDots(minorSpacing, 1, NODE_CHROME.gridAlphaMinor);
+    drawDots(majorSpacing, 1.4, NODE_CHROME.gridAlphaMajor);
 
     // Store tile size in world space for drawing
     this._gridTileSizeWorld = tileSizePixels / scale;
@@ -441,7 +451,7 @@ export class Renderer {
 
   _renderConnections(connections, nodeMap) {
     const ctx = this.ctx;
-    ctx.lineWidth = WIRE_WIDTH;
+    ctx.lineWidth = NODE_CHROME.wireWidth;
 
     // PERFORMANCE: Always enable viewport culling - it's a real optimization
     // Only skips connections that are completely off-screen, improving performance significantly
@@ -616,7 +626,7 @@ export class Renderer {
     // treatment the design gives an unresolved connection. It goes solid the moment it lands.
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = WIRE_WIDTH;
+    ctx.lineWidth = NODE_CHROME.wireWidth;
     ctx.setLineDash([7, 5]);
     this._drawBezierCurve(fromPos.x, fromPos.y, dragWire.pos.x, dragWire.pos.y);
     ctx.restore();
@@ -712,12 +722,12 @@ export class Renderer {
     // tints its header amber; otherwise it is the faintest lift off the body.
     ctx.fillStyle = node.bypassed
       ? withAlpha(SEMANTIC.warn, 0.06)
-      : "rgba(255, 244, 230, 0.035)";
+      : NODE_CHROME.headerFill;
     ctx.fillRect(node.x, node.y, node.w, HEADER_H);
     ctx.restore();
 
     // Hairline under the header.
-    ctx.strokeStyle = "rgba(255, 244, 230, 0.07)";
+    ctx.strokeStyle = NODE_CHROME.headerLine;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(node.x, node.y + HEADER_H + 0.5);
@@ -732,8 +742,8 @@ export class Renderer {
       ctx.strokeStyle = withAlpha(SEMANTIC.warn, 0.45);
       ctx.lineWidth = 1.5;
     } else {
-      ctx.strokeStyle = "rgba(255, 244, 230, 0.09)";
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = NODE_CHROME.border;
+      ctx.lineWidth = NODE_CHROME.borderWidth;
     }
     ctx.beginPath();
     ctx.roundRect(node.x, node.y, node.w, node.h, R);
@@ -829,7 +839,7 @@ export class Renderer {
   // untouched and only an actually-moved node misses; the map is bounded so a long drag session
   // can't grow it without limit.
   _nodeBodyGradient(node) {
-    const key = `${node.y}_${node.h}`;
+    const key = `${node.y}_${node.h}_${paletteVersion()}`;
     let grad = this._gradientCache.get(key);
     if (!grad) {
       if (this._gradientCache.size > 512) this._gradientCache.clear();
@@ -972,6 +982,12 @@ export class Renderer {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
+    // Preferences → Accessibility → Colour vision. A thumbnail is a preview of the render, so it
+    // follows the same profile as the preview window. Part of the canvas state, so the restore()
+    // that drops the band clip below drops the filter with it.
+    const cvdFilter = colorVisionCanvasFilter();
+    if (cvdFilter !== "none") ctx.filter = cvdFilter;
+
     // Fit the source into the band preserving its aspect ratio ("contain"): scale by the smaller of
     // the two axis ratios and centre, so a square render in a landscape band gets side bars (and a
     // wide render gets top/bottom bars) rather than being distorted.
@@ -1012,7 +1028,7 @@ export class Renderer {
     ctx.restore(); // drop the band clip
 
     // Hairline around the band, matching the card's own border weight.
-    ctx.strokeStyle = "rgba(255, 244, 230, 0.1)";
+    ctx.strokeStyle = NODE_CHROME.thumbBorder;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(thumbX, thumbY, thumbW, thumbH, tr - 1);
@@ -1592,6 +1608,102 @@ export class Renderer {
       NODE_STYLE.radius + 2,
     );
     ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * The keyboard focus ring: round the focused node, or round one port when the outline is on a
+   * pin. Its weight is held constant on screen — it is a pointer to where the keyboard is, not part
+   * of the node, so it must not thin to nothing when the canvas is zoomed out.
+   *
+   * While a keyboard connection is being made, the port it started from keeps a dashed ring and a
+   * dashed lead runs from it to wherever focus is now, the same "dangling" look a dragged wire has.
+   *
+   * drawFocusIfNeeded tells the browser where the focused element is on screen. The outline lives
+   * in the canvas's fallback content, which has no box of its own, so this is what lets a screen
+   * magnifier follow focus from node to node.
+   */
+  _renderKeyboardFocus(focus, nodeMap) {
+    const node = nodeMap.get(focus.nodeId);
+    if (!node) return;
+
+    const ctx = this.ctx;
+    const scale = this.viewport.scale || 1;
+    const ringWidth = NODE_CHROME.focusWidth / scale;
+    const haloWidth = ringWidth + 3 / scale;
+
+    const portPos = (part, pin) => {
+      if (part === "input") return this._getInputPinPosition(node, pin);
+      if (part === "output") return this._getOutputPinPosition(node, pin);
+      return null;
+    };
+
+    const tracePath = () => {
+      ctx.beginPath();
+      const pos = portPos(focus.part, focus.pin);
+      if (pos) {
+        ctx.arc(pos.x, pos.y, NODE_STYLE.portRadius + 5, 0, Math.PI * 2);
+      } else {
+        const pad = 6;
+        ctx.roundRect(
+          node.x - pad,
+          node.y - pad,
+          node.w + pad * 2,
+          node.h + pad * 2,
+          NODE_STYLE.radius + pad,
+        );
+      }
+    };
+
+    ctx.save();
+    ctx.setLineDash([]);
+
+    if (focus.connectFrom) {
+      const fromNode = nodeMap.get(focus.connectFrom.nodeId);
+      const fromPos = fromNode
+        ? focus.connectFrom.part === "input"
+          ? this._getInputPinPosition(fromNode, focus.connectFrom.pin)
+          : this._getOutputPinPosition(fromNode, focus.connectFrom.pin)
+        : null;
+      if (fromPos) {
+        const toPos = portPos(focus.part, focus.pin) || {
+          x: node.x + node.w / 2,
+          y: node.y + node.h / 2,
+        };
+        ctx.strokeStyle = ACCENT.base;
+        ctx.lineWidth = NODE_CHROME.wireWidth;
+        ctx.setLineDash([7 / scale, 5 / scale]);
+        // A wire runs output → input; drawn the other way round its curve bows backwards.
+        if (focus.connectFrom.part === "input") {
+          this._drawBezierCurve(toPos.x, toPos.y, fromPos.x, fromPos.y);
+        } else {
+          this._drawBezierCurve(fromPos.x, fromPos.y, toPos.x, toPos.y);
+        }
+        ctx.beginPath();
+        ctx.arc(fromPos.x, fromPos.y, NODE_STYLE.portRadius + 5, 0, Math.PI * 2);
+        ctx.lineWidth = ringWidth;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    tracePath();
+    // Before our own strokes, not after: the browser paints its platform focus ring along the path
+    // as well, and drawn last that ring (near-black in Chrome) would bury ours.
+    if (focus.element && typeof ctx.drawFocusIfNeeded === "function") {
+      try {
+        ctx.drawFocusIfNeeded(focus.element);
+      } catch {
+        // An element that left the canvas between frames — nothing to point at this time.
+      }
+    }
+    ctx.lineWidth = haloWidth;
+    ctx.strokeStyle = NODE_CHROME.focusHalo;
+    ctx.stroke();
+    ctx.lineWidth = ringWidth;
+    ctx.strokeStyle = NODE_CHROME.focusRing;
+    ctx.stroke();
+
     ctx.restore();
   }
 

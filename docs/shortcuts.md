@@ -47,6 +47,7 @@ is open.
 | `Delete` / `Backspace` | Delete | Delete selected nodes |
 | `Ctrl+Shift+R` | Rebuild Shader | Recompile from the current graph |
 | `Ctrl+,` | Preferences… | |
+| `Ctrl+Shift+,` | Accessibility… | Contrast, interface size, motion warnings, colour vision, screen reader |
 | `Ctrl+E` | Edit expression | Focus the expression field of the open parameter |
 | `F2` | Rename node | With exactly one node selected |
 
@@ -58,6 +59,8 @@ is open.
 | `Ctrl+2` / `Ctrl+P` | Toggle Preview Panel | The floating preview window |
 | `Ctrl+3` | Toggle 3D Viewport | |
 | `Ctrl+Shift+P` | Preview / Export Settings | Render resolution and format |
+| `Ctrl+Shift+Space` | Pause / Play Preview | Freezes the preview's clock |
+| `Ctrl+Alt+N` | Focus Patch Canvas | Puts the keyboard on the node graph — see [Patch Canvas](#patch-canvas-keyboard) |
 | `Ctrl+=` | Zoom In | `Ctrl++` works too |
 | `Ctrl+-` | Zoom Out | |
 | `Ctrl+0` | Reset Zoom | Back to 100%, centred |
@@ -78,8 +81,8 @@ is open.
 | `Tab` | Create Node… (on a wire) | While dragging a wire, drops the new node onto it |
 | `Delete` | Delete Node | |
 | `Ctrl+D` | Duplicate Node | |
-| `Ctrl+K` | Connect Pins | |
-| `Ctrl+Shift+K` | Disconnect Pins | |
+| `Ctrl+K` | Connect Pins | Pick an output and an input from two filterable lists |
+| `Ctrl+Shift+K` | Disconnect Pins | Pick wires to remove |
 | `Ctrl+I` | Node Settings / Params… | |
 
 ## Tools
@@ -91,6 +94,7 @@ is open.
 | `Ctrl+Alt+C` | Shader Compiler | |
 | `Ctrl+Alt+G` | GLSL Utilities | GLSL → WGSL conversion, snippets, node-body reference |
 | `Ctrl+Shift+M` | Projection Mapping… | |
+| `Ctrl+Shift+F` | Check Flashing & Motion… | Measures the patch against the three-flashes-a-second limit |
 | `Ctrl+Alt+A` | Audio Settings | |
 | `Ctrl+Alt+M` | MIDI Settings | |
 | `Ctrl+Alt+O` | OSC Receiver | |
@@ -112,8 +116,35 @@ is open.
 |----------|--------|-------------|
 | `F1` | Documentation | Opens this site |
 | `Ctrl+/` | Shortcuts / Keymap | The in-app keymap (`?` works too) |
+| `Ctrl+Alt+D` | Describe Patch… | The whole patch as a structured list, for screen readers |
+| `F10` | Focus the menu bar | Arrows move through the menus; `Esc` goes back |
 | `Ctrl+Alt+W` | Welcome | |
 | `Ctrl+Alt+I` | About | |
+
+## Patch Canvas (keyboard)
+
+With the patch canvas focused (`Tab` past the menu bar, or `Ctrl+Alt+N`), the
+keyboard walks an outline of the patch. Full guide:
+[Accessibility](accessibility.md#the-patch-canvas).
+
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `↑` `↓` | Previous / next item | Nodes in signal order, plus the ports of an open node |
+| `→` `←` | Open / close a node | Into its inputs, outputs and parameters, and back out |
+| `Alt+Arrows` | Nearest node in that direction | |
+| `Home` / `End` | First / last node | |
+| `Enter` | Parameters, or follow a wire | On a free port it opens Connect Pins |
+| `Space` / `Shift+Space` | Select only this / add to selection | |
+| `C` | Connect | `C` on one end, move to the other end, `C` again |
+| `X` | Disconnect the focused port | |
+| `M` | Move the selection | Arrows move, `Shift` for bigger steps, `Enter` drops, `Esc` cancels |
+| `N` | Add a node here | From a port, the new node is wired to it |
+| `B` / `S` | Bypass / cycle preview size | |
+| `+` / `-` | Add / remove an input pin | Expandable nodes |
+| `I` / `Shift+I` | Describe the item / the whole patch | Spoken through the screen reader |
+| `G` | Go to node by name | |
+| `Shift+F10` | Node menu | |
+| `Ctrl+A` | Select every node | |
 
 ## Canvas
 

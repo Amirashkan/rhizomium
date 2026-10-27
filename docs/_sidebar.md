@@ -14,6 +14,7 @@
   * [Compute Nodes](compute-nodes.md)
   * [3D Field Visualization](field-visualization.md)
   * [Multi-Screen Output](multi-screen.md)
+  * [Accessibility](accessibility.md)
 
 * Animation & Control
   * [Parameter Expressions](parameter-expressions.md)

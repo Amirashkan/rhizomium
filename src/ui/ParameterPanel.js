@@ -60,6 +60,8 @@ const EXTERNAL_PARAMETER_SOURCES = new Set(['midi', 'osc', 'audio-panel']);
 const DEFAULT_GEOMETRY = { top: '10px', right: '10px', width: '320px' };
 
 export class ParameterPanel {
+  static _fieldIds = 0;
+
   constructor(eventSystem, undoManager, graph) {
     this.colorStopInputHandler = new ColorStopInputHandler(undoManager);
     this.colorInputHandler = new ColorInputHandler(undoManager);
@@ -166,6 +168,9 @@ export class ParameterPanel {
     this.panel = document.createElement('div');
     this.panel.id = 'parameter-panel';
     this.panel.className = 'parameter-panel';
+    // A landmark a screen reader can jump to, named for what it holds.
+    this.panel.setAttribute('role', 'region');
+    this.panel.setAttribute('aria-label', 'Node parameters');
     this.panel.style.cssText = `
       position: fixed;
       top: ${DEFAULT_GEOMETRY.top};
@@ -1636,6 +1641,7 @@ case 'flip2d':
     }
 
     paramContainer.appendChild(inputContainer);
+    this._nameParameterControls(label, inputContainer);
 
     // Add parameter info
     if (param.min !== undefined || param.max !== undefined) {
@@ -1652,6 +1658,32 @@ case 'flip2d':
     }
 
     this.panelContent.appendChild(paramContainer);
+  }
+
+  /**
+   * Give the controls a parameter row built their accessible name. The row's <label> was never tied
+   * to the field an input handler made, so a screen reader met every parameter as an unnamed "edit
+   * text" or "button". The first form control takes the label itself (clicking the name then
+   * focuses it too); any further unnamed control in the row is named after it, numbered.
+   */
+  _nameParameterControls(label, container) {
+    if (!label || !container) return;
+    const name = label.textContent.trim();
+    const controls = [...container.querySelectorAll('input:not([type="hidden"]), select, textarea, button')];
+    controls.forEach((control, index) => {
+      const labelled =
+        control.hasAttribute('aria-label') ||
+        control.hasAttribute('aria-labelledby') ||
+        (control.id && container.ownerDocument.querySelector(`label[for="${control.id}"]`));
+      if (labelled) return;
+      if (index === 0 && control.matches('input, select, textarea')) {
+        if (!control.id) control.id = `rz-param-field-${++ParameterPanel._fieldIds}`;
+        label.htmlFor = control.id;
+      } else {
+        const extra = control.title || control.placeholder || (control.tagName === 'BUTTON' ? control.textContent.trim() : '');
+        control.setAttribute('aria-label', extra ? `${name}: ${extra}` : `${name} ${index + 1}`);
+      }
+    });
   }
 
   /**

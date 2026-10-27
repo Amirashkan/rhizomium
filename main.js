@@ -82,6 +82,7 @@ import { showTestCube } from './show-test-cube.js';
 import { Vec3 } from './src/scene/math/Vec3.js';
 import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindow.js';
 import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
+import { prepareAccessibility, installAccessibility } from './src/accessibility/installAccessibility.js';
 import { showExportPanel } from './src/ui/ExportPanel.js';
 import { publishImage, publishAnimation } from './src/ui/publish.js';
 import { openInWebViewer } from './src/ui/openInWebViewer.js';
@@ -278,6 +279,10 @@ if (typeof window.render !== "function") {
 ensureIconSprite();
 
 async function initialize() {
+  // Contrast, interface size, focus ring and motion settings go onto the page before anything
+  // paints, so the editor never flashes up in a contrast the artist has asked not to see.
+  prepareAccessibility();
+
   const errorHandler = new ErrorHandler();
   window.errorHandler = errorHandler;
 
@@ -881,7 +886,10 @@ async function initialize() {
 
     // Initialize Preferences Window BEFORE setupUIEventHandlers
     // so that handlers can find it
-    preferencesWindow = new PreferencesWindow();
+    preferencesWindow = new PreferencesWindow({
+      onCheckMotion: () => document.getElementById("btn-check-motion")?.click(),
+      onShowKeyboardHelp: () => showShortcutsDialog(document, { filter: "Patch Canvas" }),
+    });
     window.preferencesWindow = preferencesWindow;
 
     // Now set up UI event handlers (which will attach handlers to the windows we just created)
@@ -891,6 +899,18 @@ async function initialize() {
     // Stored preferences win over the editor's built-in defaults, so apply them
     // once the handlers above have wired the matching View-menu controls.
     preferencesWindow.applyAll();
+
+    // The keyboard and screen-reader layer: the patch outline in the canvas, the
+    // menu bar keys, Connect/Disconnect Pins, Describe Patch, colour vision on the
+    // preview and the motion check that holds a newly opened patch until it has
+    // been measured. After the menus, whose rows it attaches to.
+    installAccessibility({
+      editor,
+      previewTiming: createPreviewTiming(),
+      getAspect: () => getOutputAspect(),
+      showKeyboardHelp: (filter) => showShortcutsDialog(document, { filter }),
+      updateStatus,
+    });
 
     // Desktop only: open a .rz the app was launched with (double-clicked patch).
     // Deliberately not awaited - a file-association open should not hold up the
@@ -2544,31 +2564,9 @@ function setupRhizomiumMenu() {
     });
   }
 
-  // Connect Pins
-  const connectPinsBtn = document.getElementById("btn-connect-pins");
-  if (connectPinsBtn) {
-    connectPinsBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // TODO: Implement connect pins functionality
-      if (typeof updateStatus === "function") {
-        updateStatus("Connect Pins: Feature coming soon");
-      }
-    });
-  }
-
-  // Disconnect Pins
-  const disconnectPinsBtn = document.getElementById("btn-disconnect-pins");
-  if (disconnectPinsBtn) {
-    disconnectPinsBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // TODO: Implement disconnect pins functionality
-      if (typeof updateStatus === "function") {
-        updateStatus("Disconnect Pins: Feature coming soon");
-      }
-    });
-  }
+  // Connect Pins / Disconnect Pins open their dialogs from
+  // src/accessibility/installAccessibility.js, which also seeds them from the
+  // port the keyboard is on in the patch outline.
 
   // Node Settings
   const nodeSettingsBtn = document.getElementById("btn-node-settings");
@@ -3147,6 +3145,15 @@ function setupKeyboardShortcuts() {
     // the modal check covers a dialog whose field has not been clicked into yet
     // (Publish → Animation asks for FPS and duration before recording).
     if (shouldIgnoreShortcutTarget(e) || modalManager.isModalOpen()) {
+      return;
+    }
+    // A keyboard user walking the menus or a panel's buttons has focus on that
+    // control, not on the graph: Backspace there must not delete the selection
+    // behind it. (The patch outline handles its own Delete.)
+    if (
+      e.target instanceof Element &&
+      e.target.closest('#top-menu-bar, button, select, a[href], [role="menu"], [role="dialog"]')
+    ) {
       return;
     }
 
@@ -3877,6 +3884,32 @@ async function updateShaderFromGraph() {
     // means no cost.
     window.dispatchEvent(new CustomEvent("rz:shader-built"));
   }
+}
+
+/**
+ * The preview clock, as the motion check and View → Pause / Play Preview see it.
+ * Goes through the preview's settings when the preview exists, so the settings
+ * window's Pause Time box and time scale stay in step; straight to the render
+ * loop otherwise.
+ */
+function createPreviewTiming() {
+  const settings = () => floatingPreview?.settings;
+  return {
+    isPaused: () =>
+      settings() ? !!settings().settings?.isPaused : !!window.renderLoop?.paused,
+    setPaused: (paused) => {
+      if (settings()) settings().updateSetting("isPaused", !!paused);
+      else window.renderLoop?.setPaused?.(!!paused);
+    },
+    getTimeScale: () => {
+      const scale = settings()?.settings?.timeScale ?? window.renderLoop?.timeScale;
+      return Number.isFinite(scale) && scale > 0 ? scale : 1;
+    },
+    setTimeScale: (scale) => {
+      if (settings()) settings().updateSetting("timeScale", scale);
+      else window.renderLoop?.setTimeScale?.(scale);
+    },
+  };
 }
 
 function updateStatus(message, type = "info") {

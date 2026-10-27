@@ -81,6 +81,7 @@ export class MenuManager {
 
     const editor = window.editor;
     const nodeType = NodeDefs[node.kind]?.cat || "Misc";
+    el.setAttribute("aria-label", `${nodeDisplayName(node)} #${node.id}`);
     const header = this._createMenuHeader(nodeDisplayName(node));
     header.setAttribute("data-category", nodeType);
     el.appendChild(header);
@@ -248,6 +249,29 @@ export class MenuManager {
     this.hide();
     const el = document.createElement("div");
     el.className = "ctx-menu";
+    el.setAttribute("role", "menu");
+
+    // The menu is reachable from the keyboard (Shift+F10 on a node in the patch outline), so it
+    // moves like one: arrows walk the items, Home/End jump, Escape closes.
+    el.addEventListener("keydown", (e) => {
+      const items = [...el.querySelectorAll(".ctx-item")];
+      if (!items.length) return;
+      const at = items.indexOf(document.activeElement);
+      let next = null;
+      if (e.key === "ArrowDown") next = items[(at + 1) % items.length];
+      else if (e.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
+      else if (e.key === "Home") next = items[0];
+      else if (e.key === "End") next = items[items.length - 1];
+      else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        this.hide();
+        return;
+      } else return;
+      e.preventDefault();
+      e.stopPropagation();
+      next?.focus();
+    });
 
     // Add to body to measure dimensions
     document.body.appendChild(el);
@@ -296,6 +320,8 @@ export class MenuManager {
   _createMenuHeader(text, category = null) {
     const h = document.createElement("div");
     h.className = "ctx-header";
+    // The menu's own aria-label already names the node; the eyebrow is decoration to a screen reader.
+    h.setAttribute("aria-hidden", "true");
     h.textContent = text;
     if (category) {
       h.setAttribute("data-category", category);
@@ -307,6 +333,7 @@ export class MenuManager {
     const item = document.createElement("div");
     item.className = "ctx-item";
     item.textContent = text;
+    item.setAttribute("role", "menuitem");
     item.tabIndex = 0; // Make focusable for keyboard navigation
     if (category) {
       item.setAttribute("data-category", category);
@@ -330,6 +357,7 @@ export class MenuManager {
   _createMenuSeparator() {
     const sep = document.createElement("div");
     sep.className = "ctx-separator";
+    sep.setAttribute("role", "separator");
     return sep;
   }
 

@@ -21,6 +21,12 @@
 //
 // Mixing them is what made the old palette read as noise: every surface was
 // coloured, so no colour meant anything.
+//
+// The surface, text and node-chrome objects are LIVE. Preferences →
+// Accessibility → Contrast rewrites them in place (applyContrastPalette below),
+// so the renderer and every panel that builds its markup from these values pick
+// up the change on their next paint without importing anything new. The
+// matching CSS overrides live in src/styles/accessibility.css.
 
 /** Warm charcoal surfaces, hairlines and text ramp. */
 export const SURFACE = {
@@ -214,3 +220,145 @@ export const NODE_STYLE = {
   portRing: "#1a1611", // the ring punched out of every port
   previewRadius: 8,
 };
+
+/**
+ * The node card's hairlines and weights — the part of the drawn graph a higher
+ * contrast setting has to be able to reach. Faint by design at the standard
+ * level; the grid dots are an RGB triple so the renderer can vary their alpha.
+ */
+export const NODE_CHROME = {
+  headerFill: "rgba(255, 244, 230, 0.035)", // the header's lift off the body
+  headerLine: "rgba(255, 244, 230, 0.07)", // hairline under the header
+  border: "rgba(255, 244, 230, 0.09)", // card outline
+  borderWidth: 1,
+  thumbBorder: "rgba(255, 244, 230, 0.1)", // hairline round the preview band
+  gridDot: "255, 240, 220",
+  gridAlphaMinor: 0.06,
+  gridAlphaMajor: 0.11,
+  wireWidth: 2.5,
+  // The keyboard focus ring (see src/accessibility/GraphNavigator.js): a light
+  // ring over a dark halo, so it reads on the card, on the canvas and on a
+  // bright thumbnail alike — and never borrows the lime that means "selected".
+  focusRing: "#ffffff",
+  focusHalo: "rgba(0, 0, 0, 0.85)",
+  focusWidth: 2.5,
+};
+
+/**
+ * What each contrast level changes. "standard" is the palette above as
+ * written; the others are overlays on it. Lime selection and the type and
+ * category hues stay put at every level — they already clear contrast against
+ * the dark ground — so what moves is the chrome: text, hairlines, borders,
+ * surfaces and the weight of wires and rings.
+ */
+const CONTRAST_OVERLAYS = {
+  standard: {},
+  high: {
+    surface: {
+      nodeTop: "#1c1712",
+      nodeBottom: "#120f0c",
+      line: "rgba(255, 244, 230, 0.3)",
+      lineStrong: "rgba(255, 244, 230, 0.5)",
+      hover: "rgba(255, 244, 230, 0.16)",
+      fillSoft: "rgba(255, 244, 230, 0.08)",
+    },
+    text: {
+      primary: "#ffffff",
+      secondary: "#f1e9de",
+      tertiary: "#d6ccbf",
+      faint: "#b9ae9f",
+      disabled: "#8f857a",
+    },
+    chrome: {
+      headerFill: "rgba(255, 244, 230, 0.08)",
+      headerLine: "rgba(255, 244, 230, 0.35)",
+      border: "rgba(255, 244, 230, 0.55)",
+      borderWidth: 1.5,
+      thumbBorder: "rgba(255, 244, 230, 0.45)",
+      gridAlphaMinor: 0.12,
+      gridAlphaMajor: 0.22,
+      wireWidth: 3.5,
+      focusWidth: 3,
+    },
+    node: {},
+  },
+  maximum: {
+    surface: {
+      app: "#000000",
+      deep: "#000000",
+      panelTop: "#000000",
+      panelBottom: "#000000",
+      surface: "#000000",
+      raised: "#000000",
+      well: "#000000",
+      nodeTop: "#000000",
+      nodeBottom: "#000000",
+      line: "#ffffff",
+      lineStrong: "#ffffff",
+      hover: "rgba(255, 255, 255, 0.22)",
+      fillSoft: "rgba(255, 255, 255, 0.1)",
+    },
+    text: {
+      primary: "#ffffff",
+      secondary: "#ffffff",
+      tertiary: "#ffffff",
+      faint: "#e6e6e6",
+      disabled: "#a6a6a6",
+    },
+    chrome: {
+      headerFill: "rgba(255, 255, 255, 0.12)",
+      headerLine: "#ffffff",
+      border: "#ffffff",
+      borderWidth: 2,
+      thumbBorder: "#ffffff",
+      gridDot: "255, 255, 255",
+      gridAlphaMinor: 0.2,
+      gridAlphaMajor: 0.35,
+      wireWidth: 4,
+      focusWidth: 3.5,
+    },
+    node: { portRing: "#000000" },
+  },
+};
+
+const PALETTE_BASELINE = {
+  surface: { ...SURFACE },
+  text: { ...TEXT },
+  chrome: { ...NODE_CHROME },
+  node: { ...NODE_STYLE },
+};
+
+let activeContrast = "standard";
+let paletteGeneration = 0;
+
+/**
+ * Switch the live palette to a contrast level ("standard" | "high" |
+ * "maximum"). Unknown levels fall back to standard. Returns true when anything
+ * changed, so the caller knows to repaint.
+ */
+export function applyContrastPalette(level) {
+  const next = CONTRAST_OVERLAYS[level] ? level : "standard";
+  if (next === activeContrast) return false;
+  const overlay = CONTRAST_OVERLAYS[next];
+  Object.assign(SURFACE, PALETTE_BASELINE.surface, overlay.surface || {});
+  Object.assign(TEXT, PALETTE_BASELINE.text, overlay.text || {});
+  Object.assign(NODE_CHROME, PALETTE_BASELINE.chrome, overlay.chrome || {});
+  Object.assign(NODE_STYLE, PALETTE_BASELINE.node, overlay.node || {});
+  activeContrast = next;
+  paletteGeneration += 1;
+  return true;
+}
+
+/** The contrast level the live palette is at. */
+export function activeContrastLevel() {
+  return activeContrast;
+}
+
+/**
+ * Bumped on every palette switch. Caches keyed by colour (the renderer's grid
+ * tile and node gradients) include it so they rebuild instead of serving the
+ * previous palette.
+ */
+export function paletteVersion() {
+  return paletteGeneration;
+}

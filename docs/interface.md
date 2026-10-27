@@ -36,18 +36,20 @@ Everything outside the canvas lives in seven menus, with the current status
 Publish (**Publish Image…** and **Publish Animation…**, which upload at the
 render resolution set in **View → Preview / Export Settings**), Backups, Exit
 
-**Edit** - Undo, Redo, Cut, Copy, Paste, Delete, Rebuild, Preferences…
+**Edit** - Undo, Redo, Cut, Copy, Paste, Delete, Rebuild, Preferences…,
+Accessibility… (see [Accessibility](accessibility.md))
 
 **View** - Panels (Toggle ParamPanel, Toggle Preview Panel, Toggle 3D
 Viewport), Zoom (Zoom In, Zoom Out, Reset Zoom), Grid (Show Grid, Snap to
-Grid, Grid Size), Preview / Export Settings, Show Console, Timeline,
+Grid, Grid Size), Preview / Export Settings, Pause / Play Preview, Focus Patch
+Canvas, Show Console, Timeline,
 VJ Control, Open / Close Output, Output Screens…
 
 **Node** - Create Node…, Delete Node, Duplicate Node, Pins (Connect Pins,
 Disconnect Pins), Node Settings / Params…
 
 **Tools** - Script Editor / Python Console, Shader Tools (Shader Compiler,
-GLSL Utilities), Audio Settings, MIDI Settings
+GLSL Utilities), Check Flashing & Motion…, Audio Settings, MIDI Settings
 
 **Window** - Layouts (Default, Custom, Minimal, Save Current as Custom),
 Floating Windows, Reset Layout
@@ -65,7 +67,7 @@ patch without losing the panels you had open. **Reset Layout** is the way
 back from a panel dragged off screen: the default arrangement, with every
 window at the position and size it opens with.
 
-**Help** - Documentation, Shortcuts / Keymap, Welcome, About
+**Help** - Documentation, Shortcuts / Keymap, Describe Patch…, Welcome, About
 
 The preview window carries its own controls rather than sitting in a toolbar -
 see [Preview Window](#preview-window) below.

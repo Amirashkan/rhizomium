@@ -795,6 +795,19 @@ exportViewerPage() {
 
 
 async importProject(projectData, options = {}) {
+  // Announced on either side of the load for anything that has to act before a patch starts
+  // moving — the motion check (src/accessibility/motionSafety.js) holds playback between the two.
+  // `source` lets a live VJ scene switch be told apart from opening a document.
+  const announceLoad = (type, detail) => {
+    try {
+      window.dispatchEvent(new CustomEvent(type, { detail: { source: options.source || null, ...detail } }));
+    } catch {
+      // No window events here (a worker, a test without a DOM) — nothing is listening anyway.
+    }
+  };
+  announceLoad("rz:project-loading", {});
+  let loaded = false;
+
   try {
     this.isImporting = true;
     this.importCount++;
@@ -1074,6 +1087,7 @@ async importProject(projectData, options = {}) {
     if (options.promptMissingMedia && this.missingMedia?.length) {
       setTimeout(() => this.promptMissingMedia(), 0);
     }
+    loaded = true;
     return true;
 
   } catch (error) {
@@ -1086,6 +1100,7 @@ async importProject(projectData, options = {}) {
     throw new Error(`Failed to import project: ${error.message}`);
   } finally {
     this.isImporting = false;
+    announceLoad("rz:project-loaded", { failed: !loaded });
   }
 }
 
