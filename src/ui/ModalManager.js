@@ -6,6 +6,8 @@
 import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
 
 export class ModalManager {
+  static _ids = 0;
+
   constructor() {
     this.modals = [];
     this.zIndexBase = 10002; // Higher than FileManager (10001) to appear on top
@@ -311,6 +313,7 @@ export class ModalManager {
       const modal = this.createModal({
         title,
         body: message,
+        role: 'alertdialog',
         buttons: [
           { label: 'OK', primary: true, onClick: () => resolve() }
         ]
@@ -333,6 +336,7 @@ export class ModalManager {
       const modal = this.createModal({
         title,
         body: message,
+        role: 'alertdialog',
         buttons: [
           { label: cancelLabel, onClick: () => resolve(false) },
           {
@@ -409,15 +413,27 @@ export class ModalManager {
     const dialog = document.createElement('div');
     dialog.className = 'modal-dialog';
 
+    // What a screen reader needs to treat this as a dialog rather than more page: the role, the
+    // fact that the page behind is inert while it is up, and which text is its name. A plain
+    // message is also its description, so an alert or a confirm is read out in full when it opens;
+    // a built body (a form, a list) is left to be read as focus moves through it.
+    const dialogId = `rz-modal-${++ModalManager._ids}`;
+    dialog.setAttribute('role', config.role || 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+
     // Header
     if (config.title) {
       const header = document.createElement('div');
       header.className = 'modal-header';
       const title = document.createElement('h3');
       title.className = 'modal-title';
+      title.id = `${dialogId}-title`;
       title.textContent = config.title;
       header.appendChild(title);
       dialog.appendChild(header);
+      dialog.setAttribute('aria-labelledby', title.id);
+    } else if (config.ariaLabel) {
+      dialog.setAttribute('aria-label', config.ariaLabel);
     }
 
     // Body
@@ -426,6 +442,8 @@ export class ModalManager {
 
     if (typeof config.body === 'string') {
       body.textContent = config.body;
+      body.id = `${dialogId}-body`;
+      dialog.setAttribute('aria-describedby', body.id);
     } else if (config.body instanceof HTMLElement) {
       body.appendChild(config.body);
     }
@@ -444,17 +462,19 @@ export class ModalManager {
     // showModal focuses this once the dialog is in the document. It used to happen
     // on a 100ms timer, which left a window where the keystrokes meant for the
     // field went to the editor behind the dialog instead.
-    overlay._focusTarget = input;
+    overlay._focusTarget = input || config.initialFocus || null;
 
     dialog.appendChild(body);
 
     // Footer with buttons
+    const buttonElements = [];
     if (config.buttons && config.buttons.length > 0) {
       const footer = document.createElement('div');
       footer.className = 'modal-footer';
 
       config.buttons.forEach((btnConfig) => {
         const button = document.createElement('button');
+        button.type = 'button';
         button.className = 'modal-button';
         if (btnConfig.primary) button.classList.add('primary');
         if (btnConfig.danger) button.classList.add('danger');
@@ -469,10 +489,24 @@ export class ModalManager {
         };
 
         footer.appendChild(button);
+        buttonElements.push({ button, config: btnConfig });
       });
 
       dialog.appendChild(footer);
     }
+
+    // With no field to type into, focus still has to land INSIDE the dialog, or a keyboard user's
+    // Tab walks the page behind it and a screen reader never announces it. The primary button is
+    // the natural landing spot — except on a destructive confirm, where the safe answer goes first
+    // so that a reflexive Enter cancels instead of deleting.
+    if (!overlay._focusTarget && buttonElements.length) {
+      const hasDanger = buttonElements.some((b) => b.config.danger);
+      const preferred = hasDanger
+        ? buttonElements.find((b) => !b.config.danger && !b.config.primary)
+        : buttonElements.find((b) => b.config.primary);
+      overlay._focusTarget = (preferred || buttonElements[0]).button;
+    }
+    overlay._returnFocus = config.returnFocus ?? null;
 
     overlay.appendChild(dialog);
 
@@ -499,6 +533,24 @@ export class ModalManager {
     // (Publish asks for FPS, then duration, back to back).
     const handleKey = (e) => {
       if (this.topModal() !== overlay) return;
+
+      if (e.key === 'Tab') {
+        this._trapFocus(e, dialog);
+        return;
+      }
+
+      // Enter on a focused button presses THAT button. Without this, tabbing to Cancel and
+      // pressing Enter ran the primary action instead — on a delete confirm, the opposite of what
+      // the keyboard user just chose.
+      // A textarea keeps Enter for its newline for the same reason.
+      if (
+        e.key === 'Enter' &&
+        e.target instanceof HTMLElement &&
+        dialog.contains(e.target) &&
+        (e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA')
+      ) {
+        return;
+      }
 
       if (e.key === 'Escape') {
         this.closeModal(overlay);
@@ -538,8 +590,37 @@ export class ModalManager {
     return overlay;
   }
 
+  /**
+   * Keep Tab inside the dialog: past the last control it wraps to the first, and Shift+Tab before
+   * the first wraps to the last. aria-modal tells a screen reader the page behind is inert; this
+   * makes it so for the keyboard too.
+   */
+  _trapFocus(event, dialog) {
+    const focusable = [...dialog.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )].filter((el) => !el.closest('[hidden]'));
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    const inside = dialog.contains(active);
+    if (event.shiftKey && (active === first || !inside)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !inside)) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   showModal(modal, onClose) {
     modal._onClose = onClose;
+    // Where focus was when the dialog opened, so closing it can put focus back — otherwise a
+    // keyboard user is dropped at the top of the page after every confirm.
+    modal._previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.modals.push(modal);
 
     // Set z-index before appending to ensure it's on top of FileManager and other modals
@@ -604,6 +685,11 @@ export class ModalManager {
 
     modal.classList.remove('visible');
 
+    // Hand focus back now rather than after the fade, so the next keystroke goes where the user
+    // expects. Only when focus is still in this dialog (or nowhere): a dialog opened by the one
+    // being closed has already taken it, and so has anything the close handler focused itself.
+    this._restoreFocus(modal);
+
     setTimeout(() => {
       if (modal.parentElement) {
         modal.parentElement.removeChild(modal);
@@ -614,6 +700,31 @@ export class ModalManager {
         modal._onClose();
       }
     }, 300);
+  }
+
+  _restoreFocus(modal) {
+    const active = document.activeElement;
+    const focusIsStranded = !active || active === document.body || modal.contains(active);
+    if (!focusIsStranded) return;
+
+    let target = modal._returnFocus;
+    if (typeof target === 'function') {
+      try {
+        target = target();
+      } catch {
+        target = null;
+      }
+    }
+    target = target || modal._previousFocus;
+    if (target && target.isConnected && typeof target.focus === 'function') {
+      try {
+        target.focus({ preventScroll: true });
+      } catch {
+        // Not focusable any more - leave focus where the browser put it.
+      }
+    } else if (modal.contains(active)) {
+      active.blur?.();
+    }
   }
 
   /**

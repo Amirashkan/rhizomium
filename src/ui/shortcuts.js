@@ -106,6 +106,12 @@ export const SHORTCUT_SECTIONS = [
       { id: "btn-rebuild", label: "Rebuild Shader", keys: "Mod+Shift+R" },
       { id: "btn-preferences", label: "Preferences…", keys: "Mod+," },
       {
+        id: "btn-accessibility",
+        label: "Accessibility…",
+        keys: "Mod+Shift+,",
+        note: "Contrast, interface size, motion warnings, colour vision, screen reader.",
+      },
+      {
         label: "Edit expression on the focused parameter",
         keys: "Mod+E",
         dispatch: false,
@@ -155,6 +161,18 @@ export const SHORTCUT_SECTIONS = [
         target: "snap-toggle",
         label: "Snap to Grid",
         keys: "Mod+G",
+      },
+      {
+        id: "btn-focus-canvas",
+        label: "Focus Patch Canvas",
+        keys: "Mod+Alt+N",
+        note: "Puts the keyboard on the node graph — see Patch Canvas below.",
+      },
+      {
+        id: "btn-pause-preview",
+        label: "Pause / Play Preview",
+        keys: "Mod+Shift+Space",
+        note: "Freezes the preview's clock; the patch holds its current frame.",
       },
       { id: "btn-toggle-console", label: "Console (Generated WGSL)", keys: "Mod+`" },
       { id: "btn-toggle-timeline", label: "Timeline", keys: "Mod+Alt+T" },
@@ -250,6 +268,12 @@ export const SHORTCUT_SECTIONS = [
         // Not plain Mod+M: ⌘M is macOS's minimise-window and never reaches
         // the page, so the shortcut would be dead on half the machines.
       },
+      {
+        id: "btn-check-motion",
+        label: "Check Flashing & Motion…",
+        keys: "Mod+Shift+F",
+        note: "Measures the patch against the three-flashes-a-second limit.",
+      },
       { id: "btn-audio-settings", label: "Audio Panel", keys: "Mod+Alt+A" },
       { id: "btn-midi-settings", label: "MIDI Settings", keys: "Mod+Alt+M" },
       { id: "btn-osc-settings", label: "OSC Receiver", keys: "Mod+Alt+O" },
@@ -286,8 +310,70 @@ export const SHORTCUT_SECTIONS = [
         keys: "Mod+/",
         alt: ["Shift+/"],
       },
+      {
+        id: "btn-describe-patch",
+        label: "Describe Patch…",
+        keys: "Mod+Alt+D",
+        note: "The whole patch as a structured list, for screen readers.",
+      },
       { id: "btn-welcome", label: "Welcome", keys: "Mod+Alt+W" },
       { id: "btn-about", label: "About", keys: "Mod+Alt+I" },
+      {
+        label: "Focus the menu bar",
+        keys: "F10",
+        dispatch: false,
+        note: "Arrows move through the menus; Esc goes back.",
+      },
+    ],
+  },
+  {
+    // Handled by the patch outline (src/accessibility/GraphNavigator.js), and only while it has
+    // focus — which is why plain letters are safe here.
+    title: "Patch Canvas (keyboard)",
+    items: [
+      {
+        label: "Previous / next item",
+        keys: "Arrows",
+        dispatch: false,
+        note: "Right opens a node's ports and parameters; Left closes it.",
+      },
+      { label: "Nearest node in that direction", keys: "Alt+Arrows", dispatch: false },
+      { label: "First / last node", keys: "Home", alt: ["End"], dispatch: false },
+      {
+        label: "Parameters, or follow a wire",
+        keys: "Enter",
+        dispatch: false,
+        note: "On a free port it opens Connect Pins.",
+      },
+      { label: "Select only this node", keys: "Space", dispatch: false },
+      { label: "Add to / remove from selection", keys: "Shift+Space", dispatch: false },
+      {
+        label: "Connect",
+        keys: "C",
+        dispatch: false,
+        note: "C on one end, move to the other end, C again.",
+      },
+      { label: "Disconnect the focused port", keys: "X", dispatch: false },
+      {
+        label: "Move the selection",
+        keys: "M",
+        dispatch: false,
+        note: "Arrows move, Shift for bigger steps, Enter drops, Esc cancels.",
+      },
+      {
+        label: "Add a node here",
+        keys: "N",
+        dispatch: false,
+        note: "From a port, the new node is wired to it.",
+      },
+      { label: "Bypass node", keys: "B", dispatch: false },
+      { label: "Cycle preview size", keys: "S", dispatch: false },
+      { label: "Add / remove an input pin", keys: "+", alt: ["-"], dispatch: false },
+      { label: "Describe the focused item", keys: "I", dispatch: false },
+      { label: "Describe the whole patch", keys: "Shift+I", dispatch: false },
+      { label: "Go to node by name", keys: "G", dispatch: false },
+      { label: "Node menu", keys: "Shift+F10", dispatch: false },
+      { label: "Select every node", keys: "Mod+A", dispatch: false },
     ],
   },
   {
@@ -632,12 +718,13 @@ export function hideShortcutsDialog() {
 
 /**
  * Show the full keymap — the same table the menus are annotated from, so it
- * can't fall behind them.
+ * can't fall behind them. `filter` opens it already narrowed (Preferences →
+ * Accessibility opens it on the patch-canvas keys).
  */
-export function showShortcutsDialog(doc = document) {
+export function showShortcutsDialog(doc = document, { filter = "" } = {}) {
   if (keymapOverlay) {
     hideShortcutsDialog();
-    return null;
+    if (!filter) return null;
   }
 
   const mac = isMacPlatform();
@@ -755,6 +842,10 @@ export function showShortcutsDialog(doc = document) {
 
   doc.body.appendChild(overlay);
   keymapOverlay = overlay;
+  if (filter) {
+    search.value = filter;
+    search.dispatchEvent(new Event("input"));
+  }
   search.focus?.();
   return overlay;
 }

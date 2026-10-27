@@ -18,6 +18,7 @@
 
 import { isTauri } from "../utils/isTauri.js";
 import { letterboxRect } from "./letterbox.js";
+import { attachColorVisionDocument, POPOUT_CVD_CSS } from "../accessibility/colorVision.js";
 
 const POPUP_NAME = "rhizomium-preview";
 
@@ -99,6 +100,10 @@ export async function openPreviewPopout({
   doc.body.append(canvas); // append adopts the node into the popup's document
   fit();
 
+  // A colour-vision preview (Preferences → Accessibility) follows the canvas into its window: the
+  // filter it references has to exist in this document, which loads none of the editor's CSS.
+  const detachColorVision = attachColorVisionDocument(doc, { extraCss: POPOUT_CVD_CSS });
+
   win.addEventListener("resize", fit);
 
   // A popup can go fullscreen (projector use); PiP windows refuse, harmlessly.
@@ -116,6 +121,7 @@ export async function openPreviewPopout({
     win.removeEventListener("resize", fit);
     opener.removeEventListener("pagehide", close);
     canvas.removeEventListener("dblclick", onDblClick);
+    detachColorVision();
     canvas.style.cssText = savedCss;
     // Bring the canvas home before the window's document is torn down, or it
     // would be destroyed with it.

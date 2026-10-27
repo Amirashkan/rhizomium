@@ -1289,6 +1289,9 @@ connectGPURenderer(renderFunction) {
       dirtyReasons,
       preciseDirtyRegions, // Precise rectangular regions
       needsFullRedraw, // Whether full redraw is needed
+      // Where the keyboard is in the patch outline, while it has focus (see
+      // src/accessibility/GraphNavigator.js) — null for mouse-only sessions.
+      keyboardFocus: this.graphNavigator?.renderFocus?.() || null,
     });
 
     logRedrawCommit({
@@ -1299,6 +1302,10 @@ connectGPURenderer(renderFunction) {
 
     // Clear dirty flag after rendering
     this.clearDirty();
+
+    // The patch outline re-reads the graph after a repaint (throttled), so an edit made with the
+    // mouse, an undo or a load reaches screen-reader and keyboard users too.
+    this.graphNavigator?.afterDraw?.();
   }
 
   initializePreviewSystem() {

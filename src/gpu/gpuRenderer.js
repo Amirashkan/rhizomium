@@ -2011,4 +2011,119 @@ export class GPURenderer {
       bytesPerRow,
     };
   }
+
+  /**
+   * Render the current shader at a run of clock times, offscreen, and read every frame back in
+   * one go — what the motion check (src/accessibility/motionSafety.js) measures before a patch is
+   * allowed to play.
+   *
+   * captureFrame() would do the same one frame at a time, but each frame is then a full GPU→CPU
+   * round trip; a few seconds of frames that way is a few seconds of waiting. Here each frame is
+   * its own submit — the globals uniform is rewritten between submits, which the queue orders
+   * before the work that reads it — copying into its own slice of a single readback buffer, and
+   * only that buffer is mapped.
+   *
+   * Nothing is presented and nothing persists: the preview keeps drawing its own frames
+   * throughout, and the uniforms are put back afterwards, as captureFrame() does.
+   *
+   * @param {object} options
+   * @param {number} options.width
+   * @param {number} options.height
+   * @param {number[]} options.times  clock values in seconds, one frame each
+   * @returns {Promise<{pixels: Uint8Array, width: number, height: number, bytesPerRow: number,
+   *   frameBytes: number, count: number, format: string}>}
+   */
+  async captureFrameSequence(options = {}) {
+    if (!this.device) {
+      throw new Error("GPU device not ready for capture");
+    }
+    if (!this.pipeline) {
+      throw new Error("GPU pipeline missing; build shader before capturing");
+    }
+
+    const width = Math.max(1, Math.floor(options.width ?? 64));
+    const height = Math.max(1, Math.floor(options.height ?? 36));
+    const times = (Array.isArray(options.times) ? options.times : []).filter(Number.isFinite);
+    const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
+    const frameBytes = bytesPerRow * height;
+    if (times.length === 0) {
+      return { pixels: new Uint8Array(0), width, height, bytesPerRow, frameBytes, count: 0, format: this.format };
+    }
+
+    const texture = this.device.createTexture({
+      size: [width, height, 1],
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      label: "motion-check-texture",
+    });
+    const msaaTexture = this.sampleCount > 1
+      ? this.device.createTexture({
+          size: [width, height, 1],
+          sampleCount: this.sampleCount,
+          format: this.format,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+          label: "motion-check-msaa-texture",
+        })
+      : null;
+    const buffer = this.device.createBuffer({
+      size: frameBytes * times.length,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      label: "motion-check-buffer",
+    });
+
+    this._lastAspectWritten = null;
+    this._writeAspectForSize(width, height);
+
+    try {
+      times.forEach((timeSec, index) => {
+        this._writeGlobalsForSize(width, height, timeSec);
+
+        const encoder = this.device.createCommandEncoder({ label: "motion-check-encoder" });
+        const colorAttachment = {
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: "clear",
+          storeOp: "store",
+        };
+        if (msaaTexture) {
+          colorAttachment.view = msaaTexture.createView();
+          colorAttachment.resolveTarget = texture.createView();
+        } else {
+          colorAttachment.view = texture.createView();
+        }
+
+        const pass = encoder.beginRenderPass({ colorAttachments: [colorAttachment] });
+        pass.setPipeline(this.pipeline);
+        // The @group() index from the shader, not a compact array index — see captureFrame().
+        for (const groupIndex of this.bindGroupIndices) {
+          const bindGroup = this.bindGroups[groupIndex];
+          if (bindGroup !== undefined) {
+            pass.setBindGroup(groupIndex, bindGroup);
+          }
+        }
+        pass.draw(3, 1, 0, 0);
+        pass.end();
+
+        encoder.copyTextureToBuffer(
+          { texture },
+          { buffer, offset: index * frameBytes, bytesPerRow },
+          { width, height, depthOrArrayLayers: 1 }
+        );
+        this.device.queue.submit([encoder.finish()]);
+      });
+
+      await buffer.mapAsync(GPUMapMode.READ);
+      const pixels = new Uint8Array(buffer.getMappedRange().slice(0));
+      buffer.unmap();
+
+      return { pixels, width, height, bytesPerRow, frameBytes, count: times.length, format: this.format };
+    } finally {
+      buffer.destroy();
+      texture.destroy();
+      msaaTexture?.destroy();
+
+      this._lastAspectWritten = null;
+      this._updateAspectUniform();
+      this._updateGlobalsUniform(performance.now() * 0.001);
+    }
+  }
 }

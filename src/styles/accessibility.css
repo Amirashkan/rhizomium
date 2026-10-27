@@ -1,0 +1,518 @@
+/**
+ * ACCESSIBILITY
+ *
+ * Everything Preferences → Accessibility switches, as CSS. The settings store
+ * (src/accessibility/a11ySettings.js) writes a handful of attributes onto
+ * <html>; every rule here hangs off one of them, so with the defaults in force
+ * this file changes nothing about how the editor looks:
+ *
+ *   data-rz-contrast="high" | "maximum"   stronger text, hairlines and surfaces
+ *   data-rz-focus="bold"                  a heavier focus ring everywhere
+ *   data-rz-motion="reduced"              UI animation and transitions cut
+ *   data-rz-scaled + --rz-ui-scale        a larger interface
+ *   data-rz-cvd                           colour-vision filter on the preview
+ *
+ * The drawn graph cannot read CSS, so the canvas side of the contrast levels
+ * is mirrored in src/core/theme.js (applyContrastPalette). Change a level in
+ * one and change it in the other.
+ */
+
+/* ---- Shared ------------------------------------------------------------ */
+
+/* In the accessibility tree, out of the visual one. */
+.rz-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ---- Focus ring ---------------------------------------------------------
+   A large part of the chrome sets `outline: none` and relies on hover for
+   feedback, which leaves a keyboard user with no idea where they are.
+   :focus-visible only matches keyboard focus (and text fields), so a mouse
+   click never draws this. The dark halo keeps the ring readable on the lime
+   accent, on a light thumbnail and on the canvas alike. */
+:root {
+  --rz-focus-ring: var(--rz-accent);
+  --rz-focus-halo: rgba(0, 0, 0, 0.9);
+  --rz-focus-width: 2px;
+  --rz-focus-offset: 2px;
+}
+
+:root[data-rz-focus="bold"] {
+  --rz-focus-ring: #ffffff;
+  --rz-focus-width: 3px;
+  --rz-focus-offset: 3px;
+}
+
+:where(
+    button,
+    a[href],
+    select,
+    summary,
+    [tabindex]:not([tabindex="-1"]),
+    [role="treeitem"],
+    input[type="checkbox"],
+    input[type="radio"],
+    input[type="range"],
+    input[type="color"],
+    input[type="button"],
+    input[type="submit"]
+  ):focus-visible {
+  outline: var(--rz-focus-width) solid var(--rz-focus-ring) !important;
+  outline-offset: var(--rz-focus-offset) !important;
+  box-shadow: 0 0 0 calc(var(--rz-focus-offset) + var(--rz-focus-width) + 2px)
+    var(--rz-focus-halo) !important;
+}
+
+/* Bold also rings text fields, which otherwise keep their own (subtler)
+   focus treatment. */
+:root[data-rz-focus="bold"] :where(input, textarea):focus-visible {
+  outline: var(--rz-focus-width) solid var(--rz-focus-ring) !important;
+  outline-offset: 1px !important;
+}
+
+/* ---- Reduced motion -----------------------------------------------------
+   Cuts the chrome's animation, not the artwork's: the preview is the piece
+   being made, and slowing it is the motion check's job (see motionSafety.js),
+   not a stylesheet's. */
+:root[data-rz-motion="reduced"] *,
+:root[data-rz-motion="reduced"] *::before,
+:root[data-rz-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+
+/* ---- Contrast: high -----------------------------------------------------
+   Same warm palette, turned up: text off-white to white, hairlines three to
+   four times as strong, surfaces a step darker so everything on them stands
+   further off. */
+:root[data-rz-contrast="high"] {
+  --rz-bg-app: #0b0908;
+  --rz-bg-deep: #000000;
+  --rz-surface: #0e0c0a;
+  --rz-surface-raised: #15120f;
+  --rz-well: #050404;
+
+  --rz-line: rgba(255, 244, 230, 0.32);
+  --rz-line-strong: rgba(255, 244, 230, 0.55);
+  --rz-hover: rgba(255, 244, 230, 0.16);
+  --rz-hover-strong: rgba(255, 244, 230, 0.24);
+  --rz-fill-soft: rgba(255, 244, 230, 0.08);
+
+  --rz-text: #ffffff;
+  --rz-text-2: #f1e9de;
+  --rz-text-3: #d6ccbf;
+  --rz-text-faint: #b9ae9f;
+  --rz-text-disabled: #8f857a;
+
+  --snap-grid-line: rgba(255, 240, 220, 0.1);
+  --snap-grid-line-strong: rgba(255, 240, 220, 0.18);
+}
+
+/* ---- Contrast: maximum --------------------------------------------------
+   Black and white chrome. The accent, the semantic colours and the data-type
+   and category hues keep their colour — they are what tells one thing from
+   another — but every surface goes to black and every line to white. */
+:root[data-rz-contrast="maximum"] {
+  --rz-bg-app: #000000;
+  --rz-bg-deep: #000000;
+  --rz-bar-top: #000000;
+  --rz-bar-bottom: #000000;
+  --rz-panel-top: #000000;
+  --rz-panel-bottom: #000000;
+  --rz-surface: #000000;
+  --rz-surface-raised: #000000;
+  --rz-well: #000000;
+
+  --rz-line: #ffffff;
+  --rz-line-strong: #ffffff;
+  --rz-hover: rgba(255, 255, 255, 0.22);
+  --rz-hover-strong: rgba(255, 255, 255, 0.3);
+  --rz-fill-soft: rgba(255, 255, 255, 0.1);
+
+  --rz-text: #ffffff;
+  --rz-text-2: #ffffff;
+  --rz-text-3: #ffffff;
+  --rz-text-faint: #e6e6e6;
+  --rz-text-disabled: #a6a6a6;
+
+  --snap-grid-line: rgba(255, 255, 255, 0.16);
+  --snap-grid-line-strong: rgba(255, 255, 255, 0.28);
+}
+
+/* Surfaces that bake a translucent colour in rather than reading a token.
+   The selectors carry the root attribute, so they outrank the base rules
+   wherever those were declared. */
+:root[data-rz-contrast="high"] :is(.menu-dropdown, .menu-submenu, .ctx-menu, .rz-palette),
+:root[data-rz-contrast="maximum"] :is(.menu-dropdown, .menu-submenu, .ctx-menu, .rz-palette) {
+  background: var(--rz-surface-raised);
+  border-color: var(--rz-line-strong);
+  backdrop-filter: none;
+}
+
+:root[data-rz-contrast="high"] .menu-dropdown button,
+:root[data-rz-contrast="maximum"] .menu-dropdown button,
+:root[data-rz-contrast="high"] .ctx-item,
+:root[data-rz-contrast="maximum"] .ctx-item {
+  color: var(--rz-text);
+}
+
+:root[data-rz-contrast="high"] :is(.modal-dialog, .progress-modal, .welcome-dialog, .keymap-panel),
+:root[data-rz-contrast="maximum"] :is(.modal-dialog, .progress-modal, .welcome-dialog, .keymap-panel) {
+  background: var(--rz-surface);
+  border-color: var(--rz-line-strong);
+  color: var(--rz-text);
+  backdrop-filter: none;
+}
+
+:root[data-rz-contrast="high"] .modal-body,
+:root[data-rz-contrast="maximum"] .modal-body {
+  color: var(--rz-text-2);
+}
+
+/* The parameter panel paints its frame inline, from the JS palette as it
+   stood when the panel was built, so only !important reaches it. Its
+   contents are rebuilt per node from the live palette (theme.js) and follow
+   on their own. */
+:root[data-rz-contrast="high"] #parameter-panel,
+:root[data-rz-contrast="maximum"] #parameter-panel {
+  background: var(--rz-surface) !important;
+  border-color: var(--rz-line-strong) !important;
+}
+
+:root[data-rz-contrast="high"] .rz-statusbar,
+:root[data-rz-contrast="maximum"] .rz-statusbar {
+  background: var(--rz-bg-deep);
+  color: var(--rz-text-2);
+  backdrop-filter: none;
+}
+
+:root[data-rz-contrast="high"] :is(input, select, textarea),
+:root[data-rz-contrast="maximum"] :is(input, select, textarea) {
+  border-color: var(--rz-line-strong);
+}
+
+:root[data-rz-contrast="high"] ::placeholder,
+:root[data-rz-contrast="maximum"] ::placeholder {
+  color: var(--rz-text-faint);
+  opacity: 1;
+}
+
+/* ---- Interface size -----------------------------------------------------
+   CSS zoom, applied only to surfaces it is safe on: ones laid out by CSS
+   (the menu dropdowns, the status bar, the dialogs centred by flexbox) and the
+   scrolling content INSIDE panels whose frame JavaScript positions. A frame
+   placed with left/top in pixels must not be zoomed itself — zoom scales its
+   offsets too, and the drag/resize code would then fight the stylesheet.
+   Popups placed at the cursor are scaled with `scale` from their top-left
+   corner instead, which leaves their placement alone.
+   The graph canvas is never zoomed here: Ctrl+=/Ctrl+- scales it. */
+:root[data-rz-scaled] .rz-statusbar,
+:root[data-rz-scaled] .modal-dialog,
+:root[data-rz-scaled] .progress-modal,
+:root[data-rz-scaled] .keymap-panel,
+:root[data-rz-scaled] .welcome-dialog,
+:root[data-rz-scaled] .parameter-panel__content,
+:root[data-rz-scaled] .rz-pref-content {
+  zoom: var(--rz-ui-scale);
+}
+
+/* The menu bar keeps its 40px: panels are placed just under it, and a taller
+   bar would cover their title bars. So the titles' type grows inside the bar
+   (there is room up to 2×), and each dropdown is zoomed whole — its offset
+   from the bar is divided back out, since zoom would scale that too. */
+:root[data-rz-scaled] .menu-button {
+  font-size: calc(13px * var(--rz-ui-scale));
+  padding: 0 calc(10px * var(--rz-ui-scale));
+  height: auto;
+  min-height: 28px;
+  margin: 0;
+}
+
+:root[data-rz-scaled] .menu-button .menu-caret {
+  width: calc(10px * var(--rz-ui-scale));
+  height: calc(10px * var(--rz-ui-scale));
+}
+
+:root[data-rz-scaled] .menu-status {
+  font-size: calc(12px * var(--rz-ui-scale));
+  line-height: 1.2;
+}
+
+:root[data-rz-scaled] .menu-dropdown {
+  zoom: var(--rz-ui-scale);
+  top: calc(40px / var(--rz-ui-scale));
+}
+
+/* Viewport-height limits are multiplied by zoom along with everything else;
+   divide them back so a zoomed dialog still fits the window. */
+:root[data-rz-scaled] .welcome-dialog {
+  max-height: calc(85vh / var(--rz-ui-scale));
+}
+
+:root[data-rz-scaled] .ctx-menu,
+:root[data-rz-scaled] .rz-palette {
+  scale: var(--rz-ui-scale);
+  transform-origin: top left;
+}
+
+/* A zoomed status bar is narrower in its own pixels, and its equal thirds no
+   longer hold their readouts. Share the bar by content instead; when even that
+   runs short, the middle keeps its width, the left clips, and the right runs
+   off the window's edge rather than over the middle. (Only the left can clip:
+   the TYPES and frame-rate tooltips hang above the other two.) */
+:root[data-rz-scaled] .rz-sb-section {
+  flex: 1 1 auto;
+}
+
+:root[data-rz-scaled] .rz-sb-center {
+  flex-shrink: 0;
+}
+
+:root[data-rz-scaled] .rz-sb-left {
+  overflow: hidden;
+}
+
+:root[data-rz-scaled] .rz-sb-right {
+  justify-content: safe flex-end;
+}
+
+/* The bar is 38px times the size, so what floats just above it (the WGSL
+   toggle, and the console it opens above that) climbs by as much. */
+:root[data-rz-scaled] .floating-toggle-btn {
+  bottom: calc(20px + 38px * var(--rz-ui-scale));
+}
+
+:root[data-rz-scaled] #code-console {
+  bottom: calc(80px + 38px * var(--rz-ui-scale));
+  max-height: calc(100vh - 120px - 38px * var(--rz-ui-scale));
+}
+
+/* ---- Colour vision ------------------------------------------------------
+   The filter itself is an <feColorMatrix> the colour-vision module keeps in
+   the document (src/accessibility/colorVision.js). Only the artist's view is
+   filtered: exports, publishing and the output screens never are. */
+:root[data-rz-cvd] #gpu-canvas,
+:root[data-rz-cvd] #viewport3d-canvas {
+  filter: url(#rz-cvd-filter);
+}
+
+/* ---- Patch canvas keyboard hint -----------------------------------------
+   Shown while the patch outline has keyboard focus: what the keys do, where
+   a sighted keyboard user is looking. Screen readers get the same through the
+   outline's own description, so this strip is hidden from them. */
+.rz-graph-kbd-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 48px;
+  transform: translateX(-50%);
+  z-index: 130;
+  max-width: min(920px, calc(100vw - 32px));
+  padding: 7px 14px;
+  border-radius: var(--rz-r-pill);
+  background: rgba(10, 8, 7, 0.92);
+  border: 1px solid var(--rz-line-strong);
+  color: var(--rz-text-2);
+  font-family: var(--rz-font-ui);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+  box-shadow: var(--rz-shadow-pop);
+}
+
+.rz-graph-kbd-hint[hidden] {
+  display: none;
+}
+
+.rz-graph-kbd-hint kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  margin: 0 2px;
+  border: 1px solid var(--rz-line-strong);
+  border-radius: 5px;
+  background: var(--rz-well);
+  color: var(--rz-text);
+  font-family: var(--rz-font-mono);
+  font-size: 11px;
+}
+
+.rz-graph-kbd-hint .rz-graph-kbd-mode {
+  color: var(--rz-accent);
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+:root[data-rz-scaled] .rz-graph-kbd-hint {
+  zoom: var(--rz-ui-scale);
+}
+
+/* ---- Skip link ------------------------------------------------------------
+   The first thing Tab reaches: straight past the menu bar to the patch. Off
+   screen until it has focus, then a clear pill in the top-left corner. */
+.rz-skip-link {
+  position: fixed;
+  left: 12px;
+  top: -64px;
+  z-index: 20000;
+  padding: 8px 14px;
+  border-radius: var(--rz-r-pill);
+  background: var(--rz-accent);
+  color: var(--rz-accent-ink);
+  font-family: var(--rz-font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.rz-skip-link:focus {
+  top: 8px;
+}
+
+/* ---- Menu bar from the keyboard -------------------------------------------
+   Submenus open on hover; a keyboard opens them by putting focus inside, so
+   they also show while they hold focus (menuBarKeyboard.js adds the arrows). */
+.menu-item-with-submenu:focus-within > .menu-submenu {
+  display: flex;
+}
+
+/* ---- Keyboard dialogs (src/accessibility/graphDialogs.js) ----------------- */
+.rz-gd {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rz-gd-intro {
+  margin: 0;
+  color: var(--rz-text-2);
+}
+
+.rz-gd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rz-gd-label {
+  color: var(--rz-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rz-gd-filter,
+.rz-gd-list {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--rz-well);
+  color: var(--rz-text);
+  border: 1px solid var(--rz-line-strong);
+  border-radius: var(--rz-r-field);
+  font-family: var(--rz-font-ui);
+  font-size: 13px;
+}
+
+.rz-gd-filter {
+  padding: 7px 10px;
+}
+
+.rz-gd-list {
+  padding: 4px;
+  color-scheme: dark;
+}
+
+.rz-gd-list option {
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.rz-gd-status {
+  min-height: 1.4em;
+  margin: 0;
+  color: var(--rz-warn);
+  font-size: 12px;
+}
+
+.rz-gd-scroll {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  padding: 6px 10px;
+  border-radius: var(--rz-r-field);
+  color: var(--rz-text-2);
+}
+
+.rz-gd-scroll h4 {
+  margin: 12px 0 6px;
+  color: var(--rz-text);
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.rz-gd-scroll h4:first-child {
+  margin-top: 0;
+}
+
+.rz-gd-nodes {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.rz-gd-nodes > li {
+  margin-bottom: 10px;
+}
+
+.rz-gd-node-title {
+  margin: 0 0 4px;
+  color: var(--rz-text);
+}
+
+.rz-gd-nodes ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+}
+
+/* A dialog with lists in it wants more room than a confirm. */
+.modal-dialog:has(.rz-gd) {
+  max-width: 560px;
+}
+
+/* ---- Motion warning (src/accessibility/motionSafety.js) ------------------- */
+.rz-motion-report p {
+  margin: 0 0 10px;
+}
+
+.rz-motion-lead {
+  color: var(--rz-text);
+}
+
+.rz-motion-reasons {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  color: var(--rz-warn);
+}
+
+.rz-motion-notes {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  color: var(--rz-text-2);
+  font-size: 12.5px;
+}
+
+.rz-motion-caveat {
+  color: var(--rz-text-3);
+  font-size: 12px;
+}

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="En">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -73,6 +73,9 @@
     <link rel="stylesheet" href="../src/styles/glsl-utilities.css" />
     <link rel="stylesheet" href="../src/vj/vj-control-panel.css" />
     <link rel="stylesheet" href="../src/performer/performer-panel.css" />
+    <!-- Last, so the accessibility overrides (contrast, focus ring, interface
+         size, colour vision) win wherever they meet a rule of equal weight. -->
+    <link rel="stylesheet" href="../src/styles/accessibility.css" />
     <style>
       /* Undo/Redo — ordinary dropdown rows, so they inherit .menu-dropdown
          button and only need their disabled state spelled out. */
@@ -239,6 +242,10 @@
     </style>
   </head>
   <body>
+    <!-- The first stop for Tab: past the eight menu titles straight to the
+         patch. Invisible until it has focus (src/styles/accessibility.css). -->
+    <a href="#ui-canvas" id="rz-skip-to-canvas" class="rz-skip-link">Skip to patch canvas</a>
+
     <!-- Device Warning Overlay -->
     <div id="device-warning-overlay">
       <div class="warning-container">
@@ -324,6 +331,8 @@
           <button id="btn-rebuild">Rebuild</button>
           <div class="menu-separator"></div>
           <button id="btn-preferences">Preferences…</button>
+          <!-- Preferences, opened at its Accessibility section. -->
+          <button id="btn-accessibility">Accessibility…</button>
         </div>
       </div>
 
@@ -374,6 +383,13 @@
           
           <div class="menu-separator"></div>
           <button id="btn-preview-export-settings">Preview / Export Settings</button>
+          <!-- Freezes the preview's clock — the same switch as Pause Time in the
+               settings window, where a keyboard can reach it in one key. The
+               label follows the state (src/accessibility/installAccessibility.js). -->
+          <button id="btn-pause-preview">Pause Preview</button>
+          <!-- Puts keyboard focus on the patch outline that lives in the graph
+               canvas (src/accessibility/GraphNavigator.js). -->
+          <button id="btn-focus-canvas">Focus Patch Canvas</button>
           <div class="menu-separator"></div>
           <button id="btn-toggle-console">Console</button>
           <button id="btn-toggle-timeline">Timeline</button>
@@ -477,6 +493,10 @@
           </div>
           
           <div class="menu-separator"></div>
+          <!-- Measures the patch against the three-flashes-a-second limit
+               (src/accessibility/motionSafety.js). -->
+          <button id="btn-check-motion">Check Flashing &amp; Motion…</button>
+          <div class="menu-separator"></div>
           <button id="btn-mapping-tool">Projection Mapping…</button>
           <div class="menu-separator"></div>
           <button id="btn-audio-settings">Audio…</button>
@@ -517,6 +537,8 @@
         <div class="menu-dropdown" id="dropdown-help">
           <button id="btn-documentation">Documentation</button>
           <button id="btn-shortcuts">Shortcuts / Keymap</button>
+          <!-- The whole patch as headings and lists, for screen readers. -->
+          <button id="btn-describe-patch">Describe Patch…</button>
           <div class="menu-separator"></div>
           <button id="btn-welcome">Welcome</button>
           <div class="menu-separator"></div>
@@ -528,7 +550,10 @@
     </div>
 
     <canvas id="gpu-canvas"></canvas>
-    <canvas id="ui-canvas"></canvas>
+    <!-- The patch outline (an ARIA tree) is built inside this canvas as its
+         fallback content: kept out of the rendering, but in the accessibility
+         tree and able to take focus. See src/accessibility/GraphNavigator.js. -->
+    <canvas id="ui-canvas" aria-label="Patch canvas"></canvas>
 
     <!-- Hidden file input for file loading -->
     <input
