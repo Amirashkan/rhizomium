@@ -8,6 +8,47 @@ When one does, its entry says so under **Project files**.
 
 ---
 
+## v0.9.0-beta.7
+
+*October 28, 2026*
+
+### New
+
+- **Patch with the keyboard or a screen reader.** The patch canvas is now a
+  navigable tree of nodes, each opening onto its inputs, outputs and
+  parameters. C…C connects, X disconnects, M moves, N adds a node, Enter
+  follows a wire or opens the parameters, G goes to a node by name and
+  Shift+F10 opens the node menu. F10 walks the menu bar, and Connect /
+  Disconnect Pins are proper dialogs.
+- **Help > Describe Patch** lays the whole patch out as headings and lists,
+  and can copy it as text. Results of actions are announced to screen readers.
+- **Edit > Accessibility** opens a new Preferences section: contrast
+  (standard, high, maximum), interface size from 100% to 200%, a bold focus
+  ring, reduced interface animation, announcement verbosity and outline order.
+- **Flashing and motion warnings.** With warnings on, an opened patch is held
+  on its first frame and checked against WCAG 2.3.1. The warning offers Keep
+  Paused, a slower safe speed, or Play Anyway. **Tools > Check Flashing &
+  Motion** runs the check on demand and **View > Pause Preview** stops the
+  preview clock. VJ scene changes are never interrupted.
+- **Colour vision preview** simulates or corrects for seven colour vision
+  profiles across the preview, thumbnails, 3D view and popped-out preview.
+  Exports keep their real colours.
+
+### Fixed
+
+- Returning to the patch canvas resumes on the node last selected with the
+  mouse instead of an older keyboard position.
+- Nodes scrolled into view are no longer hidden under the status bar or key
+  hint, and at larger interface sizes the status bar readouts no longer run
+  into each other.
+
+### Docs
+
+- New [Accessibility](accessibility.md) page; shortcuts and interface pages
+  cover the new keys and menus.
+
+---
+
 ## v0.9.0-beta.6
 
 *October 26, 2026*
