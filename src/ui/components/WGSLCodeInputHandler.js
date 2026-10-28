@@ -129,9 +129,9 @@ export class WGSLCodeInputHandler {
     compileBtn.type = "button";
     compileBtn.title = "Check shader compilation";
     compileBtn.style.cssText = `
-      background: rgba(198, 242, 78, 0.14);
-      border: 1px solid rgba(198, 242, 78, 0.3);
-      color: #c6f24e;
+      background: rgba(217, 115, 63, 0.14);
+      border: 1px solid rgba(217, 115, 63, 0.3);
+      color: #d9733f;
       padding: 4px 8px;
       border-radius: 3px;
       cursor: pointer;
@@ -494,9 +494,9 @@ export class WGSLCodeInputHandler {
         if (showSuccess) {
           errorDisplay.textContent = '✓ Shader compiled successfully';
           errorDisplay.style.display = 'block';
-          errorDisplay.style.borderColor = 'rgba(198, 242, 78, 0.3)';
-          errorDisplay.style.background = 'rgba(198, 242, 78, 0.1)';
-          errorDisplay.style.color = '#c6f24e';
+          errorDisplay.style.borderColor = 'rgba(217, 115, 63, 0.3)';
+          errorDisplay.style.background = 'rgba(217, 115, 63, 0.1)';
+          errorDisplay.style.color = '#d9733f';
 
           // Hide success message after 2 seconds
           setTimeout(() => {

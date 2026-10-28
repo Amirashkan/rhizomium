@@ -55,9 +55,9 @@ export const TEXT = {
 
 /** The single accent. Selection, primary actions, live indicators, playhead. */
 export const ACCENT = {
-  base: "#c6f24e",
-  hover: "#d7f877",
-  deep: "#a9d63c",
+  base: "#d9733f",
+  hover: "#e68d5e",
+  deep: "#b85c2e",
   ink: "#14110a",
 };
 
@@ -238,7 +238,7 @@ export const NODE_CHROME = {
   wireWidth: 2.5,
   // The keyboard focus ring (see src/accessibility/GraphNavigator.js): a light
   // ring over a dark halo, so it reads on the card, on the canvas and on a
-  // bright thumbnail alike — and never borrows the lime that means "selected".
+  // bright thumbnail alike — and never borrows the rust that means "selected".
   focusRing: "#ffffff",
   focusHalo: "rgba(0, 0, 0, 0.85)",
   focusWidth: 2.5,
@@ -246,7 +246,7 @@ export const NODE_CHROME = {
 
 /**
  * What each contrast level changes. "standard" is the palette above as
- * written; the others are overlays on it. Lime selection and the type and
+ * written; the others are overlays on it. Rust selection and the type and
  * category hues stay put at every level — they already clear contrast against
  * the dark ground — so what moves is the chrome: text, hairlines, borders,
  * surfaces and the weight of wires and rings.

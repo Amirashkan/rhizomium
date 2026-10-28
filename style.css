@@ -122,11 +122,11 @@ select optgroup {
 }
 
 .menu-dropdown button:hover {
-  background: rgba(198, 242, 78, 0.12);
+  background: rgba(217, 115, 63, 0.12);
   color: #ffffff;
 }
 
-/* Destructive actions hover red rather than lime, so the one item you cannot
+/* Destructive actions hover red rather than rust, so the one item you cannot
    undo by looking at it never lights up like the rest. */
 .menu-dropdown button#btn-delete:hover,
 .menu-dropdown button#btn-delete-node:hover {
@@ -346,7 +346,7 @@ select optgroup {
 }
 
 .submenu-toggle:hover {
-  background: rgba(198, 242, 78, 0.12);
+  background: rgba(217, 115, 63, 0.12);
 }
 
 .submenu-toggle input[type="checkbox"] {
@@ -428,7 +428,7 @@ select optgroup {
   color: #ffffff;
 }
 
-/* One primary action per surface, and it is the only lime-filled thing in it. */
+/* One primary action per surface, and it is the only rust-filled thing in it. */
 .submenu-button-primary {
   background: var(--rz-accent);
   border-color: var(--rz-accent);
@@ -990,7 +990,7 @@ body {
 }
 
 .menu-item:hover {
-  background: rgba(198, 242, 78, 0.12);
+  background: rgba(217, 115, 63, 0.12);
 }
 
 /* Selection and interaction states */

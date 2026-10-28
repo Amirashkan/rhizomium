@@ -8,7 +8,7 @@
  * RHIZOMIUM DESIGN TOKENS
  *
  * Single source of truth for the editor's visual language: warm charcoal
- * surfaces, one electric-lime accent, and two INDEPENDENT colour systems —
+ * surfaces, one rust-orange accent, and two INDEPENDENT colour systems —
  *
  *   • category colour  → node identity (calm, muted: left spine, header dot,
  *                        palette rail, parameter-panel swatch)
@@ -61,16 +61,16 @@
   --rz-text-faint: #6f6559;
   --rz-text-disabled: #5b5349;
 
-  /* ---- Accent (lime) --------------------------------------------------- */
-  --rz-accent: #c6f24e;
-  --rz-accent-hover: #d7f877;
-  --rz-accent-deep: #a9d63c;
+  /* ---- Accent (rust) --------------------------------------------------- */
+  --rz-accent: #d9733f;
+  --rz-accent-hover: #e68d5e;
+  --rz-accent-deep: #b85c2e;
   --rz-accent-ink: #14110a; /* text/icons ON the accent */
-  --rz-accent-08: rgba(198, 242, 78, 0.08);
-  --rz-accent-10: rgba(198, 242, 78, 0.1);
-  --rz-accent-14: rgba(198, 242, 78, 0.14);
-  --rz-accent-30: rgba(198, 242, 78, 0.3);
-  --rz-accent-glow: 0 0 24px rgba(198, 242, 78, 0.32);
+  --rz-accent-08: rgba(217, 115, 63, 0.08);
+  --rz-accent-10: rgba(217, 115, 63, 0.1);
+  --rz-accent-14: rgba(217, 115, 63, 0.14);
+  --rz-accent-30: rgba(217, 115, 63, 0.3);
+  --rz-accent-glow: 0 0 24px rgba(217, 115, 63, 0.32);
 
   /* ---- Semantic -------------------------------------------------------- */
   --rz-error: #f8615a;
@@ -188,7 +188,7 @@
 }
 
 /* --- Shared scrollbar ---------------------------------------------------
-   The lime "inset pill": a 2px transparent border with background-clip keeps
+   The rust "inset pill": a 2px transparent border with background-clip keeps
    the thumb off the track edge without a painted track. Applied app-wide
    rather than to a hand-kept list of selectors, so floating windows that
    scroll — settings panels, palettes, dialogs — never fall back to the
@@ -196,14 +196,14 @@
    scrollbar-width/`::-webkit-scrollbar` rules of its own. */
 :root {
   scrollbar-width: thin;
-  scrollbar-color: rgba(198, 242, 78, 0.32) transparent;
+  scrollbar-color: rgba(217, 115, 63, 0.32) transparent;
 }
 
 *,
 *::before,
 *::after {
   scrollbar-width: thin;
-  scrollbar-color: rgba(198, 242, 78, 0.32) transparent;
+  scrollbar-color: rgba(217, 115, 63, 0.32) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -222,8 +222,8 @@
 
 ::-webkit-scrollbar-thumb {
   background: linear-gradient(
-    rgba(198, 242, 78, 0.3),
-    rgba(198, 242, 78, 0.18)
+    rgba(217, 115, 63, 0.3),
+    rgba(217, 115, 63, 0.18)
   );
   border-radius: var(--rz-r-pill);
   border: 2px solid transparent;
@@ -232,12 +232,12 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(
-    rgba(198, 242, 78, 0.5),
-    rgba(198, 242, 78, 0.32)
+    rgba(217, 115, 63, 0.5),
+    rgba(217, 115, 63, 0.32)
   );
   background-clip: padding-box;
 }
 
 ::selection {
-  background: rgba(198, 242, 78, 0.28);
+  background: rgba(217, 115, 63, 0.28);
 }

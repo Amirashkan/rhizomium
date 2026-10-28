@@ -1070,7 +1070,7 @@ export class TimelinePanel {
     const height = this.canvas.height / (window.devicePixelRatio || 1);
     const x = this.timeToX(this.timelineManager.getCurrentTime());
 
-    // The playhead is lime, not red: red means error everywhere else in the app.
+    // The playhead is rust, not red: red means error everywhere else in the app.
     this.ctx.strokeStyle = ACCENT.base;
     this.ctx.lineWidth = 1.5;
     this.ctx.beginPath();

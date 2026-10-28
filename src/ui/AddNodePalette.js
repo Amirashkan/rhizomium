@@ -284,7 +284,7 @@ export class AddNodePalette {
   }
 
   /**
-   * The lime ring at the point the node will land, with a dashed lead to the
+   * The rust ring at the point the node will land, with a dashed lead to the
    * palette. Without it the palette is just a floating list and "at cursor"
    * is a claim rather than something you can see.
    */

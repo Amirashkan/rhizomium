@@ -1,9 +1,9 @@
 /* landing.css — Rhizomium landing page.
 
    Built from the "Rhizomium Landing" design canvas. The editor has its own
-   visual language (tokens.css, electric lime); this page is the warm,
-   print-plate side of the brand — charcoal ground, rust rules, olive as the
-   second voice. The two share only the typefaces, which both pull from
+   visual language (tokens.css, rust orange); this page is the warm,
+   print-plate side of the brand — charcoal ground, rust rules, a warm
+   neutral as the second voice. The two share only the typefaces, which both pull from
    src/styles/fonts.css so they cannot drift onto different faces.
 
    Must stay first: @import is only legal before any other rule. */
@@ -22,9 +22,9 @@
   --rust-line: rgba(163, 83, 46, 0.28);
   --rust-line-soft: rgba(163, 83, 46, 0.18);
 
-  --olive: #9bab5e;
-  --olive-hi: #b3c47a;
-  --olive-line: rgba(155, 171, 94, 0.35);
+  --neutral: #bfb3a2;
+  --neutral-hi: #d8cdbd;
+  --neutral-line: rgba(191, 179, 162, 0.35);
 
   --font-ui: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -62,7 +62,7 @@ img { max-width: 100%; }
 .mono { font-family: var(--font-mono); }
 
 :where(a, button, input):focus-visible {
-  outline: 2px solid var(--olive);
+  outline: 2px solid var(--neutral);
   outline-offset: 2px;
 }
 
@@ -115,14 +115,14 @@ img { max-width: 100%; }
 .btn-solid { background: var(--rust); color: var(--bg); font-weight: 500; }
 .btn-solid:hover { background: var(--rust-hi); color: var(--bg); }
 
-.btn-solid-olive { background: var(--olive); color: var(--bg); font-weight: 500; }
-.btn-solid-olive:hover { background: var(--olive-hi); color: var(--bg); }
+.btn-solid-neutral { background: var(--neutral); color: var(--bg); font-weight: 500; }
+.btn-solid-neutral:hover { background: var(--neutral-hi); color: var(--bg); }
 
 .btn-outline { border-color: rgba(163, 83, 46, 0.4); color: var(--fg); }
 .btn-outline:hover { border-color: var(--rust-hi); background: rgba(163, 83, 46, 0.1); color: var(--fg); }
 
-.btn-olive { border-color: rgba(155, 171, 94, 0.5); }
-.btn-olive:hover { border-color: var(--olive); background: rgba(155, 171, 94, 0.12); }
+.btn-neutral { border-color: rgba(191, 179, 162, 0.5); }
+.btn-neutral:hover { border-color: var(--neutral); background: rgba(191, 179, 162, 0.12); }
 
 /* --- Nav ---------------------------------------------------------------- */
 
@@ -252,7 +252,7 @@ img { max-width: 100%; }
   background: var(--rust);
   box-shadow: 0 0 10px var(--rust);
 }
-.eyebrow-olive { color: var(--olive); margin-bottom: 16px; }
+.eyebrow-neutral { color: var(--neutral); margin-bottom: 16px; }
 
 .hero-title {
   margin: 0;
@@ -270,7 +270,7 @@ img { max-width: 100%; }
   border-top: 1px solid rgba(163, 83, 46, 0.3);
   padding-top: 6px;
 }
-.hero-line-alt { color: var(--olive); }
+.hero-line-alt { color: var(--neutral); }
 .hero-line-last { border-bottom: 1px solid rgba(163, 83, 46, 0.3); padding-bottom: 6px; }
 
 .hero-num {
@@ -509,7 +509,7 @@ img { max-width: 100%; }
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--olive);
+  color: var(--neutral);
 }
 .card-body h3 {
   margin: 0 0 8px;
@@ -545,8 +545,8 @@ img { max-width: 100%; }
 }
 
 .tier-featured {
-  border-color: rgba(155, 171, 94, 0.5);
-  background: rgba(155, 171, 94, 0.04);
+  border-color: rgba(191, 179, 162, 0.5);
+  background: rgba(191, 179, 162, 0.04);
 }
 
 .tier-badge {
@@ -559,7 +559,7 @@ img { max-width: 100%; }
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--bg);
-  background: var(--olive);
+  background: var(--neutral);
   padding: 4px 10px;
 }
 
@@ -570,7 +570,7 @@ img { max-width: 100%; }
   text-transform: uppercase;
   color: rgba(236, 229, 219, 0.5);
 }
-.tier-featured .tier-name { color: var(--olive); }
+.tier-featured .tier-name { color: var(--neutral); }
 .tier-name-rust { color: var(--rust-hi); }
 
 .tier-price {
@@ -612,7 +612,7 @@ img { max-width: 100%; }
   list-style: none;
   border-top: 1px solid var(--rust-line-soft);
 }
-.tier-featured .tier-list { border-top-color: rgba(155, 171, 94, 0.2); }
+.tier-featured .tier-list { border-top-color: rgba(191, 179, 162, 0.2); }
 
 .tier-item {
   display: flex;
@@ -622,7 +622,7 @@ img { max-width: 100%; }
   color: #ede6db;
 }
 .tier-item .plus { color: var(--rust); }
-.tier-featured .tier-item .plus { color: var(--olive); }
+.tier-featured .tier-item .plus { color: var(--neutral); }
 
 .tier-detail {
   display: block;
@@ -676,7 +676,7 @@ img { max-width: 100%; }
   grid-template-columns: 1.2fr 1fr;
   gap: 40px;
   align-items: center;
-  border: 1px solid rgba(155, 171, 94, 0.3);
+  border: 1px solid rgba(191, 179, 162, 0.3);
   border-top-color: rgba(163, 83, 46, 0.4);
   padding: 44px 38px;
 }
@@ -701,8 +701,8 @@ img { max-width: 100%; }
 .join-form { display: flex; flex-direction: column; gap: 12px; }
 
 .join-form input {
-  background: rgba(155, 171, 94, 0.06);
-  border: 1px solid var(--olive-line);
+  background: rgba(191, 179, 162, 0.06);
+  border: 1px solid var(--neutral-line);
   color: var(--fg);
   font-family: inherit;
   font-size: 14px;
@@ -710,7 +710,7 @@ img { max-width: 100%; }
   outline: none;
 }
 .join-form input::placeholder { color: rgba(236, 229, 219, 0.4); }
-.join-form input:focus-visible { border-color: var(--olive); }
+.join-form input:focus-visible { border-color: var(--neutral); }
 
 .join-form button {
   cursor: pointer;
@@ -729,7 +729,7 @@ img { max-width: 100%; }
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--olive);
+  color: var(--neutral);
 }
 .join-status:empty { display: none; }
 .join-status[data-tone="error"] { color: var(--rust-hi); }
@@ -743,7 +743,7 @@ img { max-width: 100%; }
   color: var(--fg-faint);
 }
 .join-note a { color: inherit; }
-.join-note a:hover { color: var(--olive-hi); }
+.join-note a:hover { color: var(--neutral-hi); }
 
 /* --- Footer ------------------------------------------------------------- */
 

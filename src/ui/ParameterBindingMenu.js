@@ -80,7 +80,7 @@ export class ParameterBindingMenu {
     const header = document.createElement('div');
     header.style.cssText = `
       font-weight: bold;
-      color: #c6f24e;
+      color: #d9733f;
       margin-bottom: 8px;
       padding-bottom: 4px;
       border-bottom: 1px solid rgba(255,244,230,0.08);
@@ -167,7 +167,7 @@ export class ParameterBindingMenu {
       const targetsInfo = document.createElement('div');
       targetsInfo.style.cssText = `
         font-size: 10px;
-        color: #c6f24e;
+        color: #d9733f;
         margin: 2px 0;
         padding-left: 20px;
       `;
@@ -345,7 +345,7 @@ export class ParameterBindingMenu {
     const header = document.createElement('div');
     header.style.cssText = `
       font-weight: bold;
-      color: #c6f24e;
+      color: #d9733f;
       margin-bottom: 12px;
       padding-bottom: 8px;
       border-bottom: 1px solid rgba(255,244,230,0.08);
@@ -386,7 +386,7 @@ export class ParameterBindingMenu {
         margin-bottom: 8px;
         background: #171310;
         border-radius: 4px;
-        border-left: 3px solid #c6f24e;
+        border-left: 3px solid #d9733f;
       `;
 
       bindingItem.innerHTML = `
@@ -395,7 +395,7 @@ export class ParameterBindingMenu {
             <span style="color: #f5a524;">${sourceNode?.kind || 'Unknown'}</span>
             <span style="color: #cabfb0;">.${binding.source.parameterName}</span>
             <span style="color: #6f6559;"> → </span>
-            <span style="color: #c6f24e;">${targetNode?.kind || 'Unknown'}</span>
+            <span style="color: #d9733f;">${targetNode?.kind || 'Unknown'}</span>
             <span style="color: #cabfb0;">.${binding.target.parameterName}</span>
           </div>
           <button class="remove-binding-btn" style="
@@ -517,7 +517,7 @@ export class BindingVisualizer {
       right: 10px;
       width: 40px;
       height: 40px;
-      background: ${this.showBindings ? '#c6f24e' : '#171310'};
+      background: ${this.showBindings ? '#d9733f' : '#171310'};
       border: 1px solid rgba(255,244,230,0.08);
       border-radius: 6px;
       color: white;
@@ -542,7 +542,7 @@ export class BindingVisualizer {
     
     const button = document.getElementById('toggle-bindings-btn');
     if (button) {
-      button.style.background = this.showBindings ? '#c6f24e' : '#171310';
+      button.style.background = this.showBindings ? '#d9733f' : '#171310';
     }
 
     if (this.showBindings) {

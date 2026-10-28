@@ -196,7 +196,7 @@ export class FileInputHandler {
 
   _showDragHover(dropZone) {
     dropZone.style.borderColor = ACCENT.base;
-    dropZone.style.backgroundColor = "rgba(198, 242, 78, 0.1)";
+    dropZone.style.backgroundColor = "rgba(217, 115, 63, 0.1)";
     dropZone.style.transform = "scale(1.02)";
   }
 

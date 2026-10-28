@@ -39,7 +39,7 @@ export function installVirtualMidi({ controls, name = 'Virtual Controller', at =
     let draw;
     if (c.type === 'fader') {
       cell.innerHTML = `<div style="position: relative; width: 10px; height: 96px; border-radius: 5px; background: #0d0b08; border: 1px solid #2c2720;">
-        <div class="fill" style="position: absolute; left: 0; right: 0; bottom: 0; border-radius: 5px; background: #c6f24e;"></div>
+        <div class="fill" style="position: absolute; left: 0; right: 0; bottom: 0; border-radius: 5px; background: #d9733f;"></div>
         <div class="cap" style="position: absolute; left: -11px; width: 32px; height: 14px; border-radius: 3px; background: #e8e1d6; box-shadow: 0 1px 3px #000;"></div></div>`;
       const fill = cell.querySelector('.fill');
       const cap = cell.querySelector('.cap');
@@ -47,7 +47,7 @@ export function installVirtualMidi({ controls, name = 'Virtual Controller', at =
     } else {
       cell.innerHTML = `<svg width="56" height="56" viewBox="0 0 56 56">
         <path d="M 13.9 42.1 A 20 20 0 1 1 42.1 42.1" fill="none" stroke="#2c2720" stroke-width="5" stroke-linecap="round"/>
-        <path class="arc" d="M 13.9 42.1 A 20 20 0 1 1 42.1 42.1" fill="none" stroke="#c6f24e" stroke-width="5" stroke-linecap="round" pathLength="100"/>
+        <path class="arc" d="M 13.9 42.1 A 20 20 0 1 1 42.1 42.1" fill="none" stroke="#d9733f" stroke-width="5" stroke-linecap="round" pathLength="100"/>
         <circle cx="28" cy="28" r="14" fill="#e8e1d6"/>
         <line class="tick" x1="28" y1="28" x2="28" y2="16" stroke="#14110a" stroke-width="3" stroke-linecap="round"/></svg>`;
       const arc = cell.querySelector('.arc');
@@ -80,7 +80,7 @@ export function installVirtualMidi({ controls, name = 'Virtual Controller', at =
     value: (cc) => views.get(cc)?.value ?? 0,
     /** Mark a control as the one being moved. */
     hot(cc) {
-      for (const [k, v] of views) v.cell.style.filter = k === cc ? 'drop-shadow(0 0 6px rgba(198, 242, 78, 0.7))' : '';
+      for (const [k, v] of views) v.cell.style.filter = k === cc ? 'drop-shadow(0 0 6px rgba(217, 115, 63, 0.7))' : '';
     },
     sweep(cc, from, to, ms) {
       return new Promise((done) => {

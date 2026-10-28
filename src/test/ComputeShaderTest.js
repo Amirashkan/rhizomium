@@ -182,12 +182,12 @@ export class ComputeShaderTest {
         top: 10px;
         right: 10px;
         background: rgba(0, 0, 0, 0.8);
-        color: #0f0;
+        color: #d9733f;
         font-family: 'Courier New', monospace;
         font-size: 12px;
         padding: 10px 15px;
         border-radius: 5px;
-        border: 1px solid #0f0;
+        border: 1px solid #d9733f;
         z-index: 10000;
         min-width: 200px;
         box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
@@ -210,13 +210,13 @@ export class ComputeShaderTest {
 
     this.debugOverlay.innerHTML = `
       <div style="font-weight: bold; margin-bottom: 8px; color: #0ff;">⚡ COMPUTE SHADER TEST</div>
-      <div>Status: <span style="color: ${this.isEnabled ? '#0f0' : '#f00'}">${this.isEnabled ? 'ACTIVE' : 'INACTIVE'}</span></div>
-      <div style="margin-top: 8px; border-top: 1px solid #0f0; padding-top: 8px;">
+      <div>Status: <span style="color: ${this.isEnabled ? '#d9733f' : '#f00'}">${this.isEnabled ? 'ACTIVE' : 'INACTIVE'}</span></div>
+      <div style="margin-top: 8px; border-top: 1px solid #d9733f; padding-top: 8px;">
         <div>Texture: ${info.textureSize.width}x${info.textureSize.height}</div>
         <div>Workgroup: ${info.workgroupSize.x}x${info.workgroupSize.y}</div>
         <div>Dispatch: ${info.dispatchSize.x}x${info.dispatchSize.y} groups</div>
       </div>
-      <div style="margin-top: 8px; border-top: 1px solid #0f0; padding-top: 8px;">
+      <div style="margin-top: 8px; border-top: 1px solid #d9733f; padding-top: 8px;">
         <div>FPS: <span style="color: #ff0; font-weight: bold;">${this.fpsCounter.fps}</span></div>
       </div>
     `;

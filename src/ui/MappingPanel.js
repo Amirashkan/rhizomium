@@ -836,7 +836,7 @@ export class MappingPanel {
   _drawPending(ctx) {
     const pts = this._drawPoints.map((p) => this._toScreen(p.x, p.y));
     ctx.save();
-    ctx.strokeStyle = '#c6f24e';
+    ctx.strokeStyle = '#d9733f';
     ctx.lineWidth = 1.5;
     ctx.setLineDash([5, 3]);
 
@@ -861,9 +861,9 @@ export class MappingPanel {
       const cursor = this._toScreen(this._drawCursor.x, this._drawCursor.y);
       ctx.beginPath();
       ctx.rect(cursor.x - 4, cursor.y - 4, 8, 8);
-      ctx.fillStyle = 'rgba(198, 242, 78, 0.35)';
+      ctx.fillStyle = 'rgba(217, 115, 63, 0.35)';
       ctx.fill();
-      ctx.strokeStyle = '#c6f24e';
+      ctx.strokeStyle = '#d9733f';
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -872,7 +872,7 @@ export class MappingPanel {
     if (pts.length >= 3) {
       ctx.beginPath();
       ctx.arc(pts[0].x, pts[0].y, 7, 0, Math.PI * 2);
-      ctx.strokeStyle = '#c6f24e';
+      ctx.strokeStyle = '#d9733f';
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -880,7 +880,7 @@ export class MappingPanel {
     for (let i = 0; i < pts.length; i++) {
       ctx.beginPath();
       ctx.rect(pts[i].x - 4, pts[i].y - 4, 8, 8);
-      ctx.fillStyle = '#c6f24e';
+      ctx.fillStyle = '#d9733f';
       ctx.fill();
       ctx.font = '9px ui-monospace, monospace';
       ctx.fillStyle = 'rgba(255, 244, 230, 0.8)';
@@ -915,13 +915,13 @@ export class MappingPanel {
       ctx.save();
       ctx.setLineDash([6, 4]);
       ctx.lineWidth = 3;
-      ctx.strokeStyle = '#c6f24e';
+      ctx.strokeStyle = '#d9733f';
       ctx.stroke();
-      ctx.fillStyle = 'rgba(198, 242, 78, 0.18)';
+      ctx.fillStyle = 'rgba(217, 115, 63, 0.18)';
       ctx.fill();
       ctx.restore();
     } else if (isSelected) {
-      ctx.fillStyle = 'rgba(198, 242, 78, 0.06)';
+      ctx.fillStyle = 'rgba(217, 115, 63, 0.06)';
       ctx.fill();
     }
 

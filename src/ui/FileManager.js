@@ -207,12 +207,12 @@ export class FileManager {
       }
 
       .file-manager-user-info.authenticated {
-        color: #c6f24e;
+        color: #d9733f;
       }
 
       .file-manager-user-info.authenticated::before {
         content: "✓";
-        color: #c6f24e;
+        color: #d9733f;
         font-weight: bold;
       }
 
@@ -269,27 +269,27 @@ export class FileManager {
       }
 
       .file-manager-toolbar-btn-primary {
-        background: linear-gradient(135deg, #c6f24e 0%, #a9d63c 100%);
-        border-color: #c6f24e;
+        background: linear-gradient(135deg, #d9733f 0%, #b85c2e 100%);
+        border-color: #d9733f;
         color: #14110a;
         font-weight: 600;
       }
 
       .file-manager-toolbar-btn-primary:hover {
-        background: linear-gradient(135deg, #d7f877 0%, #a9d63c 100%);
-        box-shadow: 0 0 24px rgba(198, 242, 78, 0.32);
+        background: linear-gradient(135deg, #e68d5e 0%, #b85c2e 100%);
+        box-shadow: 0 0 24px rgba(217, 115, 63, 0.32);
       }
 
       .file-manager-toolbar-btn-save {
-        background: linear-gradient(135deg, #c6f24e 0%, #a9d63c 100%);
-        border-color: #c6f24e;
+        background: linear-gradient(135deg, #d9733f 0%, #b85c2e 100%);
+        border-color: #d9733f;
         color: #14110a;
         font-weight: 600;
       }
 
       .file-manager-toolbar-btn-save:hover {
-        background: linear-gradient(135deg, #d7f877 0%, #a9d63c 100%);
-        box-shadow: 0 0 24px rgba(198, 242, 78, 0.32);
+        background: linear-gradient(135deg, #e68d5e 0%, #b85c2e 100%);
+        box-shadow: 0 0 24px rgba(217, 115, 63, 0.32);
       }
 
       .file-manager-path {
@@ -359,14 +359,14 @@ export class FileManager {
         left: 0;
         right: 0;
         height: 3px;
-        background: linear-gradient(90deg, transparent, #c6f24e, transparent);
+        background: linear-gradient(90deg, transparent, #d9733f, transparent);
         opacity: 0;
         transition: opacity 0.2s ease;
       }
 
       .file-manager-item:hover {
         background: rgba(52, 52, 56, 0.9);
-        border-color: rgba(198, 242, 78, 0.4);
+        border-color: rgba(217, 115, 63, 0.4);
         transform: translateY(-2px);
         box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
       }
@@ -429,7 +429,7 @@ export class FileManager {
       }
 
       .file-manager-item-action-btn:hover {
-        background: rgba(198, 242, 78, 0.8);
+        background: rgba(217, 115, 63, 0.8);
         transform: scale(1.1);
       }
 
@@ -463,9 +463,9 @@ export class FileManager {
 
       .file-manager-login-btn {
         padding: 10px 20px;
-        border: 1px solid #c6f24e;
+        border: 1px solid #d9733f;
         border-radius: 8px;
-        background: linear-gradient(135deg, #c6f24e 0%, #a9d63c 100%);
+        background: linear-gradient(135deg, #d9733f 0%, #b85c2e 100%);
         color: #14110a;
         font-size: 13px;
         font-weight: 600;
@@ -474,8 +474,8 @@ export class FileManager {
       }
 
       .file-manager-login-btn:hover {
-        background: linear-gradient(135deg, #d7f877 0%, #a9d63c 100%);
-        box-shadow: 0 0 24px rgba(198, 242, 78, 0.32);
+        background: linear-gradient(135deg, #e68d5e 0%, #b85c2e 100%);
+        box-shadow: 0 0 24px rgba(217, 115, 63, 0.32);
         transform: translateY(-1px);
       }
 
@@ -490,12 +490,12 @@ export class FileManager {
       }
 
       .file-manager-list::-webkit-scrollbar-thumb {
-        background: rgba(198, 242, 78, 0.5);
+        background: rgba(217, 115, 63, 0.5);
         border-radius: 5px;
       }
 
       .file-manager-list::-webkit-scrollbar-thumb:hover {
-        background: rgba(198, 242, 78, 0.7);
+        background: rgba(217, 115, 63, 0.7);
       }
 
       /* Loading spinner */
@@ -504,8 +504,8 @@ export class FileManager {
         display: inline-block;
         width: 20px;
         height: 20px;
-        border: 2px solid rgba(198, 242, 78, 0.3);
-        border-top-color: #c6f24e;
+        border: 2px solid rgba(217, 115, 63, 0.3);
+        border-top-color: #d9733f;
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
         margin-right: 10px;
@@ -976,7 +976,7 @@ export class FileManager {
       const infoEl = this.dialog.querySelector("#file-manager-info");
       const originalText = infoEl.textContent;
       infoEl.textContent = `Saved ${finalFileName} successfully`;
-      infoEl.style.color = '#c6f24e';
+      infoEl.style.color = '#d9733f';
       
       setTimeout(() => {
         infoEl.textContent = originalText;

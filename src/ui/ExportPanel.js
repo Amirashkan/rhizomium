@@ -177,7 +177,7 @@ function injectStyles() {
     #export-panel select:focus,
     #export-panel input:focus {
       outline: none;
-      border-color: var(--rz-accent-30, rgba(198,242,78,0.3));
+      border-color: var(--rz-accent-30, rgba(217, 115, 63,0.3));
     }
 
     /* Segmented control: the one decision that changes what the rest of the
@@ -209,7 +209,7 @@ function injectStyles() {
       color: var(--rz-text, #f3ede4);
     }
     #export-panel .ep-segment.active {
-      background: var(--rz-accent, #c6f24e);
+      background: var(--rz-accent, #d9733f);
       color: var(--rz-accent-ink, #14110a);
       font-weight: 600;
     }
@@ -235,9 +235,9 @@ function injectStyles() {
       color: var(--rz-text, #f3ede4);
     }
     #export-panel .ep-chip.active {
-      background: var(--rz-accent-14, rgba(198,242,78,0.14));
-      border-color: var(--rz-accent-30, rgba(198,242,78,0.3));
-      color: var(--rz-accent, #c6f24e);
+      background: var(--rz-accent-14, rgba(217, 115, 63,0.14));
+      border-color: var(--rz-accent-30, rgba(217, 115, 63,0.3));
+      color: var(--rz-accent, #d9733f);
     }
 
     #export-panel .ep-check {
@@ -252,7 +252,7 @@ function injectStyles() {
       width: 15px;
       height: 15px;
       margin: 1px 0 0 0;
-      accent-color: var(--rz-accent, #c6f24e);
+      accent-color: var(--rz-accent, #d9733f);
       cursor: pointer;
       flex-shrink: 0;
     }
@@ -304,8 +304,8 @@ function injectStyles() {
     #export-panel .ep-export {
       width: 100%;
       padding: 10px 12px;
-      background: var(--rz-accent, #c6f24e);
-      border: 1px solid var(--rz-accent, #c6f24e);
+      background: var(--rz-accent, #d9733f);
+      border: 1px solid var(--rz-accent, #d9733f);
       border-radius: var(--rz-r-field, 8px);
       color: var(--rz-accent-ink, #14110a);
       font-family: inherit;
@@ -314,7 +314,7 @@ function injectStyles() {
       cursor: pointer;
       transition: background 0.12s ease;
     }
-    #export-panel .ep-export:hover:not(:disabled) { background: var(--rz-accent-hover, #d7f877); }
+    #export-panel .ep-export:hover:not(:disabled) { background: var(--rz-accent-hover, #e68d5e); }
     #export-panel .ep-export:disabled { opacity: 0.45; cursor: not-allowed; }
 
     #export-panel .ep-path {

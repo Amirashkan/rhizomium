@@ -50,9 +50,12 @@ function startField(canvas, onSample) {
     point.y = Math.random() * height;
     point.life = 40 + Math.random() * 220;
     point.age = 0;
-    // A minority of strands run olive, the rest rust — the same two-colour
-    // split the rest of the page uses.
-    point.hue = Math.random() < 0.22 ? 88 + Math.random() * 24 : 16 + Math.random() * 20;
+    // A minority of strands run a warm neutral, the rest rust — the same
+    // two-colour split the rest of the page uses.
+    const neutral = Math.random() < 0.22;
+    point.hue = neutral ? 30 + Math.random() * 10 : 16 + Math.random() * 20;
+    point.sat = neutral ? 14 : 58;
+    point.light = neutral ? 70 : 52;
     point.speed = 0.5 + Math.random() * 1.1;
     return point;
   }
@@ -89,7 +92,7 @@ function startField(canvas, onSample) {
       // Fade in over the first 20 frames, then out across the remaining life,
       // so strands never pop into or out of existence.
       const fade = Math.min(1, p.age / 20) * (1 - p.age / p.life);
-      ctx.strokeStyle = `hsla(${p.hue},58%,52%,${(0.34 * fade).toFixed(3)})`;
+      ctx.strokeStyle = `hsla(${p.hue},${p.sat}%,${p.light}%,${(0.34 * fade).toFixed(3)})`;
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
       ctx.lineTo(nx, ny);

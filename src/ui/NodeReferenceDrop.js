@@ -69,7 +69,7 @@ export function registerNodeDropZone(zone) {
 
 export const nodeReferenceDropStyles = `
 .node-ref-drop-target {
-  outline: 2px dashed #c6f24e;
+  outline: 2px dashed #d9733f;
   outline-offset: 2px;
 }
 
@@ -78,7 +78,7 @@ export const nodeReferenceDropStyles = `
   z-index: 10001;
   pointer-events: none;
   padding: 3px 6px;
-  background: #c6f24e;
+  background: #d9733f;
   color: #14110a;
   border-radius: 3px;
   font-family: var(--rz-font-mono);
