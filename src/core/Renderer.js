@@ -750,7 +750,7 @@ export class Renderer {
     ctx.stroke();
     ctx.restore();
 
-    // Selection is lime and independent of category — a selected Noise node and a selected Output
+    // Selection is rust and independent of category — a selected Noise node and a selected Output
     // node ring identically, so the ring always means "this is what the parameter panel is editing".
     if (isSelected) {
       ctx.strokeStyle = ACCENT.base;
@@ -894,7 +894,7 @@ export class Renderer {
     ctx.font = this._cachedFonts.pinLabel;
 
     // Each chip is a rounded well that only lights up when its state is ON: bypass in amber,
-    // preview in the accent lime. Off chips stay near-invisible so a row of them reads as chrome
+    // preview in the accent rust. Off chips stay near-invisible so a row of them reads as chrome
     // rather than as three competing indicators.
     const chip = (x, glyph, tint, on, disabled) => {
       ctx.fillStyle = on ? withAlpha(tint, 0.14) : SURFACE.fillSoft;

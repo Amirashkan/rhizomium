@@ -239,7 +239,7 @@ export class WelcomeWindow {
         background:
           radial-gradient(50% 60% at 22% 20%, rgba(167,139,250,0.24), transparent 55%),
           radial-gradient(50% 60% at 82% 78%, rgba(207,100,153,0.20), transparent 55%),
-          radial-gradient(46% 56% at 60% 30%, rgba(198,242,78,0.08), transparent 55%),
+          radial-gradient(46% 56% at 60% 30%, rgba(217, 115, 63,0.08), transparent 55%),
           radial-gradient(rgba(255,240,220,0.05) 1px, transparent 1px) 0 0/22px 22px,
           rgba(10, 8, 7, 0.92);
         z-index: 10000;
@@ -268,7 +268,7 @@ export class WelcomeWindow {
         overflow-y: auto;
         animation: slideIn 0.3s ease;
         scrollbar-width: thin;
-        scrollbar-color: rgba(198,242,78,0.32) transparent;
+        scrollbar-color: rgba(217, 115, 63,0.32) transparent;
       }
 
       @keyframes slideIn {
@@ -362,7 +362,7 @@ export class WelcomeWindow {
         box-shadow: 0 0 0 3px ${withAlpha(ACCENT.base, 0.35)};
       }
 
-      /* Exactly one primary action, and it is the only lime surface here. */
+      /* Exactly one primary action, and it is the only rust surface here. */
       .welcome-action.primary {
         background: radial-gradient(120% 120% at 0 0, ${ACCENT.base}, ${ACCENT.deep});
         border-color: transparent;
@@ -612,14 +612,14 @@ export class WelcomeWindow {
       }
 
       .welcome-dialog::-webkit-scrollbar-thumb {
-        background: linear-gradient(rgba(198,242,78,0.30), rgba(198,242,78,0.18));
+        background: linear-gradient(rgba(217, 115, 63,0.30), rgba(217, 115, 63,0.18));
         border-radius: 999px;
         border: 2px solid transparent;
         background-clip: padding-box;
       }
 
       .welcome-dialog::-webkit-scrollbar-thumb:hover {
-        background: linear-gradient(rgba(198,242,78,0.5), rgba(198,242,78,0.32));
+        background: linear-gradient(rgba(217, 115, 63,0.5), rgba(217, 115, 63,0.32));
         background-clip: padding-box;
       }
     `;

@@ -37,7 +37,7 @@
    A large part of the chrome sets `outline: none` and relies on hover for
    feedback, which leaves a keyboard user with no idea where they are.
    :focus-visible only matches keyboard focus (and text fields), so a mouse
-   click never draws this. The dark halo keeps the ring readable on the lime
+   click never draws this. The dark halo keeps the ring readable on the rust
    accent, on a light thumbnail and on the canvas alike. */
 :root {
   --rz-focus-ring: var(--rz-accent);

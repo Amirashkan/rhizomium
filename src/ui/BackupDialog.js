@@ -202,15 +202,15 @@ export class BackupDialog {
       }
 
       .backup-btn-primary {
-        background: #c6f24e;
-        border-color: #c6f24e;
+        background: #d9733f;
+        border-color: #d9733f;
         color: #14110a;
         font-weight: 600;
       }
 
       .backup-btn-primary:hover {
-        background: #a9d63c;
-        border-color: #a9d63c;
+        background: #b85c2e;
+        border-color: #b85c2e;
       }
 
       .backup-btn-danger {
@@ -293,15 +293,15 @@ export class BackupDialog {
       }
 
       .backup-item-btn-primary {
-        background: #c6f24e;
-        border-color: #c6f24e;
+        background: #d9733f;
+        border-color: #d9733f;
         color: #14110a;
         font-weight: 600;
       }
 
       .backup-item-btn-primary:hover {
-        background: #a9d63c;
-        border-color: #a9d63c;
+        background: #b85c2e;
+        border-color: #b85c2e;
       }
 
       .backup-loading, .backup-empty {

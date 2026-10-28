@@ -556,7 +556,7 @@ export class PreferencesWindow {
       width: 16px;
       height: 16px;
       cursor: pointer;
-      accent-color: #c6f24e;
+      accent-color: #d9733f;
     `;
 
     const labelEl = document.createElement("span");

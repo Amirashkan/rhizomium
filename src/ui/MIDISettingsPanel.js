@@ -83,7 +83,7 @@ export class MIDISettingsPanel {
           <button id="midi-enable-btn" style="
             flex: 1;
             padding: 8px;
-            background: #c6f24e;
+            background: #d9733f;
             color: #14110a;
             border: none;
             border-radius: 4px;
@@ -132,7 +132,7 @@ export class MIDISettingsPanel {
           <button id="midi-learn-btn" style="
             width: 100%;
             padding: 10px;
-            background: #c6f24e;
+            background: #d9733f;
             color: #14110a;
             border: none;
             border-radius: 4px;
@@ -144,10 +144,10 @@ export class MIDISettingsPanel {
             margin-top: 8px;
             padding: 8px;
             background: rgba(33, 150, 243, 0.2);
-            border: 1px solid #c6f24e;
+            border: 1px solid #d9733f;
             border-radius: 4px;
             font-size: 11px;
-            color: #c6f24e;
+            color: #d9733f;
             display: none;
           ">
             Waiting for MIDI input...
@@ -377,7 +377,7 @@ export class MIDISettingsPanel {
     const learnStatus = this.panel.querySelector('#midi-learn-status');
     learnStatus.style.display = 'none';
     this.learnButton.textContent = 'Start MIDI Learn';
-    this.learnButton.style.background = '#c6f24e';
+    this.learnButton.style.background = '#d9733f';
   }
 
   updateStatus() {
@@ -389,7 +389,7 @@ export class MIDISettingsPanel {
       statusEl.style.color = '#f8615a';
     } else if (status.enabled) {
       statusEl.textContent = 'Connected';
-      statusEl.style.color = '#c6f24e';
+      statusEl.style.color = '#d9733f';
     } else {
       statusEl.textContent = 'Disabled';
       statusEl.style.color = '#f5a524';
@@ -410,7 +410,7 @@ export class MIDISettingsPanel {
         margin-bottom: 4px;
         background: rgba(255, 255, 255, 0.05);
         border-radius: 4px;
-        border-left: 3px solid ${device.state === 'connected' ? '#c6f24e' : '#f8615a'};
+        border-left: 3px solid ${device.state === 'connected' ? '#d9733f' : '#f8615a'};
       ">
         <div style="font-weight: 500; font-size: 12px;">${device.name}</div>
         <div style="font-size: 10px; color: #6f6559;">${device.manufacturer || 'Unknown'}</div>
@@ -436,11 +436,11 @@ export class MIDISettingsPanel {
           margin-bottom: 6px;
           background: rgba(255, 255, 255, 0.05);
           border-radius: 4px;
-          border-left: 3px solid ${binding.enabled ? '#c6f24e' : 'rgba(255,244,230,0.13)'};
+          border-left: 3px solid ${binding.enabled ? '#d9733f' : 'rgba(255,244,230,0.13)'};
         ">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
             <div style="flex: 1;">
-              <div style="font-weight: 500; font-size: 11px; color: #c6f24e;">
+              <div style="font-weight: 500; font-size: 11px; color: #d9733f;">
                 CC${binding.cc} (Ch${binding.channel + 1})
               </div>
               <div style="font-size: 11px; color: #f3ede4; margin-top: 2px;">

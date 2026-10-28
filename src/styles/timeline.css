@@ -154,7 +154,7 @@
 /* Scrollbars come from tokens.css. */
 .timeline-panel {
   scrollbar-width: thin;
-  scrollbar-color: rgba(198, 242, 78, 0.32) transparent;
+  scrollbar-color: rgba(217, 115, 63, 0.32) transparent;
 }
 
 /* Input field labels */
@@ -252,7 +252,7 @@
 }
 
 .timeline-context-menu-item:hover {
-  background: rgba(198, 242, 78, 0.12);
+  background: rgba(217, 115, 63, 0.12);
 }
 
 .timeline-context-menu-separator {

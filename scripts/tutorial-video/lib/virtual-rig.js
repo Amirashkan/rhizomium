@@ -80,7 +80,7 @@ export async function installVirtualRig({ displays, at = { right: 24, bottom: 24
   document.body.appendChild(box);
   const g = canvas.getContext('2d');
 
-  const COLORS = ['#c6f24e', '#4ed8f2', '#f24ea8', '#f2b84e', '#a78bfa', '#4ef2a0'];
+  const COLORS = ['#d9733f', '#4ed8f2', '#f24ea8', '#f2b84e', '#a78bfa', '#4ef2a0'];
   const smooth = (e, x) => { const t = Math.min(1, Math.max(0, x / e)); return t * t * (3 - 2 * t); };
   const masks = new Map();
   /** Alpha that fades in from every edge, as the compositor's uSoftEdge does. */

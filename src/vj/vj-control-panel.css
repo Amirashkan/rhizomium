@@ -91,8 +91,8 @@
 }
 
 .vj-tab-btn.active {
-  background: rgba(198, 242, 78, 0.8);
-  border-color: rgba(198, 242, 78, 1);
+  background: rgba(217, 115, 63, 0.8);
+  border-color: rgba(217, 115, 63, 1);
   color: var(--rz-text);
 }
 
@@ -135,9 +135,9 @@
 }
 
 .vj-scene-card.active {
-  background: rgba(198, 242, 78, 0.3);
-  border-color: rgba(198, 242, 78, 1);
-  box-shadow: 0 0 12px rgba(198, 242, 78, 0.4);
+  background: rgba(217, 115, 63, 0.3);
+  border-color: rgba(217, 115, 63, 1);
+  box-shadow: 0 0 12px rgba(217, 115, 63, 0.4);
 }
 
 .vj-scene-name {
@@ -177,7 +177,7 @@
 
 .vj-scene-notes:focus {
   outline: none;
-  border-color: rgba(198, 242, 78, 0.8);
+  border-color: rgba(217, 115, 63, 0.8);
   background: rgba(0, 0, 0, 0.4);
 }
 
@@ -265,8 +265,8 @@
 }
 
 .vj-playlist-item.current {
-  background: rgba(198, 242, 78, 0.3);
-  border-color: rgba(198, 242, 78, 1);
+  background: rgba(217, 115, 63, 0.3);
+  border-color: rgba(217, 115, 63, 1);
 }
 
 .vj-playlist-number {
@@ -322,7 +322,7 @@
 .vj-input-tiny:focus,
 .vj-select-tiny:focus {
   outline: none;
-  border-color: rgba(198, 242, 78, 0.8);
+  border-color: rgba(217, 115, 63, 0.8);
 }
 
 .vj-playlist-actions {
@@ -381,7 +381,7 @@
 
 .vj-input:focus {
   outline: none;
-  border-color: rgba(198, 242, 78, 0.8);
+  border-color: rgba(217, 115, 63, 0.8);
   background: rgba(26, 22, 17, 0.7);
 }
 
@@ -398,7 +398,7 @@
 
 .vj-input-small:focus {
   outline: none;
-  border-color: rgba(198, 242, 78, 0.8);
+  border-color: rgba(217, 115, 63, 0.8);
 }
 
 .vj-select {
@@ -415,7 +415,7 @@
 
 .vj-select:focus {
   outline: none;
-  border-color: rgba(198, 242, 78, 0.8);
+  border-color: rgba(217, 115, 63, 0.8);
 }
 
 .vj-slider {
@@ -570,7 +570,7 @@
 }
 
 .vj-tab-content.vj-audio-dropping .vj-audio-items {
-  outline: 2px dashed rgba(198, 242, 78, 0.8);
+  outline: 2px dashed rgba(217, 115, 63, 0.8);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -655,8 +655,8 @@
 
 /* On, but this scene is not the live one (or the editor moved on) */
 .vj-btn-toggle.on {
-  border-color: rgba(198, 242, 78, 0.6);
-  color: rgba(198, 242, 78, 0.9);
+  border-color: rgba(217, 115, 63, 0.6);
+  color: rgba(217, 115, 63, 0.9);
 }
 
 .vj-btn-toggle.on[data-state='paused'] {
@@ -666,8 +666,8 @@
 
 /* Following the editor right now */
 .vj-btn-toggle.on[data-state='live'] {
-  background: rgba(198, 242, 78, 0.85);
-  border-color: rgba(198, 242, 78, 1);
+  background: rgba(217, 115, 63, 0.85);
+  border-color: rgba(217, 115, 63, 1);
   color: #1a1611;
 }
 
@@ -676,8 +676,8 @@
 }
 
 @keyframes vj-auto-flash {
-  from { box-shadow: 0 0 0 4px rgba(198, 242, 78, 0.6); }
-  to { box-shadow: 0 0 0 0 rgba(198, 242, 78, 0); }
+  from { box-shadow: 0 0 0 4px rgba(217, 115, 63, 0.6); }
+  to { box-shadow: 0 0 0 0 rgba(217, 115, 63, 0); }
 }
 
 /* Inline rename field, in place of a card's name */
@@ -686,7 +686,7 @@
   box-sizing: border-box;
   padding: 2px 4px;
   background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(198, 242, 78, 0.8);
+  border: 1px solid rgba(217, 115, 63, 0.8);
   border-radius: 4px;
   color: var(--rz-text);
   font: inherit;
@@ -702,20 +702,20 @@
 
 .vj-scene-card.vj-drop-before,
 .vj-preset-card.vj-drop-before {
-  box-shadow: inset 3px 0 0 rgba(198, 242, 78, 1);
+  box-shadow: inset 3px 0 0 rgba(217, 115, 63, 1);
 }
 
 .vj-scene-card.vj-drop-after,
 .vj-preset-card.vj-drop-after {
-  box-shadow: inset -3px 0 0 rgba(198, 242, 78, 1);
+  box-shadow: inset -3px 0 0 rgba(217, 115, 63, 1);
 }
 
 .vj-playlist-item.vj-drop-before {
-  box-shadow: inset 0 3px 0 rgba(198, 242, 78, 1);
+  box-shadow: inset 0 3px 0 rgba(217, 115, 63, 1);
 }
 
 .vj-playlist-item.vj-drop-after {
-  box-shadow: inset 0 -3px 0 rgba(198, 242, 78, 1);
+  box-shadow: inset 0 -3px 0 rgba(217, 115, 63, 1);
 }
 
 /* Right-click / ⋯ menu on scenes, presets and playlist rows. Above the panel
@@ -768,7 +768,7 @@
   width: 14px;
   flex: none;
   text-align: center;
-  color: rgba(198, 242, 78, 1);
+  color: rgba(217, 115, 63, 1);
 }
 
 .vj-context-separator {
