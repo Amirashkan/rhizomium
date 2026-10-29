@@ -18,6 +18,7 @@ export class TextureRenderers {
       'texture2d': (ctx, node) => this.renderTexture2D(ctx, node),
       'texturecube': (ctx, node) => this.renderTextureCube(ctx, node),
       'text': (ctx, node) => this.renderText(ctx, node),
+      'liveinput': (ctx, node) => this.renderLiveInput(ctx, node),
 'circle': (ctx, node) => {
   // Use the helper method that reads from uniform manager
   const radius = this.getParameterValue(node, 'radius', 0.25);
@@ -279,6 +280,47 @@ export class TextureRenderers {
     if (this.hasExpressions(node)) {
       this.drawExpressionIndicator(ctx);
     }
+  }
+
+  /**
+   * The newest frame a Live Input node received, or what is stopping it: no bridge, or a bridge
+   * that has not seen the named source yet. Saying which is the difference between "start the
+   * bridge" and "check the name in TouchDesigner".
+   */
+  renderLiveInput(ctx, node) {
+    const size = ctx.canvas.width;
+    const status = window.liveInput?.statusFor?.(node.id);
+    ctx.clearRect(0, 0, size, size);
+
+    if (status?.state === 'live' && status.bitmap) {
+      try {
+        ctx.drawImage(status.bitmap, 0, 0, size, size);
+      } catch {
+        this.renderTextureError(ctx, "Frame Error");
+        return;
+      }
+      ctx.fillStyle = "rgba(220, 60, 60, 0.9)";
+      ctx.fillRect(0, 0, 26, 10);
+      ctx.fillStyle = "white";
+      ctx.font = "bold 8px Arial";
+      ctx.textAlign = "left";
+      ctx.fillText("LIVE", 3, 8);
+      return;
+    }
+
+    ctx.fillStyle = "#333";
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = "#bbb";
+    ctx.font = "bold 9px Arial";
+    ctx.textAlign = "center";
+    const lines = status?.state === 'desktop-only'
+      ? ["Live Input", "desktop app only"]
+      : status?.state === 'no-bridge'
+        ? ["No bridge", "npm run video-in"]
+        : status?.state === 'waiting'
+          ? ["Waiting for", status.source]
+          : ["Live Input", "set a Source"];
+    lines.forEach((text, i) => ctx.fillText(String(text).slice(0, 18), size / 2, size / 2 - 4 + i * 12));
   }
 
   renderTextureError(ctx, errorText) {

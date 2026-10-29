@@ -93,9 +93,12 @@ let panel;
 
 beforeEach(() => {
   globalThis.requestAnimationFrame = globalThis.requestAnimationFrame ?? ((cb) => setTimeout(cb, 0));
+  // Bridges only connect from the desktop app; these tests run as if inside it.
+  window.__TAURI_INTERNALS__ = {};
 });
 
 afterEach(() => {
+  delete window.__TAURI_INTERNALS__;
   panel?.destroy?.();
   panel = null;
   document.body.replaceChildren();
@@ -183,6 +186,17 @@ describe('OSCSettingsPanel rendering', () => {
 
     expect(panel.panel.querySelector('#osc-bridge-info').textContent)
       .toContain('python osc_bridge_server.py');
+  });
+
+  it('says the bridge is desktop-only on the web and disables Connect', () => {
+    delete window.__TAURI_INTERNALS__;
+    const manager = makeManager(makeEventSystem(), [], { connected: false, enabled: false, bridge: null });
+    panel = new OSCSettingsPanel(manager, makeBinding());
+    panel.show();
+
+    expect(panel.panel.querySelector('#osc-status').textContent).toBe('Desktop app only');
+    expect(panel.panel.querySelector('#osc-bridge-info').textContent).toContain('desktop app');
+    expect(panel.panel.querySelector('#osc-connect-btn').disabled).toBe(true);
   });
 
   it('lists incoming addresses with their arguments', () => {

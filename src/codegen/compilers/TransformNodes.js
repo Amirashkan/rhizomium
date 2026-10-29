@@ -136,7 +136,7 @@ export class TransformNodes {
     }
     // Text binds under the same `texture_<id>` / `sampler_<id>` pair as Texture2D, so a transform
     // can rotate/scale rasterised text the same way it does an image.
-    if (inputNode.kind === 'Texture2D' || inputNode.kind === 'Text') {
+    if (inputNode.kind === 'Texture2D' || inputNode.kind === 'Text' || inputNode.kind === 'LiveInput') {
       return { texture: `texture_${sid}`, sampler: SHARED_SAMPLER };
     }
     return null;

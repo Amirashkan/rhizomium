@@ -396,7 +396,7 @@ export class ProjectionMapNodes {
 
     const sid = String(sourceId).replace(/[^a-zA-Z0-9_]/g, '_');
     // Text rasterises under the same texture_<id> pair as Texture2D.
-    if (sourceNode.kind === 'Texture2D' || sourceNode.kind === 'Text') {
+    if (sourceNode.kind === 'Texture2D' || sourceNode.kind === 'Text' || sourceNode.kind === 'LiveInput') {
       return { texture: `texture_${sid}`, sampler: SHARED_SAMPLER };
     }
     // Compute outputs and fragment subgraphs bridged for this node both live in

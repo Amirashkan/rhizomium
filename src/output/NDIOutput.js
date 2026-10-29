@@ -26,6 +26,8 @@
  * want at a show.
  */
 
+import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE } from '../utils/bridgeAvailability.js';
+
 /** Default bridge port, one past the OSC bridge on 8767. */
 export const NDI_BRIDGE_PORT = 8768;
 
@@ -129,6 +131,10 @@ export class NDIOutput {
   initialize(renderer) {
     if (!this.isSupported) {
       return Promise.reject(new Error('WebSocket is not supported in this browser'));
+    }
+    if (!bridgesAvailable()) {
+      this.lastError = BRIDGES_DESKTOP_ONLY_MESSAGE;
+      return Promise.reject(new Error(BRIDGES_DESKTOP_ONLY_MESSAGE));
     }
     this.isEnabled = true;
     this.renderer = renderer || this.renderer;

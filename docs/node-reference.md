@@ -2146,7 +2146,7 @@ Creates a smooth subtraction of two SDFs.
 
 ## Texture Nodes
 
-Texture nodes sample image files.
+Texture nodes sample image files, video, and live frames from other applications.
 
 #### Texture 2D
 
@@ -2171,6 +2171,19 @@ Samples a 2D texture image.
   - `Wrap V` (select: repeat/clamp/mirror, default: repeat) - Vertical wrapping mode
   - `Filter` (select: linear/nearest, default: linear) - Texture filtering mode
 - **Description**: Loads and samples a 2D texture at the given UV coordinates, with configurable wrapping and filtering. Use a **Split Vec4** node to extract individual R/G/B/A channels. The file may be a still image or a video (`.mp4`, `.webm`, `.mov`, `.ogv`): a video plays on its own clock and its current frame is uploaded to the same texture every rendered frame, so every node downstream treats it exactly like an image. The playback parameters are dimmed until the loaded file is a video.
+
+#### Live Input
+Samples frames sent in from another application — TouchDesigner, OBS, Resolume, any NDI source, or a script pushing images.
+
+- **Category**: Texture
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `Color` (vec4) - Sampled color with alpha
+- **Parameters**:
+  - `Source` (text) - A stream name pushed to the Video In bridge, or an NDI source name. For NDI, the part in brackets is enough: `TouchDesigner` finds `STUDIO-PC (TouchDesigner)`
+  - `Fit` (select: stretch/contain/cover, default: stretch) - How the incoming frame's proportions meet the output's
+- **Description**: Needs the Video In bridge running (`npm run video-in`); the thumbnail says when it is missing or still waiting for the named source. Each new frame is copied into the node's texture as it arrives, so everything downstream treats it like a Texture 2D. Local-only, like OSC and NDI. See [Input from Other Software](external-input.md).
 
 #### Texture Cube
 Samples a cubemap texture.

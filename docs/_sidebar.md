@@ -20,6 +20,7 @@
   * [Parameter Expressions](parameter-expressions.md)
   * [Timeline & Keyframes](timeline.md)
   * [MIDI Controller Integration](midi.md)
+  * [Input from Other Software](external-input.md)
 
 * Reference
   * [Complete Node Reference](node-reference.md)

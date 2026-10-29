@@ -90,9 +90,15 @@ beforeEach(() => {
   vi.stubGlobal('WebSocket', FakeSocket);
   vi.stubGlobal('performance', { now: () => Date.now() });
   stubReadback();
+  // Bridges only connect from the desktop app; these tests run as if inside it.
+  window.__TAURI_INTERNALS__ = {};
 });
 
-afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => {
+  delete window.__TAURI_INTERNALS__;
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 describe('NDIOutput bridge address', () => {
   it('defaults to the loopback bridge one port past the OSC bridge', () => {

@@ -1,11 +1,12 @@
 {
   "name": "rhizomium",
-  "version": "0.9.0-beta.8",
+  "version": "0.9.0-beta.9",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "osc": "python3 osc_bridge_server.py",
     "ndi": "python3 ndi_bridge_server.py",
+    "video-in": "python3 video_in_bridge_server.py",
     "build:web": "vite build",
     "build:desktop": "vite build --mode desktop",
     "preview": "vite preview",
