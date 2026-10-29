@@ -40,6 +40,12 @@ ALLOWED_ORIGINS = frozenset({
     "http://localhost:5000",
     "http://127.0.0.1:5173",  # vite dev server
     "http://localhost:5173",
+    # The desktop app's own page (macOS/Linux, then Windows WebView2). The
+    # installed app runs its built-in bridge (src-tauri/src/osc_bridge.rs),
+    # but this one may hold the port instead when started by hand.
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
 })
 
 DEFAULT_WS_HOST = '127.0.0.1'

@@ -23,3 +23,9 @@ tauri-plugin-dialog = "2"
 # Remembers where the editor window was closed and reopens it there (see
 # run() in src/lib.rs).
 tauri-plugin-window-state = "2"
+# The built-in OSC bridge (src/osc_bridge.rs): UDP in, WebSocket out to the
+# editor, on the tokio runtime Tauri already runs.
+tokio = { version = "1", features = ["net", "sync", "time", "rt", "macros"] }
+tokio-tungstenite = "0.29"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+serde_json = "1"

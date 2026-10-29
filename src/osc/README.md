@@ -14,6 +14,12 @@ each datagram, byte for byte, to the editor over a WebSocket. Nothing is
 re-encoded on the way, so the editor decodes the real OSC wire format and any
 sender works without agreeing on a private JSON envelope first.
 
+The installed desktop app does not need Python: it runs a Rust port of the same
+bridge (`src-tauri/src/osc_bridge.rs`, same protocol and ports) from the moment
+it starts. If port 8767 is already taken — say by the Python bridge that
+`npm run tauri:dev` starts — the built-in one steps aside and the editor uses
+whichever holds the port.
+
 ```
 OSC sender ──UDP:9000──> osc_bridge_server.py ──WebSocket:8767──> OSCManager
                                                                       │
@@ -230,7 +236,10 @@ matters. `/stats` on the bridge reports the drop count.
 
 ## Troubleshooting
 
-**"Could not reach the OSC bridge"** — the bridge process is not running. This
+**"Could not reach the OSC bridge"** — in the installed desktop app, the
+built-in bridge could not take port 8767 because another program holds it;
+close that program and restart Rhizomium. Otherwise the bridge process is not
+running. This
 is about the editor↔bridge WebSocket, not about your sender: no OSC
 configuration will fix it. Start the bridge:
 

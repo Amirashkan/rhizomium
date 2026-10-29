@@ -10,7 +10,7 @@ to them.
 
 | What | How it arrives | Bridge | In the editor |
 | --- | --- | --- | --- |
-| Data (numbers, faders, CHOP channels) | OSC over UDP, port 9000 | `osc_bridge_server.py` — starts with `npm run dev` | **Tools → OSC Receiver**, bind to any parameter |
+| Data (numbers, faders, CHOP channels) | OSC over UDP, port 9000 | built into the desktop app (`osc_bridge_server.py` under `npm run dev`) | **Tools → OSC Receiver**, bind to any parameter |
 | Visuals (a TOP, a camera, another app's output) | NDI, or frames pushed over WebSocket/HTTP, port 8769 | `video_in_bridge_server.py` — `npm run video-in` | the **Live Input** node |
 
 ## Data: OSC

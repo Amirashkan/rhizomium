@@ -16,6 +16,8 @@
 //     app is already running. That variant only exists on Apple platforms, so
 //     everything touching it is cfg-gated.
 
+mod osc_bridge;
+
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -852,6 +854,10 @@ pub fn run() {
             open_gallery_page
         ])
         .setup(|app| {
+            // OSC in needs a UDP listener the webview cannot open; the app
+            // runs the bridge itself so OSC works with no Python installed.
+            osc_bridge::start();
+
             // Dead man's switch for the splash — see SPLASH_TIMEOUT.
             // AppHandle is Send + Sync and the window methods dispatch to the
             // runtime themselves, so a plain sleeping thread is enough here.

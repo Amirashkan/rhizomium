@@ -4,6 +4,7 @@ import { makeDraggable } from './utils/draggable.js';
 import { makeResizable } from './utils/resizable.js';
 import { modalManager } from './ModalManager.js';
 import { formatOSCArg } from '../osc/OSCDecoder.js';
+import { OSC_BRIDGE_PORT } from '../osc/OSCManager.js';
 import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE } from '../utils/bridgeAvailability.js';
 
 /**
@@ -324,19 +325,16 @@ export class OSCSettingsPanel {
         await this.oscManager.initialize();
       } catch {
         // The manager keeps retrying in the background, so this is a status
-        // report rather than a dead end. OSC needs a local bridge because
-        // browsers cannot open a UDP socket, so the fix is almost always "that
-        // process is not running" rather than anything about the sender —
-        // which is worth spelling out, since the sender is where people look.
+        // report rather than a dead end. The desktop app starts its own
+        // bridge, so failing to reach it almost always means another program
+        // already holds the bridge's port — worth spelling out, since the OSC
+        // sender is where people look first.
         await modalManager.alert(
           `Could not reach the OSC bridge at ${this.oscManager.url}.\n\n` +
-            `The bridge is a local process that receives OSC over UDP and passes ` +
-            `it to the editor — a browser cannot listen for UDP itself. Until it ` +
-            `is running, nothing your OSC sender does will connect.\n\n` +
-            `Start it from the project folder:\n\n` +
-            `    python osc_bridge_server.py\n\n` +
-            `(python rhizo_server.py starts it too, along with the editor's server. ` +
-            `If that server was already running, restart it — the bridge is new.)`,
+            `Rhizomium starts the bridge itself — it receives OSC over UDP and ` +
+            `passes it to the editor. When it cannot be reached, another program ` +
+            `(or a second copy of Rhizomium) is usually using port ${OSC_BRIDGE_PORT}.\n\n` +
+            `Close that program and restart Rhizomium.`,
           'OSC Bridge Not Running',
         );
       } finally {
@@ -638,7 +636,11 @@ export class OSCSettingsPanel {
     if (!status.connected && status.lastError) {
       this.bridgeInfoEl.appendChild(el('div', 'color: #f8615a;', status.lastError));
       this.bridgeInfoEl.appendChild(
-        el('div', 'margin-top: 4px;', 'Start it with:  python osc_bridge_server.py'),
+        el(
+          'div',
+          'margin-top: 4px;',
+          `Another program may be using port ${OSC_BRIDGE_PORT} — close it and restart Rhizomium.`,
+        ),
       );
     }
   }

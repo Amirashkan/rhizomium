@@ -174,7 +174,7 @@ describe('OSCSettingsPanel rendering', () => {
     expect(info).toContain('Address already in use');
   });
 
-  it('names the command to run when the bridge is not there', () => {
+  it('names the likely port conflict when the bridge is not there', () => {
     const manager = makeManager(makeEventSystem(), [], {
       connected: false,
       enabled: true,
@@ -185,7 +185,7 @@ describe('OSCSettingsPanel rendering', () => {
     panel.show();
 
     expect(panel.panel.querySelector('#osc-bridge-info').textContent)
-      .toContain('python osc_bridge_server.py');
+      .toContain('port 8767');
   });
 
   it('says the bridge is desktop-only on the web and disables Connect', () => {
