@@ -23,9 +23,17 @@ tauri-plugin-dialog = "2"
 # Remembers where the editor window was closed and reopens it there (see
 # run() in src/lib.rs).
 tauri-plugin-window-state = "2"
-# The built-in OSC bridge (src/osc_bridge.rs): UDP in, WebSocket out to the
-# editor, on the tokio runtime Tauri already runs.
+# The app's connection service (src/bridge): OSC in, NDI out and Live Input
+# over a loopback HTTP/WebSocket server on the tokio runtime Tauri already
+# runs. NDI itself is loaded at runtime with libloading (src/bridge/ndi.rs), so
+# the app builds and runs without the NDI SDK.
 tokio = { version = "1", features = ["net", "sync", "time", "rt", "macros"] }
-tokio-tungstenite = "0.29"
+axum = { version = "0.8", features = ["ws"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+bytes = "1"
 serde_json = "1"
+libloading = "0.8"
+
+[dev-dependencies]
+# A WebSocket client for the connection service's tests.
+tokio-tungstenite = "0.29"

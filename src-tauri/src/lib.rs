@@ -16,7 +16,7 @@
 //     app is already running. That variant only exists on Apple platforms, so
 //     everything touching it is cfg-gated.
 
-mod osc_bridge;
+mod bridge;
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -751,25 +751,37 @@ fn gallery_url(path: &str) -> Option<String> {
 #[tauri::command]
 fn open_gallery_page(path: String) -> Result<(), String> {
     let url = gallery_url(&path).ok_or_else(|| format!("not a gallery path: {path}"))?;
+    open_in_browser(&url)
+}
 
+/// Open the NDI Runtime download in the artist's browser, when NDI output or a
+/// Live Input needs it and it is not installed. A fixed URL, like the gallery
+/// command above: the webview names what it wants, never the address.
+#[tauri::command]
+fn open_ndi_runtime_download() -> Result<(), String> {
+    open_in_browser(bridge::ndi::RUNTIME_URL)
+}
+
+/// Hand `url` to the platform's default browser.
+fn open_in_browser(url: &str) -> Result<(), String> {
     // The platform's own "open this with the default handler". rundll32 rather
     // than `cmd /c start`, which would reparse the URL as a command line.
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut c = std::process::Command::new("rundll32");
-        c.args(["url.dll,FileProtocolHandler", &url]);
+        c.args(["url.dll,FileProtocolHandler", url]);
         c
     };
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut c = std::process::Command::new("open");
-        c.arg(&url);
+        c.arg(url);
         c
     };
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let mut command = {
         let mut c = std::process::Command::new("xdg-open");
-        c.arg(&url);
+        c.arg(url);
         c
     };
 
@@ -851,13 +863,11 @@ pub fn run() {
             clear_export_folder,
             write_export_file,
             app_ready,
-            open_gallery_page
+            open_gallery_page,
+            open_ndi_runtime_download,
+            bridge::start_bridge
         ])
         .setup(|app| {
-            // OSC in needs a UDP listener the webview cannot open; the app
-            // runs the bridge itself so OSC works with no Python installed.
-            osc_bridge::start();
-
             // Dead man's switch for the splash — see SPLASH_TIMEOUT.
             // AppHandle is Send + Sync and the window methods dispatch to the
             // runtime themselves, so a plain sleeping thread is enough here.

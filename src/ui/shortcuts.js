@@ -201,7 +201,7 @@ export const SHORTCUT_SECTIONS = [
         id: "btn-ndi-output",
         label: "NDI Output",
         keys: "Mod+Shift+N",
-        note: "Desktop / Vite build only; needs the local NDI bridge running.",
+        note: "Desktop app only.",
       },
       {
         label: "Frame selected nodes",

@@ -4,7 +4,6 @@ import { makeDraggable } from './utils/draggable.js';
 import { makeResizable } from './utils/resizable.js';
 import { modalManager } from './ModalManager.js';
 import { formatOSCArg } from '../osc/OSCDecoder.js';
-import { OSC_BRIDGE_PORT } from '../osc/OSCManager.js';
 import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE } from '../utils/bridgeAvailability.js';
 
 /**
@@ -156,14 +155,9 @@ export class OSCSettingsPanel {
       <!-- Connection -->
       <div style="margin-bottom: 14px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <span style="font-weight: 500;">Bridge:</span>
+          <span style="font-weight: 500;">OSC in:</span>
           <span id="osc-status" style="font-family: var(--rz-font-mono); color: #6f6559;">Disconnected</span>
         </div>
-        <input id="osc-url" type="text" spellcheck="false" style="
-          width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 6px 8px;
-          background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255,244,230,0.08); border-radius: 4px;
-          color: #cabfb0; font-family: var(--rz-font-mono); font-size: 11px;
-        " />
         <div style="display: flex; gap: 8px;">
           <button id="osc-connect-btn" style="
             flex: 1; padding: 8px; background: #c6f24e; color: #14110a; border: none;
@@ -274,7 +268,6 @@ export class OSCSettingsPanel {
 
     document.body.appendChild(this.panel);
 
-    this.urlInput = this.panel.querySelector('#osc-url');
     this.statusEl = this.panel.querySelector('#osc-status');
     this.bridgeInfoEl = this.panel.querySelector('#osc-bridge-info');
     this.udpRow = this.panel.querySelector('#osc-udp-row');
@@ -291,7 +284,6 @@ export class OSCSettingsPanel {
     this.connectBtn = this.panel.querySelector('#osc-connect-btn');
     this.disconnectBtn = this.panel.querySelector('#osc-disconnect-btn');
 
-    this.urlInput.value = this.oscManager.url;
     this.addressesList.appendChild(placeholder('No OSC messages received'));
     this.bindingsList.appendChild(placeholder('No bindings configured'));
 
@@ -317,25 +309,15 @@ export class OSCSettingsPanel {
         this.updateStatus();
         return;
       }
-      const url = this.urlInput.value.trim();
-      if (url && url !== this.oscManager.url) this.oscManager.url = url;
-
       this.connectBtn.disabled = true;
       try {
         await this.oscManager.initialize();
       } catch {
         // The manager keeps retrying in the background, so this is a status
-        // report rather than a dead end. The desktop app starts its own
-        // bridge, so failing to reach it almost always means another program
-        // already holds the bridge's port — worth spelling out, since the OSC
-        // sender is where people look first.
+        // report rather than a dead end; its error says what went wrong.
         await modalManager.alert(
-          `Could not reach the OSC bridge at ${this.oscManager.url}.\n\n` +
-            `Rhizomium starts the bridge itself — it receives OSC over UDP and ` +
-            `passes it to the editor. When it cannot be reached, another program ` +
-            `(or a second copy of Rhizomium) is usually using port ${OSC_BRIDGE_PORT}.\n\n` +
-            `Close that program and restart Rhizomium.`,
-          'OSC Bridge Not Running',
+          this.oscManager.lastError || 'Could not start OSC in the app.',
+          'OSC Not Connected',
         );
       } finally {
         this.updateStatus();
@@ -346,10 +328,6 @@ export class OSCSettingsPanel {
       this.oscManager.disable();
       this.updateStatus();
       this.updateAddressesList();
-    });
-
-    this.urlInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') this.connectBtn.click();
     });
 
     const applyUdpPort = () => {
@@ -490,7 +468,7 @@ export class OSCSettingsPanel {
 
     if (!this.oscManager.isConnected()) {
       await modalManager.alert(
-        'Connect to the OSC bridge before learning — no messages can arrive until then.',
+        'Connect OSC before learning — no messages can arrive until then.',
         'OSC Learn',
       );
       return;
@@ -635,13 +613,6 @@ export class OSCSettingsPanel {
 
     if (!status.connected && status.lastError) {
       this.bridgeInfoEl.appendChild(el('div', 'color: #f8615a;', status.lastError));
-      this.bridgeInfoEl.appendChild(
-        el(
-          'div',
-          'margin-top: 4px;',
-          `Another program may be using port ${OSC_BRIDGE_PORT} — close it and restart Rhizomium.`,
-        ),
-      );
     }
   }
 

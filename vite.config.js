@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import { resolve, sep } from 'node:path'
 import { cpSync, existsSync, readFileSync } from 'node:fs'
 import { generate as generateDocsMeta } from './scripts/docs-meta.mjs'
-import { oscBridge } from './scripts/osc-bridge-plugin.mjs'
 import { DOCS_NOT_PUBLISHED } from './scripts/docs-meta.mjs'
 
 // Single source of truth for the version the app reports about itself (see
@@ -96,7 +95,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     clearScreen: false,
-    plugins: [copyDocs(), oscBridge(), viewerRoute()],
+    plugins: [copyDocs(), viewerRoute()],
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
     },

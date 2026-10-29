@@ -4,14 +4,15 @@
  * LiveInput - frames from outside the editor (TouchDesigner, OBS, Resolume, a camera rig) as
  * textures.
  *
- * The browser cannot receive NDI, and other applications have no way to hand a tab their frames,
- * so video_in_bridge_server.py does the receiving and this class is its client: it subscribes to
- * the sources Live Input nodes name, decodes each frame it is sent and copies it into that node's
- * GPU texture through TextureManager.setLiveFrame. From the shader's side a Live Input node is an
+ * A webview cannot receive NDI, and other applications have no way to hand it their frames, so
+ * the desktop app does the receiving (src-tauri/src/bridge/video.rs — the same place NDI output
+ * goes out) and this class is its client: it subscribes to the sources Live Input nodes name,
+ * decodes each frame it is sent and copies it into that node's GPU texture through
+ * TextureManager.setLiveFrame. From the shader's side a Live Input node is an
  * ordinary `texture_2d<f32>`, exactly like a Texture 2D holding a video.
  *
- * The shape follows NDIOutput, the bridge client this mirrors: one socket, reconnect backoff, and
- * "connected" meaning the bridge is reachable — whether a named source exists is reported per node.
+ * The shape follows NDIOutput: one socket, reconnect backoff, and "connected" meaning the app's
+ * service is reachable — whether a named source exists is reported per node.
  *
  * Nodes bind themselves: the codegen calls `bind(nodeId, source)` every compile, so a node dropped
  * into the patch, renamed, or loaded from a saved project starts receiving with no panel to open.
@@ -19,16 +20,13 @@
  * network.
  */
 
-import { bridgesAvailable, bridgeUrl } from '../utils/bridgeAvailability.js';
-
-/** Default bridge port, one past the NDI output bridge on 8768. */
-export const VIDEO_IN_BRIDGE_PORT = 8769;
+import { bridgesAvailable, bridgeUrl, withBridge } from '../utils/bridgeAvailability.js';
 
 /** How often to look for bound nodes whose node has gone (deleted, or a different patch loaded). */
 const SWEEP_INTERVAL_MS = 2000;
 
 export function defaultVideoInUrl() {
-  return bridgeUrl(VIDEO_IN_BRIDGE_PORT);
+  return bridgeUrl('video');
 }
 
 /** Normalise a node's Source parameter: trimmed text, or '' for "nothing chosen". */
@@ -38,7 +36,7 @@ export function normalizeSourceName(value) {
 }
 
 /**
- * Decode one frame from the bridge into something copyExternalImageToTexture accepts.
+ * Decode one frame from the app into something copyExternalImageToTexture accepts.
  * Raw RGBA goes through ImageData; JPEG/PNG through the browser's image decoder.
  */
 async function decodeFrame(header, bytes) {
@@ -76,13 +74,16 @@ export class LiveInput {
     // source -> per-source state: latest frame time, the bitmap shown on thumbnails, decode gate
     this.sources = new Map();
 
-    // What the bridge told us about itself.
+    // What the app told us: whether NDI works here, and why not.
     this.ndiAvailable = false;
     this.ndiError = null;
+    this.ndiRuntimeUrl = null;
     this.available = []; // [{ name, kind, short_name? }]
 
     // The header announcing the next binary message.
     this._pendingHeader = null;
+    // Waiting for the app to start its connection service.
+    this._starting = false;
     this._sweepTimer = null;
 
     this.framesReceived = 0;
@@ -147,7 +148,7 @@ export class LiveInput {
 
   /**
    * What a node's thumbnail or panel should say about it.
-   * @returns {{state: 'idle'|'desktop-only'|'no-bridge'|'waiting'|'live', source: string, bitmap: ImageBitmap|null, message: string}}
+   * @returns {{state: 'idle'|'desktop-only'|'connecting'|'waiting'|'live', source: string, bitmap: ImageBitmap|null, message: string}}
    */
   statusFor(nodeId) {
     const source = this.sourceFor(nodeId);
@@ -157,13 +158,18 @@ export class LiveInput {
     }
     if (!this.connected) {
       return {
-        state: 'no-bridge', source, bitmap: null,
-        message: 'Video In bridge not running — npm run video-in',
+        state: 'connecting', source, bitmap: null,
+        message: this.lastError || 'Connecting…',
       };
     }
     const state = this.sources.get(source);
     if (!state?.frames) {
-      return { state: 'waiting', source, bitmap: null, message: `Waiting for "${source}"` };
+      // A pushed stream needs no NDI, so this is only worth saying while the
+      // source is not one: "waiting" with the reason NDI cannot find it.
+      const message = this.ndiAvailable || !this.ndiError
+        ? `Waiting for "${source}"`
+        : `Waiting for "${source}" — ${this.ndiError}`;
+      return { state: 'waiting', source, bitmap: null, message };
     }
     return { state: 'live', source, bitmap: state.bitmap, message: source };
   }
@@ -193,7 +199,24 @@ export class LiveInput {
   }
 
   connect() {
-    if (this.ws || !this.isSupported || !bridgesAvailable()) return;
+    if (this.ws || this._starting || !this.isSupported || !bridgesAvailable()) return;
+    // The app starts its connection service on first use.
+    this._starting = true;
+    withBridge(
+      () => {
+        this._starting = false;
+        this._open();
+      },
+      (error) => {
+        this._starting = false;
+        this.lastError = error.message;
+        if (this.bindings.size > 0) this._scheduleReconnect();
+      },
+    );
+  }
+
+  _open() {
+    if (this.ws || this.bindings.size === 0) return;
     let socket;
     try {
       socket = new WebSocket(this.url);
@@ -209,14 +232,14 @@ export class LiveInput {
       this.connected = true;
       this.reconnectAttempts = 0;
       this.lastError = null;
-      // The bridge keeps no memory of us across a reconnect.
+      // The app keeps no memory of us across a reconnect.
       for (const name of this.sources.keys()) this._send({ type: 'subscribe', source: name });
     };
 
     socket.onmessage = (event) => this._handleMessage(event);
 
     socket.onerror = () => {
-      this.lastError = `Could not reach the Video In bridge at ${this.url}`;
+      this.lastError = `Could not reach Live Input in the app at ${this.url}`;
     };
 
     socket.onclose = () => {
@@ -248,9 +271,8 @@ export class LiveInput {
 
   _scheduleReconnect() {
     if (this.reconnectTimer) return;
-    // Unlike NDI output this never gives up: a node in the patch is a standing request, and the
-    // bridge is often started after the editor. The delay caps low enough that starting it feels
-    // immediate.
+    // Unlike NDI output this never gives up: a node in the patch is a standing request. The delay
+    // caps low enough that recovering feels immediate.
     const delay = Math.min(this.reconnectDelay * (2 ** this.reconnectAttempts), this.maxReconnectDelay);
     this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => {
@@ -293,6 +315,7 @@ export class LiveInput {
     if (data.type === 'welcome' || data.type === 'sources') {
       this.ndiAvailable = !!data.ndi_available;
       this.ndiError = data.ndi_error || null;
+      this.ndiRuntimeUrl = data.ndi_runtime_url || null;
       if (Array.isArray(data.sources)) this.available = data.sources;
     }
   }
@@ -363,6 +386,7 @@ export class LiveInput {
       url: this.url,
       ndiAvailable: this.ndiAvailable,
       ndiError: this.ndiError,
+      ndiRuntimeUrl: this.ndiRuntimeUrl,
       sources: this.available,
       bound: Object.fromEntries(this.bindings),
       framesReceived: this.framesReceived,

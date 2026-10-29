@@ -120,7 +120,7 @@ export const TextureNodes = {
   },
 
   // Frames from another application - TouchDesigner, OBS, Resolume, a camera rig - received by
-  // video_in_bridge_server.py (NDI, or frames pushed to it) and sampled like any other texture.
+  // the desktop app (NDI, or frames pushed to it) and sampled like any other texture.
   // See src/input/LiveInput.js and docs/external-input.md.
   LiveInput: {
     label: "Live Input",
@@ -135,7 +135,7 @@ export const TextureNodes = {
         default: "",
         label: "Source",
         description:
-          "A stream name pushed to the Video In bridge, or an NDI source name (the part in brackets is enough)",
+          "An NDI source name (the part in brackets is enough), or a stream name pushed to the app",
       },
       {
         name: "fit",

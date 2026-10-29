@@ -174,18 +174,18 @@ describe('OSCSettingsPanel rendering', () => {
     expect(info).toContain('Address already in use');
   });
 
-  it('names the likely port conflict when the bridge is not there', () => {
+  it('shows why OSC could not start', () => {
+    const reason = 'Rhizomium could not open its local connection port 8767 (Address in use).';
     const manager = makeManager(makeEventSystem(), [], {
       connected: false,
       enabled: true,
       bridge: null,
-      lastError: 'Could not reach the OSC bridge at ws://127.0.0.1:8767/ws',
+      lastError: reason,
     });
     panel = new OSCSettingsPanel(manager, makeBinding());
     panel.show();
 
-    expect(panel.panel.querySelector('#osc-bridge-info').textContent)
-      .toContain('port 8767');
+    expect(panel.panel.querySelector('#osc-bridge-info').textContent).toContain(reason);
   });
 
   it('says the bridge is desktop-only on the web and disables Connect', () => {
@@ -566,9 +566,4 @@ describe('OSCSettingsPanel rendering', () => {
     expect(bindings.retargetLearning).toHaveBeenCalledWith('n1', 'rotation');
   });
 
-  it('prefills the bridge URL so it can be pointed elsewhere', () => {
-    panel = new OSCSettingsPanel(makeManager(makeEventSystem()), makeBinding());
-
-    expect(panel.panel.querySelector('#osc-url').value).toBe('ws://127.0.0.1:8767/ws');
-  });
 });

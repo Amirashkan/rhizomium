@@ -28,11 +28,10 @@ That is the whole development setup. The editor opens on
 `http://localhost:5173` (Chrome or Edge 113+, for WebGPU), renders locally, and saves `.rz` patches to disk. No
 Python, no account, no API key.
 
-The Python servers in this repository are **optional bridges** for things a
-browser cannot do itself — receiving OSC over UDP, sending NDI, streaming
-frames to a native viewer. They are described under
-[Local bridges](#local-bridges) below. You do not need them to work on the
-editor.
+OSC, NDI and Live Input are built into the desktop app. The Python servers in
+this repository are optional extras (the collab relay, streaming frames to a
+native viewer), described under [Local servers](#local-servers) below. You do
+not need them to work on the editor.
 
 ```bash
 npm test        # ~222 test files (Vitest)
@@ -181,40 +180,38 @@ under the render. See [docs/web-viewer.md](docs/web-viewer.md).
 Web only: the desktop app's WebView blocks `window.open()`, and the
 second-monitor viewer is its full-screen surface.
 
-## Local bridges
+## OSC, NDI and Live Input
 
-Optional Python processes for protocols a browser cannot speak. All are
-local-only and cannot work on a static web deploy.
+Built into the desktop app — nothing to start or install for OSC or pushed
+frames, and each switches on by itself when a patch uses it.
+
+**OSC** — point your sender at `udp://<this machine>:9000` and open
+**Tools → OSC Receiver**. To map a control: select a node, click a parameter
+field, click **Start OSC Learn**, then move the control. A patch with OSC
+bindings connects as soon as it is opened. Details in
+[src/osc/README.md](src/osc/README.md).
+
+**NDI** — **View → NDI Output** (`Mod+Shift+N`) publishes the render for a
+vision mixer, OBS or another machine; a **Texture → Live Input** node brings
+any NDI source in (TouchDesigner, OBS, Resolume), as well as frames other
+programs push to the app. NDI uses Vizrt's free NDI Runtime; if it is not
+installed the app offers the download and picks it up without a restart.
+Details in [src/output/README.md](src/output/README.md) and
+[docs/external-input.md](docs/external-input.md).
+
+**MIDI** is Web MIDI and needs nothing either. See
+[src/midi/README.md](src/midi/README.md).
+
+## Local servers
+
+Optional Python processes, local-only; none work on a static web deploy: the
+collab room relay (`python collab_room_server.py`) and `python rhizo_server.py`,
+which serves the editor with the relay and the frame-stream server alongside.
+See [docs/setup.md](docs/setup.md).
 
 ```bash
 pip install -r requirements.txt
 ```
-
-**OSC** — arrives over UDP, which a browser cannot listen for, so a small
-bridge forwards it. It starts automatically with `npm run dev`,
-`npm run tauri:dev` and `python rhizo_server.py`; alongside a built desktop
-binary run `npm run osc`. Open **Tools → OSC Receiver**, click **Connect**, and
-point your sender at `udp://<this machine>:9000`. To map a control: select a
-node, click a parameter field, click **Start OSC Learn**, then move the
-control. Details in [src/osc/README.md](src/osc/README.md).
-
-**NDI** — publishes the render onto the network for a vision mixer, OBS or
-another machine. Run `npm run ndi`, then **View → NDI Output**
-(`Mod+Shift+N`). Needs the runtime from <https://ndi.video/> and
-`pip install cyndilib`; without them the bridge still runs and reports which is
-missing rather than leaving a dead toggle. Details in
-[src/output/README.md](src/output/README.md).
-
-**Video In** — brings visuals *in* from TouchDesigner, OBS, Resolume or any
-NDI source, or from anything that pushes JPEG/PNG frames over a WebSocket. Run
-`npm run video-in`, add a **Texture → Live Input** node and type the source's
-name. NDI needs the same runtime and `cyndilib` as NDI output; pushed frames
-need nothing extra. For data from TouchDesigner, use an OSC Out CHOP aimed at
-the OSC bridge above. Details in
-[docs/external-input.md](docs/external-input.md).
-
-**MIDI** needs no bridge — it is Web MIDI. See
-[src/midi/README.md](src/midi/README.md).
 
 ## Documentation
 

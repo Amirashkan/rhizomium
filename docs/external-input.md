@@ -2,22 +2,30 @@
 
 Rhizomium can take **data** and **visuals** from other applications running at
 the same time — TouchDesigner, Resolume, OBS, Max/MSP, a camera rig, a Python
-script. Both are local-only: each arrives through a small bridge process,
-because a browser tab cannot listen for UDP or receive NDI by itself. The
-bridges — OSC in, Video In and NDI output — work only in the **desktop app**;
-the web editor (in any browser, including a local dev server) never connects
-to them.
+script — and send its own output out over NDI. All of this is part of the
+**desktop app**: there is nothing to start or install for OSC or pushed frames,
+and the app switches each feature on by itself the moment a patch uses it. The
+web editor cannot do any of it — a browser tab cannot listen for UDP or speak
+NDI.
 
-| What | How it arrives | Bridge | In the editor |
-| --- | --- | --- | --- |
-| Data (numbers, faders, CHOP channels) | OSC over UDP, port 9000 | built into the desktop app (`osc_bridge_server.py` under `npm run dev`) | **Tools → OSC Receiver**, bind to any parameter |
-| Visuals (a TOP, a camera, another app's output) | NDI, or frames pushed over WebSocket/HTTP, port 8769 | `video_in_bridge_server.py` — `npm run video-in` | the **Live Input** node |
+| What | How it arrives | In the editor |
+| --- | --- | --- |
+| Data (numbers, faders, CHOP channels) | OSC over UDP, port 9000 | **Tools → OSC Receiver**, bind to any parameter |
+| Visuals (a TOP, a camera, another app's output) | NDI, or frames pushed to `127.0.0.1:8767` | the **Live Input** node |
+| Rhizomium's own output, to other software | NDI | **View → NDI Output** |
+
+NDI needs Vizrt's free **NDI Runtime** on the computer (anything that already
+does NDI — NDI Tools, OBS with NDI, TouchDesigner — has usually installed it).
+When it is missing Rhizomium says so and offers the download; it is picked up
+as soon as it is installed, without restarting.
 
 ## Data: OSC
 
-Point any OSC sender at `udp://<this machine>:9000`, open
-**Tools → OSC Receiver**, click **Connect**, and every address that arrives is
-listed with its live value and a **Bind** button. The full guide is
+Point any OSC sender at `udp://<this machine>:9000` and open
+**Tools → OSC Receiver**: every address that arrives is listed with its live
+value and a **Bind** button. OSC switches on by itself when a patch has OSC
+bindings or OSC learn starts, so a saved patch with OSC mappings responds as
+soon as it is opened. The full guide is
 [src/osc/README.md](https://github.com/amirashkan/rhizomium/blob/develop/src/osc/README.md).
 
 **From TouchDesigner:** add an **OSC Out CHOP**, set *Network Address* to the
@@ -28,20 +36,16 @@ shows up in the *Channels* list at once, ready to bind.
 
 ## Visuals: the Live Input node
 
-1. Start the bridge:
+Add **Texture → Live Input**, wire it in like a Texture 2D, and type the
+source's name into **Source**. That is all: the app starts receiving as soon as
+the node has a source, and stops when the node goes.
 
-   ```bash
-   npm run video-in
-   ```
-
-2. In the editor add **Texture → Live Input**, wire it in like a Texture 2D,
-   and type the source's name into **Source**.
-
-The node's thumbnail says what it is waiting for: *No bridge* (start it), or
-*Waiting for "…"* (the bridge is up but has not seen that source yet — check
-the name). From the shader's side a Live Input is an ordinary texture, so it
-goes anywhere a Texture 2D does: into a Transform's *Texture* pin, a Projection
-Map surface, a compute node, through a feedback loop.
+The node's thumbnail says what it is waiting for: *Waiting for "…"* means the
+app has not seen that source yet — check the name, and if it is an NDI source,
+that the NDI Runtime is installed (the reason is shown when it is not). From
+the shader's side a Live Input is an ordinary texture, so it goes anywhere a
+Texture 2D does: into a Transform's *Texture* pin, a Projection Map surface, a
+compute node, through a feedback loop.
 
 **Fit** decides how the incoming frame's shape meets the output's: *stretch*
 fills the frame, *contain* letterboxes, *cover* crops. The source's size is
@@ -51,31 +55,30 @@ read every frame, so it can change mid-show.
 
 TouchDesigner, OBS, Resolume, vMix and most vision mixers can publish NDI.
 
-1. Install the NDI runtime from <https://ndi.video/> and `pip install cyndilib`
-   (the same two things NDI *output* needs). Without them the bridge still
-   runs and the pushed-frame option below still works; its log says which is
-   missing.
+1. Have the NDI Runtime installed (see above). Without it the pushed-frame
+   option below still works.
 2. In TouchDesigner add an **NDI Out TOP** after the TOP you want to send and
    give it a name, e.g. `TouchDesigner`.
 3. In Rhizomium set the Live Input's **Source** to that name.
 
 NDI names on the network look like `STUDIO-PC (TouchDesigner)`. The part in
-brackets is enough, and so is any part of the name that is unique. The bridge's
-status page, <http://127.0.0.1:8769/>, lists every source it can see.
+brackets is enough, and so is any part of the name that is unique.
 
 ### Option B — push frames (no extra installs)
 
-Anything that can open a WebSocket or make an HTTP request can send frames to
-the bridge under a name it chooses. That name is what goes into **Source**.
+Anything on the same computer that can open a WebSocket or make an HTTP
+request can send frames to Rhizomium under a name it chooses. That name is what
+goes into **Source**. Rhizomium must be open with a Live Input in the patch (or
+OSC or NDI output in use) for the address to answer.
 
 | Send to | Each message |
 | --- | --- |
-| `ws://127.0.0.1:8769/publish/<name>` | one JPEG or PNG; or a JSON header `{"type":"frame","width":W,"height":H,"format":"rgba"}` followed by W×H×4 raw bytes |
-| `ws://127.0.0.1:8769/` | the same, after a first message `{"type":"hello","name":"<name>"}` |
-| `POST http://127.0.0.1:8769/publish/<name>` | the body is one JPEG or PNG |
+| `ws://127.0.0.1:8767/publish/<name>` | one JPEG or PNG; or a JSON header `{"type":"frame","width":W,"height":H,"format":"rgba"}` followed by W×H×4 raw bytes |
+| `ws://127.0.0.1:8767/` | the same, after a first message `{"type":"hello","name":"<name>"}` |
+| `POST http://127.0.0.1:8767/publish/<name>` | the body is one JPEG or PNG |
 
 **From TouchDesigner, without NDI:** add a **WebSocket DAT** with *Network
-Address* `127.0.0.1` and *Network Port* `8769`. In its callbacks DAT, name the
+Address* `127.0.0.1` and *Network Port* `8767`. In its callbacks DAT, name the
 stream when the connection opens:
 
 ```python
@@ -104,7 +107,7 @@ from PIL import Image
 
 async def main():
     async with aiohttp.ClientSession() as s:
-        ws = await s.ws_connect('http://127.0.0.1:8769/publish/MyScript')
+        ws = await s.ws_connect('http://127.0.0.1:8767/publish/MyScript')
         while True:
             buf = io.BytesIO()
             Image.new('RGB', (640, 360), (255, 80, 0)).save(buf, 'JPEG')
@@ -114,26 +117,22 @@ async def main():
 asyncio.run(main())
 ```
 
-**From another machine:** start the bridge with
-`python3 video_in_bridge_server.py --ws-host 0.0.0.0` and push to that
-machine's address. (NDI already crosses the network without this.)
+**From another machine:** use NDI, which crosses the network by design. The
+push address only listens on this computer.
 
 ### Performance
 
 Only the newest frame of each source is ever delivered; a slow link skips
 frames instead of falling behind. Pushed JPEGs at 1080p are a few hundred KB
-each. NDI frames reach the editor uncompressed (8 MB at 1080p), which is fine
-on one machine; lower the pull rate with `--max-fps 30` if the editor is
-struggling.
+each. NDI frames reach the editor uncompressed (8 MB at 1080p) at up to 60 fps.
 
-## Bridge reference
+## Reference
 
-```bash
-python3 video_in_bridge_server.py [--ws-host 127.0.0.1] [--ws-port 8769] [--max-fps 60] [--no-ndi]
-```
+The desktop app serves all of this from one loopback address,
+`127.0.0.1:8767`, opened the first time a patch uses OSC, NDI output or a Live
+Input (src-tauri/src/bridge):
 
-- `http://127.0.0.1:8769/` — status page with the sources it can see
-- `/health`, `/stats` — JSON, for scripts
-- Browser connections are only accepted from the editor's own origins, like
-  the other bridges; non-browser clients (TouchDesigner, scripts) are not
-  checked.
+- `ws://127.0.0.1:8767/publish/<name>`, `ws://127.0.0.1:8767/`,
+  `POST http://127.0.0.1:8767/publish/<name>` — pushing frames, as above.
+- Browser connections are only accepted from the editor itself; non-browser
+  clients (TouchDesigner, scripts) are not checked.

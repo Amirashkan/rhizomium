@@ -24,7 +24,7 @@ Build settings, all from `vercel.json`:
 - **Framework preset:** none
 - **Functions:** `api/**/*.js`, with a 300-second max duration
 
-`.vercelignore` keeps the Python bridges, `requirements.txt`, `src-tauri/` and
+`.vercelignore` keeps the Python servers, `requirements.txt`, `src-tauri/` and
 `tests/` out of the build context, so Vercel does not try to install Python
 packages that need local GL or audio libraries.
 
@@ -78,9 +78,9 @@ The security model is described at the top of `api/ai/run.js` and in
 
 ## What does not work on Vercel
 
-The Python bridges (OSC, NDI, the collab relay, `rhizo_server.py`) are local
-processes and cannot run on a static host. Multi-screen output is a
-desktop-app feature. See [Installation & Setup](setup.md#optional-local-bridges-python).
+The Python servers (the collab relay, `rhizo_server.py`) are local processes
+and cannot run on a static host. OSC, NDI, Live Input and multi-screen output
+are desktop-app features. See [Installation & Setup](setup.md#osc-ndi-and-live-input).
 
 ---
 

@@ -5,7 +5,7 @@
 // bad packet or a dropped connection.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { OSCManager, defaultBridgeUrl, OSC_BRIDGE_PORT } from '../src/osc/OSCManager.js';
+import { OSCManager, defaultBridgeUrl } from '../src/osc/OSCManager.js';
 
 class FakeWebSocket {
   static CONNECTING = 0;
@@ -118,14 +118,14 @@ describe('OSCManager connection', () => {
     expect(socket.binaryType).toBe('arraybuffer');
   });
 
-  it('rejects the first attempt when the bridge is not running', async () => {
+  it('rejects the first attempt when OSC cannot be reached', async () => {
     const events = makeEventSystem();
     const manager = new OSCManager(events);
     const pending = manager.initialize();
 
     FakeWebSocket.instances.at(-1).fail();
 
-    await expect(pending).rejects.toThrow(/Could not reach the OSC bridge/);
+    await expect(pending).rejects.toThrow(/Could not reach OSC/);
     expect(events.of('OSC_ERROR')).toHaveLength(1);
   });
 
@@ -166,7 +166,7 @@ describe('OSCManager connection', () => {
   it('points the bridge URL at loopback, not the page host', () => {
     // The Windows desktop app serves the page from http://tauri.localhost,
     // which is not where the bridge listens and is not allowed by the CSP.
-    expect(defaultBridgeUrl()).toBe(`ws://127.0.0.1:${OSC_BRIDGE_PORT}/ws`);
+    expect(defaultBridgeUrl()).toBe('ws://127.0.0.1:8767/osc');
   });
 });
 

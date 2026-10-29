@@ -9,6 +9,7 @@ import {
   writeParameterUniform,
 } from '../parameters/ExternalParameterControl.js';
 import { discreteControlRange } from '../utils/discreteParams.js';
+import { bridgesAvailable } from '../utils/bridgeAvailability.js';
 
 /**
  * OSCParameterBinding - maps OSC messages to node parameters.
@@ -58,6 +59,18 @@ export class OSCParameterBinding {
     this.eventSystem.on('OSC_MESSAGE', (data) => {
       this.handleMessage(data);
     });
+  }
+
+  /**
+   * OSC is on whenever something needs it — a binding, or learn waiting for a
+   * control — so a patch with OSC mappings just works when it is opened,
+   * without a trip to the OSC panel first.
+   */
+  connectWhenNeeded() {
+    const manager = this.oscManager;
+    if (!manager?.initialize || manager.isEnabled || !bridgesAvailable()) return;
+    // A failure is shown in the OSC panel; the manager keeps retrying.
+    manager.initialize().catch(() => {});
   }
 
   static makeKey(address, argIndex) {
@@ -112,6 +125,7 @@ export class OSCParameterBinding {
     window.editor?.onChange?.();
 
     this.eventSystem?.emit('OSC_BINDING_CREATED', binding);
+    this.connectWhenNeeded();
     return true;
   }
 
@@ -251,6 +265,7 @@ export class OSCParameterBinding {
     this.snapshotForLearn();
 
     this.eventSystem?.emit('OSC_LEARN_STARTED', { nodeId, paramName });
+    this.connectWhenNeeded();
   }
 
   /**
@@ -462,6 +477,7 @@ export class OSCParameterBinding {
       });
       this.oscParameters.add(`${binding.nodeId}.${binding.paramName}`);
     }
+    if (this.bindings.size > 0) this.connectWhenNeeded();
   }
 
   getParameterDefinition(node, paramName) {

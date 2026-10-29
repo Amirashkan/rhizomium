@@ -3,58 +3,38 @@
 Real-time parameter control from any OSC sender — TouchOSC, Lemur, Max/MSP,
 SuperCollider, Resolume, Ableton via a Max device, or a five-line Python script.
 
-## Why there is a bridge
+## How OSC reaches the editor
 
-OSC is carried over UDP, and a browser cannot open a UDP socket. There is no
-"Web OSC API" the way there is a Web MIDI API, so the editor cannot hear an OSC
-sender directly no matter what it does.
-
-A small Python bridge (`osc_bridge_server.py`) owns the UDP socket and forwards
-each datagram, byte for byte, to the editor over a WebSocket. Nothing is
-re-encoded on the way, so the editor decodes the real OSC wire format and any
-sender works without agreeing on a private JSON envelope first.
-
-The installed desktop app does not need Python: it runs a Rust port of the same
-bridge (`src-tauri/src/osc_bridge.rs`, same protocol and ports) from the moment
-it starts. If port 8767 is already taken — say by the Python bridge that
-`npm run tauri:dev` starts — the built-in one steps aside and the editor uses
-whichever holds the port.
+OSC is carried over UDP, and a webview cannot open a UDP socket. There is no
+"Web OSC API" the way there is a Web MIDI API, so OSC is a **desktop app**
+feature: the app (`src-tauri/src/bridge/osc.rs`) owns the UDP socket and
+forwards each datagram, byte for byte, to the editor over a loopback
+WebSocket. Nothing is re-encoded on the way, so the editor decodes the real OSC
+wire format and any sender works without agreeing on a private JSON envelope
+first.
 
 ```
-OSC sender ──UDP:9000──> osc_bridge_server.py ──WebSocket:8767──> OSCManager
-                                                                      │
-                                                                 OSCDecoder
-                                                                      │
-                                                              OSCParameterBinding
-                                                                      │
-                                                              GPU uniform write
+OSC sender ──UDP:9000──> Rhizomium app ──ws://127.0.0.1:8767/osc──> OSCManager
+                                                                       │
+                                                                  OSCDecoder
+                                                                       │
+                                                               OSCParameterBinding
+                                                                       │
+                                                               GPU uniform write
 ```
+
+Nothing has to be started. OSC switches on by itself the first time a patch
+needs it — a binding is made, a patch with OSC bindings is opened, or OSC learn
+starts — and the **Connect** button in the panel does the same by hand. The UDP
+port is held only while OSC is connected.
 
 ## Quick start
 
-1. Start the editor whichever way you normally do — the bridge comes with it:
+1. Point your sender at `udp://<this machine>:9000`.
 
-   | How you run the editor | Bridge |
-   | --- | --- |
-   | `python rhizo_server.py` | started by the server |
-   | `npm run dev` | started by the Vite dev server |
-   | `npm run tauri:dev` | same — the desktop app runs that dev server |
-   | a built desktop binary | run `npm run osc` alongside it |
-   | static web deploy (Vercel) | not possible — OSC is local-only |
-
-   Each prints the UDP port to aim at:
-
-   ```
-   OSC:
-     Send OSC to:   udp://<this machine>:9000
-   ```
-
-   Set `RHIZO_NO_OSC=1` to stop the dev server starting one, and it will leave
-   an already-running bridge alone rather than fighting it for the port.
-
-2. Open the editor and choose **Tools → OSC Receiver**, then click **Connect**.
-   Incoming addresses appear as soon as anything arrives, which is the fastest
-   way to confirm your sender is pointed at the right machine.
+2. Choose **Tools → OSC Receiver**, then click **Connect**. Incoming addresses
+   appear as soon as anything arrives, which is the fastest way to confirm your
+   sender is pointed at the right machine.
 
 3. Map a control. Select a node, click the parameter field you want to drive,
    then either:
@@ -107,12 +87,6 @@ marks it *"2 targets"*. Removing one leaves the others running.
 turned out to send 0–127 or −5…5 can be corrected without going near the
 console.
 
-The bridge can also be run on its own, on other ports:
-
-```bash
-python osc_bridge_server.py --udp-port 9001 --ws-port 8767
-```
-
 ## Components
 
 ### `OSCDecoder.js`
@@ -122,7 +96,7 @@ state. A malformed or truncated packet raises `OSCDecodeError` rather than
 returning a plausible wrong number.
 
 ### `OSCManager.js`
-Owns the WebSocket to the bridge: connect, reconnect with backoff, decode, and
+Owns the WebSocket to the app: connect, reconnect with backoff, decode, and
 emit. Remembers the latest value per address so the settings panel can show
 what is arriving, and caps that map so a sender spraying unique addresses
 cannot grow it without bound.
@@ -215,19 +189,18 @@ A bound parameter is compiled as a GPU uniform (see
 and a redraw — not a shader rebuild. That is what makes OSC usable at the rates
 senders actually push.
 
-The bridge gives each connected editor a bounded queue and drops the oldest
+The app gives each connected editor a bounded queue and drops the oldest
 packets if that editor falls behind, so a burst cannot stall the UDP receiver
 or grow memory. For control data the newest reading is the only one that
-matters. `/stats` on the bridge reports the drop count.
+matters.
 
 ## Networking and exposure
 
-- The bridge's **UDP** side listens on all interfaces by default, because
-  controlling the editor from a phone or tablet on the same network is the
-  point of the feature. Anything that can reach that port can drive mapped
-  parameters, so on an untrusted network pass `--udp-host 127.0.0.1` or keep
-  the port closed at the firewall.
-- The bridge's **WebSocket** side listens on loopback only, and rejects browser
+- The **UDP** side listens on all interfaces, because controlling the editor
+  from a phone or tablet on the same network is the point of the feature.
+  Anything that can reach that port can drive mapped parameters, so on an
+  untrusted network keep the port closed at the firewall.
+- The **WebSocket** side listens on loopback only, and rejects browser
   connections whose `Origin` is not one of the editor's own. WebSockets are not
   covered by the same-origin policy, so without that check any page open in the
   artist's browser could watch their control surface.
@@ -236,29 +209,18 @@ matters. `/stats` on the bridge reports the drop count.
 
 ## Troubleshooting
 
-**"Could not reach the OSC bridge"** — in the installed desktop app, the
-built-in bridge could not take port 8767 because another program holds it;
-close that program and restart Rhizomium. Otherwise the bridge process is not
-running. This
-is about the editor↔bridge WebSocket, not about your sender: no OSC
-configuration will fix it. Start the bridge:
+**"Could not open its local connection port 8767"** — another program, or a
+second copy of Rhizomium, already holds the port the app serves OSC, NDI and
+Live Input on. This is about the app, not your sender: no OSC configuration
+will fix it. Close the other program; the next connect tries again.
 
-```bash
-npm run osc          # or: python osc_bridge_server.py
-```
-
-Whatever starts the editor normally starts one too (see the table above), so
-the usual cause is a server that was already running from before OSC existed —
-restart it. The other cause is Python or `aiohttp` missing, in which case the
-dev server prints `OSC: not started` rather than failing.
-
-**Panel says "UDP port busy"** — the bridge is running and reachable, but
-something else already holds the UDP port, so no OSC can arrive.
+**Panel says "UDP port busy"** — OSC is connected, but something else already
+holds the UDP port, so no OSC can arrive.
 
 The usual culprit is your own OSC sender. A sender and a receiver cannot both
 hold the same UDP port on one machine, and many hosts — VCV Rack modules,
 TouchOSC, Max — have a *receive* port setting sitting right next to the send
-one. If both are set to 9000, the sender binds it and the bridge cannot.
+one. If both are set to 9000, the sender binds it and Rhizomium cannot.
 Set the sender's **destination/output** port to 9000 and its **receive/input**
 port to something else, or turn its receive side off.
 
@@ -275,21 +237,15 @@ lsof -nP -iUDP:9000                        # macOS / Linux
 
 Two ways out, both without restarting anything:
 
-- **Free the port.** Close whatever holds it; the bridge retries every few
+- **Free the port.** Close whatever holds it; Rhizomium retries every few
   seconds and picks it up on its own.
-- **Move the bridge.** Type a new port in the panel's *UDP port* field and
-  click **Move**, then point your sender at it. A port that is also refused
-  leaves the bridge on the one it already had rather than going deaf.
-
-To start on a different port every time, set `RHIZO_OSC_UDP_PORT=9001` (dev
-server) or pass `--udp-port 9001` (standalone).
+- **Move.** Type a new port in the panel's *UDP port* field and click
+  **Move**, then point your sender at it. A port that is also refused leaves
+  OSC on the one it already had rather than going deaf.
 
 **Connected, but no addresses appear** — the sender is aimed somewhere else.
 Check the machine's LAN IP (not `localhost`, if the sender is a phone), confirm
-the port matches the one the panel shows, and check the firewall. `curl
-http://127.0.0.1:8767/stats` shows whether packets are reaching the bridge at
-all: if `packet_count` climbs, the problem is between the bridge and the
-editor; if it does not, the problem is between the sender and the bridge.
+the port matches the one the panel shows, and check the firewall.
 
 **Learn does nothing** — you must select a node and click a parameter field
 first, and be connected. The panel says so, but in that order.

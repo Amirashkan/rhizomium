@@ -3,48 +3,34 @@
 Publishes the rendered output onto the network as an NDI source, so a vision
 mixer, OBS, Resolume or a monitor on another machine can subscribe to it.
 
-## Why there is a bridge
+## How it reaches the network
 
 NDI is a native protocol. It announces itself over mDNS and moves frames over
-raw TCP/UDP — none of which a browser tab can do, however the page is served.
-So the editor cannot be an NDI source by itself, and this feature is split in
-two:
+raw TCP/UDP — none of which a webview can do. So NDI is a **desktop app**
+feature, split in two:
 
 | Piece | Where | Job |
 | --- | --- | --- |
 | `src/output/NDIOutput.js` | editor | takes frames off the renderer, converts to RGBA, sends them |
-| `ndi_bridge_server.py` | local process | owns the NDI sender and publishes to the network |
+| `src-tauri/src/bridge/video.rs` | the app | owns the NDI sender and publishes to the network |
 
-They talk over a loopback WebSocket on port **8768**, one past the OSC bridge.
-This is the same arrangement as OSC — a local process owning the socket a
-browser cannot open — with the direction reversed: OSC reads from its bridge,
-NDI writes to one.
-
-Because the bridge is a local process, NDI is a local-only feature like the
-external viewer. It cannot work on the static web deploy.
+They talk over the app's loopback WebSocket, `ws://127.0.0.1:8767/video` —
+the same socket Live Input nodes receive NDI on, so NDI in and NDI out are one
+feature of the app, not two. Nothing has to be started: the app opens it when
+NDI output is switched on, and the NDI source exists only while frames are
+going out.
 
 ## Setup
 
-NDI needs two things this repo does not vendor:
+**View → NDI Output** (`Mod+Shift+N`). The name receivers list you under is
+the **NDI Name** field beside it, and can be changed while running.
 
-1. **The NDI runtime**, from <https://ndi.video/>. A native library, distributed
-   by Vizrt under their own licence.
-2. **The `cyndilib` binding**: `pip install cyndilib`.
-
-Both are optional. With either missing the bridge still starts, still accepts
-the editor's connection, and reports *which* one is missing — so the editor can
-tell the artist what to install rather than showing them a toggle that does
-nothing.
-
-Then:
-
-```bash
-npm run ndi          # or: python3 ndi_bridge_server.py --source-name "Stage Left"
-```
-
-and in the editor, **View → NDI Output** (`Mod+Shift+N`). The name receivers
-list you under is the **NDI Name** field beside it, and can be changed while
-running.
+NDI itself is Vizrt's library, installed once per computer as the free **NDI
+Runtime** (it often already is: NDI Tools, OBS with NDI and TouchDesigner
+install it). The app loads it when NDI is first used. When it is missing,
+switching NDI output on says so and offers **Get NDI Runtime**, which opens the
+official download; once installed it is picked up without a restart, and
+output that was left on starts sending.
 
 NDI output is a Cloude Plus entitlement, gated through `requireOutputFeature`
 like the second-monitor viewer. Stopping is never gated: a tier that lapses
@@ -68,12 +54,13 @@ consumer is attached, so a single output costs exactly what it did before.
 
 ## Wire protocol
 
-Editor → bridge, over `ws://127.0.0.1:8768/ws`:
+Editor ↔ app, over `ws://127.0.0.1:8767/video`:
 
 ```jsonc
-// on connect, bridge → editor
+// on connect, app → editor
 {"type": "welcome", "ndi_available": true, "ndi_error": null,
- "source_name": "Rhizomium", "frame_rate": 30}
+ "ndi_runtime_url": "https://ndi.link/NDIRedistV6",
+ "source_name": "Rhizomium", "frame_rate": 30, "sources": [...]}
 
 // each frame: a header, then the pixels as one binary message
 {"type": "frame", "width": 1920, "height": 1080, "format": "rgba"}
@@ -87,9 +74,11 @@ Editor → bridge, over `ws://127.0.0.1:8768/ws`:
 The header-then-binary shape is the one `frame_stream_server.py` already uses,
 so both ends of the project describe a frame the same way.
 
-The bridge validates every header before it allocates: the payload length must
+The app validates every header before it allocates: the payload length must
 equal `width × height × 4`, the format must be RGBA, and the frame must be
-within `MAX_FRAME_PIXELS`. A mismatch is counted and dropped, never guessed at.
+within `MAX_FRAME_PIXELS`. A mismatch is answered with an `error` message and
+dropped, never guessed at. Sending runs on its own thread; a frame that arrives
+while the previous one is still going out is skipped rather than queued.
 
 ## What it costs
 
@@ -107,26 +96,10 @@ If you need to cut the bandwidth further, lower the frame rate before reaching
 for compression: an encode/decode round trip costs latency, which is the one
 thing a live output cannot spend.
 
-## Diagnostics
-
-The bridge serves the same endpoints as the other local servers:
-
-```bash
-curl http://127.0.0.1:8768/health   # is it up, and is NDI available
-curl http://127.0.0.1:8768/stats    # frames in, frames sent, drops, fps
-```
-
-`stats` separates `frame_count` (what the editor sent), `frames_sent` (what
-reached NDI) and `rejected_count` (headers that did not describe their
-payload) — enough to tell "the editor is not sending" from "NDI is refusing"
-without attaching a receiver.
-
 ## Security
 
-The WebSocket is loopback-only and origin-checked against the same
-`ALLOWED_ORIGINS` as `rhizo_server.py`, `frame_stream_server.py` and
-`osc_bridge_server.py`. WebSockets are not subject to the same-origin policy,
-and this one publishes whatever it is sent to every machine on the network, so
-a request carrying a browser `Origin` must name one the editor is served from.
-Non-browser clients (no `Origin` header) are left alone so scripts and native
-tools still work.
+The WebSocket is loopback-only and origin-checked: a request carrying a
+browser `Origin` must come from the editor itself. WebSockets are not subject
+to the same-origin policy, and this one publishes whatever it is sent to every
+machine on the network. Non-browser clients (no `Origin` header) are left alone
+so scripts and native tools still work.

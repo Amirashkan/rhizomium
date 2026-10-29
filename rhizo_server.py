@@ -2,8 +2,8 @@
 """
 Rhizomium Integrated Server
 Serves static files (editor UI) and provides API endpoints for viewer management.
-Includes WebSocket frame streaming for dual-screen support and an OSC bridge
-for external control.
+Includes WebSocket frame streaming for dual-screen support. OSC, NDI and Live
+Input are desktop-app features, served by the app itself (src-tauri/src/bridge).
 """
 
 import time
@@ -17,13 +17,6 @@ from werkzeug.security import safe_join
 
 # Import frame streaming server
 from frame_stream_server import FrameStreamServer, get_server
-
-# Import OSC bridge (UDP -> WebSocket, so the browser can hear OSC at all)
-from osc_bridge_server import (
-    OSCBridgeServer,
-    DEFAULT_UDP_PORT as OSC_UDP_PORT,
-    DEFAULT_WS_PORT as OSC_WS_PORT,
-)
 
 # Import the collab room relay (peer-to-peer graph ops for the collab space)
 from collab_room_server import (
@@ -257,7 +250,7 @@ def health():
 @app.route('/api/status', methods=['GET'])
 def status():
     """Get server status and configuration."""
-    global frame_stream_server, osc_bridge_server, collab_room_server
+    global frame_stream_server, collab_room_server
     return jsonify({
         'status': 'running',
         'base_dir': BASE_DIR,
@@ -267,13 +260,6 @@ def status():
             'viewers': len(frame_stream_server.viewers) if frame_stream_server else 0,
             'fps': round(frame_stream_server.fps, 2) if frame_stream_server else 0,
             'url': 'ws://localhost:8766/ws'
-        },
-        'osc': {
-            'enabled': osc_bridge_server is not None,
-            'clients': len(osc_bridge_server.clients) if osc_bridge_server else 0,
-            'packets': osc_bridge_server.packet_count if osc_bridge_server else 0,
-            'udp_port': OSC_UDP_PORT,
-            'url': f'ws://localhost:{OSC_WS_PORT}/ws'
         },
         'collab': {
             'enabled': collab_room_server is not None,
@@ -354,10 +340,6 @@ frame_stream_server = None
 frame_stream_loop = None
 frame_stream_thread = None
 
-osc_bridge_server = None
-osc_bridge_loop = None
-osc_bridge_thread = None
-
 collab_room_server = None
 collab_room_loop = None
 collab_room_thread = None
@@ -402,53 +384,12 @@ def start_frame_stream_server():
     return thread
 
 
-def start_osc_bridge_server():
-    """Start the OSC bridge (UDP receiver + WebSocket fan-out) in its own thread."""
-    global osc_bridge_server, osc_bridge_loop
-
-    def run_server():
-        global osc_bridge_server, osc_bridge_loop
-
-        osc_bridge_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(osc_bridge_loop)
-
-        osc_bridge_server = OSCBridgeServer()
-
-        try:
-            osc_bridge_loop.run_until_complete(osc_bridge_server.start())
-            print("[rhizo_server] OSC bridge started")
-            osc_bridge_loop.run_forever()
-        except OSError as e:
-            # A busy UDP port is handled inside the bridge, which stays up and
-            # reports it to the editor. Reaching here means the WebSocket port
-            # itself is taken. The editor is usable without OSC, so this is
-            # reported and stepped over rather than taken as fatal.
-            print(f"[rhizo_server] OSC bridge could not start on port {OSC_WS_PORT}: {e}")
-            osc_bridge_server = None
-        except Exception as e:
-            print(f"[rhizo_server] OSC bridge error: {e}")
-            import traceback
-            traceback.print_exc()
-            osc_bridge_server = None
-        finally:
-            if osc_bridge_server:
-                osc_bridge_loop.run_until_complete(osc_bridge_server.stop())
-            osc_bridge_loop.close()
-
-    thread = threading.Thread(target=run_server, daemon=True)
-    thread.start()
-
-    time.sleep(1)
-
-    return thread
-
-
 def start_collab_room_server():
     """
     Start the collab room relay in its own thread.
 
-    Non-fatal on failure, for the same reason the OSC bridge is: the editor is
-    a complete single-artist tool without it, and losing the whole server
+    Non-fatal on failure: the editor is a complete single-artist tool without
+    it, and losing the whole server
     because port 8767 is busy would be a poor trade. The collab panel reports
     the relay as unreachable, which is the truth.
     """
@@ -497,7 +438,7 @@ def start_collab_room_server():
 
 def main():
     """Start the Rhizomium integrated server."""
-    global frame_stream_thread, osc_bridge_thread, collab_room_thread
+    global frame_stream_thread, collab_room_thread
 
     print("=" * 70)
     print("🌿 Rhizomium Integrated Server with Frame Streaming")
@@ -508,10 +449,6 @@ def main():
     # Start frame streaming server
     print("Starting WebSocket frame streaming server...")
     frame_stream_thread = start_frame_stream_server()
-
-    # Start OSC bridge
-    print("Starting OSC bridge...")
-    osc_bridge_thread = start_osc_bridge_server()
 
     # Start the collab room relay
     print("Starting collab room relay...")
@@ -526,11 +463,7 @@ def main():
     print()
     print("WebSocket:")
     print("  Frame Stream:  ws://127.0.0.1:8766/ws")
-    print(f"  OSC Bridge:    ws://127.0.0.1:{OSC_WS_PORT}/ws")
     print(f"  Collab Rooms:  ws://127.0.0.1:{COLLAB_WS_PORT}/room")
-    print()
-    print("OSC:")
-    print(f"  Send OSC to:   udp://<this machine>:{OSC_UDP_PORT}")
     print()
     print("API Endpoints:")
     print("  POST /api/stream-frame  - Send frame to viewers")
