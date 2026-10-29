@@ -153,15 +153,13 @@ describe('structured data', () => {
     expect(types).toContain('WebSite');
     expect(types).toContain('SoftwareApplication');
     // Every URL in the graph has to be ours: a stale example.com left behind
-    // from a template is worse than no structured data at all. The YouTube
-    // channel is matched exactly, since any youtube.com URL is not ours.
+    // from a template is worse than no structured data at all.
     const urls = JSON.stringify(graph).match(/https?:\/\/[^"']+/g) ?? [];
     for (const url of urls) {
       expect(
         url.startsWith(SITE) ||
           url.startsWith('https://schema.org') ||
-          url.startsWith('https://github.com/Amirashkan/') ||
-          url === 'https://www.youtube.com/@Rhizomium',
+          url.startsWith('https://github.com/Amirashkan/'),
       ).toBe(true);
     }
   });
