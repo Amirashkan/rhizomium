@@ -158,6 +158,9 @@ export default defineConfig(({ mode }) => {
               }
             : {
                 main: resolve(__dirname, 'index.html'),
+                // Why the videos were recoloured and the YouTube channel
+                // closed; the footer's youtube link points here.
+                video: resolve(__dirname, 'video.html'),
                 // The web patch viewer (/viewer). Its own entry so Rollup keeps
                 // it lean: it shares the codegen and the renderer with the
                 // editor but none of the editor's UI, and the whole point of
