@@ -158,8 +158,7 @@ export default defineConfig(({ mode }) => {
               }
             : {
                 main: resolve(__dirname, 'index.html'),
-                // Why the recoloured videos were withdrawn; the footer's
-                // youtube link points here until real recordings replace them.
+                // Why the recoloured videos were withdrawn.
                 video: resolve(__dirname, 'video.html'),
                 // The web patch viewer (/viewer). Its own entry so Rollup keeps
                 // it lean: it shares the codegen and the renderer with the
