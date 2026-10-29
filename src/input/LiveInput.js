@@ -19,6 +19,8 @@
  * network.
  */
 
+import { bridgesAvailable } from '../utils/bridgeAvailability.js';
+
 /** Default bridge port, one past the NDI output bridge on 8768. */
 export const VIDEO_IN_BRIDGE_PORT = 8769;
 
@@ -149,11 +151,14 @@ export class LiveInput {
 
   /**
    * What a node's thumbnail or panel should say about it.
-   * @returns {{state: 'idle'|'no-bridge'|'waiting'|'live', source: string, bitmap: ImageBitmap|null, message: string}}
+   * @returns {{state: 'idle'|'desktop-only'|'no-bridge'|'waiting'|'live', source: string, bitmap: ImageBitmap|null, message: string}}
    */
   statusFor(nodeId) {
     const source = this.sourceFor(nodeId);
     if (!source) return { state: 'idle', source, bitmap: null, message: 'Type a source name' };
+    if (!bridgesAvailable()) {
+      return { state: 'desktop-only', source, bitmap: null, message: 'Live Input works in the desktop app only' };
+    }
     if (!this.connected) {
       return {
         state: 'no-bridge', source, bitmap: null,
@@ -187,12 +192,12 @@ export class LiveInput {
   }
 
   _ensureConnected() {
-    if (!this.isSupported || this.ws || this.reconnectTimer) return;
+    if (!this.isSupported || !bridgesAvailable() || this.ws || this.reconnectTimer) return;
     this.connect();
   }
 
   connect() {
-    if (this.ws || !this.isSupported) return;
+    if (this.ws || !this.isSupported || !bridgesAvailable()) return;
     let socket;
     try {
       socket = new WebSocket(this.url);

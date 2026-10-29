@@ -4,6 +4,7 @@ import { makeDraggable } from './utils/draggable.js';
 import { makeResizable } from './utils/resizable.js';
 import { modalManager } from './ModalManager.js';
 import { formatOSCArg } from '../osc/OSCDecoder.js';
+import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE } from '../utils/bridgeAvailability.js';
 
 /**
  * OSCSettingsPanel - UI for the OSC bridge connection and address mappings.
@@ -311,6 +312,10 @@ export class OSCSettingsPanel {
     this.panel.querySelector('#osc-close-btn').addEventListener('click', () => this.hide());
 
     this.connectBtn.addEventListener('click', async () => {
+      if (!bridgesAvailable()) {
+        this.updateStatus();
+        return;
+      }
       const url = this.urlInput.value.trim();
       if (url && url !== this.oscManager.url) this.oscManager.url = url;
 
@@ -559,6 +564,16 @@ export class OSCSettingsPanel {
 
   updateStatus() {
     const status = this.oscManager.getStatus();
+
+    if (!bridgesAvailable()) {
+      this.statusEl.textContent = 'Desktop app only';
+      this.statusEl.style.color = '#6f6559';
+      this.connectBtn.disabled = true;
+      this.disconnectBtn.disabled = true;
+      this.udpRow.style.display = 'none';
+      this.bridgeInfoEl.replaceChildren(el('div', null, BRIDGES_DESKTOP_ONLY_MESSAGE));
+      return;
+    }
 
     if (!status.supported) {
       this.statusEl.textContent = 'Not Supported';

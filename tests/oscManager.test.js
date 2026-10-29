@@ -84,10 +84,13 @@ beforeEach(() => {
   originalWebSocket = globalThis.WebSocket;
   globalThis.WebSocket = FakeWebSocket;
   FakeWebSocket.instances = [];
+  // Bridges only connect from the desktop app; these tests run as if inside it.
+  window.__TAURI_INTERNALS__ = {};
 });
 
 afterEach(() => {
   globalThis.WebSocket = originalWebSocket;
+  delete window.__TAURI_INTERNALS__;
   vi.useRealTimers();
 });
 
@@ -124,6 +127,15 @@ describe('OSCManager connection', () => {
 
     await expect(pending).rejects.toThrow(/Could not reach the OSC bridge/);
     expect(events.of('OSC_ERROR')).toHaveLength(1);
+  });
+
+  it('refuses to connect outside the desktop app', async () => {
+    delete window.__TAURI_INTERNALS__;
+    const manager = new OSCManager(makeEventSystem());
+
+    await expect(manager.initialize()).rejects.toThrow(/desktop app/);
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(manager.getStatus().enabled).toBe(false);
   });
 
   it('retries after an unexpected drop', async () => {

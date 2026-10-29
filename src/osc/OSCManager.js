@@ -1,6 +1,7 @@
 // src/osc/OSCManager.js
 
 import { decodeMessages, oscArgToNumber, OSCDecodeError } from './OSCDecoder.js';
+import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE } from '../utils/bridgeAvailability.js';
 
 /**
  * OSCManager - receives OSC over a WebSocket bridge and emits events.
@@ -77,6 +78,10 @@ export class OSCManager {
   initialize() {
     if (!this.isSupported) {
       return Promise.reject(new Error('WebSocket is not supported in this browser'));
+    }
+    if (!bridgesAvailable()) {
+      this.lastError = BRIDGES_DESKTOP_ONLY_MESSAGE;
+      return Promise.reject(new Error(BRIDGES_DESKTOP_ONLY_MESSAGE));
     }
 
     this.isEnabled = true;

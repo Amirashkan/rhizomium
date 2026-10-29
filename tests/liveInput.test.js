@@ -55,6 +55,8 @@ describe('LiveInput client', () => {
   beforeEach(() => {
     FakeSocket.instances = [];
     vi.stubGlobal('WebSocket', FakeSocket);
+    // Bridges only connect from the desktop app; these tests run as if inside it.
+    window.__TAURI_INTERNALS__ = {};
     textureManager = { setLiveFrame: vi.fn(), releaseLiveInput: vi.fn() };
     live = new LiveInput({
       url: 'ws://127.0.0.1:8769/ws',
@@ -65,7 +67,16 @@ describe('LiveInput client', () => {
 
   afterEach(() => {
     live.disconnect();
+    delete window.__TAURI_INTERNALS__;
     vi.unstubAllGlobals();
+  });
+
+  it('never opens a socket outside the desktop app', () => {
+    delete window.__TAURI_INTERNALS__;
+    live.bind('n1', 'TouchDesigner');
+
+    expect(FakeSocket.instances).toHaveLength(0);
+    expect(live.statusFor('n1').state).toBe('desktop-only');
   });
 
   it('defaults to the bridge port next to NDI output', () => {

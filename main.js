@@ -1916,11 +1916,11 @@ function setupUIEventHandlers() {
   // NDI output. Publishes the render onto the network as an NDI source that a
   // vision mixer, OBS or a monitor on another machine can subscribe to.
   //
-  // Vite/desktop build only, like the second monitor, and for a stronger
-  // reason: a browser cannot speak NDI at all, so the frames go to a local
-  // bridge process (ndi_bridge_server.py) that owns the actual sender.
+  // Desktop app only, like every bridge (src/utils/bridgeAvailability.js): a
+  // browser cannot speak NDI at all, so the frames go to a local bridge
+  // process (ndi_bridge_server.py) that owns the actual sender.
   const ndiBtn = removeExistingHandlers("btn-ndi-output");
-  if (ndiBtn && isViteBuild()) {
+  if (ndiBtn && isTauri()) {
     document.getElementById("sep-ndi-output")?.style.removeProperty("display");
     ndiBtn.style.removeProperty("display");
     document.getElementById("row-ndi-source-name")?.style.removeProperty("display");

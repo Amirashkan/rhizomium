@@ -313,11 +313,13 @@ export class TextureRenderers {
     ctx.fillStyle = "#bbb";
     ctx.font = "bold 9px Arial";
     ctx.textAlign = "center";
-    const lines = status?.state === 'no-bridge'
-      ? ["No bridge", "npm run video-in"]
-      : status?.state === 'waiting'
-        ? ["Waiting for", status.source]
-        : ["Live Input", "set a Source"];
+    const lines = status?.state === 'desktop-only'
+      ? ["Live Input", "desktop app only"]
+      : status?.state === 'no-bridge'
+        ? ["No bridge", "npm run video-in"]
+        : status?.state === 'waiting'
+          ? ["Waiting for", status.source]
+          : ["Live Input", "set a Source"];
     lines.forEach((text, i) => ctx.fillText(String(text).slice(0, 18), size / 2, size / 2 - 4 + i * 12));
   }
 

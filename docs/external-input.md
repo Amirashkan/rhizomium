@@ -3,8 +3,10 @@
 Rhizomium can take **data** and **visuals** from other applications running at
 the same time — TouchDesigner, Resolume, OBS, Max/MSP, a camera rig, a Python
 script. Both are local-only: each arrives through a small bridge process,
-because a browser tab cannot listen for UDP or receive NDI by itself. Neither
-works on the static web deploy.
+because a browser tab cannot listen for UDP or receive NDI by itself. The
+bridges — OSC in, Video In and NDI output — work only in the **desktop app**;
+the web editor (in any browser, including a local dev server) never connects
+to them.
 
 | What | How it arrives | Bridge | In the editor |
 | --- | --- | --- | --- |
