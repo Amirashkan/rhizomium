@@ -55,6 +55,8 @@ const REQUIRED_ORIGINS = [
   ['OSC bridge', 'ws://localhost:8767'],
   ['NDI bridge', 'ws://127.0.0.1:8768'],
   ['NDI bridge', 'ws://localhost:8768'],
+  ['Video In bridge', 'ws://127.0.0.1:8769'],
+  ['Video In bridge', 'ws://localhost:8769'],
 
   // The account. Both are same-origin-or-better on the web and neither is in
   // the desktop app, where every page is served from tauri://localhost: the
