@@ -8,6 +8,23 @@ When one does, its entry says so under **Project files**.
 
 ---
 
+## v0.9.0-beta.8
+
+*October 29, 2026*
+
+### Changed
+
+- **Rust orange replaces lime as the accent colour.** Selection, primary
+  buttons, the playhead, focus rings, live indicators and every panel that
+  used lime now use rust orange (`#d9733f`).
+- The landing page's second colour is now a warm neutral instead of olive.
+
+### Notes
+
+- Tutorial videos are temporarily unavailable.
+
+---
+
 ## v0.9.0-beta.7
 
 *October 28, 2026*
