@@ -68,7 +68,7 @@ export class TextureBindings {
         // Nodes that already bind a texture of their own keep their own binding.
         if (!sourceNode) continue;
         if (sourceNode.kind === 'Texture2D' || sourceNode.kind === 'Text'
-            || sourceNode.kind === 'TextureCube'
+            || sourceNode.kind === 'LiveInput' || sourceNode.kind === 'TextureCube'
             || (sourceNode.kind && sourceNode.kind.startsWith('Compute'))) continue;
         bridgedIds.add(sourceId);
       }
@@ -101,8 +101,9 @@ export class TextureBindings {
       }
 
       // Text rasterises its own bitmap into TextureManager under its node id (see
-      // src/core/TextRasterizer.js), so it binds exactly like a sampled image.
-      if (node.kind === "Texture2D" || node.kind === "Text") {
+      // src/core/TextRasterizer.js), so it binds exactly like a sampled image, and so does a
+      // Live Input, whose frames arrive from outside (src/input/LiveInput.js).
+      if (node.kind === "Texture2D" || node.kind === "Text" || node.kind === "LiveInput") {
         const nodeId = this.sanitize(node.id);
 
         bindingCode += `

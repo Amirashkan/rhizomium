@@ -3,6 +3,7 @@
 
 import { ensureTextTexture } from '../../core/TextRasterizer.js';
 import { SHARED_SAMPLER } from '../../gpu/sharedSamplers.js';
+import { getLiveInput } from '../../input/LiveInput.js';
 
 export class TextureNodes {
   constructor() {
@@ -19,7 +20,7 @@ export class TextureNodes {
    * @returns {boolean}
    */
   handles(kind) {
-    return ["Texture2D", "TextureCube", "Text"].includes(kind);
+    return ["Texture2D", "TextureCube", "Text", "LiveInput"].includes(kind);
   }
 
   compile(node, getInput) {
@@ -35,6 +36,8 @@ export class TextureNodes {
         return this.compileTextureCube(node, getInput, nodeId);
       case "Text":
         return this.compileText(node, getInput, nodeId);
+      case "LiveInput":
+        return this.compileLiveInput(node, getInput, nodeId);
       default:
         return null;
     }
@@ -71,6 +74,60 @@ export class TextureNodes {
     ];
 
     return { line, outputType: "vec4", outputPins };
+  }
+
+  /**
+   * Live Input: frames from outside the editor, copied into `texture_<id>` by
+   * TextureManager.setLiveFrame as they arrive. Until the first one does, the binding resolves to
+   * the renderer's 1x1 fallback, so the shader compiles and runs before any source is connected.
+   */
+  compileLiveInput(node, getInput, nodeId) {
+    // Compiling is how a node says what it wants to receive: a new node, an edited Source and a
+    // reopened project all come through here. Idempotent, so every recompile can repeat it.
+    if (!(window.nodeCompiler?.isSubgraphCompilation)) {
+      getLiveInput().bind(node.id, node.params?.source);
+    }
+
+    const uv = getInput(0, "vec2", "in.uv");
+    let line = `let srcuv_${nodeId} = ${uv};`;
+
+    // The source's proportions are whatever the other application sends and can change mid-show,
+    // so they are read from the texture itself rather than baked in at compile time.
+    const fit = node.params?.fit ?? "stretch";
+    if (fit === "stretch") {
+      line += `
+    let fituv_${nodeId} = srcuv_${nodeId};`;
+    } else {
+      // Measured in output heights: the output spans u.aspect across, the source srcaspect. k is
+      // how much the source is scaled to fit (contain) or to fill (cover) the output.
+      const pick = fit === "cover" ? "max" : "min";
+      line += `
+    let dims_${nodeId} = vec2<f32>(textureDimensions(texture_${nodeId}));
+    let srcaspect_${nodeId} = dims_${nodeId}.x / max(dims_${nodeId}.y, 1.0);
+    let fitk_${nodeId} = ${pick}(1.0, u.aspect / srcaspect_${nodeId});
+    let fituv_${nodeId} = (srcuv_${nodeId} - vec2<f32>(0.5)) * vec2<f32>(u.aspect / srcaspect_${nodeId}, 1.0) / fitk_${nodeId} + vec2<f32>(0.5);`;
+    }
+
+    // Y flip matches Texture2D / Compute sampling.
+    line += `
+    let uv_${nodeId} = vec2<f32>(fituv_${nodeId}.x, 1.0 - fituv_${nodeId}.y);
+    let node_${nodeId}_rgba = textureSample(texture_${nodeId}, ${SHARED_SAMPLER}, uv_${nodeId});`;
+
+    // Letterbox bars stay black instead of smearing the frame's edge pixels across them.
+    if (fit === "contain") {
+      line += `
+    let inside_${nodeId} = step(0.0, fituv_${nodeId}.x) * step(fituv_${nodeId}.x, 1.0) * step(0.0, fituv_${nodeId}.y) * step(fituv_${nodeId}.y, 1.0);
+    let node_${nodeId} = node_${nodeId}_rgba * inside_${nodeId};`;
+    } else {
+      line += `
+    let node_${nodeId} = node_${nodeId}_rgba;`;
+    }
+
+    return {
+      line,
+      outputType: "vec4",
+      outputPins: [{ expression: `node_${nodeId}`, type: "vec4" }],
+    };
   }
 
   /**

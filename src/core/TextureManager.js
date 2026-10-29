@@ -44,6 +44,7 @@ export class TextureManager {
       this.textures = new Map(); // nodeId -> textureInfo
   this.gpuTextures = new Map(); // nodeId -> {texture, sampler}
   this.videos = new Map(); // nodeId -> {video, objectUrl, lastFrameTime} - playing video sources
+  this.liveInputs = new Map(); // nodeId -> {frame} - Live Input nodes fed by src/input/LiveInput.js
   this.device = null;
   }
 /**
@@ -490,6 +491,68 @@ releaseVideo(nodeId) {
   }
 }
 
+/**
+ * Copy one frame from outside the editor (a Live Input node's source) into the node's texture.
+ *
+ * Same contract as a video: one GPU texture per node, created on the first frame and recreated
+ * only when the incoming size changes, so bind groups built around it stay valid frame to frame.
+ * The caller keeps ownership of the bitmap - one decoded frame may feed several nodes.
+ */
+setLiveFrame(nodeId, bitmap) {
+  if (!this.device || !bitmap?.width || !bitmap?.height) return false;
+  const id = String(nodeId);
+  const width = bitmap.width;
+  const height = bitmap.height;
+
+  let info = this.gpuTextures.get(id);
+  if (!info || !info.live || info.width !== width || info.height !== height) {
+    const previous = info?.texture;
+    const texture = this.device.createTexture({
+      size: { width, height },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING |
+             GPUTextureUsage.COPY_DST |
+             GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    const sampler = this.device.createSampler({
+      magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat',
+    });
+    info = { texture, textureView: texture.createView(), sampler, width, height, live: true };
+    this.gpuTextures.set(id, info);
+    this.textures.set(id, { texture, textureView: info.textureView, sampler, width, height, live: true });
+    this.bindGroup = null; // a different texture object means the renderer must rebind
+    if (previous && previous !== texture && typeof previous.destroy === 'function') {
+      const destroy = () => { try { previous.destroy(); } catch { /* already gone */ } };
+      const done = this.device.queue.onSubmittedWorkDone?.();
+      if (done && typeof done.then === 'function') done.then(destroy, destroy);
+      else destroy();
+    }
+  }
+
+  try {
+    this.device.queue.copyExternalImageToTexture(
+      { source: bitmap },
+      { texture: info.texture },
+      { width, height },
+    );
+  } catch (error) {
+    window.errorHandler?.handleError?.(error, { component: 'live-input-frame-upload', nodeId: id });
+    return false;
+  }
+
+  // A frame counter rather than a timestamp: FragmentTextureRenderer folds it into its change
+  // hash, the way it folds in a video's currentTime, so bridged consumers re-render per frame.
+  const entry = this.liveInputs.get(id) || { frame: 0 };
+  entry.frame += 1;
+  this.liveInputs.set(id, entry);
+  return true;
+}
+
+/** Forget a Live Input node's frame bookkeeping. Its texture is freed by removeTexture. */
+releaseLiveInput(nodeId) {
+  this.liveInputs.delete(String(nodeId));
+}
+
 /** Is this node's texture a video source? */
 isVideoTexture(nodeId) {
   return this.videos.has(nodeId);
@@ -685,6 +748,8 @@ async injectExternalTexture(nodeId, bitmap) {
       // there outlives the node that owned it. Take both entries, and destroy whichever GPU
       // texture they name (they normally share one).
       this.releaseVideo(nodeId);
+      window.liveInput?.unbind?.(nodeId);
+      this.releaseLiveInput(nodeId);
       const textureInfo = this.textures.get(nodeId);
       const gpuInfo = this.gpuTextures.get(nodeId);
       if (textureInfo || gpuInfo) {

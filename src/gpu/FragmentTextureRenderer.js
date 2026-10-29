@@ -799,12 +799,16 @@ export class FragmentTextureRenderer {
    */
   _videoFrameHash(node, chain = this._fragmentChainNodes(node)) {
     const videos = window.textureManager?.videos;
-    if (!videos || videos.size === 0) return '';
+    // Live Input nodes advance the same way, on frames that arrive from outside.
+    const live = window.textureManager?.liveInputs;
+    if ((!videos || videos.size === 0) && (!live || live.size === 0)) return '';
 
     let hash = '';
     for (const chainNode of chain) {
-      const video = videos.get(chainNode.id)?.video;
+      const video = videos?.get(chainNode.id)?.video;
       if (video) hash += `${chainNode.id}.frame:${Number(video.currentTime || 0).toFixed(4)};`;
+      const liveEntry = live?.get(String(chainNode.id));
+      if (liveEntry) hash += `${chainNode.id}.live:${liveEntry.frame};`;
     }
 
     return hash;

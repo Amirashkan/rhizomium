@@ -41,6 +41,9 @@ import { spaceOutPatch } from '../../src/ai/patchLayout.js';
 const UNSUPPORTED_IN_GENERATED_PATCHES = new Set([
   'Texture2D',
   'TextureCube',
+  // Same failure, different cause: it shows another application's output, which only the artist
+  // can have running and only a local bridge can deliver.
+  'LiveInput',
 ]);
 
 /**

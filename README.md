@@ -205,6 +205,14 @@ another machine. Run `npm run ndi`, then **View → NDI Output**
 missing rather than leaving a dead toggle. Details in
 [src/output/README.md](src/output/README.md).
 
+**Video In** — brings visuals *in* from TouchDesigner, OBS, Resolume or any
+NDI source, or from anything that pushes JPEG/PNG frames over a WebSocket. Run
+`npm run video-in`, add a **Texture → Live Input** node and type the source's
+name. NDI needs the same runtime and `cyndilib` as NDI output; pushed frames
+need nothing extra. For data from TouchDesigner, use an OSC Out CHOP aimed at
+the OSC bridge above. Details in
+[docs/external-input.md](docs/external-input.md).
+
 **MIDI** needs no bridge — it is Web MIDI. See
 [src/midi/README.md](src/midi/README.md).
 

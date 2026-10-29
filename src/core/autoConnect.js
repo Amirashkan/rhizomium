@@ -28,7 +28,7 @@ import { NodeDefs } from '../data/NodeDefs.js';
  * @returns {boolean}
  */
 export function isTextureSourceKind(kind) {
-  return kind === 'Texture2D' || kind === 'Text'
+  return kind === 'Texture2D' || kind === 'Text' || kind === 'LiveInput'
     || (typeof kind === 'string' && kind.startsWith('Compute'));
 }
 

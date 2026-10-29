@@ -119,6 +119,35 @@ export const TextureNodes = {
     ],
   },
 
+  // Frames from another application - TouchDesigner, OBS, Resolume, a camera rig - received by
+  // video_in_bridge_server.py (NDI, or frames pushed to it) and sampled like any other texture.
+  // See src/input/LiveInput.js and docs/external-input.md.
+  LiveInput: {
+    label: "Live Input",
+    cat: "Texture",
+    inputs: 1,
+    pinsIn: ["UV"],
+    pinsOut: [{ label: "Color", type: "vec4" }],
+    params: [
+      {
+        name: "source",
+        type: "text",
+        default: "",
+        label: "Source",
+        description:
+          "A stream name pushed to the Video In bridge, or an NDI source name (the part in brackets is enough)",
+      },
+      {
+        name: "fit",
+        type: "select",
+        options: ["stretch", "contain", "cover"],
+        default: "stretch",
+        label: "Fit",
+        description: "How the incoming frame's proportions meet the output's",
+      },
+    ],
+  },
+
   TextureCube: {
     label: "Texture Cube",
     cat: "Texture",
