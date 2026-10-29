@@ -8,6 +8,28 @@ When one does, its entry says so under **Project files**.
 
 ---
 
+## v0.9.0-beta.9
+
+*October 29, 2026*
+
+### Added
+
+- **Live Input node** (Texture → Live Input) brings frames in from
+  TouchDesigner, OBS, Resolume, any NDI source, or anything that pushes
+  JPEG/PNG/raw RGBA frames over a WebSocket or HTTP POST. Frames arrive
+  through the new Video In bridge (`npm run video-in`, port 8769) and sample
+  like a Texture 2D, with stretch, contain or cover fit. The new
+  [External input](external-input.md) page covers it alongside OSC, with
+  TouchDesigner recipes.
+
+### Changed
+
+- **The OSC, NDI and Video In bridges are desktop-app only.** On the web the
+  OSC panel says so and disables Connect, the NDI menu entry is hidden, and
+  the Live Input node reads "desktop app only".
+
+---
+
 ## v0.9.0-beta.8
 
 *October 29, 2026*
