@@ -163,8 +163,10 @@ describe('OSCManager connection', () => {
     expect(manager.isConnected()).toBe(false);
   });
 
-  it('derives a bridge URL on the editor host', () => {
-    expect(defaultBridgeUrl()).toContain(`:${OSC_BRIDGE_PORT}/ws`);
+  it('points the bridge URL at loopback, not the page host', () => {
+    // The Windows desktop app serves the page from http://tauri.localhost,
+    // which is not where the bridge listens and is not allowed by the CSP.
+    expect(defaultBridgeUrl()).toBe(`ws://127.0.0.1:${OSC_BRIDGE_PORT}/ws`);
   });
 });
 

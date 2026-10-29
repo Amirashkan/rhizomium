@@ -26,7 +26,7 @@
  * want at a show.
  */
 
-import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE } from '../utils/bridgeAvailability.js';
+import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE, bridgeUrl } from '../utils/bridgeAvailability.js';
 
 /** Default bridge port, one past the OSC bridge on 8767. */
 export const NDI_BRIDGE_PORT = 8768;
@@ -49,11 +49,7 @@ export const NDI_DEFAULT_FPS = 30;
 const MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 
 export function defaultBridgeUrl() {
-  if (typeof window === 'undefined' || !window.location?.hostname) {
-    return `ws://127.0.0.1:${NDI_BRIDGE_PORT}/ws`;
-  }
-  const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${scheme}//${window.location.hostname}:${NDI_BRIDGE_PORT}/ws`;
+  return bridgeUrl(NDI_BRIDGE_PORT);
 }
 
 /**

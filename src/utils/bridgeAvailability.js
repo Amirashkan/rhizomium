@@ -15,3 +15,16 @@ export const BRIDGES_DESKTOP_ONLY_MESSAGE =
 export function bridgesAvailable() {
   return isTauri();
 }
+
+/**
+ * Default WebSocket URL for a local bridge on `port`.
+ *
+ * Always loopback: the bridges run on the same machine as the desktop app,
+ * and the app's page host is not a network host — `tauri.localhost` on
+ * Windows, `localhost` under the `tauri:` scheme on macOS/Linux — so building
+ * the URL from `location.hostname` points the socket at nothing (and at a
+ * host the desktop CSP does not allow).
+ */
+export function bridgeUrl(port) {
+  return `ws://127.0.0.1:${port}/ws`;
+}

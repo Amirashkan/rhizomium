@@ -19,7 +19,7 @@
  * network.
  */
 
-import { bridgesAvailable } from '../utils/bridgeAvailability.js';
+import { bridgesAvailable, bridgeUrl } from '../utils/bridgeAvailability.js';
 
 /** Default bridge port, one past the NDI output bridge on 8768. */
 export const VIDEO_IN_BRIDGE_PORT = 8769;
@@ -28,11 +28,7 @@ export const VIDEO_IN_BRIDGE_PORT = 8769;
 const SWEEP_INTERVAL_MS = 2000;
 
 export function defaultVideoInUrl() {
-  if (typeof window === 'undefined' || !window.location?.hostname) {
-    return `ws://127.0.0.1:${VIDEO_IN_BRIDGE_PORT}/ws`;
-  }
-  const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${scheme}//${window.location.hostname}:${VIDEO_IN_BRIDGE_PORT}/ws`;
+  return bridgeUrl(VIDEO_IN_BRIDGE_PORT);
 }
 
 /** Normalise a node's Source parameter: trimmed text, or '' for "nothing chosen". */

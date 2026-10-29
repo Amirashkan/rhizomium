@@ -1,7 +1,7 @@
 // src/osc/OSCManager.js
 
 import { decodeMessages, oscArgToNumber, OSCDecodeError } from './OSCDecoder.js';
-import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE } from '../utils/bridgeAvailability.js';
+import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE, bridgeUrl } from '../utils/bridgeAvailability.js';
 
 /**
  * OSCManager - receives OSC over a WebSocket bridge and emits events.
@@ -29,11 +29,7 @@ export const OSC_DEFAULT_UDP_PORT = 9000;
 const MAX_TRACKED_ADDRESSES = 512;
 
 export function defaultBridgeUrl() {
-  if (typeof window === 'undefined' || !window.location?.hostname) {
-    return `ws://127.0.0.1:${OSC_BRIDGE_PORT}/ws`;
-  }
-  const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${scheme}//${window.location.hostname}:${OSC_BRIDGE_PORT}/ws`;
+  return bridgeUrl(OSC_BRIDGE_PORT);
 }
 
 export class OSCManager {

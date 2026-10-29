@@ -25,6 +25,7 @@
  */
 
 import { openExternal } from '../utils/openExternal.js';
+import { isTauri } from '../utils/isTauri.js';
 import { CollabSession, STATES, peerColor } from '../collab/CollabSession.js';
 import { resolveCollabAccess, refusalMessage } from '../collab/collabGate.js';
 import { collabGrantGetter } from '../collab/collabGrant.js';
@@ -139,7 +140,9 @@ function suggestRoom() {
 }
 
 function defaultRelayUrl() {
-  if (typeof location === 'undefined') return `ws://127.0.0.1:${DEFAULT_RELAY_PORT}/room`;
+  // The desktop app's page host (tauri.localhost / tauri://localhost) is not
+  // a network host, so a relay on this machine is reached over loopback.
+  if (typeof location === 'undefined' || isTauri()) return `ws://127.0.0.1:${DEFAULT_RELAY_PORT}/room`;
   const host = location.hostname || '127.0.0.1';
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${scheme}://${host}:${DEFAULT_RELAY_PORT}/room`;
