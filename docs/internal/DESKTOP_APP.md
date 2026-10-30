@@ -238,7 +238,7 @@ This builds without NDI inside. Release builds also bundle Vizrt's NDI Runtime
 (see src/output/README.md); to do the same locally, on Windows:
 
 ```bash
-pwsh scripts/fetch-ndi-runtime.ps1        # elevated: installs the runtime, stages its DLL
+pwsh scripts/fetch-ndi-runtime.ps1        # stages the signed NDI Runtime DLL
 npm run tauri:build -- --config src-tauri/tauri.ndi.conf.json
 ```
 
