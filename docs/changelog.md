@@ -8,7 +8,9 @@ When one does, its entry says so under **Project files**.
 
 ---
 
-## Unreleased
+## v0.9.0-beta.10
+
+*October 30, 2026*
 
 ### Changed
 
