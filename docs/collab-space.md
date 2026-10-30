@@ -33,7 +33,7 @@ problem gets reported as a flaky network.
 ## Running the relay
 
 `rhizo_server.py` starts one on `ws://127.0.0.1:8767/room` alongside the frame
-stream and the OSC bridge. On its own there are three ways to run it, and they
+stream. On its own there are three ways to run it, and they
 differ in what they can prove about whoever just connected:
 
 ```bash

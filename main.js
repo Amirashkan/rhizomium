@@ -34,6 +34,7 @@ import { MIDIManager } from './src/midi/MIDIManager.js';
 import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
 import { NDIOutput } from './src/output/NDIOutput.js';
+import { offerNdiRuntime } from './src/ui/ndiRuntimePrompt.js';
 import { OSCManager } from './src/osc/OSCManager.js';
 import { OSCParameterBinding } from './src/osc/OSCParameterBinding.js';
 import { getOSCSettingsPanel } from './src/ui/OSCSettingsPanel.js';
@@ -655,9 +656,9 @@ async function initialize() {
       console.error("Error stack:", error.stack);
     }
 
-    // Create OSC system. Unlike MIDI this opens no socket until the artist
-    // connects from the OSC panel — the bridge may not be running, and a failed
-    // connection on every startup would be noise.
+    // Create OSC system. Unlike MIDI this opens nothing at startup: OSC
+    // connects once a patch has OSC bindings or learn starts
+    // (OSCParameterBinding.connectWhenNeeded), or from the OSC panel.
     try {
       const oscManager = new OSCManager(editor.eventSystem);
       window.oscManager = oscManager;
@@ -1916,9 +1917,8 @@ function setupUIEventHandlers() {
   // NDI output. Publishes the render onto the network as an NDI source that a
   // vision mixer, OBS or a monitor on another machine can subscribe to.
   //
-  // Desktop app only, like every bridge (src/utils/bridgeAvailability.js): a
-  // browser cannot speak NDI at all, so the frames go to a local bridge
-  // process (ndi_bridge_server.py) that owns the actual sender.
+  // Desktop app only (src/utils/bridgeAvailability.js): a webview cannot speak
+  // NDI at all, so the frames go to the app itself, which owns the sender.
   const ndiBtn = removeExistingHandlers("btn-ndi-output");
   if (ndiBtn && isTauri()) {
     document.getElementById("sep-ndi-output")?.style.removeProperty("display");
@@ -1975,22 +1975,21 @@ function setupUIEventHandlers() {
           if (status.ndiAvailable) {
             updateStatus(`NDI output live as "${status.sourceName}"`);
           } else {
-            // The bridge is running but cannot publish - usually a missing NDI
-            // runtime. It knows exactly why, so pass that on rather than
-            // reporting a generic failure.
             updateStatus(`NDI unavailable: ${status.ndiError}`, "warning");
           }
         }
-      } catch {
-        // Nothing is listening. Stop rather than retrying in the background,
-        // so the button keeps telling the truth about whether output is on.
+        // Almost always the NDI Runtime not being installed. Output stays on:
+        // frames start going out the moment it is.
+        if (!status.ndiAvailable && status.ndiRuntimeUrl) {
+          offerNdiRuntime(status.ndiError);
+        }
+      } catch (error) {
+        // Stop rather than retrying in the background, so the button keeps
+        // telling the truth about whether output is on.
         ndiOutput?.disable();
         setNdiButtonState(false);
         if (typeof updateStatus === "function") {
-          updateStatus(
-            "Could not reach the NDI bridge. Start it with: python3 ndi_bridge_server.py",
-            "error"
-          );
+          updateStatus(`NDI output could not start: ${error.message}`, "error");
         }
       }
     });

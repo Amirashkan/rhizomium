@@ -22,7 +22,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://art.tenderworld.org https://studio.tenderworld.org https://*.supabase.co ws://localhost:8765 http://localhost:8765 ws://127.0.0.1:8766 ws://localhost:8767 ws://127.0.0.1:8767 ws://localhost:8768 ws://127.0.0.1:8768 ws://localhost:8769 ws://127.0.0.1:8769; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://art.tenderworld.org https://studio.tenderworld.org https://*.supabase.co ws://localhost:8765 http://localhost:8765 ws://127.0.0.1:8766 ws://localhost:8767 ws://127.0.0.1:8767; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
     />
     <title>Rhizomium Studio - WebGPU node editor for real-time generative visuals</title>
     <!-- The studio is a single-page app: everything below <body> is an empty
@@ -433,9 +433,8 @@
             <input type="number" id="second-monitor-display-custom" inputmode="numeric" min="256" max="7680" step="1" value="1920" />
           </label>
           <!-- NDI output. Publishes the render to the network as an NDI source.
-               Like the second monitor this needs the Vite/desktop build, and it
-               also needs the local bridge (ndi_bridge_server.py) that owns the
-               NDI sender, so it ships hidden and main.js reveals it. -->
+               Desktop app only (the app owns the NDI sender), so it ships
+               hidden and main.js reveals it. -->
           <div class="menu-separator" id="sep-ndi-output" style="display:none"></div>
           <button id="btn-ndi-output" style="display:none">NDI Output</button>
           <!-- The name receivers list this machine under. Two machines both

@@ -53,6 +53,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Vizrt's NDI Runtime, shipped inside the installer so NDI works with
+      # nothing else installed. Fetched per build, never committed; see
+      # scripts/fetch-ndi-runtime.ps1 and tauri.ndi.conf.json.
+      - name: Stage the NDI Runtime
+        shell: pwsh
+        run: ./scripts/fetch-ndi-runtime.ps1
+
       - name: Build and bundle
         uses: tauri-apps/tauri-action@v0
         env:
@@ -71,3 +78,14 @@ jobs:
             Requires Windows 10 or 11 with WebView2 — see docs/internal/DESKTOP_APP.md.
           releaseDraft: true
           prerelease: false
+          # Bundle the NDI Runtime staged above.
+          args: --config src-tauri/tauri.ndi.conf.json
+
+      # A release without NDI inside would fall back to asking the artist to
+      # install it — exactly what bundling is for — so make that a failure.
+      - name: Check the NDI Runtime is in the bundle
+        shell: pwsh
+        run: |
+          if (-not (Test-Path src-tauri/target/release/ndi/Processing.NDI.Lib.x64.dll)) {
+            throw 'Processing.NDI.Lib.x64.dll is missing from the bundle resources'
+          }

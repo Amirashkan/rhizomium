@@ -3,10 +3,10 @@
 /**
  * OSC 1.0 wire-format decoder.
  *
- * OSC travels over UDP and a browser cannot open a UDP socket, so packets reach
- * the editor through a bridge (see osc_bridge_server.py) that forwards each
- * datagram untouched. That means the editor decodes the real wire format rather
- * than a JSON rendering of it, which keeps the bridge dumb and lets any OSC
+ * OSC travels over UDP and a webview cannot open a UDP socket, so packets reach
+ * the editor through the desktop app (src-tauri/src/bridge/osc.rs), which
+ * forwards each datagram untouched. That means the editor decodes the real wire
+ * format rather than a JSON rendering of it, which keeps the app dumb and lets any OSC
  * source — TouchOSC, Max, SuperCollider, Resolume — talk to us without agreeing
  * on a private envelope first.
  *

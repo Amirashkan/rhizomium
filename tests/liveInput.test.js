@@ -1,7 +1,7 @@
 // Live Input: frames from outside the editor (TouchDesigner, OBS, NDI sources) as a texture.
 //
 // LiveInput is the editor half - it subscribes to the sources Live Input nodes name on the
-// video_in_bridge_server.py socket and hands each decoded frame to TextureManager. What matters
+// desktop app's video socket and hands each decoded frame to TextureManager. What matters
 // is what a live show leans on: a node binds itself just by being compiled, frames reach every
 // node on that source, a slow decode skips frames instead of queueing them, and a node that is
 // gone stops its subscription. The codegen half must bind and sample it exactly like a Texture 2D.
@@ -9,7 +9,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   LiveInput,
-  VIDEO_IN_BRIDGE_PORT,
   defaultVideoInUrl,
   normalizeSourceName,
 } from '../src/input/LiveInput.js';
@@ -59,7 +58,7 @@ describe('LiveInput client', () => {
     window.__TAURI_INTERNALS__ = {};
     textureManager = { setLiveFrame: vi.fn(), releaseLiveInput: vi.fn() };
     live = new LiveInput({
-      url: 'ws://127.0.0.1:8769/ws',
+      url: 'ws://127.0.0.1:8767/video',
       textureManager,
       decode: vi.fn(async (header) => fakeBitmap(header.width, header.height)),
     });
@@ -79,9 +78,8 @@ describe('LiveInput client', () => {
     expect(live.statusFor('n1').state).toBe('desktop-only');
   });
 
-  it('defaults to the bridge port next to NDI output', () => {
-    expect(VIDEO_IN_BRIDGE_PORT).toBe(8769);
-    expect(defaultVideoInUrl()).toContain(':8769/ws');
+  it('uses the app\'s video endpoint, the same one NDI output uses', () => {
+    expect(defaultVideoInUrl()).toBe('ws://127.0.0.1:8767/video');
     expect(normalizeSourceName('  TouchDesigner  ')).toBe('TouchDesigner');
     expect(normalizeSourceName(null)).toBe('');
   });
@@ -192,11 +190,10 @@ describe('LiveInput client', () => {
     expect(live.sourceFor('6')).toBe('OBS');
   });
 
-  it('reports a missing bridge so the thumbnail can say what to run', () => {
+  it('reports connecting until the app answers', () => {
     live.bind('5', 'TouchDesigner');
     const status = live.statusFor('5');
-    expect(status.state).toBe('no-bridge');
-    expect(status.message).toContain('npm run video-in');
+    expect(status.state).toBe('connecting');
   });
 
   it('records what the bridge says about NDI and the sources it sees', () => {

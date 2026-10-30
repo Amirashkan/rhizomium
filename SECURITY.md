@@ -43,10 +43,12 @@ strangers. Anything that turns a patch into code execution matters:
   `viewer/index.html`.
 - XSS through node labels, parameter values or patch metadata.
 
-**The local bridges** — `osc_bridge_server.py`, `ndi_bridge_server.py`,
+**The local servers** — the desktop app's connection service
+(`src-tauri/src/bridge`: OSC, NDI and Live Input on 127.0.0.1:8767),
 `rhizo_server.py`, `collab_room_server.py`. They listen on localhost, so any
-page in the browser can reach them. Path traversal, command execution, or
-overly permissive CORS on these is in scope.
+page in the browser can reach them. Path traversal, command execution, origin
+checks that let another site in, or overly permissive CORS on these is in
+scope.
 
 **Collaboration** — `src/collab/`, `collab_room_server.py`: joining a room you
 were not invited to, or reading another session's data.

@@ -2181,9 +2181,9 @@ Samples frames sent in from another application — TouchDesigner, OBS, Resolume
 - **Outputs**:
   - `Color` (vec4) - Sampled color with alpha
 - **Parameters**:
-  - `Source` (text) - A stream name pushed to the Video In bridge, or an NDI source name. For NDI, the part in brackets is enough: `TouchDesigner` finds `STUDIO-PC (TouchDesigner)`
+  - `Source` (text) - An NDI source name, or a stream name pushed to the app. For NDI, the part in brackets is enough: `TouchDesigner` finds `STUDIO-PC (TouchDesigner)`
   - `Fit` (select: stretch/contain/cover, default: stretch) - How the incoming frame's proportions meet the output's
-- **Description**: Needs the Video In bridge running (`npm run video-in`); the thumbnail says when it is missing or still waiting for the named source. Each new frame is copied into the node's texture as it arrives, so everything downstream treats it like a Texture 2D. Local-only, like OSC and NDI. See [Input from Other Software](external-input.md).
+- **Description**: Desktop app only; receiving starts as soon as the node has a source, and the thumbnail says when it is still waiting for it. Each new frame is copied into the node's texture as it arrives, so everything downstream treats it like a Texture 2D. Local-only, like OSC and NDI. See [Input from Other Software](external-input.md).
 
 #### Texture Cube
 Samples a cubemap texture.

@@ -12,7 +12,7 @@ it is allowed to do.
  (media)      (the plan)        ▲                     scenario ─┘   at a desk)
                                 └── your own clips, onto the looks
 
-your DAW ──OSC──> osc_bridge_server.py ──ws──> OSCManager ─┐
+your DAW ──OSC──> Rhizomium app ──ws──> OSCManager ────────┐
                                                            │
               audio analysis (src/audio/) ─────────────────┼──> SignalBus
                                                            │       │

@@ -547,3 +547,41 @@ describe('the shared write path', () => {
     expect(() => send('/a', [1])).not.toThrow();
   });
 });
+
+describe('OSCParameterBinding connects OSC when it is needed', () => {
+  let manager;
+  beforeEach(() => {
+    window.__TAURI_INTERNALS__ = {};
+    manager = { isEnabled: false, initialize: vi.fn(() => Promise.resolve()), getAddresses: () => [] };
+  });
+  afterEach(() => {
+    delete window.__TAURI_INTERNALS__;
+  });
+
+  it('on the first binding, on learn and on loading a patch with bindings', () => {
+    const graph = { nodes: [{ id: 'n1', kind: 'CircleField', params: { radius: 0.5 } }], connections: [] };
+    const created = new OSCParameterBinding(graph, makeEventSystem(), manager);
+    created.createBinding('/fader', 0, 'n1', 'radius');
+    expect(manager.initialize).toHaveBeenCalledTimes(1);
+
+    const learning = new OSCParameterBinding(graph, makeEventSystem(), manager);
+    learning.startLearning('n1', 'radius');
+    expect(manager.initialize).toHaveBeenCalledTimes(2);
+
+    const loaded = new OSCParameterBinding(graph, makeEventSystem(), manager);
+    loaded.deserialize({ bindings: [] });
+    expect(manager.initialize).toHaveBeenCalledTimes(2);
+    loaded.deserialize({ bindings: [{ address: '/fader', argIndex: 0, nodeId: 'n1', paramName: 'radius' }] });
+    expect(manager.initialize).toHaveBeenCalledTimes(3);
+  });
+
+  it('leaves an already connected manager alone, and never connects on the web', () => {
+    const graph = { nodes: [{ id: 'n1', kind: 'CircleField', params: { radius: 0.5 } }], connections: [] };
+    manager.isEnabled = true;
+    new OSCParameterBinding(graph, makeEventSystem(), manager).createBinding('/a', 0, 'n1', 'radius');
+    manager.isEnabled = false;
+    delete window.__TAURI_INTERNALS__;
+    new OSCParameterBinding(graph, makeEventSystem(), manager).createBinding('/b', 0, 'n1', 'radius');
+    expect(manager.initialize).not.toHaveBeenCalled();
+  });
+});

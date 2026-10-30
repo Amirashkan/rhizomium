@@ -10,6 +10,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'vite.config.*'
+      - 'scripts/fetch-ndi-runtime.ps1'
   workflow_dispatch:
 
 permissions:
@@ -39,8 +40,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Vizrt's NDI Runtime, shipped inside the installer so NDI works with
+      # nothing else installed. Fetched per build, never committed; see
+      # scripts/fetch-ndi-runtime.ps1 and tauri.ndi.conf.json.
+      - name: Stage the NDI Runtime
+        shell: pwsh
+        run: ./scripts/fetch-ndi-runtime.ps1
+
       - name: Build Windows installers
-        run: npm run tauri:build
+        run: npm run tauri:build -- --config src-tauri/tauri.ndi.conf.json
+
+      # A release without NDI inside would fall back to asking the artist to
+      # install it — exactly what bundling is for — so make that a failure.
+      - name: Check the NDI Runtime is in the bundle
+        shell: pwsh
+        run: |
+          if (-not (Test-Path src-tauri/target/release/ndi/Processing.NDI.Lib.x64.dll)) {
+            throw 'Processing.NDI.Lib.x64.dll is missing from the bundle resources'
+          }
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

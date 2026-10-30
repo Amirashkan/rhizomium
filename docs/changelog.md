@@ -8,6 +8,32 @@ When one does, its entry says so under **Project files**.
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **OSC, NDI and Live Input are built into the desktop app.** There are no
+  bridges to run any more: the app switches each one on the first time a patch
+  uses it (OSC when a patch has OSC bindings or learn starts, NDI when output
+  is turned on or a Live Input has a source) and lets go of the network when
+  nothing does. NDI output and Live Input are one NDI feature on one local
+  port (8767).
+- **The Windows installer includes the NDI Runtime**, so NDI output and NDI
+  Live Inputs work with nothing else installed.
+
+### Removed
+
+- `osc_bridge_server.py`, `ndi_bridge_server.py`, `video_in_bridge_server.py`
+  and the `npm run osc` / `ndi` / `video-in` scripts. Programs that push
+  frames to Live Input now send to `127.0.0.1:8767` instead of `8769`.
+
+### Fixed
+
+- OSC in the installed Windows app failed with "Could not reach the OSC bridge
+  at ws://tauri.localhost:8767/ws".
+
+---
+
 ## v0.9.0-beta.9
 
 *October 29, 2026*

@@ -1,22 +1,20 @@
 // src/osc/OSCManager.js
 
 import { decodeMessages, oscArgToNumber, OSCDecodeError } from './OSCDecoder.js';
-import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE } from '../utils/bridgeAvailability.js';
+import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE, bridgeUrl, withBridge } from '../utils/bridgeAvailability.js';
 
 /**
- * OSCManager - receives OSC over a WebSocket bridge and emits events.
+ * OSCManager - receives OSC through the desktop app and emits events.
  *
  * This is the OSC counterpart to MIDIManager. The shape is deliberately the
  * same (initialize / disable / getStatus / value lookups / events on the shared
  * event system) so the binding layer and settings panel read alike, but the
  * transport is not: Web MIDI hands us devices, while OSC arrives as UDP that no
- * browser can listen for. A bridge (osc_bridge_server.py) owns the UDP socket
- * and forwards each datagram over a WebSocket, so "connecting" here means
- * reaching the bridge, and "devices" become the OSC addresses seen so far.
+ * webview can listen for. The app's connection service (src-tauri/src/bridge)
+ * owns the UDP socket and forwards each datagram over a WebSocket, so
+ * "connecting" here means reaching that service, and "devices" become the OSC
+ * addresses seen so far.
  */
-
-/** Default bridge port, one past the frame-stream server on 8766. */
-export const OSC_BRIDGE_PORT = 8767;
 
 /** Default UDP port the bridge listens on — the usual OSC convention. */
 export const OSC_DEFAULT_UDP_PORT = 9000;
@@ -29,11 +27,7 @@ export const OSC_DEFAULT_UDP_PORT = 9000;
 const MAX_TRACKED_ADDRESSES = 512;
 
 export function defaultBridgeUrl() {
-  if (typeof window === 'undefined' || !window.location?.hostname) {
-    return `ws://127.0.0.1:${OSC_BRIDGE_PORT}/ws`;
-  }
-  const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${scheme}//${window.location.hostname}:${OSC_BRIDGE_PORT}/ws`;
+  return bridgeUrl('osc');
 }
 
 export class OSCManager {
@@ -102,60 +96,71 @@ export class OSCManager {
     return new Promise((resolve, reject) => {
       let settled = false;
 
-      let socket;
-      try {
-        socket = new WebSocket(this.url);
-      } catch (error) {
+      const open = () => {
+        let socket;
+        try {
+          socket = new WebSocket(this.url);
+        } catch (error) {
+          this.lastError = error.message;
+          this._emit('OSC_ERROR', { message: error.message, url: this.url });
+          reject(error);
+          return;
+        }
+
+        this.ws = socket;
+        // Datagrams arrive as raw OSC, so ask for buffers rather than Blobs.
+        socket.binaryType = 'arraybuffer';
+
+        socket.onopen = () => {
+          this.connected = true;
+          this.isEnabled = true;
+          this.reconnectAttempts = 0;
+          this.reconnectDelay = 1000;
+          this.lastError = null;
+
+          this._emit('OSC_CONNECTED', { url: this.url });
+
+          if (!settled) {
+            settled = true;
+            resolve(true);
+          }
+        };
+
+        socket.onmessage = (event) => this._handleTransportMessage(event.data);
+
+        socket.onerror = () => {
+          // The error event carries no useful detail in browsers; the close that
+          // follows is what tells us whether to retry.
+          this.lastError = `Could not reach OSC in the app at ${this.url}`;
+          this._emit('OSC_ERROR', { message: this.lastError, url: this.url });
+        };
+
+        socket.onclose = () => {
+          const wasConnected = this.connected;
+          this.connected = false;
+          if (this.ws === socket) this.ws = null;
+
+          const willRetry = this.isEnabled && this.reconnectAttempts < this.maxReconnectAttempts;
+          this._emit('OSC_DISCONNECTED', { url: this.url, willRetry });
+
+          if (!settled) {
+            settled = true;
+            reject(new Error(this.lastError || `Could not reach OSC in the app at ${this.url}`));
+          }
+
+          if (this.isEnabled) this._scheduleReconnect();
+          else if (wasConnected) this._clearReconnectTimer();
+        };
+      };
+
+      // The app starts its connection service on first use.
+      withBridge(open, (error) => {
         this.lastError = error.message;
         this._emit('OSC_ERROR', { message: error.message, url: this.url });
+        settled = true;
         reject(error);
-        return;
-      }
-
-      this.ws = socket;
-      // Datagrams arrive as raw OSC, so ask for buffers rather than Blobs.
-      socket.binaryType = 'arraybuffer';
-
-      socket.onopen = () => {
-        this.connected = true;
-        this.isEnabled = true;
-        this.reconnectAttempts = 0;
-        this.reconnectDelay = 1000;
-        this.lastError = null;
-
-        this._emit('OSC_CONNECTED', { url: this.url });
-
-        if (!settled) {
-          settled = true;
-          resolve(true);
-        }
-      };
-
-      socket.onmessage = (event) => this._handleTransportMessage(event.data);
-
-      socket.onerror = () => {
-        // The error event carries no useful detail in browsers; the close that
-        // follows is what tells us whether to retry.
-        this.lastError = `Could not reach the OSC bridge at ${this.url}`;
-        this._emit('OSC_ERROR', { message: this.lastError, url: this.url });
-      };
-
-      socket.onclose = () => {
-        const wasConnected = this.connected;
-        this.connected = false;
-        if (this.ws === socket) this.ws = null;
-
-        const willRetry = this.isEnabled && this.reconnectAttempts < this.maxReconnectAttempts;
-        this._emit('OSC_DISCONNECTED', { url: this.url, willRetry });
-
-        if (!settled) {
-          settled = true;
-          reject(new Error(this.lastError || `Could not reach the OSC bridge at ${this.url}`));
-        }
-
         if (this.isEnabled) this._scheduleReconnect();
-        else if (wasConnected) this._clearReconnectTimer();
-      };
+      });
     });
   }
 

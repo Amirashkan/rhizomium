@@ -22,7 +22,7 @@ For the desktop build you also need:
   with the "Desktop development with C++" workload
 - WebView2 - already present on Windows 11 and up-to-date Windows 10
 
-Python is **not** required. It is only used by the optional local bridges
+Python is **not** required. It is only used by the optional local servers
 below.
 
 ---
@@ -38,9 +38,6 @@ npm run dev
 
 Vite serves on **http://localhost:5173**. The landing page is at `/` and the
 editor at `/editor/`.
-
-`npm run dev` also starts the OSC bridge if Python is installed, and prints a
-one-line note instead if it is not.
 
 AI features call `/api/ai/run`, which only exists on the deployment. The dev
 server forwards `/api` to `https://studio.tenderworld.org` (override with
@@ -103,26 +100,32 @@ All three must pass; CI runs them on every push. `npm run test:watch` and
 
 ---
 
-## Optional local bridges (Python)
+## OSC, NDI and Live Input
 
-Some protocols cannot be spoken from a browser, so small Python processes
-bridge them. None are needed for the editor itself, and none work on a static
-web deploy.
+These need things a browser cannot do (UDP, NDI), so they are part of the
+desktop app (`src-tauri/src/bridge`), which starts each one when a patch first
+uses it — under `npm run tauri:dev` exactly as in an installed build. Nothing
+needs to be run alongside. See
+[src/osc/README.md](https://github.com/Amirashkan/rhizomium/blob/develop/src/osc/README.md),
+[src/output/README.md](https://github.com/Amirashkan/rhizomium/blob/develop/src/output/README.md)
+and [external-input.md](external-input.md).
+
+## Optional local servers (Python)
+
+None are needed for the editor itself, and none work on a static web deploy.
 
 ```bash
 pip install -r requirements.txt
 ```
 
-| Bridge | Start it with | Used by |
+| Server | Start it with | Used by |
 |---|---|---|
-| OSC (UDP 9000 → WebSocket) | `npm run osc` (auto-started by `npm run dev` / `tauri:dev`) | **Tools → OSC Receiver** - see [src/osc/README.md](https://github.com/Amirashkan/rhizomium/blob/develop/src/osc/README.md) |
-| NDI output | `npm run ndi` (needs the [NDI runtime](https://ndi.video/) and `pip install cyndilib`) | **View → NDI Output** - see [src/output/README.md](https://github.com/Amirashkan/rhizomium/blob/develop/src/output/README.md) |
 | Collab room relay | `python collab_room_server.py` | The collab space |
 
 `python rhizo_server.py` is an all-in-one alternative: a Flask server on
-**http://127.0.0.1:5000** that serves the repository and starts the OSC bridge,
-the collab relay and the frame-stream server alongside it. It is a convenience
-for working on the bridges; `npm run dev` is the normal way to run the editor.
+**http://127.0.0.1:5000** that serves the repository and starts the collab
+relay and the frame-stream server alongside it. `npm run dev` is the normal way
+to run the editor.
 
 MIDI needs no bridge - it uses Web MIDI. See [MIDI Controller Integration](midi.md).
 

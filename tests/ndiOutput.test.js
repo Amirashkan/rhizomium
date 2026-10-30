@@ -1,5 +1,5 @@
 // NDIOutput is the editor half of the NDI path: it takes frames off the
-// renderer's tap and writes them to the local bridge, which owns the actual NDI
+// renderer's tap and writes them to the desktop app, which owns the actual NDI
 // sender. What matters here is the behaviour that only shows up under load at a
 // live show — the throttle, the backpressure drop, and the rule that every
 // tapped bitmap is closed on every path, including the ones that send nothing.
@@ -7,7 +7,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   NDIOutput,
-  NDI_BRIDGE_PORT,
   NDI_DEFAULT_SOURCE_NAME,
   defaultBridgeUrl,
 } from '../src/output/NDIOutput.js';
@@ -74,13 +73,14 @@ function stubReadback() {
   return context;
 }
 
-/** Connect an output to a fake bridge and hand back the pieces a test needs. */
+/** Connect an output to a fake app and hand back the pieces a test needs. */
 async function connected(options = {}) {
   const output = new NDIOutput(options);
   const renderer = fakeRenderer();
   const promise = output.initialize(renderer);
   const socket = FakeSocket.instances.at(-1);
   socket.onopen();
+  socket.onmessage({ data: JSON.stringify({ type: 'welcome', ndi_available: true }) });
   await promise;
   return { output, renderer, socket };
 }
@@ -100,10 +100,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('NDIOutput bridge address', () => {
-  it('defaults to the loopback bridge one port past the OSC bridge', () => {
-    expect(NDI_BRIDGE_PORT).toBe(8768);
-    expect(defaultBridgeUrl()).toContain(`:${NDI_BRIDGE_PORT}/ws`);
+describe('NDIOutput address', () => {
+  it('uses the app\'s video endpoint on loopback', () => {
+    expect(defaultBridgeUrl()).toBe('ws://127.0.0.1:8767/video');
   });
 });
 
@@ -127,22 +126,30 @@ describe('NDIOutput connection', () => {
     expect(renderer.untapped).toBe(true);
   });
 
-  it('takes the bridge\'s word on whether NDI actually works', async () => {
-    const { output, socket } = await connected();
-    expect(output.getStatus().ndiAvailable).toBe(false);
+  it('waits for the app to say whether NDI works, and passes on why not', async () => {
+    const output = new NDIOutput();
+    let settled = false;
+    const promise = output.initialize(fakeRenderer()).then(() => { settled = true; });
+    const socket = FakeSocket.instances.at(-1);
+    socket.onopen();
+    await Promise.resolve();
+    expect(settled).toBe(false);
 
     socket.onmessage({ data: JSON.stringify({
       type: 'welcome', ndi_available: false,
-      ndi_error: 'The cyndilib Python binding is not installed.',
+      ndi_error: 'NDI needs the free NDI Runtime, which is not installed on this computer.',
+      ndi_runtime_url: 'https://ndi.link/NDIRedistV6',
       source_name: NDI_DEFAULT_SOURCE_NAME,
     }) });
+    await promise;
 
-    // Reaching the bridge is not the same as being able to publish, and the
+    // Reaching the app is not the same as being able to publish, and the
     // difference is what the artist has to be told.
     const status = output.getStatus();
     expect(status.connected).toBe(true);
     expect(status.ndiAvailable).toBe(false);
-    expect(status.ndiError).toContain('cyndilib');
+    expect(status.ndiError).toContain('NDI Runtime');
+    expect(status.ndiRuntimeUrl).toBe('https://ndi.link/NDIRedistV6');
   });
 
   it('ignores a malformed message rather than throwing on the socket', async () => {

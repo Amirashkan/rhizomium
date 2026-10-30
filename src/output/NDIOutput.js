@@ -3,16 +3,16 @@
 /**
  * NDIOutput - publishes the rendered output as an NDI source.
  *
- * A browser cannot speak NDI: the protocol announces itself over mDNS and moves
+ * A webview cannot speak NDI: the protocol announces itself over mDNS and moves
  * frames over raw sockets, none of which a page can open. So this class does
  * the half that can be done here — take every rendered frame, turn it into
- * RGBA, and hand it to ndi_bridge_server.py, which owns the NDI sender.
+ * RGBA, and hand it to the desktop app's connection service
+ * (src-tauri/src/bridge/video.rs), which owns the NDI sender. The same service
+ * receives NDI for Live Input nodes (src/input/LiveInput.js).
  *
- * The shape follows OSCManager, the project's other bridge client: same
- * initialize / disable / getStatus surface, same reconnect backoff, same idea
- * that "connected" means reaching the bridge rather than reaching the network.
- * The direction is the only real difference — OSC reads from its bridge, this
- * one writes to it.
+ * The shape follows OSCManager: same initialize / disable / getStatus surface,
+ * same reconnect backoff, same idea that "connected" means reaching the app's
+ * service rather than reaching the network.
  *
  * ## Why frames come from the renderer's tap
  *
@@ -26,15 +26,12 @@
  * want at a show.
  */
 
-import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE } from '../utils/bridgeAvailability.js';
-
-/** Default bridge port, one past the OSC bridge on 8767. */
-export const NDI_BRIDGE_PORT = 8768;
+import { bridgesAvailable, BRIDGES_DESKTOP_ONLY_MESSAGE, bridgeUrl, withBridge } from '../utils/bridgeAvailability.js';
 
 /** What receivers see on the network unless the artist renames it. */
 export const NDI_DEFAULT_SOURCE_NAME = 'Rhizomium';
 
-/** Frames per second sent to the bridge, unless configured otherwise. */
+/** Frames per second sent to NDI, unless configured otherwise. */
 export const NDI_DEFAULT_FPS = 30;
 
 /**
@@ -49,11 +46,7 @@ export const NDI_DEFAULT_FPS = 30;
 const MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 
 export function defaultBridgeUrl() {
-  if (typeof window === 'undefined' || !window.location?.hostname) {
-    return `ws://127.0.0.1:${NDI_BRIDGE_PORT}/ws`;
-  }
-  const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${scheme}//${window.location.hostname}:${NDI_BRIDGE_PORT}/ws`;
+  return bridgeUrl('video');
 }
 
 /**
@@ -89,10 +82,11 @@ export class NDIOutput {
     this.maxReconnectDelay = 30000;
     this.reconnectTimer = null;
 
-    // What the bridge told us about itself: whether NDI works on this machine
-    // and, when it does not, the reason to show the artist.
+    // What the app told us: whether NDI works on this machine and, when it
+    // does not, the reason and where to get the NDI Runtime.
     this.ndiAvailable = false;
     this.ndiError = null;
+    this.ndiRuntimeUrl = null;
 
     // The renderer this is tapping, and how to stop.
     this.renderer = null;
@@ -120,11 +114,10 @@ export class NDIOutput {
   }
 
   /**
-   * Start publishing: connect to the bridge and attach to the renderer.
+   * Start publishing: connect to the app's NDI service and attach to the renderer.
    *
-   * Named to match OSCManager.initialize(). Resolves once the socket is open —
-   * which says the bridge is reachable, not that NDI itself works. Whether it
-   * does arrives in the welcome message and lands in `ndiAvailable`.
+   * Named to match OSCManager.initialize(). Resolves once the welcome message
+   * has arrived, so `ndiAvailable` already says whether NDI itself works.
    *
    * @param {object} renderer - a GPURenderer exposing addFrameTap
    */
@@ -150,48 +143,61 @@ export class NDIOutput {
 
     return new Promise((resolve, reject) => {
       let settled = false;
-      let socket;
-      try {
-        socket = new WebSocket(this.url);
-      } catch (error) {
-        this.lastError = error.message;
-        reject(error);
-        return;
-      }
-      socket.binaryType = 'arraybuffer';
-      this.ws = socket;
-
-      socket.onopen = () => {
-        this.connected = true;
-        this.reconnectAttempts = 0;
-        this.lastError = null;
-        this._attachTap();
-        // Ask for the name the artist configured; the bridge may have been
-        // started by hand with a different one.
-        this._send({ type: 'set_source_name', name: this.sourceName });
-        this._send({ type: 'set_frame_rate', fps: this.targetFps });
+      const settle = (error) => {
+        if (settled) return;
         settled = true;
-        resolve();
+        if (error) reject(error);
+        else resolve();
       };
 
-      socket.onmessage = (event) => this._handleMessage(event);
-
-      socket.onerror = () => {
-        this.lastError = `Could not reach the NDI bridge at ${this.url}`;
-        if (!settled) {
-          settled = true;
-          reject(new Error(this.lastError));
+      const open = () => {
+        let socket;
+        try {
+          socket = new WebSocket(this.url);
+        } catch (error) {
+          this.lastError = error.message;
+          settle(error);
+          return;
         }
+        socket.binaryType = 'arraybuffer';
+        this.ws = socket;
+
+        socket.onopen = () => {
+          this.connected = true;
+          this.reconnectAttempts = 0;
+          this.lastError = null;
+          this._attachTap();
+          this._send({ type: 'set_source_name', name: this.sourceName });
+          this._send({ type: 'set_frame_rate', fps: this.targetFps });
+        };
+
+        socket.onmessage = (event) => {
+          this._handleMessage(event);
+          // The welcome comes first and carries whether NDI works here.
+          settle();
+        };
+
+        socket.onerror = () => {
+          this.lastError = `Could not reach NDI in the app at ${this.url}`;
+          settle(new Error(this.lastError));
+        };
+
+        socket.onclose = () => {
+          this.connected = false;
+          if (this.ws === socket) this.ws = null;
+          this._detachTap();
+          settle(new Error(this.lastError || `Could not reach NDI in the app at ${this.url}`));
+          // Only reconnect while still wanted: disable() clears isEnabled first,
+          // so a deliberate stop does not immediately dial back.
+          if (this.isEnabled) this._scheduleReconnect();
+        };
       };
 
-      socket.onclose = () => {
-        this.connected = false;
-        this.ws = null;
-        this._detachTap();
-        // Only reconnect while still wanted: disable() clears isEnabled first,
-        // so a deliberate stop does not immediately dial back.
-        if (this.isEnabled) this._scheduleReconnect();
-      };
+      // The app starts its connection service on first use.
+      withBridge(open, (error) => {
+        this.lastError = error.message;
+        settle(error);
+      });
     });
   }
 
@@ -215,7 +221,7 @@ export class NDIOutput {
   _scheduleReconnect() {
     if (this.reconnectTimer) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.lastError = `Gave up reaching the NDI bridge after ${this.reconnectAttempts} attempts`;
+      this.lastError = `Gave up reaching NDI in the app after ${this.reconnectAttempts} attempts`;
       return;
     }
     const delay = Math.min(
@@ -235,21 +241,22 @@ export class NDIOutput {
     try {
       data = JSON.parse(event.data);
     } catch {
-      return; // the bridge only ever sends us JSON
+      return; // the app only ever sends this socket JSON
     }
     if (!data || typeof data !== 'object') return;
 
     if (data.type === 'welcome' || data.type === 'status') {
       this.ndiAvailable = !!data.ndi_available;
       this.ndiError = data.ndi_error || null;
+      this.ndiRuntimeUrl = data.ndi_runtime_url || null;
       if (typeof data.source_name === 'string') this.sourceName = data.source_name;
       return;
     }
 
     if (data.type === 'error') {
-      // A rejected frame, e.g. a size the bridge will not accept. Worth
+      // A rejected frame, e.g. a size NDI will not accept. Worth
       // surfacing: it means nothing is going out, which is otherwise silent.
-      this.lastError = data.message || 'The NDI bridge rejected a frame';
+      this.lastError = data.message || 'NDI output rejected a frame';
     }
   }
 
@@ -373,7 +380,7 @@ export class NDIOutput {
     }
   }
 
-  /** Rename the source receivers see. Takes effect on the bridge immediately. */
+  /** Rename the source receivers see. Takes effect immediately. */
   setSourceName(name) {
     const trimmed = String(name || '').trim();
     if (!trimmed) return;
@@ -400,6 +407,7 @@ export class NDIOutput {
       targetFps: this.targetFps,
       ndiAvailable: this.ndiAvailable,
       ndiError: this.ndiError,
+      ndiRuntimeUrl: this.ndiRuntimeUrl,
       framesSent: this.framesSent,
       framesDropped: this.framesDropped,
       lastError: this.lastError,

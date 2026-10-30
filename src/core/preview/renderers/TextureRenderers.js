@@ -315,8 +315,8 @@ export class TextureRenderers {
     ctx.textAlign = "center";
     const lines = status?.state === 'desktop-only'
       ? ["Live Input", "desktop app only"]
-      : status?.state === 'no-bridge'
-        ? ["No bridge", "npm run video-in"]
+      : status?.state === 'connecting'
+        ? ["Live Input", "connecting…"]
         : status?.state === 'waiting'
           ? ["Waiting for", status.source]
           : ["Live Input", "set a Source"];
