@@ -60,6 +60,14 @@ jobs:
         shell: pwsh
         run: ./scripts/fetch-ndi-runtime.ps1
 
+      # Installer file names carry the release's full version. Tauri names
+      # them from tauri.conf.json, whose version must stay plain (0.9.0) for
+      # the MSI format, so the beta label is added here, from the tag.
+      - name: Read the release version
+        id: version
+        shell: bash
+        run: echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Build and bundle
         uses: tauri-apps/tauri-action@v0
         env:
@@ -80,6 +88,8 @@ jobs:
           prerelease: false
           # Bundle the NDI Runtime staged above.
           args: --config src-tauri/tauri.ndi.conf.json
+          # e.g. Rhizomium_0.9.0-beta.10_x64-setup.exe, Rhizomium_0.9.0-beta.10_x64.msi
+          assetNamePattern: '[name]_${{ steps.version.outputs.name }}_[arch][setup][ext]'
 
       # A release without NDI inside would fall back to asking the artist to
       # install it — exactly what bundling is for — so make that a failure.
