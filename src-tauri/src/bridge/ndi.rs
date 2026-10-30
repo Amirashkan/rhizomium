@@ -2,10 +2,13 @@
 //
 // NDI is Vizrt's native library; the app does not link it, it loads it the
 // first time something asks for NDI (NDI output switched on, a Live Input node
-// bound), from wherever the NDI Runtime or NDI Tools installed it. A machine
-// without it is a normal state, reported as a reason and a download link, and
-// every later request tries again — so installing the runtime while the app is
-// open is enough, no restart.
+// bound). The Windows installer ships the NDI Runtime's DLL in the app's own
+// `ndi` folder (scripts/fetch-ndi-runtime.ps1), so that is normally where it
+// comes from; a system-wide NDI Runtime or NDI Tools install is used when the
+// app has none of its own (development builds). A machine with neither is a
+// normal state, reported as a reason and a download link, and every later
+// request tries again — so installing the runtime while the app is open is
+// enough, no restart.
 //
 // Only the handful of calls the app uses are bound: find, receive (video) and
 // send (video). Layouts follow the NDI 6 SDK headers (Processing.NDI.*.h).
@@ -16,7 +19,7 @@ use std::ffi::{c_char, c_float, c_int, c_void, CStr, CString};
 use std::path::PathBuf;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 type Instance = *mut c_void;
@@ -135,9 +138,22 @@ const LIBRARY_NAME: &str = "libndi.dylib";
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 const LIBRARY_NAME: &str = "libndi.so.6";
 
-/// Every place the runtime is known to install itself, most specific first.
+/// The folder the installer put the app's own copy of the runtime in.
+static BUNDLED_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Called once at startup with the app's resource folder + `ndi`.
+pub fn set_bundled_dir(dir: PathBuf) {
+    let _ = BUNDLED_DIR.set(dir);
+}
+
+/// Every place the runtime may be, in the order to try them.
 fn candidates() -> Vec<PathBuf> {
     let mut paths = Vec::new();
+    // The app's own copy first: it is the version this build was made with,
+    // and it does not depend on what else is installed.
+    if let Some(dir) = BUNDLED_DIR.get() {
+        paths.push(dir.join(LIBRARY_NAME));
+    }
     for var in ["NDI_RUNTIME_DIR_V6", "NDI_RUNTIME_DIR_V5"] {
         if let Some(dir) = std::env::var_os(var) {
             paths.push(PathBuf::from(dir).join(LIBRARY_NAME));
@@ -453,6 +469,12 @@ pub fn short_name(full_name: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_apps_own_runtime_is_tried_first() {
+        set_bundled_dir(PathBuf::from("bundled"));
+        assert_eq!(candidates()[0], PathBuf::from("bundled").join(LIBRARY_NAME));
+    }
 
     #[test]
     fn short_names() {

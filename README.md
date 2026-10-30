@@ -194,8 +194,8 @@ bindings connects as soon as it is opened. Details in
 **NDI** — **View → NDI Output** (`Mod+Shift+N`) publishes the render for a
 vision mixer, OBS or another machine; a **Texture → Live Input** node brings
 any NDI source in (TouchDesigner, OBS, Resolume), as well as frames other
-programs push to the app. NDI uses Vizrt's free NDI Runtime; if it is not
-installed the app offers the download and picks it up without a restart.
+programs push to the app. The installer includes Vizrt's NDI Runtime, so NDI
+needs nothing else installed.
 Details in [src/output/README.md](src/output/README.md) and
 [docs/external-input.md](docs/external-input.md).
 

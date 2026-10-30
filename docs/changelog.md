@@ -17,8 +17,9 @@ When one does, its entry says so under **Project files**.
   uses it (OSC when a patch has OSC bindings or learn starts, NDI when output
   is turned on or a Live Input has a source) and lets go of the network when
   nothing does. NDI output and Live Input are one NDI feature on one local
-  port (8767). If the NDI Runtime is missing, the app offers the download and
-  picks it up without a restart.
+  port (8767).
+- **The Windows installer includes the NDI Runtime**, so NDI output and NDI
+  Live Inputs work with nothing else installed.
 
 ### Removed
 

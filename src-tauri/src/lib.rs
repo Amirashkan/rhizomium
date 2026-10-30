@@ -868,6 +868,15 @@ pub fn run() {
             bridge::start_bridge
         ])
         .setup(|app| {
+            // NDI loads on first use; tell it where the installer put the
+            // app's own copy of the NDI Runtime (tauri.ndi.conf.json).
+            {
+                use tauri::Manager;
+                if let Ok(resources) = app.path().resource_dir() {
+                    bridge::ndi::set_bundled_dir(resources.join("ndi"));
+                }
+            }
+
             // Dead man's switch for the splash — see SPLASH_TIMEOUT.
             // AppHandle is Send + Sync and the window methods dispatch to the
             // runtime themselves, so a plain sleeping thread is enough here.

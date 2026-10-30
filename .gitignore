@@ -24,3 +24,9 @@ __pycache__/
 /PERFORMANCE_TEST_REPORT.md
 /PERFORMANCE_TEST_REPORT.json
 .vercel
+
+# The NDI Runtime staged for the Windows installer by
+# scripts/fetch-ndi-runtime.ps1 — Vizrt's files, fetched per build, never
+# committed. The notice is ours.
+/src-tauri/ndi/*
+!/src-tauri/ndi/NDI-NOTICE.txt

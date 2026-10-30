@@ -234,6 +234,14 @@ Produces `.msi` and `.exe` (NSIS) in `src-tauri/target/release/bundle/`.
 `bundle.targets` is pinned to `["msi", "nsis"]`, so running this on macOS or
 Linux fails rather than quietly producing an installer that cannot run the app.
 
+This builds without NDI inside. Release builds also bundle Vizrt's NDI Runtime
+(see src/output/README.md); to do the same locally, on Windows:
+
+```bash
+pwsh scripts/fetch-ndi-runtime.ps1        # elevated: installs the runtime, stages its DLL
+npm run tauri:build -- --config src-tauri/tauri.ndi.conf.json
+```
+
 This runs `npm run build:desktop` first — the mode that produces the splash and
 omits the landing page. Do not point it at `build:web`: the app would open on a
 404 where `splash.html` should be.

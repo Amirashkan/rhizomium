@@ -25,12 +25,18 @@ going out.
 **View → NDI Output** (`Mod+Shift+N`). The name receivers list you under is
 the **NDI Name** field beside it, and can be changed while running.
 
-NDI itself is Vizrt's library, installed once per computer as the free **NDI
-Runtime** (it often already is: NDI Tools, OBS with NDI and TouchDesigner
-install it). The app loads it when NDI is first used. When it is missing,
-switching NDI output on says so and offers **Get NDI Runtime**, which opens the
-official download; once installed it is picked up without a restart, and
-output that was left on starts sending.
+NDI itself is Vizrt's library, the **NDI Runtime**. The Windows installer
+ships it in the app's own `ndi` folder, so NDI works with nothing else
+installed; the app loads it when NDI is first used. Release builds fetch it per
+build (`scripts/fetch-ndi-runtime.ps1`, bundled through
+`src-tauri/tauri.ndi.conf.json`) — it is Vizrt's file under the NDI SDK
+licence and is never committed.
+
+A build without it (`npm run tauri:dev`, or `tauri build` without that config)
+uses a system-wide NDI Runtime if there is one. With neither, switching NDI
+output on says so and offers **Get NDI Runtime**, which opens the official
+download; once installed it is picked up without a restart, and output that
+was left on starts sending.
 
 NDI output is a Cloude Plus entitlement, gated through `requireOutputFeature`
 like the second-monitor viewer. Stopping is never gated: a tier that lapses

@@ -1,0 +1,6 @@
+NDI® is a registered trademark of Vizrt NDI AB. https://ndi.video/
+
+This copy of Rhizomium includes the NDI Runtime library
+(Processing.NDI.Lib.x64.dll), redistributed under the NDI SDK licence. It is
+Vizrt's software, not part of Rhizomium, and is not covered by Rhizomium's
+licence. Its own licence texts are in this folder.

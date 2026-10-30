@@ -35,3 +35,15 @@ Saying "based on Rhizomium" or "a fork of Rhizomium" is accurate, welcome, and
 explicitly permitted.
 
 For commercial licensing of the code, see COMMERCIAL.md.
+
+
+THIRD-PARTY SOFTWARE IN THE DESKTOP INSTALLER
+---------------------------------------------
+
+NDI® is a registered trademark of Vizrt NDI AB. https://ndi.video/
+
+The Windows installer includes the NDI Runtime library
+(Processing.NDI.Lib.x64.dll), redistributed under the NDI SDK licence. It is
+Vizrt's software, not part of Rhizomium, is not covered by the AGPL, and is
+loaded at runtime only when NDI is used. Its licence texts are installed beside
+it, in the app's ndi folder.

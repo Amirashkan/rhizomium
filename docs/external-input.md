@@ -14,10 +14,9 @@ NDI.
 | Visuals (a TOP, a camera, another app's output) | NDI, or frames pushed to `127.0.0.1:8767` | the **Live Input** node |
 | Rhizomium's own output, to other software | NDI | **View → NDI Output** |
 
-NDI needs Vizrt's free **NDI Runtime** on the computer (anything that already
-does NDI — NDI Tools, OBS with NDI, TouchDesigner — has usually installed it).
-When it is missing Rhizomium says so and offers the download; it is picked up
-as soon as it is installed, without restarting.
+NDI works out of the box: the Windows installer includes Vizrt's NDI Runtime.
+(A development build without it uses a system-wide NDI Runtime, and when there
+is none says so and offers the download, picked up without restarting.)
 
 ## Data: OSC
 
@@ -42,7 +41,8 @@ the node has a source, and stops when the node goes.
 
 The node's thumbnail says what it is waiting for: *Waiting for "…"* means the
 app has not seen that source yet — check the name, and if it is an NDI source,
-that the NDI Runtime is installed (the reason is shown when it is not). From
+that the sending program is publishing it (a reason is shown if NDI itself
+cannot run). From
 the shader's side a Live Input is an ordinary texture, so it goes anywhere a
 Texture 2D does: into a Transform's *Texture* pin, a Projection Map surface, a
 compute node, through a feedback loop.
@@ -55,11 +55,9 @@ read every frame, so it can change mid-show.
 
 TouchDesigner, OBS, Resolume, vMix and most vision mixers can publish NDI.
 
-1. Have the NDI Runtime installed (see above). Without it the pushed-frame
-   option below still works.
-2. In TouchDesigner add an **NDI Out TOP** after the TOP you want to send and
+1. In TouchDesigner add an **NDI Out TOP** after the TOP you want to send and
    give it a name, e.g. `TouchDesigner`.
-3. In Rhizomium set the Live Input's **Source** to that name.
+2. In Rhizomium set the Live Input's **Source** to that name.
 
 NDI names on the network look like `STUDIO-PC (TouchDesigner)`. The part in
 brackets is enough, and so is any part of the name that is unique.
