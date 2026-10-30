@@ -16,11 +16,38 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue' # Invoke-WebRequest is far slower with a progress bar
 
-$RuntimeUrl = 'https://ndi.link/NDIRedistV6'
+# The short link is the one Vizrt publishes; it is a redirect service that has
+# answered CI with 502s, so the file it points at is tried directly too.
+$RuntimeUrls = @(
+  'https://ndi.link/NDIRedistV6',
+  'https://downloads.ndi.tv/Tools/NDI%206%20Runtime.exe'
+)
 $Library = 'Processing.NDI.Lib.x64.dll'
 $Destination = Join-Path $PSScriptRoot '..\src-tauri\ndi'
 $Temp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
 $Installer = Join-Path $Temp 'NDI-6-Runtime.exe'
+
+function Get-Installer {
+  # A browser User-Agent: the redirect service has refused PowerShell's.
+  $agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+  foreach ($attempt in 1..4) {
+    foreach ($url in $RuntimeUrls) {
+      try {
+        Write-Host "Downloading the NDI 6 Runtime from $url (attempt $attempt)"
+        Invoke-WebRequest -Uri $url -OutFile $Installer -UseBasicParsing `
+          -MaximumRedirection 10 -UserAgent $agent
+        # An error page saved as the installer would only fail later, less clearly.
+        $bytes = [System.IO.File]::ReadAllBytes($Installer)[0..1]
+        if ($bytes[0] -eq 0x4D -and $bytes[1] -eq 0x5A) { return }
+        Write-Warning "$url did not return a Windows installer"
+      } catch {
+        Write-Warning "$url failed: $($_.Exception.Message)"
+      }
+    }
+    Start-Sleep -Seconds ([math]::Pow(2, $attempt))
+  }
+  throw 'Could not download the NDI 6 Runtime from any of: ' + ($RuntimeUrls -join ', ')
+}
 
 function Find-Runtime {
   $roots = @("$env:ProgramFiles\NDI", "${env:ProgramFiles(x86)}\NDI") | Where-Object { Test-Path $_ }
@@ -35,8 +62,7 @@ function Find-Runtime {
 
 $dll = Find-Runtime
 if (-not $dll) {
-  Write-Host "Downloading the NDI 6 Runtime from $RuntimeUrl"
-  Invoke-WebRequest -Uri $RuntimeUrl -OutFile $Installer -UseBasicParsing -MaximumRedirection 10
+  Get-Installer
 
   Write-Host 'Installing it silently'
   $process = Start-Process -FilePath $Installer -PassThru `
