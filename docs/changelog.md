@@ -8,6 +8,35 @@ When one does, its entry says so under **Project files**.
 
 ---
 
+## v0.9.0-beta.11
+
+*November 3, 2026*
+
+### Fixed
+
+- **A patch with embedded audio or fonts ran at a few frames per second.**
+  When a project keeps its media inside the patch — an Audio Sampler holding
+  the track, Text nodes each holding a font subset — the editor was re-reading
+  those megabytes on every frame. The preview cache serialised every node's
+  parameters in full to notice edits, and the scans that look for expressions,
+  node references and the clock swept the same audio and font data looking for
+  text. On an audio-reactive 101-node patch with a 6.4 MB MP3 that came to
+  hundreds of megabytes of string work per frame: one CPU core pinned, about
+  6 fps, and a GPU that was barely busy. Media parameters are now recognised
+  as media and left alone.
+- **The per-frame refresh of node values ran once per expression instead of
+  once per frame.** It was guarded by a one-millisecond window, so on any
+  patch where the refresh took longer than that the window had always expired
+  and the work ran again for every expression that references another node.
+  The guard now follows the render clock, so it runs once per frame however
+  long it takes.
+- **Embedded media could mark a node as animated.** The checks for `time` and
+  `audioEnvelope` in a parameter also matched those letters inside the base64
+  of an embedded font or track, which left Text nodes re-rendering their
+  texture every frame for the rest of the session.
+
+---
+
 ## v0.9.0-beta.10
 
 *October 30, 2026*
