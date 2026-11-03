@@ -7,6 +7,7 @@ import { getInputCount } from '../data/nodeInputs.js';
 import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
 import { hasClockExpressionParam } from './clockExpression.js';
 import { buildParamScope } from '../utils/paramReferences.js';
+import { computeParameterHash, isLargeParamPayload } from '../utils/paramPayloads.js';
 import { evaluateWave, isWaveUnipolar, waveSyncTime } from './waveform.js';
 
 export class PreviewComputer {
@@ -1085,7 +1086,9 @@ export class PreviewComputer {
     for (const inputId of node?.inputs || []) add(inputId);
 
     for (const value of Object.values(node?.params || {})) {
-      if (typeof value !== 'string' || !value.includes('node_')) continue;
+      // Skip embedded media payloads; see utils/paramPayloads.js.
+      if (typeof value !== 'string' || isLargeParamPayload(value)) continue;
+      if (!value.includes('node_')) continue;
       for (const match of value.matchAll(/node_(\d+)/g)) add(match[1]);
     }
 
@@ -2179,15 +2182,12 @@ _renderOutputThumbnail(ctx, size, color, node) {
     return hasClockExpressionParam(node);
   }
 
+  // Parameters are hashed to detect edits. Embedded media (an Audio Sampler's track, a Text
+  // node's font) lives in params as a multi-megabyte data URL, so this runs through
+  // computeParameterHash, which swaps each such payload for a cheap length+edges signature
+  // instead of copying it. See utils/paramPayloads.js.
   _computeParameterHash(node) {
-    if (!node || typeof node.params === 'undefined') {
-      return 'no-params';
-    }
-    try {
-      return JSON.stringify(node.params);
-    } catch {
-      return 'param-hash-error';
-    }
+    return computeParameterHash(node);
   }
 
   _areInputsEqual(prevInputs, nextInputs) {
@@ -2581,6 +2581,13 @@ _renderOutputThumbnail(ctx, size, color, node) {
    */
   _extractNodeReferences(paramValue) {
     if (!paramValue || typeof paramValue !== 'string') {
+      return [];
+    }
+
+    // Embedded media payloads (a data URL holding audio or a font) are megabytes long and can
+    // never hold an expression, so they are not scanned: both the `.trim()` copy below and the
+    // regex sweep would run over the whole blob for every refresh. See utils/paramPayloads.js.
+    if (isLargeParamPayload(paramValue)) {
       return [];
     }
 

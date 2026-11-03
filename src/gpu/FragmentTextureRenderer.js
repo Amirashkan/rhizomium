@@ -21,6 +21,7 @@ import { NodeDefs } from '../data/NodeDefs.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 import { isSharedSampler, sharedSampler } from './sharedSamplers.js';
 import { isTriggerChangeMode } from '../core/triggerMode.js';
+import { isLargeParamPayload } from '../utils/paramPayloads.js';
 
 /**
  * Node kinds whose output is driven by the clock (they compile to an expression over g.time), so
@@ -401,6 +402,9 @@ export class FragmentTextureRenderer {
     const pattern = /node_(\d+)(?:_\w+)?/g;
     for (const value of Object.values(node.params)) {
       if (typeof value !== 'string') continue;
+      // Embedded media payload (audio/font data URL): holds no expression, and scanning it would
+      // sweep megabytes. See utils/paramPayloads.js.
+      if (isLargeParamPayload(value)) continue;
       const trimmed = value.trim();
       if (!trimmed.startsWith('=') && !trimmed.includes('node_')) continue;
       for (const match of trimmed.matchAll(pattern)) {
@@ -829,12 +833,13 @@ export class FragmentTextureRenderer {
       if (CLOCK_DRIVEN_KINDS.has(chainNode.kind)) return true;
       if (!chainNode.params) continue;
       for (const value of Object.values(chainNode.params)) {
-        if (typeof value === 'string') {
-          const trimmed = value.trim();
-          // Check if parameter contains time or audio envelope references
-          if (/time|audioEnvelope/i.test(trimmed)) {
-            return true;
-          }
+        // Skip embedded media payloads (a Text node's font, ...): this match is unanchored and
+        // case-insensitive, so base64 spelling `time` anywhere would mark the node as animated
+        // and re-render its texture every frame. See utils/paramPayloads.js.
+        if (typeof value !== 'string' || isLargeParamPayload(value)) continue;
+        // Check if parameter contains time or audio envelope references
+        if (/time|audioEnvelope/i.test(value)) {
+          return true;
         }
       }
     }

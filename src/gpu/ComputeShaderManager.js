@@ -5,6 +5,11 @@ import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 import { packComputeUniforms } from './computeUniformLayout.js';
 import { FLUID_SIM_VIZ_WGSL } from './fluidSimViz.js';
 
+// Upper bound on how long node-reference values may go unrefreshed when the render clock is not
+// advancing (see evaluateParam). Long enough that it never competes with the per-frame key,
+// short enough that a paused graph still feels live.
+const STALL_REFRESH_MS = 100;
+
 /**
  * ComputeShaderManager
  * Manages WebGPU compute pipelines and compute shader execution
@@ -113,18 +118,38 @@ export class ComputeShaderManager {
           // to ensure referenced node values are up-to-date
           // Cache the computation per-frame to avoid redundant recalculations
           if (isNodeReference) {
-            const now = performance.now();
             const previewComputer = window.editor?.previewComputer;
             if (previewComputer && window.editor?.graph) {
-              // Only recompute if not already done this frame (within 1ms)
+              // Refresh at most once per frame.
+              //
+              // `time` is the render loop's clock, handed identically to every parameter
+              // evaluated in a frame, so it identifies the frame: keying on it collapses the
+              // refresh to one call however many expressions reference a node and however long
+              // the refresh takes. The previous guard was a 1 ms wall-clock window, which a graph
+              // whose computePreviews costs more than 1 ms could never satisfy — the window had
+              // always expired by the next expression, so the full refresh ran again for every
+              // one of them, every frame. On a 101-node audio-reactive patch that was 55 full
+              // refreshes per frame and ran the app at 6 fps.
+              //
+              // STALL_REFRESH_MS is the safety valve for a clock that is not advancing (paused
+              // playback, or a caller passing a non-finite time): values still refresh, just at a
+              // bounded rate instead of at frame rate.
+              const now = performance.now();
+              const frameKey = Number.isFinite(time) ? time : null;
+              const stalled = !previewComputer._lastComputeTime
+                || (now - previewComputer._lastComputeTime) > STALL_REFRESH_MS;
+              const needsRefresh = frameKey === null
+                ? stalled
+                : previewComputer._lastComputeFrameKey !== frameKey || stalled;
               // NOTE: This must remain synchronous because expression evaluation happens immediately after
               // and needs the computed values. This is in the GPU render path which is already async.
-              if (!previewComputer._lastComputeTime || (now - previewComputer._lastComputeTime) > 1) {
+              if (needsRefresh) {
                 // skipThumbnails: this call runs at frame rate and only needs the numbers.
                 // Regenerating every node's canvas thumbnail here would put the whole UI preview
                 // cost in the render path; PreviewIntegration refreshes thumbnails on its own
                 // cadence.
                 previewComputer.computePreviews(window.editor.graph, { skipThumbnails: true });
+                previewComputer._lastComputeFrameKey = frameKey;
                 previewComputer._lastComputeTime = now;
               }
             }

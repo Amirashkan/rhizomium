@@ -25,6 +25,7 @@ import { ComputeShaderManager } from './ComputeShaderManager.js';
 import { ComputeNodeBase } from './ComputeNodeBase.js';
 import { FragmentTextureRenderer } from './FragmentTextureRenderer.js';
 import { getPerfProbe } from '../utils/PerfProbe.js';
+import { isLargeParamPayload } from '../utils/paramPayloads.js';
 import { controlInputPinIndices } from '../data/NodeDefs.js';
 import { getDynamicInputSpec, getInputCount } from '../data/nodeInputs.js';
 import { MAX_SIM_EDGE, fitToLongEdge, resolveResolution } from '../ui/OutputFormat.js';
@@ -54,7 +55,8 @@ function extractParamNodeReferences(node) {
   const ids = new Set();
   if (!node?.params) return ids;
   for (const value of Object.values(node.params)) {
-    if (typeof value !== 'string') continue;
+    // Skip embedded media payloads; see utils/paramPayloads.js.
+    if (typeof value !== 'string' || isLargeParamPayload(value)) continue;
     for (const match of value.matchAll(/\bnode_(\d+)/g)) {
       ids.add(match[1]);
     }
@@ -66,7 +68,10 @@ function extractParamNodeReferences(node) {
 function hasTimeDependentParams(node) {
   if (!node?.params) return false;
   for (const value of Object.values(node.params)) {
-    if (typeof value === 'string' && /time|audioEnvelope/i.test(value.trim())) {
+    // Skip embedded media payloads: this match is unanchored and case-insensitive, so base64
+    // spelling `time` anywhere would pin the node as time-dependent. See utils/paramPayloads.js.
+    if (typeof value !== 'string' || isLargeParamPayload(value)) continue;
+    if (/time|audioEnvelope/i.test(value)) {
       return true;
     }
   }

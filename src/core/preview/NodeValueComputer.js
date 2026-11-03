@@ -1,6 +1,7 @@
 // src/core/preview/NodeValueComputer.js
 import { getResolutionForNode } from '../../utils/resolutionMode.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { computeParameterHash, isLargeParamPayload } from '../../utils/paramPayloads.js';
 
 export class NodeValueComputer {
   constructor(editor) {
@@ -47,7 +48,9 @@ export class NodeValueComputer {
     // node referencing it (a Circle radius, a 3D param, ...) freezes with it.
     if (node?.params) {
       for (const value of Object.values(node.params)) {
-        if (typeof value === 'string' && /=.*\b(time|audioEnvelope|frame)\b/i.test(value)) {
+        // Skip embedded media payloads; see utils/paramPayloads.js.
+        if (typeof value !== 'string' || isLargeParamPayload(value)) continue;
+        if (/=.*\b(time|audioEnvelope|frame)\b/i.test(value)) {
           return true;
         }
       }
@@ -592,17 +595,14 @@ getNodeParameter(node, paramName, defaultValue = 0) {
   }
 
   /**
-   * Compute hash of node parameters
+   * Compute hash of node parameters.
+   *
+   * Goes through computeParameterHash so embedded media (audio/font data URLs stored in params)
+   * is reduced to a cheap signature rather than copied in full on every cache check. See
+   * utils/paramPayloads.js.
    */
   _computeParameterHash(node) {
-    try {
-      if (!node || typeof node.params === 'undefined') {
-        return 'no-params';
-      }
-      return JSON.stringify(node.params);
-    } catch {
-      return 'param-hash-error';
-    }
+    return computeParameterHash(node);
   }
 
   /**

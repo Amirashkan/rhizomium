@@ -2,6 +2,7 @@
 // Updated to support expression system integration
 
 import { evaluateExpressionSafely } from '../../../utils/safeExpression.js';
+import { hasExpressionPrefix } from '../../../utils/paramPayloads.js';
 
 export class BasicRenderers {
   constructor(previewSystem) {
@@ -328,9 +329,9 @@ renderOutput(ctx, node) {
   hasExpressions(node) {
     try {
       if (!node.params) return false;
-      return Object.values(node.params).some(value => 
-        typeof value === 'string' && value.trim().startsWith('=')
-      );
+      // hasExpressionPrefix avoids the `.trim()` copy of an embedded media payload (a Text
+      // node's font, an Audio Sampler's track). See utils/paramPayloads.js.
+      return Object.values(node.params).some(value => hasExpressionPrefix(value));
     } catch {
       return false;
     }

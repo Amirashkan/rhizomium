@@ -3,6 +3,7 @@
 
 import { PRIORITY } from '../UnifiedRAFManager.js';
 import { isTriggerChangeMode } from '../triggerMode.js';
+import { isLargeParamPayload } from '../../utils/paramPayloads.js';
 
 export class PreviewIntegration {
   constructor(editor, previewSystem) {
@@ -401,6 +402,9 @@ updateTimeNodes() {
    */
   _extractNodeReferences(paramValue) {
     if (!paramValue || typeof paramValue !== 'string') return [];
+    // Skip embedded media payloads: a data URL holds no expression, and trimming/scanning one
+    // costs megabytes of string work per refresh. See utils/paramPayloads.js.
+    if (isLargeParamPayload(paramValue)) return [];
     const trimmed = paramValue.trim();
     if (!trimmed.startsWith('=') && !trimmed.includes('node_')) return [];
 

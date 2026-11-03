@@ -3,6 +3,7 @@ import { NodeDefs } from "../data/NodeDefs.js";
 import { RedrawScheduler } from "./RedrawScheduler.js";
 import { getPerfProbe } from "../utils/PerfProbe.js";
 import { getResolutionForNode } from "../utils/resolutionMode.js";
+import { isLargeParamPayload } from "../utils/paramPayloads.js";
 import {
   nodePinPositions,
   nodePreviewHeight,
@@ -542,6 +543,10 @@ export class Renderer {
 
   _extractNodeReferences(paramValue) {
     const nodeIds = new Set();
+
+    // Embedded media payload (audio/font data URL): holds no node reference, and scanning it
+    // would sweep megabytes on every repaint. See utils/paramPayloads.js.
+    if (isLargeParamPayload(paramValue)) return [];
 
     // Match patterns like "=node_14" or "=node_14_x"
     // This regex looks for "node_" followed by digits, with optional component suffixes

@@ -13,11 +13,19 @@
 // Matching is word-bounded so a parameter that merely contains the letters (a "timeline" label, an
 // "overtime" caption on a Text node) isn't misread as animated.
 
+import { isLargeParamPayload } from '../utils/paramPayloads.js';
+
 const CLOCK_IDENTIFIER_RE = /\b(time|frame|audioEnvelope(?:Bass|Mids|Highs|Full)?)\b/;
 
 /** True when a parameter value is an expression that advances with the clock or the audio signal. */
 export function isClockExpression(value) {
-  return typeof value === 'string' && CLOCK_IDENTIFIER_RE.test(value);
+  if (typeof value !== 'string') return false;
+  // An embedded media payload (an Audio Sampler's track, a Text node's font) is not expression
+  // text. Testing one is megabytes of regex per node per refresh, and base64 can spell `time`
+  // between two non-word characters — which would pin the node as clock-driven for good. See
+  // utils/paramPayloads.js.
+  if (isLargeParamPayload(value)) return false;
+  return CLOCK_IDENTIFIER_RE.test(value);
 }
 
 /** True when any of a node's parameters is such an expression. */

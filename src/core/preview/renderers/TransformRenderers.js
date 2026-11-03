@@ -1,5 +1,7 @@
 // src/core/preview/renderers/TransformRenderers.js
 
+import { hasExpressionPrefix } from '../../../utils/paramPayloads.js';
+
 export class TransformRenderers {
   constructor(previewSystem) {
     this.previewSystem = previewSystem;
@@ -67,9 +69,9 @@ export class TransformRenderers {
   hasExpressions(node) {
     try {
       if (!node.params) return false;
-      return Object.values(node.params).some(value => 
-        typeof value === 'string' && value.trim().startsWith('=')
-      );
+      // hasExpressionPrefix avoids the `.trim()` copy of an embedded media payload (a Text
+      // node's font, an Audio Sampler's track). See utils/paramPayloads.js.
+      return Object.values(node.params).some(value => hasExpressionPrefix(value));
     } catch {
       return false;
     }

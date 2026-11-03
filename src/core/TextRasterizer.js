@@ -22,6 +22,7 @@
 // module in turn (parameter writes refresh the raster), so importing it back would be a cycle.
 
 import { getNumericParam, evaluateExpressionSafely } from '../utils/safeExpression.js';
+import { hasExpressionPrefix, isLargeParamPayload } from '../utils/paramPayloads.js';
 
 /** Guard rails for the texture the node allocates. A square texture per side. */
 export const MIN_RESOLUTION = 64;
@@ -247,7 +248,10 @@ export function textNodeHasLiveExpression(node) {
   if (node?.kind !== 'Text') return false;
   for (const value of Object.values(node.params || {})) {
     if (typeof value !== 'string') continue;
-    if (value.trim().startsWith('=')) return true;
+    if (hasExpressionPrefix(value)) return true;
+    // A Text node keeps its font subset in params as a data URL; don't sweep it for braces.
+    // See utils/paramPayloads.js.
+    if (isLargeParamPayload(value)) continue;
     if (/\{[^{}]+\}/.test(value)) return true;
   }
   return false;

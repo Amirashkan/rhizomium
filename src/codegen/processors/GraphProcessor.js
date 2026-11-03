@@ -1,6 +1,8 @@
 // src/codegen/processors/GraphProcessor.js
 // UPDATED: Orchestrates function-based compilation
 
+import { isLargeParamPayload } from '../../utils/paramPayloads.js';
+
 export class GraphProcessor {
   // Add this method to your GraphProcessor class:
 
@@ -448,6 +450,12 @@ validateForCompilation(graph) {
   extractNodeReferencesFromExpression(paramValue) {
     try {
       if (!paramValue || typeof paramValue !== 'string') {
+        return [];
+      }
+
+      // Embedded media payload (audio/font data URL stored in params): never an expression, and
+      // the `.trim()` below would copy the whole blob. See utils/paramPayloads.js.
+      if (isLargeParamPayload(paramValue)) {
         return [];
       }
 

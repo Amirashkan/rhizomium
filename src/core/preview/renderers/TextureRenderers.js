@@ -1,6 +1,7 @@
 // src/core/preview/renderers/TextureRenderers.js - Fixed with expression evaluation
 
 import { getNumericParam, PREVIEW_TIME } from '../../../utils/safeExpression.js';
+import { hasExpressionPrefix } from '../../../utils/paramPayloads.js';
 import { textNodeLayout, drawTextLayout } from '../../TextRasterizer.js';
 
 export class TextureRenderers {
@@ -81,9 +82,9 @@ export class TextureRenderers {
   hasExpressions(node) {
     try {
       if (!node.params) return false;
-      return Object.values(node.params).some(value => 
-        typeof value === 'string' && value.trim().startsWith('=')
-      );
+      // hasExpressionPrefix avoids the `.trim()` copy of an embedded media payload (a Text
+      // node's font, an Audio Sampler's track). See utils/paramPayloads.js.
+      return Object.values(node.params).some(value => hasExpressionPrefix(value));
     } catch {
       return false;
     }

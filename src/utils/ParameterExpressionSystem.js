@@ -2,6 +2,7 @@
 
 import { getAudioEnvelope } from '../audio/BrowserAudioCapture.js';
 import { unifiedExpressionSystem } from './UnifiedExpressionSystem.js';
+import { hasExpressionPrefix } from './paramPayloads.js';
 import { MessagePriority } from '../core/AsyncQueueManager.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
@@ -213,7 +214,10 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
    * Checks if a value is an expression (starts with =)
    */
   isExpression(value) {
-    return typeof value === 'string' && value.trim().startsWith('=');
+    // hasExpressionPrefix is `value.trim().startsWith('=')` without the copy — a parameter
+    // holding a multi-megabyte data URL would otherwise allocate all of it to read one
+    // character, on every node on every frame. See utils/paramPayloads.js.
+    return hasExpressionPrefix(value);
   }
 
   /**
