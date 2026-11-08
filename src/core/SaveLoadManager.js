@@ -1011,11 +1011,13 @@ async importProject(projectData, options = {}) {
         this.editor.previewSystem.canvasManager.clearCache();
       }
 
-      // Force preview regeneration with working GPU connection
-      // CRITICAL: Pass nodes array so topological sort can ensure proper render order
-      if (typeof this.editor.previewSystem.updateAllPreviews === 'function' && this.graph && this.graph.nodes) {
-        await this.editor.previewSystem.updateAllPreviews(this.graph.nodes);
-      }
+    }
+
+    // Refresh loaded-node thumbnails through the shared preview funnel even when
+    // WebGPU recovery did not return a device (for example, in a test or a
+    // temporarily unavailable GPU context). Keep this to one pass per load.
+    if (this.editor?.previewSystem?.updateAllPreviews && this.graph?.nodes) {
+      await this.editor.previewSystem.updateAllPreviews(this.graph.nodes);
     }
 
     // Force several renders to stabilize GPU
