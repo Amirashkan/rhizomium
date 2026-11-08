@@ -525,6 +525,24 @@ releaseVideo(nodeId) {
 }
 
 /**
+ * Stop every video owned by the current graph.
+ *
+ * A VJ scene switch replaces the graph, but the saved scene snapshots live
+ * separately. Keeping these decoders in the manager would make every video
+ * from every previously visited scene continue to be visited by
+ * updateVideoTextures() on every render.
+ *
+ * The GPU textures are intentionally retained here: the outgoing render may
+ * still be in flight while the new scene is being imported. Only the media
+ * elements, decoders, and object URLs are released.
+ */
+releaseAllVideos() {
+  const nodeIds = [...this.videos.keys()];
+  for (const nodeId of nodeIds) this.releaseVideo(nodeId);
+  return nodeIds.length;
+}
+
+/**
  * Copy one frame from outside the editor (a Live Input node's source) into the node's texture.
  *
  * Same contract as a video: one GPU texture per node, created on the first frame and recreated
