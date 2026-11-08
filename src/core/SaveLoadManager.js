@@ -251,7 +251,7 @@ export class SaveLoadManager {
       const { savedAt, metadata, ...stable } = projectData;
       const str = JSON.stringify(stable, (_key, value) =>
         typeof value === "string" && value.length > 1024
-          ? `${value.length}:${value.slice(0, 64)}:${value.slice(-64)}`
+          ? `${value.length}:${value.slice(0, 32)}:${value.slice(-32)}`
           : value,
       );
       let hash = 5381;
