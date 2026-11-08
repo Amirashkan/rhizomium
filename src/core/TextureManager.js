@@ -29,6 +29,16 @@ function toNumber(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/** Destroy a replaced GPU texture only after commands already submitted can no longer use it. */
+function deferTextureDestroy(device, texture) {
+  if (!texture || typeof texture.destroy !== "function") return;
+  const destroy = () => { try { texture.destroy(); } catch { /* already destroyed */ } };
+  let pending;
+  try { pending = device?.queue?.onSubmittedWorkDone?.(); } catch { /* device is being torn down */ }
+  if (pending && typeof pending.then === "function") pending.then(destroy, destroy);
+  else destroy();
+}
+
 export class TextureManager {
   /**
    * Videos above this size are not inlined into the saved patch - see uploadVideo.
@@ -72,6 +82,7 @@ async uploadTexture(nodeId, file, node = null) {
   const bitmap = await createImageBitmap(img);
   
   // Store texture info
+  const previousTextureInfo = this.textures.get(nodeId);
   const textureInfo = {
     filename: file.name,
     dataUrl: dataUrl,
@@ -82,6 +93,9 @@ async uploadTexture(nodeId, file, node = null) {
   };
   
   this.textures.set(nodeId, textureInfo);
+  if (previousTextureInfo?.bitmap && previousTextureInfo.bitmap !== bitmap) {
+    try { previousTextureInfo.bitmap.close?.(); } catch { /* already closed */ }
+  }
 
   // Upload to GPU if device exists
   if (this.device) {
@@ -124,6 +138,8 @@ loadImage(url) {
 async uploadToGPU(nodeId, bitmap) {
   if (!this.device) return;
   
+  const previousInfo = this.gpuTextures.get(nodeId);
+
   // Create GPU texture
   const texture = this.device.createTexture({
     size: { width: bitmap.width, height: bitmap.height },
@@ -150,8 +166,18 @@ async uploadToGPU(nodeId, bitmap) {
 
   const textureView = texture.createView();
 
-  // Store GPU resources
-  this.gpuTextures.set(nodeId, { texture, textureView, sampler });
+  // Keep both maps in sync: render bindings resolve through gpuTextures, while callers of
+  // getTexture() expect the same GPU references on the texture record.
+  const gpuInfo = { texture, textureView, sampler, width: bitmap.width, height: bitmap.height };
+  this.gpuTextures.set(nodeId, gpuInfo);
+  const textureInfo = this.textures.get(nodeId);
+  if (textureInfo) Object.assign(textureInfo, gpuInfo);
+  this.bindGroup = null;
+
+  // Replacing a media file must not leave its old allocation resident on the GPU.
+  if (previousInfo?.texture && previousInfo.texture !== texture) {
+    deferTextureDestroy(this.device, previousInfo.texture);
+  }
 
 }
 
@@ -201,6 +227,11 @@ async uploadVideo(nodeId, file, options = {}) {
     } catch {
       dataUrl = null; // unsaveable, but perfectly playable in this session
     }
+  }
+
+  const previousTextureInfo = this.textures.get(nodeId);
+  if (previousTextureInfo?.bitmap) {
+    try { previousTextureInfo.bitmap.close?.(); } catch { /* already closed */ }
   }
 
   const entry = { video, objectUrl, lastFrameTime: -1 };
@@ -445,7 +476,9 @@ _ensureVideoTexture(nodeId, entry) {
   const existing = this.gpuTextures.get(nodeId);
   if (existing && existing.width === width && existing.height === height) return existing;
 
-  existing?.texture?.destroy?.();
+  // A previous frame may still be in flight on the queue. Retire the old allocation only
+  // after submitted work has finished rather than destroying a texture still being sampled.
+  deferTextureDestroy(this.device, existing?.texture);
 
   const texture = this.device.createTexture({
     size: { width, height },
@@ -759,6 +792,9 @@ async injectExternalTexture(nodeId, bitmap) {
             texture.destroy();
           }
         }
+        if (textureInfo?.bitmap) {
+          try { textureInfo.bitmap.close?.(); } catch { /* already closed */ }
+        }
         this.textures.delete(nodeId);
         this.gpuTextures.delete(nodeId);
 
@@ -969,12 +1005,21 @@ async injectExternalTexture(nodeId, bitmap) {
       for (const nodeId of [...this.videos.keys()]) {
         this.releaseVideo(nodeId);
       }
-      for (const [, textureInfo] of this.textures) {
-        if (textureInfo.texture && textureInfo.texture.destroy) {
-          textureInfo.texture.destroy();
-        }
+      // Some upload paths keep GPU allocations only in gpuTextures. Walk both maps and
+      // deduplicate shared allocations so none survive manager teardown.
+      const gpuResources = new Set([
+        ...Array.from(this.textures.values(), info => info?.texture),
+        ...Array.from(this.gpuTextures.values(), info => info?.texture),
+      ]);
+      for (const texture of gpuResources) {
+        try { texture?.destroy?.(); } catch { /* already destroyed */ }
+      }
+      for (const textureInfo of this.textures.values()) {
+        try { textureInfo?.bitmap?.close?.(); } catch { /* already closed */ }
       }
       this.textures.clear();
+      this.gpuTextures.clear();
+      this.liveInputs.clear();
       this.bindGroup = null;
       this.bindGroupLayout = null;
     } catch (error) {
