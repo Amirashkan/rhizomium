@@ -2863,6 +2863,13 @@ importConnections(connectionData) {
       // The graph that named them is going; a new node reusing one of its ids
       // must not inherit its missing file.
       this.missingMedia = [];
+
+      // Scene snapshots are stored separately, so the outgoing graph's video
+      // elements are no longer needed once a replacement starts loading. Stop
+      // their decoders and remove them from the per-frame upload set; keep their
+      // GPU textures alive until the replacement shader is ready.
+      this.textureManager?.releaseAllVideos?.();
+
       this.graph.nodes = [];
       this.graph.connections = [];
       this.graph.selection = new Set();
