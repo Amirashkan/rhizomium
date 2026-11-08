@@ -942,8 +942,13 @@ async importProject(projectData, options = {}) {
     // Step 1: Wait a frame to ensure DOM is stable
     await new Promise(resolve => requestAnimationFrame(resolve));
 
-    // Step 2: Force WebGPU reinitialization and capture the device
-    let gpuDevice = await this.reinitializeWebGPU();
+    // A VJ scene switch replaces the graph, not the WebGPU device. Reinitializing
+    // the device here tears down/rebuilds GPU state during live playback and can
+    // cause a delayed frame-time spike. Full project opens still use the recovery path.
+    const isVJSceneLoad = options.source === "vj-scene";
+    let gpuDevice = isVJSceneLoad
+      ? (this.textureManager?.device || window.textureManager?.device || window.gpuDevice || null)
+      : await this.reinitializeWebGPU();
 
     // Step 3: Wait another frame after WebGPU init
     await new Promise(resolve => requestAnimationFrame(resolve));
@@ -994,8 +999,10 @@ async importProject(projectData, options = {}) {
         this.editor.previewSystem.rendererRegistry.device = gpuDevice;
       }
       
-      // Force reinitialize preview system with new device
-      if (typeof this.editor.previewSystem.reinitialize === 'function') {
+      // A VJ scene switch keeps the existing device alive, so the preview
+      // system is already attached to the correct device. Reinitialize only
+      // after a full project load that may have recreated WebGPU. 
+      if (!isVJSceneLoad && typeof this.editor.previewSystem.reinitialize === 'function') {
         await this.editor.previewSystem.reinitialize(gpuDevice);
       }
       
@@ -1044,25 +1051,9 @@ async importProject(projectData, options = {}) {
       this.editor.draw();
     }
 
-    // Thumbnails for the loaded graph, once the shader rebuild above has settled. They go through
-    // the ONE preview funnel (PreviewSystem.generateNodePreview), the same one every other path
-    // uses: it renders compute and visual nodes on the GPU and falls back to the CPU approximation
-    // only when that genuinely fails, and it honours the per-node eye toggle.
-    //
-    // This used to paint a thumbnail for every node itself, calling the CPU renderer registry
-    // directly and assigning node.__thumb - so a loaded project showed the registry's stand-in
-    // cards ("REMAP", "GRAY", "INV", "fx", ...) over nodes whose real rendered output the GPU had
-    // already produced, or was about to. The hand-painted write landed last and nothing re-rendered
-    // those nodes afterwards, so the placeholder text stayed on screen until the artist touched a
-    // parameter. Nothing in the load path writes __thumb by hand any more - including OutputFinal,
-    // whose thumbnail the fragment path builds from the node feeding it, at the composition's
-    // aspect ratio rather than as a squashed square copy of the output canvas.
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    if (this.editor?.previewSystem?.updateAllPreviews && this.graph?.nodes) {
-      this.editor.previewSystem.updateAllPreviews(this.graph.nodes);
-    }
-
+    // Node previews were already regenerated above after the shader rebuild.
+    // Running updateAllPreviews again after a timer duplicates synchronous GPU/CPU
+    // preview work and produces a visible frame-time spike a few seconds after load.
     // Final editor redraw
     await new Promise(resolve => setTimeout(resolve, 200));
     if (this.editor && this.editor.draw) {
