@@ -248,22 +248,65 @@ export class SaveLoadManager {
    */
   _computeProjectHash(projectData) {
     try {
-      const { savedAt, metadata, ...stable } = projectData;
-      const str = JSON.stringify(stable, (_key, value) =>
-        typeof value === "string" && value.length > 1024
-          ? `${value.length}:${value.slice(0, 32)}:${value.slice(-32)}`
-          : value,
-      );
+      // Hash the project structure incrementally. JSON.stringify() still has
+      // to inspect/serialize large media strings even when a replacer shortens
+      // them; walk the graph ourselves so inlined media is O(1) in its size.
       let hash = 5381;
-      for (let i = 0; i < str.length; i++) {
-        hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
-      }
-      return `${hash}:${str.length}`;
+      let length = 0;
+      const write = (value) => {
+        const text = String(value);
+        length += text.length;
+        for (let i = 0; i < text.length; i++) {
+          hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
+        }
+      };
+      const seen = new Set();
+      const visit = (value, topLevel = false, inArray = false) => {
+        if (value === null) { write("null;"); return; }
+        const type = typeof value;
+        if (type === "string") {
+          if (value.length > 1024) {
+            write(`string:${value.length}:${value.slice(0, 32)}:${value.slice(-32)};`);
+          } else {
+            write(`string:${JSON.stringify(value)};`);
+          }
+          return;
+        }
+        if (type === "number") {
+          write(`number:${Number.isFinite(value) ? value : "null"};`);
+          return;
+        }
+        if (type === "boolean") { write(value ? "true;" : "false;"); return; }
+        if (type === "undefined" || type === "function" || type === "symbol") {
+          if (inArray) write("null;");
+          return;
+        }
+        if (type === "bigint") throw new TypeError("Cannot hash BigInt project data");
+        if (seen.has(value)) throw new TypeError("Cannot hash circular project data");
+        seen.add(value);
+        if (Array.isArray(value)) {
+          write("array[");
+          for (const item of value) visit(item, false, true);
+          write("];");
+        } else {
+          write("object{");
+          for (const key of Object.keys(value)) {
+            if (topLevel && (key === "savedAt" || key === "metadata")) continue;
+            const item = value[key];
+            if (item === undefined || typeof item === "function" || typeof item === "symbol") continue;
+            write(`key:${JSON.stringify(key)}=`);
+            visit(item);
+          }
+          write("};");
+        }
+        seen.delete(value);
+      };
+      visit(projectData, true);
+      return `${hash}:${length}`;
     } catch {
       return null;
     }
-  }
-/**
+  }/**
  * Restore a saved project's textures onto the GPU.
  *
  * The work itself lives in patchTextures.js, shared with the read-only web
