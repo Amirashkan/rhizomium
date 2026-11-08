@@ -39,11 +39,12 @@ function readAsDataUrl(file) {
 
 /** Strip the path and extension: "fonts/Inter-Bold.ttf" reads better as "Inter-Bold". */
 function displayNameFor(fileName) {
-  return String(fileName || 'Custom font').split(/[\\/]/).pop().replace(FONT_EXTENSIONS, '');
+  return String(fileName || 'Custom font').split(/[\\\\/]/).pop().replace(FONT_EXTENSIONS, '');
 }
 
 import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO } from '../../core/theme.js';
 import { chooseMediaFiles, linkSource } from '../../core/mediaPaths.js';
+import { isTauri } from '../../utils/isTauri.js';
 
 export class FontInputHandler {
   constructor(undoManager = null) {
@@ -82,9 +83,10 @@ export class FontInputHandler {
     });
     buttons.appendChild(loadBtn);
 
-    // Only offered where the browser can actually enumerate installed fonts; elsewhere the file
-    // picker is the whole story and an inert button would just be a dead end.
-    if (typeof window !== 'undefined' && typeof window.queryLocalFonts === 'function') {
+    // Local Font Access yields font bytes, not a filesystem path. Keep it on the
+    // browser surface, where media remains inline; desktop fonts must come from
+    // a picked/dropped file so the project can save and reopen them by path.
+    if (!isTauri() && typeof window !== 'undefined' && typeof window.queryLocalFonts === 'function') {
       const localBtn = this._button('Installed…');
       localBtn.addEventListener('click', (e) => {
         e.stopPropagation();
