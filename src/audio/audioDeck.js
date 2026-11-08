@@ -63,16 +63,14 @@ export function createAudioDeck(client = null) {
      * that is where describeAudioSource() reads it from — a bed loaded here
      * and a bed loaded by hand have to name themselves the same way.
      */
-    async load(file, name = '') {
+    async load(file, name = '', { loop = true } = {}) {
       const audio = capture();
       await audio.loadFile(file);
       const el = audio.audioElement;
       if (el) {
         el.dataset.fileName = String(name || file?.name || '');
-        // A bed is a loop by default: the beds that come with a show are
-        // shorter than the section they are under as often as not, and a set
-        // that falls silent halfway through a look is a set with a hole in it.
-        el.loop = true;
+        // Show beds loop by default; callers such as the VJ library can opt out.
+        el.loop = !!loop;
       }
       return state(audio);
     },
