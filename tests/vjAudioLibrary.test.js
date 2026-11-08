@@ -24,9 +24,11 @@ function fakeDeck() {
   return {
     state,
     loads: [],
+    loadOptions: [],
     describe: () => ({ ...state }),
-    async load(file, name) {
+    async load(file, name, options) {
       this.loads.push(name);
+      this.loadOptions.push(options);
       state.file = name;
       state.loaded = true;
       return { ...state };
@@ -129,6 +131,7 @@ describe('the VJ panel audio tab', () => {
 
     rows[1].click();
     await vi.waitFor(() => expect(deck.loads).toEqual(['b.mp3']));
+    expect(deck.loadOptions).toEqual([{ loop: false }]);
     await vi.waitFor(() => {
       const current = panel.audioItems.querySelector('.vj-audio-item.current');
       expect(current?.dataset.audioId).toBe(library.getAll()[1].id);
