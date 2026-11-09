@@ -195,10 +195,7 @@ export class SceneManager {
 
     // Load the scene into the editor
     try {
-      // Tell SaveLoadManager this is a live VJ scene switch. It must keep the
-      // existing WebGPU device alive; a full project-open recovery here tears
-      // down GPU state while the output receiver is still rendering.
-      await this.saveLoadManager.importProject(scene.data, { source: 'vj-scene' });
+      await this.saveLoadManager.importProject(scene.data);
       return true;
     } catch {
 
