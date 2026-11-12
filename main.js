@@ -2911,7 +2911,7 @@ function setupRhizomiumMenu() {
         "Language: " + (navigator.language || "unknown"),
         "Screen: " + (window.screen ? window.screen.width + " × " + window.screen.height : "unknown"),
         "App identifier: com.rhizomium.studio",
-      ].join("\\n");
+      ].join("\n");
 
       const existing = document.getElementById("rz-about-dialog");
       existing?.remove();
