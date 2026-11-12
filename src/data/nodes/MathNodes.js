@@ -286,15 +286,6 @@ export const MathNodes = {
     params: [],
   },
 
-  Mix: {
-    label: "Mix",
-    cat: "Math",
-    inputs: 3,
-    pinsIn: ["A", "B", "T"],
-    pinsOut: [{ label: "out", type: "dynamic" }],
-    params: [],
-  },
-
   Lerp: {
     label: "Lerp",
     cat: "Math",
