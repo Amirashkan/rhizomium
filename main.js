@@ -1,6 +1,6 @@
 // main.js - Complete version with Undo System and Event System
 import { GPURenderer } from "./src/gpu/gpuRenderer.js";
-import { APP_VERSION } from "./src/utils/appVersion.js";
+import { APP_VERSION, APP_BUILD, APP_BUILD_DATE, APP_BUILD_TARGET } from "./src/utils/appVersion.js";
 import { requestDeviceWithTextureLimits } from "./src/gpu/deviceLimits.js";
 import { RenderLoop } from "./src/core/RenderLoop.js";
 import { buildWGSL } from "./src/codegen/glslBuilder.js";
@@ -2896,12 +2896,22 @@ function setupRhizomiumMenu() {
       e.preventDefault();
       e.stopPropagation();
       const version = APP_VERSION || "unknown";
+      const runtime = window.__TAURI_INTERNALS__ ? "Tauri desktop" : "Web";
+      const platform = navigator.userAgentData?.platform || navigator.platform || "unknown";
       const details = [
         "Rhizomium",
         "Version: " + version,
-        "Platform: " + (navigator.platform || "unknown"),
-        "Runtime: " + (window.__TAURI_INTERNALS__ ? "Tauri" : "Web"),
-      ].join("\n");
+        "Build: " + APP_BUILD,
+        "Built (UTC): " + APP_BUILD_DATE,
+        "Build target: " + APP_BUILD_TARGET,
+        "Runtime: " + runtime,
+        "Operating system: " + platform,
+        "Architecture: " + (navigator.userAgentData?.architecture || "not exposed by WebView"),
+        "WebView / browser: " + (navigator.userAgent || "unknown"),
+        "Language: " + (navigator.language || "unknown"),
+        "Screen: " + (window.screen ? window.screen.width + " × " + window.screen.height : "unknown"),
+        "App identifier: com.rhizomium.studio",
+      ].join("\\n");
 
       const existing = document.getElementById("rz-about-dialog");
       existing?.remove();
