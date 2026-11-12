@@ -1,5 +1,6 @@
 // main.js - Complete version with Undo System and Event System
 import { GPURenderer } from "./src/gpu/gpuRenderer.js";
+import { APP_VERSION, APP_BUILD, APP_BUILD_DATE, APP_BUILD_TARGET } from "./src/utils/appVersion.js";
 import { requestDeviceWithTextureLimits } from "./src/gpu/deviceLimits.js";
 import { RenderLoop } from "./src/core/RenderLoop.js";
 import { buildWGSL } from "./src/codegen/glslBuilder.js";
@@ -2894,8 +2895,55 @@ function setupRhizomiumMenu() {
     aboutBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Show about dialog
-      alert("Rhizomium\nGLSL Node Editor\nVersion 1.0");
+      const version = APP_VERSION || "unknown";
+      const runtime = window.__TAURI_INTERNALS__ ? "Tauri desktop" : "Web";
+      const platform = navigator.userAgentData?.platform || navigator.platform || "unknown";
+      const details = [
+        "Rhizomium",
+        "Version: " + version,
+        "Build: " + APP_BUILD,
+        "Built (UTC): " + APP_BUILD_DATE,
+        "Build target: " + APP_BUILD_TARGET,
+        "Runtime: " + runtime,
+        "Operating system: " + platform,
+        "Architecture: " + (navigator.userAgentData?.architecture || "not exposed by WebView"),
+        "WebView / browser: " + (navigator.userAgent || "unknown"),
+        "Language: " + (navigator.language || "unknown"),
+        "Screen: " + (window.screen ? window.screen.width + " × " + window.screen.height : "unknown"),
+        "App identifier: com.rhizomium.studio",
+      ].join("\n");
+
+      const existing = document.getElementById("rz-about-dialog");
+      existing?.remove();
+
+      const dialog = document.createElement("dialog");
+      dialog.id = "rz-about-dialog";
+      dialog.innerHTML = `
+        <form method="dialog" style="min-width:360px;max-width:560px;padding:20px;font:14px/1.5 system-ui,sans-serif;">
+          <h2 style="margin:0 0 14px;">About Rhizomium</h2>
+          <textarea readonly aria-label="Rhizomium build information" style="width:100%;min-height:120px;resize:vertical;box-sizing:border-box;padding:10px;font:13px/1.45 ui-monospace,monospace;white-space:pre;" id="rz-about-details"></textarea>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+            <button type="button" id="rz-about-copy">Copy information</button>
+            <button value="close">Close</button>
+          </div>
+        </form>`;
+      document.body.appendChild(dialog);
+
+      const textarea = dialog.querySelector("#rz-about-details");
+      textarea.value = details;
+      dialog.querySelector("#rz-about-copy")?.addEventListener("click", async () => {
+        textarea.focus();
+        textarea.select();
+        try {
+          await navigator.clipboard.writeText(details);
+        } catch {
+          document.execCommand("copy");
+        }
+        if (typeof updateStatus === "function") updateStatus("About information copied");
+      });
+      dialog.addEventListener("close", () => dialog.remove(), { once: true });
+      dialog.showModal();
+
       if (typeof updateStatus === "function") {
         updateStatus("About Rhizomium");
       }
@@ -4540,6 +4588,15 @@ function setupPageVisibilityHandler() {
 let appStarted = false;
 function startAppOnce() {
   if (appStarted) return;
+
+  // This bundle can be pulled into auxiliary Tauri windows by Vite's chunk
+  // graph. Those pages (for example the second-monitor receiver) deliberately
+  // do not contain the editor canvases, so never boot the editor there.
+  if (!document.getElementById("ui-canvas") || !document.getElementById("gpu-canvas")) {
+    console.warn("[main.js] Editor bootstrap skipped outside the editor document:", window.location.href);
+    return;
+  }
+
   appStarted = true;
   initialize();
   setupPageVisibilityHandler();

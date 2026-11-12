@@ -431,12 +431,12 @@ export class TauriSecondMonitorViewer {
     return opened;
   }
 
-  /** Resolve the receiver page URL as a sibling of the current editor page. */
+  /** Resolve the built receiver page explicitly, independent of the editor URL. */
   _receiverUrl() {
     try {
-      const { pathname } = window.location;
-      const dir = pathname.endsWith('/') ? pathname : pathname.replace(/[^/]*$/, '');
-      return dir + 'second-monitor.html';
+      // WebviewWindow can resolve a path-only URL against the wrong base in a
+      // packaged Tauri app. Give it the complete app-origin URL instead.
+      return new URL('/editor/second-monitor.html', window.location.href).href;
     } catch {
       return '/editor/second-monitor.html';
     }

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import { resolve, sep } from 'node:path'
 import { cpSync, existsSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { generate as generateDocsMeta } from './scripts/docs-meta.mjs'
 import { DOCS_NOT_PUBLISHED } from './scripts/docs-meta.mjs'
 
@@ -98,6 +99,12 @@ export default defineConfig(({ mode }) => {
     plugins: [copyDocs(), viewerRoute()],
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
+      // The exact source revision and build timestamp make support reports traceable.
+      __APP_BUILD__: JSON.stringify((() => {
+        try { return execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], { cwd: __dirname, encoding: 'utf8' }).trim() } catch { return 'unknown' }
+      })()),
+      __APP_BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+      __APP_BUILD_TARGET__: JSON.stringify(isDesktop ? 'desktop' : 'web'),
     },
     server: {
       port: 5173,

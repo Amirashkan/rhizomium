@@ -702,7 +702,7 @@ export class VJControlPanel {
 
     this._audioStatus = '';
     try {
-      await deck.load(file, track.name);
+      await deck.load(file, track.name, { loop: false });
     } catch {
       this._audioStatus = `could not read ${track.name}`;
       this.refreshAudio();

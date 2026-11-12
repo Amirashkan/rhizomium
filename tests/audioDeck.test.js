@@ -60,6 +60,12 @@ describe('the audio deck', () => {
     expect(capture.audioElement.loop).toBe(true);
   });
 
+  it('allows a caller to disable looping for a track', async () => {
+    const capture = fakeCapture();
+    await createAudioDeck(capture).load(file('music.mp3'), 'music.mp3', { loop: false });
+    expect(capture.audioElement.loop).toBe(false);
+  });
+
   it('refuses to play what was never loaded rather than throwing into a frame', async () => {
     const deck = createAudioDeck(fakeCapture());
     expect(await deck.play()).toEqual({ ok: false, reason: 'nothing is loaded' });
