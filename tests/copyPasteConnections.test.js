@@ -36,14 +36,14 @@ function clonesOf(graph, originalCount) {
 
 describe('cloned nodes keep their connections', () => {
   let source;
-  let mix;
+  let lerp;
   let graph;
 
   beforeEach(() => {
     source = makeNode('ConstVec2', 0, 0);
-    mix = makeNode('Mix', 300, 0);
-    graph = makeGraph([source, mix]);
-    connect(graph, source, mix, 1);
+    lerp = makeNode('Lerp', 300, 0);
+    graph = makeGraph([source, lerp]);
+    connect(graph, source, lerp, 1);
   });
 
   it('duplicateSelected wires the clones through node.inputs, not just graph.connections', () => {
@@ -51,10 +51,10 @@ describe('cloned nodes keep their connections', () => {
 
     selection.duplicateSelected();
 
-    const [cloneSource, cloneMix] = clonesOf(graph, 2);
-    expect(cloneMix.inputs[1]).toBe(cloneSource.id);
+    const [cloneSource, cloneLerp] = clonesOf(graph, 2);
+    expect(cloneLerp.inputs[1]).toBe(cloneSource.id);
     // and the original is untouched
-    expect(mix.inputs[1]).toBe(source.id);
+    expect(lerp.inputs[1]).toBe(source.id);
   });
 
   it('pasteFromClipboard wires the pasted nodes through node.inputs', () => {
@@ -63,8 +63,8 @@ describe('cloned nodes keep their connections', () => {
     expect(selection.copySelected()).toBe(true);
     expect(selection.pasteFromClipboard()).toBe(true);
 
-    const [pastedSource, pastedMix] = clonesOf(graph, 2);
-    expect(pastedMix.inputs[1]).toBe(pastedSource.id);
+    const [pastedSource, pastedLerp] = clonesOf(graph, 2);
+    expect(pastedLerp.inputs[1]).toBe(pastedSource.id);
   });
 
   it('pasted nodes never inherit the source ids of the nodes they were copied from', () => {
@@ -73,7 +73,7 @@ describe('cloned nodes keep their connections', () => {
     selection.copySelected();
     selection.pasteFromClipboard();
 
-    const originalIds = new Set([source.id, mix.id]);
+    const originalIds = new Set([source.id, lerp.id]);
     for (const clone of clonesOf(graph, 2)) {
       for (const input of clone.inputs || []) {
         expect(originalIds.has(input)).toBe(false);
@@ -97,14 +97,14 @@ describe('cloned nodes keep their connections', () => {
 
   it('a wire from outside the selection is dropped from the clone, not left pointing at the original', () => {
     // Only the consumer is selected: its upstream stays behind, so the copy has an empty pin.
-    graph.selection = new Set([mix.id]);
+    graph.selection = new Set([lerp.id]);
     const selection = new SelectionManager(graph, () => {});
 
     selection.duplicateSelected();
 
-    const [cloneMix] = clonesOf(graph, 2);
-    expect(cloneMix.inputs[1]).toBeFalsy();
-    expect(cloneMix.inputs[1]).not.toBe(source.id);
+    const [cloneLerp] = clonesOf(graph, 2);
+    expect(cloneLerp.inputs[1]).toBeFalsy();
+    expect(cloneLerp.inputs[1]).not.toBe(source.id);
   });
 
   it('MenuManager duplicate wires the clones the same way', () => {
@@ -115,8 +115,8 @@ describe('cloned nodes keep their connections', () => {
 
     menu._duplicateSelected();
 
-    const [cloneSource, cloneMix] = clonesOf(graph, 2);
-    expect(cloneMix.inputs[1]).toBe(cloneSource.id);
+    const [cloneSource, cloneLerp] = clonesOf(graph, 2);
+    expect(cloneLerp.inputs[1]).toBe(cloneSource.id);
   });
 });
 
