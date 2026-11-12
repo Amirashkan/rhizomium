@@ -42,7 +42,7 @@ function project() {
     nodes: [
       { id: 'uv', kind: 'UV', position: { x: 0, y: 0 }, params: {} },
       { id: 'mul', kind: 'Multiply', position: { x: 200, y: 0 }, params: {} },
-      { id: 'mix', kind: 'Mix', position: { x: 400, y: 0 }, params: { amount: 0.5 } },
+      { id: 'mix', kind: 'Lerp', position: { x: 400, y: 0 }, params: { amount: 0.5 } },
       { id: 'out', kind: 'OutputFinal', position: { x: 600, y: 0 }, params: {} },
     ],
     connections: [
@@ -142,7 +142,7 @@ describe('checking a scoped answer', () => {
   const selection = {
     nodes: [
       { id: 'mul', kind: 'Multiply', x: 200, y: 0, params: {} },
-      { id: 'mix', kind: 'Mix', x: 400, y: 0, params: { amount: 0.5 } },
+      { id: 'mix', kind: 'Lerp', x: 400, y: 0, params: { amount: 0.5 } },
     ],
     connections: [{ from: { nodeId: 'mul', pin: 0 }, to: { nodeId: 'mix', pin: 0 } }],
   };
@@ -162,7 +162,7 @@ describe('splicing a refactored selection back into the patch', () => {
   const answer = {
     nodes: [
       { id: 'mul', kind: 'Multiply', x: 200, y: 0, name: 'scale uv', params: {} },
-      { id: 'mix', kind: 'Mix', x: 400, y: 0, params: { amount: 0.25 } },
+      { id: 'mix', kind: 'Lerp', x: 400, y: 0, params: { amount: 0.25 } },
     ],
     connections: [{ from: { nodeId: 'mul', pin: 0 }, to: { nodeId: 'mix', pin: 0 } }],
   };
@@ -201,7 +201,7 @@ describe('splicing a refactored selection back into the patch', () => {
 
   it('drops a node the refactor removed, and says which wire went with it', () => {
     const dropped = {
-      nodes: [{ id: 'mix', kind: 'Mix', x: 400, y: 0, params: {} }],
+      nodes: [{ id: 'mix', kind: 'Lerp', x: 400, y: 0, params: {} }],
       connections: [],
     };
     const plan = planSelectionSplice(dropped, { projectData: project(), nodeIds: MIDDLE });
@@ -217,7 +217,7 @@ describe('splicing a refactored selection back into the patch', () => {
     const collides = {
       nodes: [
         { id: 'mul', kind: 'Multiply', x: 200, y: 0, params: {} },
-        { id: 'mix', kind: 'Mix', x: 400, y: 0, params: {} },
+        { id: 'mix', kind: 'Lerp', x: 400, y: 0, params: {} },
         { id: 'out', kind: 'Multiply', x: 500, y: 0, params: {} },
       ],
       connections: [{ from: { nodeId: 'mix', pin: 0 }, to: { nodeId: 'out', pin: 0 } }],
@@ -244,7 +244,7 @@ describe('splicing a refactored selection back into the patch', () => {
     const greedy = {
       nodes: [
         { id: 'mul', kind: 'Multiply', x: 200, y: 0, params: {} },
-        { id: 'mix', kind: 'Mix', x: 400, y: 0, params: {} },
+        { id: 'mix', kind: 'Lerp', x: 400, y: 0, params: {} },
       ],
       connections: [{ from: { nodeId: 'mix', pin: 0 }, to: { nodeId: 'mul', pin: 0 } }],
     };
