@@ -4540,6 +4540,15 @@ function setupPageVisibilityHandler() {
 let appStarted = false;
 function startAppOnce() {
   if (appStarted) return;
+
+  // This bundle can be pulled into auxiliary Tauri windows by Vite's chunk
+  // graph. Those pages (for example the second-monitor receiver) deliberately
+  // do not contain the editor canvases, so never boot the editor there.
+  if (!document.getElementById("ui-canvas") || !document.getElementById("gpu-canvas")) {
+    console.warn("[main.js] Editor bootstrap skipped outside the editor document:", window.location.href);
+    return;
+  }
+
   appStarted = true;
   initialize();
   setupPageVisibilityHandler();
