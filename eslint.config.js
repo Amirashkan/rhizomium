@@ -28,6 +28,9 @@ export default [
         // Read only behind a `typeof` guard, since the un-bundled deployments
         // never run the substitution.
         __APP_VERSION__: "readonly",
+        __APP_BUILD__: "readonly",
+        __APP_BUILD_DATE__: "readonly",
+        __APP_BUILD_TARGET__: "readonly",
       },
     },
     rules: {
